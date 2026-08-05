@@ -4,25 +4,56 @@
 - **Stage 1:** completed
 - **Stage 2:** completed
 - **Stage 3:** completed
-- **Current stage:** waiting for approval to start Stage 4
-- **Backend:** FastAPI and database foundation completed
+- **Stage 4:** completed
+- **Current stage:** waiting for approval to start Stage 5
+- **Backend:** FastAPI and menu data foundation completed
 - **Frontend:** not started
-- **Database:** PostgreSQL and Alembic foundation completed
+- **Database:** PostgreSQL, Alembic, and menu models completed
+- **Seed data:** not started
+- **Public menu API:** not started
 - **Stripe:** not started
-- **Application tests:** health and database connection tests completed
+- **Application tests:** health, database, migration, model, and constraint
+  tests completed
 - **Deployment:** not started
 
 ## Known limitations
 
-- The backend exposes only a process-level health endpoint.
-- Business database models, authentication, Stripe, and frontend work have not
-  started.
+- The backend exposes only a process-level health endpoint; no menu API exists.
+- Seed data, authentication, orders, payments, Stripe, and frontend work have
+  not started.
 - Full-system containerisation, continuous integration, and deployment have
   not started.
 
 ## Last verification
 
-Verified on 2026-08-05:
+Stage 4 verified on 2026-08-05:
+
+- Docker CLI 29.6.2, Docker Compose 5.3.1, and Docker Engine 29.6.2: PASS
+- Docker context `desktop-linux`, Linux engine, and Compose configuration: PASS
+- PostgreSQL 17 container health, `pg_isready`, and `5433:5432` mapping: PASS
+- Exact-name, local-host, Psycopg, and port guards for the test database: PASS
+- Empty isolated test database creation without resetting development data: PASS
+- First upgrade to `0002_create_menu_models`: PASS
+- Downgrade to `0001_database_baseline` and removal of Stage 4 tables: PASS
+- Second upgrade to `0002_create_menu_models`: PASS
+- Exact public tables, constraints, foreign key, defaults, and four indexes: PASS
+- Functional `lower(btrim(name))` and partial `is_active IS TRUE` indexes: PASS
+- Alembic check reported no new upgrade operations: PASS
+- Menu model integration suite: 43 passed
+- MutableList append/remove persistence and `ON DELETE RESTRICT`: PASS
+- Positive, negative, boundary, and normalized-uniqueness tests: PASS
+- Full pytest suite: 45 passed with one accepted Starlette warning and three
+  non-blocking Alembic configuration deprecation warnings
+- Ruff, Black, and isort: PASS
+- Model registry and FastAPI imports: PASS
+- Controlled `GET /health`: HTTP 200 with exactly `{"status":"ok"}`
+- Uvicorn shutdown: PASS
+- Isolated test database removal and development database preservation: PASS
+- Compose shutdown without `-v`, named volume preservation, and port 5433
+  release: PASS
+- Local PostgreSQL 18 listener on host port 5432 remained unchanged: PASS
+
+Stage 3 foundation verification on 2026-08-05:
 
 - Docker CLI 29.6.2, Docker Compose 5.3.1, and Docker Engine 29.6.2: PASS
 - Docker context `desktop-linux` and Linux engine: PASS

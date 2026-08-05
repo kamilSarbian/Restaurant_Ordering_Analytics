@@ -4,7 +4,7 @@ from logging.config import fileConfig
 
 from alembic import context
 from app.core.config import Settings
-from app.database.base import Base
+from app.database.model_registry import metadata
 from app.database.session import create_database_engine
 
 config = context.config
@@ -12,7 +12,7 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-target_metadata = Base.metadata
+target_metadata = metadata
 
 
 def _get_database_url() -> str:

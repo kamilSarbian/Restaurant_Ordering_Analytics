@@ -2,12 +2,13 @@
 
 ## Current status
 
-Stage 3 is complete. The repository contains a verified FastAPI and database
+Stage 4 is complete. The repository contains a verified FastAPI and menu data
 foundation with application settings, a process-level health endpoint,
 PostgreSQL 17 local development infrastructure, synchronous SQLAlchemy 2,
-Psycopg 3, Alembic, and automated health and database connection tests.
+Psycopg 3, Alembic, and automated health, migration, model, and database
+constraint tests.
 
-Business database models, business features, Stripe integration, frontend,
+Seed data, menu APIs, order and payment features, Stripe integration, frontend,
 full-system containerisation, CI, and deployment have not started.
 
 ## Business problem
@@ -26,6 +27,9 @@ without introducing infrastructure that is unnecessary for a single venue.
 - Synchronous SQLAlchemy engine and session factories using Psycopg 3.
 - Alembic environment with a non-destructive baseline migration.
 - Live local PostgreSQL connection test using `SELECT 1`.
+- Category and MenuItem models with a reversible menu schema migration.
+- Isolated PostgreSQL integration tests for models, constraints, and migration
+  upgrades and downgrades.
 - Ruff, Black, and isort quality configuration.
 
 ## Technology status
@@ -124,8 +128,40 @@ docker compose --env-file .env down
 Warning: `docker compose down -v` also deletes the named PostgreSQL volume and
 its local data. Do not use `-v` unless data deletion is intentional.
 
-Stage 3 provides database infrastructure only. Business models and business
-tables are not implemented yet.
+Stage 4 adds migration `0002_create_menu_models`. It creates `categories` and
+`menu_items`; it does not add seed data or a menu API.
+
+## Menu data foundation
+
+Category and MenuItem use application-generated UUID primary keys. Prices and
+optional costs are integer minor units: `price_amount` must be positive, while
+`cost_amount` may be unknown or a non-negative value. Currency is an explicit
+three-letter uppercase code with `NOK` as the default.
+
+MenuItem allergens use PostgreSQL `TEXT[]` and SQLAlchemy `MutableList`, so
+in-place list changes are tracked. `is_active` controls long-term visibility,
+while `is_available` independently controls temporary sellability. Category
+deletion is restricted while related items exist. Functional indexes enforce
+case-insensitive and trim-insensitive names using `lower(btrim(name))`.
+
+Data-changing integration tests use only the isolated local database
+`restaurant_ordering_analytics_test` on host port 5433. `TEST_DATABASE_URL` may
+be set explicitly, or the tests derive it in memory from the validated
+development URL by changing only the database name. The test lifecycle rejects
+remote hosts, port 5432, and the development database before any destructive
+operation. It upgrades an empty database, downgrades to the baseline, upgrades
+again, and removes only the test database afterward.
+
+From the `backend` directory, run the model tests with:
+
+```powershell
+& .\.venv\Scripts\python.exe -m pytest tests\integration\test_menu_models.py
+```
+
+The PostgreSQL container must be running and healthy on host port 5433. Stop it
+with `docker compose --env-file .env down` after testing. Never use
+`docker compose down -v` unless deleting the named database volume is
+intentional.
 
 ## Tests and quality checks
 

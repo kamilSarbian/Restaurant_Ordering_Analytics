@@ -346,6 +346,65 @@ and `pending_payment` are not `order_status` values.
 - **Consequences:** future models must use the shared `Base` metadata. Check
   constraints using `constraint_name` must provide a short semantic name.
 
+## D-022: Menu Money and Currency Representation
+
+- **Status:** accepted on 2026-08-05
+- **Decision:** menu prices and costs use integer minor units. `price_amount`
+  must be greater than zero. `cost_amount` is optional and must be non-negative
+  when present. Currency is a required three-character uppercase ASCII code
+  with `NOK` as the default.
+- **Rationale:** integer minor units avoid floating-point errors. A positive
+  price prevents ambiguous complimentary items from being represented as
+  normal menu prices. A nullable cost distinguishes an unknown cost from a
+  known zero cost.
+- **Consequences:** the smallest valid menu price is one minor unit.
+  Complimentary items, promotions, and discounts require explicit later
+  business logic. Currency validation is enforced by the database, while
+  broader currency support remains possible without an enum migration.
+
+## D-023: Allergen Storage and Mutation Tracking
+
+- **Status:** accepted on 2026-08-05
+- **Decision:** store MenuItem allergens as a non-null PostgreSQL `TEXT[]` with
+  an empty-array default. Use SQLAlchemy `MutableList` to track in-place list
+  changes.
+- **Rationale:** an array represents the small list naturally, avoids
+  comma-separated storage, and remains simple for API serialization.
+  `MutableList` prevents in-place list updates from being silently ignored by
+  the ORM.
+- **Consequences:** the database enforces the array type and non-null value.
+  API-level validation will later normalize, deduplicate, and restrict values
+  against an approved catalogue. The model remains PostgreSQL-specific, and no
+  GIN index is added without a demonstrated query requirement.
+
+## D-024: Soft Deactivation and Restricted Deletion
+
+- **Status:** accepted on 2026-08-05
+- **Decision:** Category and MenuItem use `is_active` for soft deactivation.
+  MenuItem separately uses `is_available` for temporary sellability. The
+  Category-to-MenuItem foreign key uses `ON DELETE RESTRICT`, and the ORM does
+  not use delete or delete-orphan cascade.
+- **Rationale:** menu records may become unavailable without losing their
+  identity or historical meaning. Restricting category deletion prevents
+  accidental removal of related products.
+- **Consequences:** normal application workflows should deactivate records
+  instead of deleting them. Active but unavailable products may still be
+  displayed with an unavailable status. Physical category deletion requires
+  removal or reassignment of all related MenuItems.
+
+## D-025: Case-Insensitive and Trim-Insensitive Menu Uniqueness
+
+- **Status:** accepted on 2026-08-05
+- **Decision:** Category names are unique by `lower(btrim(name))`. MenuItem
+  names are unique within a category by
+  `(category_id, lower(btrim(name)))`.
+- **Rationale:** names differing only by letter case or leading and trailing
+  whitespace should represent the same business value. Product names may still
+  be reused across different categories.
+- **Consequences:** the database prevents normalized duplicates through
+  functional unique indexes. Stored values are not automatically rewritten by
+  the model; future API validation should trim input before persistence.
+
 ## History of Decisions That Required Resolution
 
 ### O-002: Boundary Between Order Creation and Stripe Checkout Session

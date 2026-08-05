@@ -313,8 +313,8 @@
 
 ## Next Recommended Stage
 
-Stage 1 through Stage 3 have been completed and verified. The next recommended
-stage is **Stage 4 — Menu Models**.
+Stage 1 through Stage 4 have been completed and verified. The next recommended
+stage is **Stage 5 — Seed Data**.
 
-Stage 4 requires separate user approval before implementation. This roadmap
-update does not authorize starting Stage 4.
+Stage 5 requires separate user approval before implementation. This roadmap
+update does not authorize starting Stage 5.
