@@ -11,6 +11,9 @@ dependencies = [
     "fastapi>=0.139.2,<0.140",
     "uvicorn[standard]>=0.52.1,<0.53",
     "pydantic-settings>=2.14.2,<3",
+    "sqlalchemy>=2.0.51,<2.1",
+    "alembic>=1.18.5,<2",
+    "psycopg[binary]>=3.3.4,<4",
 ]
 
 [project.optional-dependencies]
@@ -29,6 +32,9 @@ include = ["app*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = ["-ra", "--strict-markers"]
+markers = [
+    "integration: tests requiring a live local PostgreSQL database",
+]
 
 [tool.ruff]
 target-version = "py312"

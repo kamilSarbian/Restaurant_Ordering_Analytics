@@ -1,0 +1,3 @@
+Migrations use the application `DATABASE_URL` loaded through `Settings`.
+Secrets are not stored in Alembic configuration or migration files.
+Run Alembic commands from the `backend/` directory.

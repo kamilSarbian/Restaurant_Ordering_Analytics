@@ -312,6 +312,40 @@ and `pending_payment` are not `order_status` values.
   translation keys, source code, API contracts, and database identifiers remain
   English, which also remains the fallback language.
 
+## D-019: Synchronous SQLAlchemy
+
+- **Status:** accepted on 2026-08-05
+- **Decision:** use synchronous SQLAlchemy 2 and Psycopg 3 for database access.
+- **Rationale:** the scale of one restaurant does not justify async database
+  complexity. FastAPI can run synchronous database endpoints in a thread pool,
+  while transactions, Alembic, and tests remain easier to reason about.
+- **Consequences:** database-accessing FastAPI endpoints should normally use
+  synchronous `def`, blocking database operations must not run directly inside
+  `async def`, and short explicit transactions remain required.
+
+## D-020: PostgreSQL 17 for Local Development
+
+- **Status:** accepted on 2026-08-05
+- **Decision:** use the official `postgres:17-alpine` image for the local
+  PostgreSQL service.
+- **Rationale:** PostgreSQL 17 is stable, supported, and compatible with the
+  planned hosting direction. It avoids PostgreSQL 18 container layout
+  differences while the hosting target is not yet finalized.
+- **Consequences:** the local container uses PostgreSQL 17. Compatibility must
+  be reviewed again before deployment or a future major-version upgrade. The
+  Windows host port is configurable and currently defaults to 5433 because
+  local PostgreSQL 18 occupies 5432.
+
+## D-021: SQLAlchemy Constraint Naming Convention
+
+- **Status:** accepted on 2026-08-05
+- **Decision:** use the approved naming convention for primary keys, foreign
+  keys, unique constraints, check constraints, and indexes.
+- **Rationale:** stable names improve Alembic autogenerate output and make
+  future schema changes predictable.
+- **Consequences:** future models must use the shared `Base` metadata. Check
+  constraints using `constraint_name` must provide a short semantic name.
+
 ## History of Decisions That Required Resolution
 
 ### O-002: Boundary Between Order Creation and Stripe Checkout Session

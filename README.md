@@ -2,12 +2,13 @@
 
 ## Current status
 
-Stage 2 is complete. The repository contains a verified FastAPI foundation with
-application settings, an application factory, a process-level health endpoint,
-and an automated health endpoint test.
+Stage 3 is complete. The repository contains a verified FastAPI and database
+foundation with application settings, a process-level health endpoint,
+PostgreSQL 17 local development infrastructure, synchronous SQLAlchemy 2,
+Psycopg 3, Alembic, and automated health and database connection tests.
 
-The database, business features, Stripe integration, frontend, containerisation,
-CI, and deployment have not started.
+Business database models, business features, Stripe integration, frontend,
+full-system containerisation, CI, and deployment have not started.
 
 ## Business problem
 
@@ -21,27 +22,36 @@ without introducing infrastructure that is unnecessary for a single venue.
 - FastAPI application factory configured through `pydantic-settings`.
 - `GET /health` process health endpoint with a stable JSON contract.
 - Automated endpoint test using `pytest` and `TestClient`.
+- Minimal Docker Compose service using PostgreSQL 17.
+- Synchronous SQLAlchemy engine and session factories using Psycopg 3.
+- Alembic environment with a non-destructive baseline migration.
+- Live local PostgreSQL connection test using `SELECT 1`.
 - Ruff, Black, and isort quality configuration.
 
 ## Technology status
 
-- Implemented: Python 3.12, FastAPI, Pydantic 2, pytest, Ruff, Black, and isort.
-- Planned: PostgreSQL, SQLAlchemy 2, Alembic, React, TypeScript, Vite, Stripe
-  Checkout, Docker, GitHub Actions, and deployment.
+- Implemented: Python 3.12, FastAPI, Pydantic 2, PostgreSQL 17, SQLAlchemy 2,
+  Alembic, Psycopg 3, Docker Compose, pytest, Ruff, Black, and isort.
+- Planned: React, TypeScript, Vite, Stripe Checkout, full-system containers,
+  GitHub Actions, and deployment.
 
 ## Repository structure
 
 ```text
 .
 ├── backend/
+│   ├── alembic/
 │   ├── app/
 │   │   ├── api/
 │   │   ├── core/
+│   │   ├── database/
 │   │   └── main.py
 │   ├── tests/
+│   ├── alembic.ini
 │   └── pyproject.toml
 ├── docs/
 ├── frontend/      # Placeholder for a later stage
+├── compose.yaml
 ├── AGENTS.md
 └── README.md
 ```
@@ -61,6 +71,61 @@ $venvPython = (Resolve-Path "backend\.venv\Scripts\python.exe").Path
 
 The commands use the virtual environment interpreter directly and do not require
 environment activation.
+
+## Local PostgreSQL and migrations
+
+Docker Desktop, or another Docker Engine compatible with Linux containers and
+Docker Compose, is required. Local development uses the official
+`postgres:17-alpine` image. PostgreSQL listens on port 5432 inside the
+container and is published on Windows host port 5433. Host port 5433 was chosen
+because a local PostgreSQL 18 installation already uses host port 5432.
+
+From the repository root, copy the environment template:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Set a strong local `POSTGRES_PASSWORD` in `.env`, then set `DATABASE_URL` to a
+matching Psycopg 3 URL. Keep the database name, user, password, and host port
+consistent. The `.env` file is ignored by Git and must never be committed.
+
+Start PostgreSQL and inspect its health status from the repository root:
+
+```powershell
+docker compose --env-file .env up -d postgres
+docker compose --env-file .env ps postgres
+```
+
+After the service reports `healthy`, run the live connection test from the
+`backend` directory:
+
+```powershell
+& .\.venv\Scripts\python.exe -m pytest `
+    tests\integration\test_database_connection.py `
+    -m integration
+```
+
+Run Alembic from the `backend` directory:
+
+```powershell
+& .\.venv\Scripts\python.exe -m alembic upgrade head
+& .\.venv\Scripts\python.exe -m alembic current
+& .\.venv\Scripts\python.exe -m alembic downgrade base
+```
+
+Return to the repository root and stop the local database without removing its
+named volume:
+
+```powershell
+docker compose --env-file .env down
+```
+
+Warning: `docker compose down -v` also deletes the named PostgreSQL volume and
+its local data. Do not use `-v` unless data deletion is intentional.
+
+Stage 3 provides database infrastructure only. Business models and business
+tables are not implemented yet.
 
 ## Tests and quality checks
 
