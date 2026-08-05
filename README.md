@@ -2,8 +2,12 @@
 
 ## Current status
 
-Application implementation has not started. Only project documentation and the
-initial repository structure currently exist.
+Stage 2 is complete. The repository contains a verified FastAPI foundation with
+application settings, an application factory, a process-level health endpoint,
+and an automated health endpoint test.
+
+The database, business features, Stripe integration, frontend, containerisation,
+CI, and deployment have not started.
 
 ## Business problem
 
@@ -12,45 +16,76 @@ guest ordering, payment processing, order fulfilment, and basic sales analysis.
 The planned application will keep operational and analytical data consistent
 without introducing infrastructure that is unnecessary for a single venue.
 
-## Project goal
+## Implemented foundation
 
-The goal is to build a secure, testable portfolio application that demonstrates
-backend development, relational data modelling, payment integration, frontend
-development, analytics, containerisation, and deployment. All application
-features remain planned and are not yet implemented.
+- FastAPI application factory configured through `pydantic-settings`.
+- `GET /health` process health endpoint with a stable JSON contract.
+- Automated endpoint test using `pytest` and `TestClient`.
+- Ruff, Black, and isort quality configuration.
 
-## Planned technology stack
+## Technology status
 
-- Backend: Python 3.12, FastAPI, Pydantic 2, SQLAlchemy 2, and Alembic.
-- Database: PostgreSQL.
-- Frontend: React, TypeScript, Vite, React Router, and Recharts.
-- Payments: Stripe Checkout and verified Stripe webhooks in test mode.
-- Quality: pytest, Ruff, Black, and isort.
-- Infrastructure: Docker, Docker Compose, GitHub Actions, and demo deployment.
+- Implemented: Python 3.12, FastAPI, Pydantic 2, pytest, Ruff, Black, and isort.
+- Planned: PostgreSQL, SQLAlchemy 2, Alembic, React, TypeScript, Vite, Stripe
+  Checkout, Docker, GitHub Actions, and deployment.
 
-## Planned repository structure
+## Repository structure
 
 ```text
 .
-├── backend/       # Planned backend application
-├── frontend/      # Planned frontend application
-├── docs/          # Project context, architecture, decisions, roadmap, and status
-├── AGENTS.md      # Repository-wide working rules
+├── backend/
+│   ├── app/
+│   │   ├── api/
+│   │   ├── core/
+│   │   └── main.py
+│   ├── tests/
+│   └── pyproject.toml
+├── docs/
+├── frontend/      # Placeholder for a later stage
+├── AGENTS.md
 └── README.md
 ```
 
-The `backend` and `frontend` directories currently contain placeholders only.
+## Local backend setup
 
-## Implementation status
+Python 3.12 is required. From the repository root in PowerShell, create the
+virtual environment and install the backend with development dependencies:
 
-- Documentation: completed.
-- Repository initialisation: completed after Stage 1 verification.
-- Backend, frontend, database, Stripe, application tests, and deployment: not
-  started.
-- Next stage: waiting for explicit approval.
+```powershell
+$python312 = "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe"
+& $python312 -m venv backend\.venv
+$venvPython = (Resolve-Path "backend\.venv\Scripts\python.exe").Path
+& $venvPython -m pip install --upgrade pip
+& $venvPython -m pip install -e "backend[dev]"
+```
 
-See [Implementation Status](docs/IMPLEMENTATION_STATUS.md) for the current
-stage record.
+The commands use the virtual environment interpreter directly and do not require
+environment activation.
+
+## Tests and quality checks
+
+Run these commands from the `backend` directory:
+
+```powershell
+& .\.venv\Scripts\python.exe -m pytest
+& .\.venv\Scripts\python.exe -m ruff check .
+& .\.venv\Scripts\python.exe -m black --check .
+& .\.venv\Scripts\python.exe -m isort --check-only .
+```
+
+## Run the development server
+
+From the `backend` directory, start Uvicorn without auto-reload:
+
+```powershell
+& .\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+Available endpoints:
+
+- Health: <http://127.0.0.1:8000/health>
+- Swagger UI: <http://127.0.0.1:8000/docs>
+- OpenAPI document: <http://127.0.0.1:8000/openapi.json>
 
 ## Project documentation
 

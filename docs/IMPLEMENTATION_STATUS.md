@@ -2,32 +2,36 @@
 
 - **Documentation:** completed
 - **Stage 1:** completed
-- **Current stage:** waiting for approval to start Stage 2
-- **Backend:** not started
+- **Stage 2:** completed
+- **Current stage:** waiting for approval to start Stage 3
+- **Backend:** FastAPI foundation completed
 - **Frontend:** not started
 - **Database:** not started
 - **Stripe:** not started
-- **Application tests:** not started
+- **Application tests:** health endpoint tests completed
 - **Deployment:** not started
 
 ## Known limitations
 
-- The application has not been implemented.
-- The repository contains documentation and structural placeholders only.
-- No application dependencies, services, or runtime configuration exist yet.
+- The backend exposes only a process-level health endpoint.
+- Database access, business modules, authentication, Stripe, and frontend work
+  have not started.
+- Containerisation, continuous integration, and deployment have not started.
 
 ## Last verification
 
 Verified on 2026-08-05:
 
-- Approved repository structure: PASS
-- Local Git repository and `main` branch: PASS
-- Ignore and allow-list behavior: PASS
-- Documentation SHA-256 integrity: PASS
+- Python 3.12.10 interpreter and isolated virtual environment: PASS
+- Editable dependency installation with development dependencies: PASS
+- pytest health endpoint test: PASS
+- Ruff checks: PASS
+- Black formatting check: PASS
+- isort import order check: PASS
+- FastAPI application import: PASS
+- Controlled Uvicorn startup and shutdown: PASS
+- `GET /health` returned HTTP 200 and exactly `{"status":"ok"}`: PASS
+- `GET /docs` returned HTTP 200: PASS
+- `GET /openapi.json` returned valid JSON containing `/health`: PASS
 - Secret scan: PASS
-- `.gitattributes` and `.editorconfig` consistency: PASS
-- Absence of application and later-stage files: PASS
-- No staged changes, commits, remotes, or Git identity changes: PASS
-- Repository language consistency check: PASS
-- All stored project documentation translated to English: PASS
-- D-018 added and accepted: PASS
+- Absence of Stage 3 files and features: PASS

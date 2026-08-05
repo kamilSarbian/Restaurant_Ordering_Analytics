@@ -313,7 +313,9 @@
 
 ## Next Recommended Stage
 
-The first implementation stage is **1. Repository Initialization**. Before it
-begins, the monorepo structure and the set of tools configured from the first
-day must be approved. This document does not grant permission to start the
-stage.
+Stage 1 and Stage 2 have been completed and verified. The next recommended
+stage is **Stage 3 — PostgreSQL and Alembic**.
+
+Stage 3 requires separate user approval before implementation. It also requires
+locally available Docker. This roadmap update does not authorize starting
+Stage 3.
