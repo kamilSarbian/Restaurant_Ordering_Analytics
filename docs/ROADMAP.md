@@ -70,8 +70,9 @@
 ## 6. Public Menu API
 
 - **Goal:** expose active categories and products to the customer.
-- **Outcome:** list, filtering, and menu detail endpoints with typed response
-  schemas.
+- **Outcome:** `GET /api/v1/menu`, its `available_only` filter, and
+  `GET /api/v1/menu/items/{item_id}` with strict typed response schemas and one
+  non-public-record 404 contract.
 - **Dependencies:** Stages 4–5.
 - **Completion criterion:** inactive products are not public, availability is
   visible, and filtering and no-data states have a defined contract.
@@ -313,8 +314,8 @@
 
 ## Next Recommended Stage
 
-Stage 1 through Stage 5 have been completed and verified. The next recommended
-stage is **Stage 6 — Public Menu API**.
+Stage 1 through Stage 6 have been completed and verified. The next recommended
+stage is **Stage 7 — Order Quoting**.
 
-Stage 6 requires separate user approval before implementation. This roadmap
-update does not authorize starting Stage 6.
+Stage 7 requires separate user approval before implementation. This roadmap
+update does not authorize starting Stage 7.

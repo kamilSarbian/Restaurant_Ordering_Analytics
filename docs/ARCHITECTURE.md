@@ -82,8 +82,9 @@ details where doing so improves testability.
 ### 5.1. Menu Retrieval
 
 React calls public FastAPI endpoints. The categories and menu modules read
-active records from PostgreSQL. FastAPI returns public response schemas without
-administrative data.
+active records from PostgreSQL. Active but unavailable items remain visible by
+default, while an optional availability filter hides them. FastAPI returns
+explicit public response schemas without administrative data.
 
 ### 5.2. Order and Payment
 
@@ -273,6 +274,34 @@ Imports have no side effects, and the seed has no application startup,
 migration, Docker Compose, CI, deployment, or other automatic hook. Conditional
 `IS DISTINCT FROM` updates restore canonical values while preserving
 `created_at` and avoiding an `updated_at` change for a no-op rerun.
+
+### 5.10. Implemented Public Menu API
+
+The FastAPI application is created through an injectable app factory. Its
+lifespan creates one synchronous SQLAlchemy Engine and session factory for a
+normal application run, stores the factory in application state, and disposes
+the owned Engine at shutdown. Tests may inject a session factory whose Engine
+lifecycle remains owned by the fixtures. Importing the application does not
+connect, query, migrate, or seed.
+
+A request dependency creates and closes one synchronous Session without an
+automatic commit. The public menu router is mounted at `/api/v1/menu` and uses
+five strict Pydantic response schemas. The schemas are populated explicitly;
+ORM entities are not serialized, so `cost_amount`, timestamps, internal
+activity state, and raw product category identifiers cannot leak into the
+contract.
+
+The read-only query layer uses two column-level SELECT statements for a
+non-empty menu: one for active categories and one for active items. If no
+active category exists, only the category SELECT runs. Item details use one
+column-level SELECT with a Category join. This avoids lazy loading and N+1
+access while keeping database work independent of FastAPI.
+
+The default list and detail view include active but unavailable items with
+`is_available=false`; `available_only=true` removes unavailable items from the
+list. Inactive categories, their items, inactive items, and categories without
+visible items are omitted. Categories and items are ordered by
+`display_order`, then UUID. This read path does not change the Stage 4 ERD.
 
 ## 6. Architecture Diagram
 

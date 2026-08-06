@@ -448,6 +448,61 @@ and `pending_payment` are not `order_status` values.
   automatically pruned. Cleanup, dataset versioning, and retirement workflows
   require a separate explicit design.
 
+## D-029: Public Menu Visibility Rules
+
+- **Status:** accepted on 2026-08-06
+- **Decision:** the public menu returns only active categories and active menu
+  items. Active but unavailable items remain visible by default and expose
+  `is_available=false`. The `available_only=true` filter hides unavailable
+  items. Categories without visible items are omitted. Active unavailable
+  items remain accessible through the public detail endpoint.
+- **Rationale:** deactivation and temporary availability represent different
+  business states. Customers may still need to see temporarily unavailable
+  offerings, while inactive records must remain private.
+- **Consequences:** the menu response may contain unavailable products. Future
+  quoting and ordering flows must revalidate both active and available state.
+
+## D-030: Explicit Versioned Public Menu Contract
+
+- **Status:** accepted on 2026-08-06
+- **Decision:** the public menu is exposed through `GET /api/v1/menu` and
+  `GET /api/v1/menu/items/{item_id}`. The list uses a `categories` envelope and
+  supports only the `available_only` filter. The detail endpoint returns the
+  same 404 contract for missing and non-public records. Explicit response
+  schemas exclude costs, timestamps, and internal status fields.
+- **Rationale:** a versioned, explicit contract provides a stable boundary for
+  the future frontend and prevents ORM changes from leaking into the public
+  API.
+- **Consequences:** contract changes require deliberate API and documentation
+  updates. Operational endpoints such as `/health` remain outside the business
+  API version prefix.
+
+## D-031: Deterministic Public Menu Ordering
+
+- **Status:** accepted on 2026-08-06
+- **Decision:** public categories are ordered by `display_order`, then `id`.
+  Menu items within each category are ordered by `display_order`, then `id`.
+  Ordering is enforced in the backend query layer.
+- **Rationale:** database row order is not guaranteed, and clients should
+  receive the same menu hierarchy without implementing their own tie-breaking
+  rules.
+- **Consequences:** `display_order` is part of the public response contract,
+  and UUID ordering is the stable tie-breaker.
+
+## D-032: Minimal Read-Only Query Layer
+
+- **Status:** accepted on 2026-08-06
+- **Decision:** the public menu uses synchronous SQLAlchemy and explicit
+  column-level queries. The list uses two SELECT statements when categories
+  exist and one when none exist. Item details use one SELECT. The
+  implementation avoids lazy loading, N+1 access, and an unnecessary
+  repository/service split.
+- **Rationale:** the current public menu use cases are small and read-only.
+  Explicit queries provide predictable performance and prevent internal fields
+  from entering response serialization.
+- **Consequences:** additional complex menu use cases may justify a broader
+  service layer later, but Stage 6 remains intentionally minimal.
+
 ## History of Decisions That Required Resolution
 
 ### O-002: Boundary Between Order Creation and Stripe Checkout Session

@@ -2,13 +2,14 @@
 
 ## Current status
 
-Stage 5 is complete. The repository contains a verified FastAPI and menu data
-foundation with application settings, a process-level health endpoint,
-PostgreSQL 17 local development infrastructure, synchronous SQLAlchemy 2,
-Psycopg 3, Alembic, menu models, and an explicit local demonstration seed.
+Stage 6 is complete. The repository contains a verified FastAPI and menu data
+foundation with application settings, a process-level health endpoint, a
+read-only public menu API, PostgreSQL 17 local development infrastructure,
+synchronous SQLAlchemy 2, Psycopg 3, Alembic, menu models, and an explicit
+local demonstration seed.
 
-Public menu APIs, order and payment features, Stripe integration, frontend,
-full-system containerisation, CI, and deployment have not started.
+Order and payment features, Stripe integration, frontend, full-system
+containerisation, CI, and deployment have not started.
 
 ## Business problem
 
@@ -29,6 +30,8 @@ without introducing infrastructure that is unnecessary for a single venue.
 - Category and MenuItem models with a reversible menu schema migration.
 - Explicit local-only demonstration seed with fixed UUIDs and idempotent
   PostgreSQL upserts.
+- Versioned, read-only public menu list, availability filter, and item detail
+  endpoints with explicit response schemas.
 - Isolated PostgreSQL integration tests for models, constraints, and migration
   upgrades, downgrades, seed idempotency, and data protection.
 - Ruff, Black, and isort quality configuration.
@@ -169,7 +172,7 @@ intentional.
 
 Stage 5 provides a controlled dataset for local development and portfolio
 demonstrations. It contains five categories and fifteen menu items with fixed
-UUIDs. The public menu API does not exist yet.
+UUIDs. Stage 6 exposes that data through the read-only public menu API.
 
 Start the PostgreSQL service through Docker Compose and apply migrations before
 running the seed. From the `backend` directory, with the project virtual
@@ -215,6 +218,77 @@ tests. Stop it afterward with `docker compose --env-file .env down`. Never use
 `docker compose down -v` unless permanent removal of the local PostgreSQL
 volume and its data is intentional.
 
+## Public menu API
+
+Stage 6 exposes two unauthenticated, read-only endpoints:
+
+- `GET /api/v1/menu` returns active categories containing active menu items.
+- `GET /api/v1/menu/items/{item_id}` returns one active item in an active
+  category, or `{"detail":"Menu item not found"}` with HTTP 404.
+
+The list uses a stable `{"categories": [...]}` envelope. By default, active
+but temporarily unavailable items remain visible with `is_available=false`.
+Add `available_only=true` to hide them; categories that become empty are also
+omitted. Categories and their items are ordered by `display_order`, then UUID.
+The detail endpoint also keeps active unavailable items visible.
+
+An item detail response contains the public item fields and a nested `category`
+object with only its `id` and `name`. For example:
+
+```json
+{
+  "id": "95abd9ff-dea5-48fa-aa81-0632fb5caef7",
+  "name": "Warm Apple Cake",
+  "description": "Spiced apple cake with vanilla cream.",
+  "image_url": null,
+  "price_amount": 11900,
+  "currency": "NOK",
+  "allergens": ["gluten", "milk", "egg"],
+  "display_order": 0,
+  "is_available": false,
+  "category": {
+    "id": "c6396579-544d-48fc-8fdc-9d9d1383f695",
+    "name": "Desserts"
+  }
+}
+```
+
+An active item may return HTTP 200 with `is_available=false`, which indicates
+temporary unavailability. The response does not contain `cost_amount`,
+timestamps, `is_active`, or a raw `category_id`. A missing item, an inactive
+item, or an item in an inactive category returns HTTP 404 with
+`{"detail":"Menu item not found"}`.
+
+Prices use integer minor units, such as `12900` for `129.00 NOK`. Allergens are
+JSON arrays in database order. A missing image is returned as
+`"image_url": null`. Public responses never expose costs, timestamps, internal
+activity fields, or raw product category identifiers. The API has no
+authentication requirement and provides no menu write operations.
+
+With Uvicorn running, example requests are:
+
+```bash
+curl http://127.0.0.1:8000/api/v1/menu
+curl "http://127.0.0.1:8000/api/v1/menu?available_only=true"
+curl http://127.0.0.1:8000/api/v1/menu/items/95abd9ff-dea5-48fa-aa81-0632fb5caef7
+```
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/api/v1/menu
+Invoke-RestMethod "http://127.0.0.1:8000/api/v1/menu?available_only=true"
+Invoke-RestMethod http://127.0.0.1:8000/api/v1/menu/items/95abd9ff-dea5-48fa-aa81-0632fb5caef7
+```
+
+Interactive documentation is available at `/docs`, and the OpenAPI document is
+available at `/openapi.json`. From `backend`, run the Stage 6 tests with:
+
+```powershell
+& .\.venv\Scripts\python.exe -m pytest tests\test_public_menu_schemas.py
+& .\.venv\Scripts\python.exe -m pytest tests\integration\test_public_menu_api.py
+```
+
+Stage 7, including order quoting and sellability revalidation, has not started.
+
 ## Tests and quality checks
 
 Run these commands from the `backend` directory:
@@ -237,6 +311,8 @@ From the `backend` directory, start Uvicorn without auto-reload:
 Available endpoints:
 
 - Health: <http://127.0.0.1:8000/health>
+- Public menu: <http://127.0.0.1:8000/api/v1/menu>
+- Public menu item: `http://127.0.0.1:8000/api/v1/menu/items/{item_id}`
 - Swagger UI: <http://127.0.0.1:8000/docs>
 - OpenAPI document: <http://127.0.0.1:8000/openapi.json>
 

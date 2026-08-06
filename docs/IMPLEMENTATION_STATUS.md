@@ -6,29 +6,55 @@
 - **Stage 3:** completed
 - **Stage 4:** completed
 - **Stage 5:** completed
-- **Current stage:** waiting for approval to start Stage 6
-- **Backend:** FastAPI, database foundation, menu models, and local seed data
-  completed
+- **Stage 6:** completed
+- **Current stage:** waiting for approval to start Stage 7
+- **Backend:** FastAPI, database foundation, menu models, local seed data, and
+  the read-only public menu API completed
 - **Frontend:** not started
 - **Database:** PostgreSQL, Alembic, menu models, and deterministic seed
   completed
 - **Seed data:** completed and verified
-- **Public menu API:** not started
+- **Public menu API:** list, availability filter, item details, and 404 contract
+  completed and verified
+- **Menu write API:** not started
+- **Order quoting:** not started
 - **Stripe:** not started
-- **Application tests:** health, database, migration, model, constraint, seed,
-  idempotency, and data-protection tests completed
+- **Application tests:** 172 health, database, migration, model, constraint,
+  seed, schema, public API, idempotency, and data-protection tests completed
 - **Deployment:** not started
 
 ## Known limitations
 
-- The backend exposes only a process-level health endpoint; no menu API exists.
-- Authentication, orders, payments, Stripe, and frontend work have not started.
+- The backend exposes process health and read-only public menu endpoints; menu
+  writes have not started.
+- Authentication, order quoting, orders, payments, Stripe, and frontend work
+  have not started.
 - The seed is restricted to the exact local development database and is not a
   production bootstrap process.
 - Full-system containerisation, continuous integration, and deployment have
   not started.
 
 ## Last verification
+
+Stage 6 verified on 2026-08-06:
+
+- Docker CLI 29.6.2, Docker Compose 5.3.1, and Docker Engine 29.6.2: PASS
+- PostgreSQL 17 health and host-to-container mapping `5433:5432`: PASS
+- Five strict public schemas and internal-field protection: 26 tests passed
+- Public menu integration suite: 31 tests passed
+- Visibility, `available_only`, empty results, UUID tie-breaking, and query
+  count contracts 2/1/1: PASS
+- List, item detail, exact 404, UUID and boolean 422, and method 405 contracts:
+  PASS
+- OpenAPI, `/docs`, application import, router prefix, and seed import: PASS
+- Full pytest suite: 172 passed with one accepted Starlette warning
+- Ruff, Black, and isort: PASS
+- Alembic check reported no new upgrade operations: PASS
+- Read-only development smoke: health, menu 5/15, availability filter 14,
+  unavailable item detail, 404, docs, and OpenAPI: PASS
+- Development counts, all seed UUIDs, business fields, `created_at`,
+  `updated_at`, and unrelated-data digest remained unchanged: PASS
+- Isolated test database removal and development database preservation: PASS
 
 Stage 5 verified on 2026-08-06:
 

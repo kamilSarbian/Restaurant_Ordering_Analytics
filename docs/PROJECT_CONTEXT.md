@@ -56,10 +56,14 @@ administrator can:
 
 ### 4.1. Menu Browsing and Cart
 
-1. The frontend retrieves active categories and available menu items.
+1. The frontend retrieves active categories and active menu items. Active but
+   temporarily unavailable items remain visible by default and expose their
+   availability state.
 2. The customer filters the menu and builds a cart in the browser.
 3. The cart stores product identifiers and quantities. The price displayed in
    the interface is informational and is not authoritative for the backend.
+4. Availability shown while browsing is informational at read time. Stage 7
+   must revalidate both active and available state when preparing a quote.
 
 ### 4.2. Quoting and Order Creation
 
