@@ -5,26 +5,57 @@
 - **Stage 2:** completed
 - **Stage 3:** completed
 - **Stage 4:** completed
-- **Current stage:** waiting for approval to start Stage 5
-- **Backend:** FastAPI and menu data foundation completed
+- **Stage 5:** completed
+- **Current stage:** waiting for approval to start Stage 6
+- **Backend:** FastAPI, database foundation, menu models, and local seed data
+  completed
 - **Frontend:** not started
-- **Database:** PostgreSQL, Alembic, and menu models completed
-- **Seed data:** not started
+- **Database:** PostgreSQL, Alembic, menu models, and deterministic seed
+  completed
+- **Seed data:** completed and verified
 - **Public menu API:** not started
 - **Stripe:** not started
-- **Application tests:** health, database, migration, model, and constraint
-  tests completed
+- **Application tests:** health, database, migration, model, constraint, seed,
+  idempotency, and data-protection tests completed
 - **Deployment:** not started
 
 ## Known limitations
 
 - The backend exposes only a process-level health endpoint; no menu API exists.
-- Seed data, authentication, orders, payments, Stripe, and frontend work have
-  not started.
+- Authentication, orders, payments, Stripe, and frontend work have not started.
+- The seed is restricted to the exact local development database and is not a
+  production bootstrap process.
 - Full-system containerisation, continuous integration, and deployment have
   not started.
 
 ## Last verification
+
+Stage 5 verified on 2026-08-06:
+
+- Development database migrated additively from `0001_database_baseline` to
+  `0002_create_menu_models` without changing its OID: PASS
+- Exact local Psycopg driver, host, port 5433, database, and credential
+  allowlist: PASS
+- Empty menu tables before the first explicit seed: PASS
+- Immutable dataset with 5 categories, 15 menu items, and 20 fixed UUIDs: PASS
+- Local-only CLI help before Settings, Engine, connection, or runner work: PASS
+- First explicit development seed: 5 categories and 15 menu items processed
+- Second explicit development seed: 5 categories and 15 menu items processed
+- Stable UUIDs, canonical values, `created_at`, and no-op `updated_at`: PASS
+- Unrelated-record counts and deterministic digest remained unchanged: PASS
+- One transaction for preflight and upsert, normalized conflict rollback,
+  canonical restore, and recreation tests: PASS
+- Import, FastAPI startup, health, Alembic, and Compose automatic-seed guards:
+  PASS
+- Full pytest suite: 115 passed with one accepted Starlette warning
+- Ruff, Black, and isort: PASS
+- Alembic check reported no new upgrade operations: PASS
+- Seed module and FastAPI imports: PASS
+- Controlled `GET /health`: HTTP 200 with exactly `{"status":"ok"}`
+- Isolated test database removal and development seed preservation: PASS
+- Compose shutdown without `-v`, named volume preservation, and host port 5433
+  release: PASS
+- Local PostgreSQL 18 listener on host port 5432 remained unchanged: PASS
 
 Stage 4 verified on 2026-08-05:
 
@@ -42,8 +73,8 @@ Stage 4 verified on 2026-08-05:
 - Menu model integration suite: 43 passed
 - MutableList append/remove persistence and `ON DELETE RESTRICT`: PASS
 - Positive, negative, boundary, and normalized-uniqueness tests: PASS
-- Full pytest suite: 45 passed with one accepted Starlette warning and three
-  non-blocking Alembic configuration deprecation warnings
+- The then-current full-suite result is superseded by the Stage 5 regression
+  result recorded above.
 - Ruff, Black, and isort: PASS
 - Model registry and FastAPI imports: PASS
 - Controlled `GET /health`: HTTP 200 with exactly `{"status":"ok"}`

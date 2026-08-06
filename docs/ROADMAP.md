@@ -313,8 +313,8 @@
 
 ## Next Recommended Stage
 
-Stage 1 through Stage 4 have been completed and verified. The next recommended
-stage is **Stage 5 — Seed Data**.
+Stage 1 through Stage 5 have been completed and verified. The next recommended
+stage is **Stage 6 — Public Menu API**.
 
-Stage 5 requires separate user approval before implementation. This roadmap
-update does not authorize starting Stage 5.
+Stage 6 requires separate user approval before implementation. This roadmap
+update does not authorize starting Stage 6.

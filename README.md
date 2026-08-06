@@ -2,13 +2,12 @@
 
 ## Current status
 
-Stage 4 is complete. The repository contains a verified FastAPI and menu data
+Stage 5 is complete. The repository contains a verified FastAPI and menu data
 foundation with application settings, a process-level health endpoint,
 PostgreSQL 17 local development infrastructure, synchronous SQLAlchemy 2,
-Psycopg 3, Alembic, and automated health, migration, model, and database
-constraint tests.
+Psycopg 3, Alembic, menu models, and an explicit local demonstration seed.
 
-Seed data, menu APIs, order and payment features, Stripe integration, frontend,
+Public menu APIs, order and payment features, Stripe integration, frontend,
 full-system containerisation, CI, and deployment have not started.
 
 ## Business problem
@@ -28,8 +27,10 @@ without introducing infrastructure that is unnecessary for a single venue.
 - Alembic environment with a non-destructive baseline migration.
 - Live local PostgreSQL connection test using `SELECT 1`.
 - Category and MenuItem models with a reversible menu schema migration.
+- Explicit local-only demonstration seed with fixed UUIDs and idempotent
+  PostgreSQL upserts.
 - Isolated PostgreSQL integration tests for models, constraints, and migration
-  upgrades and downgrades.
+  upgrades, downgrades, seed idempotency, and data protection.
 - Ruff, Black, and isort quality configuration.
 
 ## Technology status
@@ -49,6 +50,7 @@ without introducing infrastructure that is unnecessary for a single venue.
 │   │   ├── api/
 │   │   ├── core/
 │   │   ├── database/
+│   │   ├── seed/
 │   │   └── main.py
 │   ├── tests/
 │   ├── alembic.ini
@@ -162,6 +164,56 @@ The PostgreSQL container must be running and healthy on host port 5433. Stop it
 with `docker compose --env-file .env down` after testing. Never use
 `docker compose down -v` unless deleting the named database volume is
 intentional.
+
+## Local demonstration seed
+
+Stage 5 provides a controlled dataset for local development and portfolio
+demonstrations. It contains five categories and fifteen menu items with fixed
+UUIDs. The public menu API does not exist yet.
+
+Start the PostgreSQL service through Docker Compose and apply migrations before
+running the seed. From the `backend` directory, with the project virtual
+environment active, execute:
+
+```powershell
+python -m app.seed
+```
+
+On Windows, the command can also use the virtual environment interpreter
+directly without activation:
+
+```powershell
+& .\.venv\Scripts\python.exe -m app.seed
+```
+
+The command is local-only. It accepts only the exact
+`restaurant_ordering_analytics_dev` database through the PostgreSQL Psycopg
+driver on `localhost` or `127.0.0.1` and host port 5433. It rejects remote,
+administrative, test, and alternative database targets before creating a
+database engine. It is not a production bootstrap mechanism.
+
+Seed records use deterministic primary-key upserts. Rerunning the command
+restores every canonical field owned by the fixed seed UUIDs, preserves
+`created_at`, and leaves `updated_at` unchanged when no value differs. A rerun
+therefore overwrites manual changes to seed-owned records and recreates a
+seed-owned record that was deleted.
+
+The seed does not use `DELETE` or `TRUNCATE`, does not claim records by name,
+and does not modify unrelated categories or menu items. A normalized-name
+conflict with another UUID aborts the complete transaction. Imports,
+application startup, `/health`, migrations, Docker Compose startup, CI, and
+deployment never run the seed automatically.
+
+Run all seed and regression tests from the `backend` directory:
+
+```powershell
+& .\.venv\Scripts\python.exe -m pytest
+```
+
+The PostgreSQL container must be available on host port 5433 for integration
+tests. Stop it afterward with `docker compose --env-file .env down`. Never use
+`docker compose down -v` unless permanent removal of the local PostgreSQL
+volume and its data is intentional.
 
 ## Tests and quality checks
 

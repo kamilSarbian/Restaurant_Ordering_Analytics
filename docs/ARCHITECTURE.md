@@ -259,6 +259,21 @@ uniqueness. `is_active` controls long-term visibility; MenuItem
 `is_available` independently represents temporary sellability, so an active
 item may remain visible while unavailable.
 
+### 5.9. Local Demonstration Seed
+
+The seed has an immutable, typed data layer containing fixed UUIDs and a
+transactional runner that performs normalized-name preflight checks followed by
+conditional PostgreSQL primary-key upserts. One transaction contains every
+preflight and write. Seed ownership is limited to the approved fixed UUIDs;
+unrelated records are never deleted, replaced, or claimed by name.
+
+The explicit `python -m app.seed` CLI is a local-only integration boundary. It
+validates the exact development database allowlist before creating an Engine.
+Imports have no side effects, and the seed has no application startup,
+migration, Docker Compose, CI, deployment, or other automatic hook. Conditional
+`IS DISTINCT FROM` updates restore canonical values while preserving
+`created_at` and avoiding an `updated_at` change for a no-op rerun.
+
 ## 6. Architecture Diagram
 
 ```mermaid

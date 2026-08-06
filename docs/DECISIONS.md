@@ -405,6 +405,49 @@ and `pending_payment` are not `order_status` values.
   functional unique indexes. Stored values are not automatically rewritten by
   the model; future API validation should trim input before persistence.
 
+## D-026: Explicit and Local-Only Seed Execution
+
+- **Status:** accepted on 2026-08-06
+- **Decision:** the demonstration seed is executed only through the explicit
+  `python -m app.seed` command. It is not attached to application startup,
+  Alembic migrations, Docker Compose startup, deployment, or CI. The CLI
+  accepts only the exact local development PostgreSQL target.
+- **Rationale:** seed data is useful for local development and portfolio
+  demonstrations but must never be introduced through an implicit lifecycle
+  hook or an unverified remote connection.
+- **Consequences:** the CLI rejects remote hosts, port 5432, test and
+  administrative databases, alternative database names, and incomplete
+  credentials before creating an Engine. Production bootstrap data requires a
+  separate future process.
+
+## D-027: Deterministic Seed Identities and Idempotent Upsert
+
+- **Status:** accepted on 2026-08-06
+- **Decision:** seed categories and menu items use fixed UUIDs and PostgreSQL
+  primary-key upserts. A rerun restores all canonical business fields,
+  preserves `created_at`, and changes `updated_at` only when a real value
+  differs.
+- **Rationale:** stable identifiers support repeatable local demonstrations and
+  future API examples. Conditional upserts prevent duplicates and preserve
+  timestamps during no-op executions.
+- **Consequences:** manual changes to records owned by seed UUIDs are restored
+  on rerun. Records deleted manually are recreated. All canonical fields must
+  remain covered by the `IS DISTINCT FROM` update condition.
+
+## D-028: Non-Destructive Ownership of Seed Records
+
+- **Status:** accepted on 2026-08-06
+- **Decision:** the seed owns only the approved fixed UUIDs. It never deletes,
+  truncates, replaces, or claims unrelated records by normalized name. A
+  normalized-name conflict involving another UUID causes the complete seed
+  transaction to roll back.
+- **Rationale:** local developers may create additional menu records that must
+  survive repeatable seed execution. Ownership by fixed UUID prevents
+  accidental takeover of unrelated data.
+- **Consequences:** records removed from a future seed dataset are not
+  automatically pruned. Cleanup, dataset versioning, and retirement workflows
+  require a separate explicit design.
+
 ## History of Decisions That Required Resolution
 
 ### O-002: Boundary Between Order Creation and Stripe Checkout Session
