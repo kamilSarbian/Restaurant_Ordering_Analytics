@@ -303,6 +303,30 @@ list. Inactive categories, their items, inactive items, and categories without
 visible items are omitted. Categories and items are ordered by
 `display_order`, then UUID. This read path does not change the Stage 4 ERD.
 
+### 5.11. Implemented Order Quoting
+
+The `orders` package currently contains only the public quote use case:
+request and response schemas, a FastAPI-independent quoting layer, and the
+`/api/v1/orders/quote` router. It does not contain SQLAlchemy models or order
+persistence.
+
+The request accepts only unique menu item identifiers and quantities. The
+quoting layer executes one explicit column-level SELECT joining `MenuItem` and
+`Category`, then validates item activity, category activity, and availability
+in request order. Mixed currency is checked only after all item-level
+validation succeeds. The response preserves request order.
+
+All price calculations use Python integers and minor units. Names, unit prices,
+and currency come from the database. The quote is a transient point-in-time
+snapshot with no identifier, timestamp, expiry, persistence, or reservation.
+The operation executes zero writes and does not alter the Stage 4 ERD.
+
+The router maps missing and non-public items to 404, unavailable items to 409,
+mixed currencies to a distinct 409 detail, and request validation to the
+standard 422 response. Future Stage 8 order creation must ignore previous quote
+responses, re-read all authoritative menu state, and create durable snapshots
+only when an order is persisted.
+
 ## 6. Architecture Diagram
 
 ```mermaid

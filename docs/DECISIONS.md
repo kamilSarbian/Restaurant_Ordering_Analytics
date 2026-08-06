@@ -503,6 +503,55 @@ and `pending_payment` are not `order_status` values.
 - **Consequences:** additional complex menu use cases may justify a broader
   service layer later, but Stage 6 remains intentionally minimal.
 
+## D-033: Server-Authoritative Order Quotes
+
+- **Status:** accepted on 2026-08-06
+- **Decision:** order quote requests contain only menu item identifiers and
+  quantities. Product names, prices, and currencies are always read from the
+  database. All quote calculations use integer minor units.
+- **Rationale:** client-supplied prices cannot be trusted. The server must
+  remain authoritative for all monetary values used in a quote.
+- **Consequences:** clients cannot override names, prices, or currencies. Any
+  future order-creation flow must apply the same trust boundary.
+
+## D-034: All-or-Nothing Quote Validation
+
+- **Status:** accepted on 2026-08-06
+- **Decision:** a quote either succeeds for every requested item or fails
+  completely. Requests contain 1–50 unique items with quantities from 1–99.
+  Duplicate identifiers return 422, missing or non-public items return 404,
+  and unavailable or mixed-currency requests return 409.
+- **Rationale:** partial quotes would be ambiguous for customers and difficult
+  to reconcile with later order creation. Deterministic validation makes
+  client behavior predictable.
+- **Consequences:** the first missing, inactive, or unavailable item in request
+  order terminates the quote. Mixed currency is checked only after all
+  item-level validation succeeds.
+
+## D-035: Transient Non-Persistent Quote Snapshot
+
+- **Status:** accepted on 2026-08-06
+- **Decision:** an order quote is a non-persistent point-in-time calculation.
+  It has no identifier, timestamp, or expiry and does not reserve menu items,
+  prices, or availability.
+- **Rationale:** Stage 7 provides pricing feedback without introducing
+  incomplete order persistence or reservation semantics.
+- **Consequences:** a later quote may differ after a menu change. The quote
+  response is not a durable business record.
+
+## D-036: Quote and Order Revalidation Boundary
+
+- **Status:** accepted on 2026-08-06
+- **Decision:** future order creation must not trust previous quote responses
+  or client-supplied prices. It re-reads active state, availability, price, and
+  currency and creates the durable snapshot only when the order is created.
+- **Rationale:** state may change between quoting and order creation.
+  Revalidation is required to preserve server authority and transactional
+  correctness.
+- **Consequences:** clients submit identifiers and quantities again during
+  order creation. Durable price snapshots belong to `OrderItem`, not to
+  transient quotes.
+
 ## History of Decisions That Required Resolution
 
 ### O-002: Boundary Between Order Creation and Stripe Checkout Session

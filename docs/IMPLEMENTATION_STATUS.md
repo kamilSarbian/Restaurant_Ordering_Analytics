@@ -7,9 +7,10 @@
 - **Stage 4:** completed
 - **Stage 5:** completed
 - **Stage 6:** completed
-- **Current stage:** waiting for approval to start Stage 7
+- **Stage 7:** completed
+- **Current stage:** waiting for approval to start Stage 8
 - **Backend:** FastAPI, database foundation, menu models, local seed data, and
-  the read-only public menu API completed
+  the read-only public menu and order quote APIs completed
 - **Frontend:** not started
 - **Database:** PostgreSQL, Alembic, menu models, and deterministic seed
   completed
@@ -17,24 +18,50 @@
 - **Public menu API:** list, availability filter, item details, and 404 contract
   completed and verified
 - **Menu write API:** not started
-- **Order quoting:** not started
+- **Order quoting:** completed and verified
+- **Order creation:** not started
+- **Payments:** not started
 - **Stripe:** not started
-- **Application tests:** 172 health, database, migration, model, constraint,
-  seed, schema, public API, idempotency, and data-protection tests completed
+- **Application tests:** 251 health, database, migration, model, constraint,
+  seed, schema, public API, quoting, idempotency, and data-protection tests
+  completed
 - **Deployment:** not started
 
 ## Known limitations
 
-- The backend exposes process health and read-only public menu endpoints; menu
-  writes have not started.
-- Authentication, order quoting, orders, payments, Stripe, and frontend work
-  have not started.
+- The backend exposes process health, read-only public menu endpoints, and a
+  transient public quote endpoint; menu writes have not started.
+- Authentication, order creation, payments, Stripe, and frontend work have not
+  started.
 - The seed is restricted to the exact local development database and is not a
   production bootstrap process.
 - Full-system containerisation, continuous integration, and deployment have
   not started.
 
 ## Last verification
+
+Stage 7 verified on 2026-08-06:
+
+- Docker CLI 29.6.2, Docker Compose 5.3.1, and Docker Engine 29.6.2: PASS
+- PostgreSQL 17 health and host-to-container mapping `5433:5432`: PASS
+- Selective strict request validation and strict response schemas: 32 tests
+  passed
+- Order quote PostgreSQL integration suite: 45 tests passed
+- One SELECT, zero DML, request-order preservation, and no partial quote: PASS
+- Active item, active category, availability, missing, mixed-currency, and
+  error-precedence contracts: PASS
+- Server-authoritative names and prices, integer totals, price snapshot A/B,
+  availability change, and non-seed item support: PASS
+- HTTP 200, 404, both 409 variants, 422, 405, OpenAPI, and `/docs`: PASS
+- Full pytest suite: 251 passed with one accepted Starlette warning
+- Ruff, Black, and isort: PASS
+- Alembic check reported no new upgrade operations: PASS
+- FastAPI application, quote router, and seed imports: PASS
+- Read-only development smoke: health, approved quote, unavailable, missing,
+  validation, method rejection, docs, and OpenAPI: PASS
+- Development counts, all seed UUIDs, business fields, `created_at`,
+  `updated_at`, revision, and unrelated-data digest remained unchanged: PASS
+- Isolated test database removal and development database preservation: PASS
 
 Stage 6 verified on 2026-08-06:
 

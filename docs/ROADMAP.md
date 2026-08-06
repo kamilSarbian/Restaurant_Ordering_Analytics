@@ -81,15 +81,18 @@
 
 ## 7. Order Quoting
 
-- **Goal:** build pure, testable backend order-pricing logic.
-- **Outcome:** identifier and quantity validation, current-price retrieval,
-  integer calculations, taxes, discounts, and a quote endpoint contract.
-- **Dependencies:** Stage 6 and approved tax and rounding rules.
-- **Completion criterion:** price data submitted by the customer does not affect
-  the result, and an unavailable product or invalid quantity is rejected
-  unambiguously.
-- **Test:** unit tests for quoting, rounding, duplicate products, boundary
-  values, and a database price change, plus a quote endpoint test.
+- **Goal:** build pure, testable, server-authoritative order quote logic.
+- **Outcome:** a transient quote endpoint accepting only menu item identifiers
+  and quantities, with duplicate rejection, current database prices, active and
+  available validation, one-currency enforcement, and integer totals.
+- **Dependencies:** Stage 6.
+- **Completion criterion:** client-supplied monetary data cannot affect the
+  result, response order matches request order, and the calculation performs
+  one SELECT, zero writes, and no persistence.
+- **Test:** schema and PostgreSQL integration tests for limits, duplicates,
+  server-owned names and prices, activity, availability, mixed currencies,
+  error precedence, integer totals, price changes, one SELECT, zero DML, and
+  the complete HTTP and OpenAPI contracts.
 
 ## 8. Order Creation
 
@@ -314,8 +317,8 @@
 
 ## Next Recommended Stage
 
-Stage 1 through Stage 6 have been completed and verified. The next recommended
-stage is **Stage 7 — Order Quoting**.
+Stage 1 through Stage 7 have been completed and verified. The next recommended
+stage is **Stage 8 — Order Creation**.
 
-Stage 7 requires separate user approval before implementation. This roadmap
-update does not authorize starting Stage 7.
+Stage 8 requires separate user approval before implementation. This roadmap
+update does not authorize starting Stage 8.

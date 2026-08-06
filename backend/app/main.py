@@ -10,6 +10,7 @@ from app.core.config import Settings
 from app.database.session import create_database_engine, create_session_factory
 from app.menu.router import router as menu_router
 from app.menu.schemas import PublicMenuResponse
+from app.orders.router import router as orders_router
 
 
 def create_app(
@@ -58,6 +59,7 @@ def create_app(
     )
     application.include_router(health_router)
     application.include_router(menu_router)
+    application.include_router(orders_router)
 
     default_openapi = application.openapi
 

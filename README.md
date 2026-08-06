@@ -2,13 +2,13 @@
 
 ## Current status
 
-Stage 6 is complete. The repository contains a verified FastAPI and menu data
+Stage 7 is complete. The repository contains a verified FastAPI and menu data
 foundation with application settings, a process-level health endpoint, a
-read-only public menu API, PostgreSQL 17 local development infrastructure,
-synchronous SQLAlchemy 2, Psycopg 3, Alembic, menu models, and an explicit
-local demonstration seed.
+read-only public menu API, a transient server-authoritative order quote API,
+PostgreSQL 17 local development infrastructure, synchronous SQLAlchemy 2,
+Psycopg 3, Alembic, menu models, and an explicit local demonstration seed.
 
-Order and payment features, Stripe integration, frontend, full-system
+Order creation and payment features, Stripe integration, frontend, full-system
 containerisation, CI, and deployment have not started.
 
 ## Business problem
@@ -32,6 +32,8 @@ without introducing infrastructure that is unnecessary for a single venue.
   PostgreSQL upserts.
 - Versioned, read-only public menu list, availability filter, and item detail
   endpoints with explicit response schemas.
+- Public order quote endpoint with strict quantities, server-owned menu data,
+  integer minor-unit totals, availability revalidation, and zero persistence.
 - Isolated PostgreSQL integration tests for models, constraints, and migration
   upgrades, downgrades, seed idempotency, and data protection.
 - Ruff, Black, and isort quality configuration.
@@ -287,7 +289,98 @@ available at `/openapi.json`. From `backend`, run the Stage 6 tests with:
 & .\.venv\Scripts\python.exe -m pytest tests\integration\test_public_menu_api.py
 ```
 
-Stage 7, including order quoting and sellability revalidation, has not started.
+## Order quoting API
+
+Stage 7 exposes the unauthenticated
+`POST /api/v1/orders/quote` endpoint. A request contains only one to fifty
+unique menu item identifiers and quantities from 1 to 99:
+
+```json
+{
+  "items": [
+    {
+      "menu_item_id": "9933957b-7f5d-47d8-84c3-ba8ad21b2d8c",
+      "quantity": 2
+    },
+    {
+      "menu_item_id": "c496b9cc-268c-4549-9e36-e8225e57561f",
+      "quantity": 1
+    }
+  ]
+}
+```
+
+Names, prices, currency, activity, and availability are read from PostgreSQL.
+Client-supplied prices or currencies and duplicate identifiers are rejected
+with HTTP 422. The response preserves request order and uses integer minor
+units:
+
+```json
+{
+  "currency": "NOK",
+  "items": [
+    {
+      "menu_item_id": "9933957b-7f5d-47d8-84c3-ba8ad21b2d8c",
+      "name": "Classic Beef Burger",
+      "quantity": 2,
+      "unit_price_amount": 22900,
+      "line_total_amount": 45800
+    },
+    {
+      "menu_item_id": "c496b9cc-268c-4549-9e36-e8225e57561f",
+      "name": "Cloudberry Spritz",
+      "quantity": 1,
+      "unit_price_amount": 7900,
+      "line_total_amount": 7900
+    }
+  ],
+  "subtotal_amount": 53700,
+  "total_amount": 53700
+}
+```
+
+A missing, inactive, or otherwise non-public item returns HTTP 404. An active
+but unavailable item and a mixed-currency request return HTTP 409 with distinct
+error details. Unsupported methods return HTTP 405.
+
+The quote is a point-in-time calculation with no identifier, timestamp,
+expiry, persistence, price reservation, or availability reservation. It does
+not create an Order or Payment. Future Stage 8 order creation must re-read and
+revalidate all server-owned menu data.
+
+With Uvicorn running, the approved example can be requested with:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/orders/quote \
+  -H "Content-Type: application/json" \
+  -d '{"items":[{"menu_item_id":"9933957b-7f5d-47d8-84c3-ba8ad21b2d8c","quantity":2},{"menu_item_id":"c496b9cc-268c-4549-9e36-e8225e57561f","quantity":1}]}'
+```
+
+```powershell
+$body = @{
+    items = @(
+        @{
+            menu_item_id = "9933957b-7f5d-47d8-84c3-ba8ad21b2d8c"
+            quantity = 2
+        },
+        @{
+            menu_item_id = "c496b9cc-268c-4549-9e36-e8225e57561f"
+            quantity = 1
+        }
+    )
+} | ConvertTo-Json -Depth 3
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/api/v1/orders/quote -ContentType "application/json" -Body $body
+```
+
+Interactive documentation is available at `/docs`, and the OpenAPI document is
+available at `/openapi.json`. From `backend`, run the Stage 7 tests with:
+
+```powershell
+& .\.venv\Scripts\python.exe -m pytest tests\test_order_quote_schemas.py
+& .\.venv\Scripts\python.exe -m pytest tests\integration\test_order_quote_api.py
+```
+
+Stage 8 order creation has not started and requires separate approval.
 
 ## Tests and quality checks
 
@@ -313,6 +406,7 @@ Available endpoints:
 - Health: <http://127.0.0.1:8000/health>
 - Public menu: <http://127.0.0.1:8000/api/v1/menu>
 - Public menu item: `http://127.0.0.1:8000/api/v1/menu/items/{item_id}`
+- Order quote: <http://127.0.0.1:8000/api/v1/orders/quote>
 - Swagger UI: <http://127.0.0.1:8000/docs>
 - OpenAPI document: <http://127.0.0.1:8000/openapi.json>
 

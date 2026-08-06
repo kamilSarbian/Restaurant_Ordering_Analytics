@@ -62,22 +62,23 @@ administrator can:
 2. The customer filters the menu and builds a cart in the browser.
 3. The cart stores product identifiers and quantities. The price displayed in
    the interface is informational and is not authoritative for the backend.
-4. Availability shown while browsing is informational at read time. Stage 7
-   must revalidate both active and available state when preparing a quote.
+4. Availability shown while browsing is informational at read time. The quote
+   endpoint revalidates both active and available state for every request.
 
 ### 4.2. Quoting and Order Creation
 
-1. The frontend submits product identifiers, quantities, the order type, and a
-   table number when required.
-2. The backend retrieves products from the database, verifies that they are
-   active and available, and calculates every amount.
-3. The backend creates an order with `order_status = created`, stores an
-   immutable snapshot of each item, and generates a `public_order_number` and a
-   random `order_access_token`.
-4. The raw token is returned to the customer only in the order creation
-   response. The backend stores only its SHA-256 hash.
-5. Creating an order does not create a `Payment` record and does not
-   communicate with Stripe.
+1. The frontend requests a transient quote using only product identifiers and
+   quantities. Names, prices, currency, activity, and availability are
+   authoritative database values.
+2. The backend validates every item, rejects duplicates and mixed currencies,
+   and calculates line totals, subtotal, and total with integer minor units.
+3. The quote response is a point-in-time snapshot of names and prices. It is
+   not persisted and does not reserve price or availability.
+4. Stage 8 order creation will accept identifiers and quantities again and
+   revalidate active state, availability, price, and currency.
+5. Only Stage 8 will create an order, store durable item snapshots, generate
+   public access data, and apply order-type or table rules. It will create
+   neither a `Payment` record nor a Stripe session.
 
 ### 4.3. Stripe Payment
 
