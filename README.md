@@ -2,14 +2,14 @@
 
 ## Current status
 
-Stage 8 is complete. The repository contains a verified FastAPI application,
+Stage 9 is complete. The repository contains a verified FastAPI application,
 public menu and transient quote APIs, persistent guest order creation, secure
-public order status retrieval, PostgreSQL 17 local development infrastructure,
-synchronous SQLAlchemy 2, Psycopg 3, Alembic, and an explicit local
-demonstration menu seed.
+public order status retrieval, durable payment attempts, and idempotent Stripe
+Checkout Session creation. Local development uses PostgreSQL 17, synchronous
+SQLAlchemy 2, Psycopg 3, Alembic, and an explicit demonstration menu seed.
 
-Payment models, Stripe integration, frontend, full-system containerisation,
-CI, and deployment have not started.
+Stripe webhook handling, frontend, full-system containerisation, CI, and
+deployment have not started.
 
 ## Business problem
 
@@ -42,6 +42,8 @@ without introducing infrastructure that is unnecessary for a single venue.
   hash is the only token value stored in PostgreSQL.
 - Authenticated public order status retrieval without exposing internal IDs or
   token hashes.
+- Durable `Order 1:N Payment` attempts with database-enforced integrity,
+  idempotent hosted Stripe Checkout creation, and fake-provider tests.
 - Isolated PostgreSQL integration tests for models, constraints, and migration
   upgrades, downgrades, seed idempotency, and data protection.
 - Ruff, Black, and isort quality configuration.
@@ -49,8 +51,9 @@ without introducing infrastructure that is unnecessary for a single venue.
 ## Technology status
 
 - Implemented: Python 3.12, FastAPI, Pydantic 2, PostgreSQL 17, SQLAlchemy 2,
-  Alembic, Psycopg 3, Docker Compose, pytest, Ruff, Black, and isort.
-- Planned: React, TypeScript, Vite, Stripe Checkout, full-system containers,
+  Alembic, Psycopg 3, Stripe Python SDK, Docker Compose, pytest, Ruff, Black,
+  and isort.
+- Planned: Stripe webhooks, React, TypeScript, Vite, full-system containers,
   GitHub Actions, and deployment.
 
 ## Repository structure
@@ -147,7 +150,8 @@ its local data. Do not use `-v` unless data deletion is intentional.
 
 Stage 4 adds migration `0002_create_menu_models`. Stage 8 adds the schema-only
 `0003_create_order_models` migration for restaurant tables and persistent order
-aggregates. Neither migration runs the seed.
+aggregates. Stage 9 adds the schema-only `0004_create_payment_model` migration
+for durable payment attempts. None of these migrations runs the seed.
 
 ## Menu data foundation
 
@@ -425,8 +429,8 @@ does not trust `X-Forwarded-For` without a future trusted-proxy configuration.
 
 Stage 8 does not implement order-creation idempotency. Every valid POST creates
 a distinct Order, so a network retry can create a duplicate order. It also
-creates no Payment and does not call Stripe. Payment and Checkout idempotency
-belong to Stage 9.
+creates no Payment and does not call Stripe. The separate Stage 9 Checkout
+endpoint owns Payment and Checkout idempotency.
 
 Example takeaway creation:
 
@@ -464,6 +468,80 @@ Invoke-RestMethod -Uri http://127.0.0.1:8000/api/v1/orders/ROA-ORDERNUMBER `
     -Headers $headers
 ```
 
+## Payment / Stripe Checkout
+
+Stage 9 persists each hosted Checkout attempt as a `Payment` related to one
+durable `Order`. Attempts have the statuses `pending`, `succeeded`, `failed`,
+and `expired`. Stage 9 creates `pending` attempts and may mark a definitively
+rejected creation as `failed`; it does not produce provider-confirmed
+`succeeded` or `expired` transitions. Those transitions and verified webhook
+processing belong to Stage 10, which has not started.
+
+Create or replay a Checkout Session with:
+
+```text
+POST /api/v1/orders/{public_order_number}/checkout-session
+X-Order-Access-Token: ORDER_ACCESS_TOKEN
+Idempotency-Key: 00000000-0000-4000-8000-000000000000
+```
+
+The endpoint has no request body. It authenticates the guest with the public
+order number and access token, then uses only the durable `Order.total_amount`
+and `Order.currency`. Stripe receives one hosted Checkout line item in
+`mode=payment`. A new attempt returns HTTP 201; replay of the same completed
+operation returns HTTP 200. The public response contains only the public order
+number, `pending` status, sensitive hosted Checkout URL, and expiration time.
+It does not expose internal IDs, Stripe Session IDs, idempotency keys, guest
+credentials, or a payment summary through the public Order status endpoint.
+
+`Idempotency-Key` is required and must be a canonical lowercase, hyphenated
+UUIDv4. The pair of Order and request key identifies one `Payment`. Its stable
+Stripe key is `checkout-session:{payment_uuid}`, so a retry after an ambiguous
+provider outcome reuses the same remote operation. A pending attempt without a
+stored session may be retried for less than 23 hours. At or after the
+conservative 23-hour cutoff, or when stored provider data conflicts, the
+attempt remains `pending` and requires reconciliation; the application does
+not auto-expire it from the local clock.
+
+Checkout uses two short database transactions. Each locks `Order` before
+related `Payment` rows in deterministic order. The first transaction validates
+state and persists or identifies the attempt, the Stripe call runs with no
+database transaction or lock held, and the second transaction rechecks state
+before storing the result. A different key conflicts with an active pending
+attempt, while concurrent same-key requests converge on the same Payment and
+Stripe key.
+
+The app-scoped checkout limiter allows 10 attempts per 60 seconds for each
+direct peer host and returns HTTP 429 with `Retry-After` before any SQL when
+denied. The endpoint uses these stable error responses:
+
+- HTTP 404: `{"detail":"Order not found"}` for unknown orders or guest access
+  failures;
+- HTTP 409: `{"detail":"Order is not payable"}`,
+  `{"detail":"Active payment attempt exists"}`,
+  `{"detail":"Order is already paid"}`, or
+  `{"detail":"Payment attempt expired"}`;
+- HTTP 422: `{"detail":"Invalid Idempotency-Key"}`;
+- HTTP 429: `{"detail":"Too many checkout requests"}`;
+- HTTP 502: `{"detail":"Payment provider unavailable"}` for definitive
+  provider rejection;
+- HTTP 503: `{"detail":"Payment service unavailable"}`,
+  `{"detail":"Payment session outcome is unknown"}`, or
+  `{"detail":"Payment session requires reconciliation"}`.
+
+The Checkout URL is sensitive and must not be logged. Automated tests inject a
+fake Stripe client and make no network request, so they require no real Stripe
+secret. Real Stripe test-mode use requires these values in the local ignored
+`.env` file:
+
+- `STRIPE_SECRET_KEY`
+- `STRIPE_SUCCESS_URL`
+- `STRIPE_CANCEL_URL`
+
+The redirect URLs may contain the single
+`{public_order_number}` placeholder. Use only local test-mode credentials and
+approved redirect destinations; no real values belong in repository files.
+
 ## Tests and quality checks
 
 Run these commands from the `backend` directory:
@@ -491,6 +569,7 @@ Available endpoints:
 - Order quote: <http://127.0.0.1:8000/api/v1/orders/quote>
 - Order creation: `POST http://127.0.0.1:8000/api/v1/orders`
 - Public order status: `GET http://127.0.0.1:8000/api/v1/orders/{public_order_number}`
+- Stripe Checkout: `POST http://127.0.0.1:8000/api/v1/orders/{public_order_number}/checkout-session`
 - Swagger UI: <http://127.0.0.1:8000/docs>
 - OpenAPI document: <http://127.0.0.1:8000/openapi.json>
 

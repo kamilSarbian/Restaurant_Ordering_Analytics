@@ -147,6 +147,7 @@ def test_schema_has_exact_constraints_and_restricted_foreign_keys(
         "order_items",
         "order_status_history",
         "orders",
+        "payments",
         "restaurant_tables",
     }
     for table_name, expected in EXPECTED_CHECKS.items():

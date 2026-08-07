@@ -640,6 +640,101 @@ and `pending_payment` are not `order_status` values.
   trusted without future trusted-proxy configuration. Process restart resets
   buckets, and multi-worker shared or global limiting is deferred.
 
+## D-043: Payment Attempt Persistence and Integrity
+
+- **Status:** accepted on 2026-08-07
+- **Decision:** `Payment` represents one durable Checkout attempt related to an
+  Order. It copies the server-authoritative Order amount and currency and has
+  one of `pending`, `succeeded`, `failed`, or `expired` as its status. The
+  Order foreign key uses `ON DELETE RESTRICT`, and the ORM uses neither delete
+  nor delete-orphan cascade.
+- **Integrity:** PostgreSQL enforces
+  `UNIQUE(order_id, request_idempotency_key)`, a globally unique Stripe
+  idempotency key, and a globally unique nullable Checkout Session ID. Partial
+  unique indexes allow at most one `pending` and one `succeeded` Payment per
+  Order. A non-unique `(order_id, created_at, id)` index provides deterministic
+  payment history ordering.
+- **Rationale:** attempt records preserve financial history and make retries
+  observable without mutating an unsuccessful terminal attempt back to
+  `pending`.
+- **Consequences:** Payment deletion cannot cascade from Order. Stage 9 creates
+  `pending` and may mark a definitive provider rejection as `failed`;
+  provider-confirmed terminal transitions remain a webhook responsibility.
+
+## D-044: Checkout Idempotency and Ambiguous Recovery
+
+- **Status:** accepted on 2026-08-07
+- **Decision:** Checkout requires a canonical lowercase hyphenated UUIDv4
+  `Idempotency-Key`. The Order and request key identify exactly one Payment,
+  whose stable provider key is `checkout-session:{payment_uuid}`.
+- **Replay rules:** same-key requests reuse the persisted operation. A new key
+  is rejected while a `pending` Payment exists and all new attempts are
+  rejected after `succeeded`. An incomplete pending attempt may call Stripe
+  again with the same provider key while it is less than 23 hours old. At or
+  after the conservative cutoff it remains pending for reconciliation; local
+  time does not auto-expire it.
+- **Ambiguity:** a definitive provider rejection may transition the attempt to
+  `failed`. A transport, provider, malformed-response, or unknown failure whose
+  creation outcome cannot be proven remains `pending`. A crash after remote
+  success is recovered by replaying the same Stripe key. An identical provider
+  replay is accepted, while a mismatched replay requires reconciliation and
+  never overwrites stored provider state.
+- **Rationale:** local retries must converge on the original financial
+  operation even when the external outcome is temporarily unknown.
+- **Consequences:** old or conflicting pending attempts require an explicit
+  reconciliation process rather than unsafe local inference.
+
+## D-045: Stripe Adapter and Two-Transaction Boundary
+
+- **Status:** accepted on 2026-08-07
+- **Decision:** the application uses a narrow adapter over the official Stripe
+  Python SDK. Hosted Checkout uses `mode=payment`, one line item for the durable
+  Order total, server-owned currency, validated redirect URLs, safe metadata,
+  and the Payment-scoped provider idempotency key. Tests inject a fake adapter
+  and make no real Stripe request.
+- **Transaction boundary:** Phase 1 is a short `Order -> Payment` transaction
+  that validates state and persists or identifies the attempt. The provider
+  call runs after commit with no database transaction or row lock. Phase 3 is a
+  second short `Order -> Payment` transaction that rechecks invariants and
+  stores the result.
+- **Error boundary:** request and authentication rejections known to precede
+  creation are definitive. Transport, server, rate-limit, generic Stripe, and
+  unknown adapter failures are treated conservatively as ambiguous.
+- **Rationale:** an external request cannot participate atomically in the
+  PostgreSQL transaction, and holding financial locks during network I/O would
+  damage concurrency and increase deadlock risk.
+- **Consequences:** every phase follows D-017, and post-provider state is
+  revalidated before any write.
+
+## D-046: Guest Checkout Contract and Exposure Boundary
+
+- **Status:** accepted on 2026-08-07
+- **Decision:**
+  `POST /api/v1/orders/{public_order_number}/checkout-session` requires the
+  public number, `X-Order-Access-Token`, and canonical UUIDv4
+  `Idempotency-Key`. It has no monetary request body and uses a separate
+  app-scoped fixed-window limiter of 10 attempts per 60 seconds per direct peer
+  host.
+- **Public response:** the endpoint returns only the public order number,
+  Payment status, sensitive hosted Checkout URL, and expiration. It exposes no
+  internal Payment or Order ID, Stripe Session ID, provider or request
+  idempotency key, guest token, or token hash. The public Order status response
+  still has no `payment_summary` in Stage 9.
+- **HTTP behavior:** new attempts return 201, same-operation replay returns 200,
+  and stable 404, 409, 422, 429, 502, and 503 outcomes cover access, state,
+  validation, limiting, definitive provider failure, and unavailable or
+  ambiguous session state. Rate-limit denial returns `Retry-After` before SQL.
+- **Rationale:** guest Checkout needs strong unguessable authorization and
+  replay protection without exposing financial internals or accepting
+  client-owned money.
+- **Consequences:** Checkout URLs must not be logged. Payment summary exposure
+  and webhook transport require separate approved contracts.
+
+D-016 is now verified against persisted Payment rows at the domain and
+integration level. D-017 is now verified through real PostgreSQL lock-order,
+provider-boundary, and concurrency tests. The future administrative
+cancellation command and Stripe webhook retain their later-stage scopes.
+
 ## History of Decisions That Required Resolution
 
 ### O-002: Boundary Between Order Creation and Stripe Checkout Session

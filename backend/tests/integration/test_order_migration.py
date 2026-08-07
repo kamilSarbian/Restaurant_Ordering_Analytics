@@ -22,6 +22,7 @@ EXPECTED_HEAD_TABLES = {
     "order_items",
     "order_status_history",
     "orders",
+    "payments",
     "restaurant_tables",
 }
 EXPECTED_0002_TABLES = {
@@ -35,6 +36,7 @@ STAGE_EIGHT_TABLES = {
     "orders",
     "restaurant_tables",
 }
+EXPECTED_0003_TABLES = EXPECTED_HEAD_TABLES - {"payments"}
 
 
 def _upgrade(database_url: URL, revision: str) -> None:
@@ -56,7 +58,7 @@ def test_migration_revision_has_the_approved_parent() -> None:
     script = ScriptDirectory.from_config(_alembic_config())
     revision = script.get_revision("0003_create_order_models")
     assert revision is not None
-    assert revision.revision == HEAD_REVISION
+    assert revision.revision == "0003_create_order_models"
     assert revision.down_revision == "0002_create_menu_models"
     assert script.get_current_head() == HEAD_REVISION
 
@@ -70,8 +72,8 @@ def test_upgrade_downgrade_and_second_upgrade_preserve_menu_schema(
     assert _public_tables(test_database_url) == EXPECTED_0002_TABLES
 
     _upgrade(test_database_url, "0003_create_order_models")
-    assert _current_revision(test_database_url) == HEAD_REVISION
-    assert _public_tables(test_database_url) == EXPECTED_HEAD_TABLES
+    assert _current_revision(test_database_url) == "0003_create_order_models"
+    assert _public_tables(test_database_url) == EXPECTED_0003_TABLES
 
     _downgrade(test_database_url, "0002_create_menu_models")
     assert _current_revision(test_database_url) == "0002_create_menu_models"

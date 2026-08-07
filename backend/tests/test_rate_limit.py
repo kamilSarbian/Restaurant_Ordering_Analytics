@@ -146,6 +146,37 @@ def test_create_app_preserves_an_injected_limiter() -> None:
     assert application.state.order_creation_rate_limiter is limiter
 
 
+def test_create_app_builds_an_independent_default_checkout_limiter_per_app() -> None:
+    """Create checkout limiters independently from apps and order limiters."""
+    first_app = create_app(settings=Settings(database_url=None))
+    second_app = create_app(settings=Settings(database_url=None))
+    first_checkout_limiter = first_app.state.checkout_rate_limiter
+    second_checkout_limiter = second_app.state.checkout_rate_limiter
+    assert first_checkout_limiter is not second_checkout_limiter
+    assert first_checkout_limiter is not first_app.state.order_creation_rate_limiter
+    assert first_checkout_limiter.limit == second_checkout_limiter.limit == 10
+    assert (
+        first_checkout_limiter.window_seconds
+        == second_checkout_limiter.window_seconds
+        == 60
+    )
+    for _ in range(10):
+        assert first_app.state.order_creation_rate_limiter.check("client").allowed
+    assert not first_app.state.order_creation_rate_limiter.check("client").allowed
+    assert first_checkout_limiter.check("client").allowed
+    assert second_checkout_limiter.check("client").allowed
+
+
+def test_create_app_preserves_an_injected_checkout_limiter() -> None:
+    """Store the exact injected checkout limiter on application state."""
+    limiter = FixedWindowRateLimiter(limit=4, window_seconds=20)
+    application = create_app(
+        settings=Settings(database_url=None),
+        checkout_rate_limiter=limiter,
+    )
+    assert application.state.checkout_rate_limiter is limiter
+
+
 @pytest.mark.parametrize(
     ("limit", "window_seconds"),
     [(0, 60), (-1, 60), (10, 0), (10, -1)],

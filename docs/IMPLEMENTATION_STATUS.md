@@ -9,13 +9,14 @@
 - **Stage 6:** completed
 - **Stage 7:** completed
 - **Stage 8:** completed
-- **Current stage:** waiting for approval to start Stage 9
+- **Stage 9:** completed
+- **Current stage:** waiting for approval to start Stage 10
 - **Backend:** FastAPI, database foundation, menu models, local seed data,
   public menu, transient quoting, persistent order creation, and secure public
-  order status completed
+  order status, Payment persistence, and Stripe Checkout completed
 - **Frontend:** not started
-- **Database:** PostgreSQL, Alembic, menu and order models, migration
-  `0003_create_order_models`, and deterministic menu seed completed
+- **Database:** PostgreSQL, Alembic, menu, order, and Payment models, migration
+  `0004_create_payment_model`, and deterministic menu seed completed
 - **Seed data:** completed and verified
 - **Public menu API:** list, availability filter, item details, and 404 contract
   completed and verified
@@ -25,11 +26,19 @@
 - **Public order status:** completed and verified
 - **RestaurantTable foundation:** completed; provisioning and administration
   workflow not started
-- **Payments:** not started
-- **Stripe:** not started
-- **Application tests:** 469 health, database, migration, model, constraint,
-  seed, schema, public API, quoting, order creation, security, rate-limit,
-  rollback, and concurrency tests completed
+- **Payment persistence:** completed and verified
+- **Stripe Checkout:** completed and verified using the official SDK boundary
+  and fake-provider automated tests
+- **Checkout idempotency:** completed and verified
+- **D-016 Payment-aware cancellation verification:** completed at the domain
+  and integration level
+- **D-017 Order -> Payment locking and provider transaction boundary:**
+  completed and verified
+- **Stripe webhook:** not started
+- **Provider-confirmed succeeded/expired transitions:** not started; Stage 10
+- **Application tests:** 628 health, database, migration, model, constraint,
+  seed, schema, public API, quoting, order creation, payment, security,
+  rate-limit, rollback, and concurrency tests completed
 - **Deployment:** not started
 
 ## Known limitations
@@ -37,21 +46,53 @@
 - The backend exposes health, read-only public menu and quote endpoints,
   persistent guest order creation, and token-protected public order status;
   menu writes have not started.
-- Payment, Stripe, administrator authentication, and frontend work have not
-  started.
+- Stripe webhook handling, administrator authentication, and frontend work have
+  not started.
 - RestaurantTable provisioning and administration have not started, so Stage 8
   only provides the persistence and validation foundation.
 - Order creation has no idempotency key; a network retry can create a duplicate
   Order. Its fixed-window limiter is per process and resets on restart.
-- Payment-aware cancellation and the `Order -> Payment` locking integration
-  remain deferred until the Payment model exists. Only the pure cancellation
-  policy is implemented in Stage 8.
+- D-016 is verified against persisted Payment rows and D-017 is verified with
+  PostgreSQL concurrency tests. The future administrative cancellation command
+  remains part of the operational API stage.
+- Stage 9 persists pending attempts and may mark definitive Checkout creation
+  failures as failed. It does not confirm succeeded or expired outcomes, expose
+  `payment_summary` in public Order status, or implement a webhook.
 - The seed is restricted to the exact local development database and is not a
   production bootstrap process.
 - Full-system containerisation, continuous integration, and deployment have
   not started.
 
 ## Last verification
+
+Stage 9 verified on 2026-08-07:
+
+- Independent Payment model, migration, Stripe adapter, checkout protocol,
+  exposure, and concurrency audit: PASS
+- PostgreSQL 17 health and host-to-container mapping `5433:5432`: PASS
+- `0003_create_order_models` to `0004_create_payment_model` upgrade, downgrade,
+  second-upgrade lifecycle on the isolated test database: PASS
+- Payment statuses/policy 9, Checkout schemas 28, Stripe adapter 33, rate
+  limiter 16, Payment models 33, Payment migration 3, Payment cancellation 10,
+  Checkout API 31, and Checkout concurrency 10 tests passed
+- Public Menu 33, Order Quote 45, Order Creation 26, Order Status 14, Seed 25,
+  Order Models 81, and Order Migration 3 regression tests passed
+- Full pytest suite: 628 passed with one accepted Starlette warning
+- Ruff, Black, isort, OpenAPI, and Alembic drift checks: PASS
+- Development database migrated additively from `0003_create_order_models` to
+  `0004_create_payment_model` without changing its OID: PASS
+- All 20 seed UUIDs, business values, `created_at`, `updated_at`, unrelated-data
+  digest, and menu counts 5/15 remained unchanged: PASS
+- RestaurantTable, Order, OrderItem, OrderStatusHistory, and Payment development
+  tables remain empty: PASS
+- Payment constraints, unique constraints, partial pending/succeeded indexes,
+  and deterministic history index in development: PASS
+- Read-only development smoke for health, menu 5/15, availability 14, approved
+  quote 53700, docs, and OpenAPI Checkout route: PASS
+- No webhook route, no real Stripe request, no seed, and no demonstration Order
+  or Payment: PASS
+- Isolated test database removal, named-volume preservation, local PostgreSQL 18
+  preservation, and port cleanup: PASS
 
 Stage 8 verified on 2026-08-07:
 

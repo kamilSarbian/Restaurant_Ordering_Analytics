@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from pydantic import Field, PostgresDsn
+from pydantic import Field, PostgresDsn, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     app_environment: str = "development"
     app_debug: bool = False
     database_url: PostgresDsn | None = Field(default=None, repr=False)
+    stripe_secret_key: SecretStr | None = Field(default=None, repr=False)
+    stripe_success_url: str | None = None
+    stripe_cancel_url: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=ENV_FILE,

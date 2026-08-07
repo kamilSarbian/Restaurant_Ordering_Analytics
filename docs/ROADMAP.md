@@ -130,7 +130,7 @@
 
 ## 9. Stripe Checkout
 
-- **Status:** not started; requires separate user approval
+- **Status:** completed
 - **Goal:** create a test payment session for the stored order amount.
 - **Outcome:** an `Order 1:N Payment` relationship, partial unique indexes for
   one `pending` and one `succeeded` payment, a Stripe adapter, and a Checkout
@@ -159,9 +159,15 @@
 - **Deferred Stage 8 verification:** implement D-016 and D-017 against real
   Payment records, including blocking cancellation for `pending` and
   `succeeded` attempts and enforcing the `Order -> Payment` lock protocol.
+- **Verified outcome:** Stage 9 persists pending Payment attempts, may mark a
+  definitive Checkout creation failure as failed, and creates or replays a
+  hosted Checkout Session without holding a database transaction during the
+  provider call. Provider-confirmed `succeeded` and `expired` transitions are
+  deliberately deferred to Stage 10.
 
 ## 10. Stripe Webhook
 
+- **Status:** not started; requires separate user approval
 - **Goal:** confirm payment outcomes securely.
 - **Outcome:** a raw webhook endpoint, signature verification, an event table,
   event ID uniqueness, payments, and transactional event handling.
@@ -328,11 +334,11 @@
 
 ## Next Recommended Stage
 
-Stage 1 through Stage 8 have been completed and verified. The next recommended
-stage is **Stage 9 — Stripe Checkout**.
+Stage 1 through Stage 9 have been completed and verified. Stage 9 implements
+pending Payment attempts and idempotent Stripe Checkout Session creation; it
+does not implement webhook verification or provider-confirmed `succeeded` and
+`expired` transitions.
 
-Stage 9 has not started and requires separate user approval before
-implementation. Payment-dependent verification from D-016 and D-017, including
-pending/succeeded cancellation blocking and the `Order -> Payment` lock
-protocol, will be implemented in Stage 9 or the first stage with a real Payment
-model. This roadmap update does not authorize starting Stage 9.
+The next recommended stage is **Stage 10 — Stripe Webhook**. Stage 10 has not
+started and requires separate user approval. This roadmap update does not
+authorize starting Stage 10.

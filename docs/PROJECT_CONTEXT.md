@@ -93,34 +93,38 @@ administrator can:
 9. The in-memory, app-scoped creation limiter permits 10 attempts per 60
    seconds for each direct client host and returns HTTP 429 with `Retry-After`
    before any SQL when the limit is exceeded.
-10. Stage 8 creates neither a `Payment` record nor a Stripe session. Stage 9 is
-    disabled until separate user approval.
+10. Order creation still creates neither a `Payment` record nor a Stripe
+    session. The separate Stage 9 Checkout flow owns that boundary.
 
 ### 4.3. Stripe Payment
 
-1. The customer calls a separate Checkout endpoint with the
+1. The customer calls the implemented Stage 9 Checkout endpoint with the
    `public_order_number`, the `X-Order-Access-Token` header, and the
-   `Idempotency-Key` header.
-2. The backend ensures that no `pending` or `succeeded` attempt exists, creates
-   a new `Payment(status=pending)`, and uses the amount stored on `Order`.
-3. The backend creates a test Stripe Checkout Session using a Stripe key that
-   is stably associated with the `Payment` attempt identifier, stores the
-   session identifier, and returns the Checkout URL.
-4. The same `Order` and `Idempotency-Key` pair cannot create another `Payment`
+   required canonical UUIDv4 `Idempotency-Key` header.
+2. The backend authenticates guest access, locks `Order` before its related
+   `Payment` rows, and uses only the amount and currency stored on `Order`.
+3. When allowed, it persists a new `Payment(status=pending)` in a short
+   transaction. Each Payment is one durable attempt, not an aggregate Order
+   status.
+4. With no database transaction or lock held, the backend creates one hosted
+   Stripe Checkout Session using the stable key
+   `checkout-session:{payment_uuid}`. A second short `Order -> Payment`
+   transaction stores the validated provider result.
+5. The same `Order` and `Idempotency-Key` pair cannot create another `Payment`
    record or another Stripe session.
-5. After an unambiguous failure before session creation, the attempt may
-   transition to `failed`. After an ambiguous timeout, a retry uses the same key
-   and the same attempt.
-6. The customer proceeds to the hosted Stripe page. Returning to the success
+6. After a definitive provider rejection, Stage 9 changes the attempt to
+   `failed`. An ambiguous outcome remains `pending`, and retry uses the same
+   Payment and Stripe key. Incomplete attempts may be retried before the
+   conservative 23-hour cutoff; older attempts require reconciliation and are
+   not auto-expired by the local clock.
+7. The customer proceeds to the hosted Stripe page. Returning to the success
    page does not change the payment state.
-7. Stripe sends a webhook whose signature is verified by the backend.
-8. A previously unprocessed event is stored and handled idempotently in a
-   database transaction.
-9. Only a valid webhook may change the payment attempt status from `pending` to
-   `succeeded` and confirm payment.
-10. An unsuccessful or expired attempt transitions to `failed` or `expired`,
-    respectively. Retrying payment creates a new attempt record with status
-    `pending`.
+8. Stage 9 does not expose Payment state through the public Order status
+   response and does not implement a webhook. Stage 10 will verify Stripe
+   signatures, process events idempotently, and own provider-confirmed
+   `succeeded` and `expired` transitions.
+9. Automated Stage 9 tests use a fake Stripe client, make no real provider
+   request, and require no real Stripe secret.
 
 ### 4.4. Order Fulfilment
 
@@ -290,10 +294,10 @@ discounts. Dine-in orders additionally preserve `table_number_snapshot`.
 - Confirmation of `succeeded` may come only from a verified webhook.
 - Redelivery of the same Stripe event must not repeat its effects.
 - A future `refund_status` remains a separate lifecycle.
-- Stage 8 implements the pure cancellation policy for the current status and a
-  future blocking-payment flag. Transactional Payment-aware cancellation and
-  the `Order -> Payment` lock protocol remain deferred until a real Payment
-  model exists.
+- Stage 9 verifies D-016 against persisted Payment rows and verifies the D-017
+  `Order -> Payment` lock protocol at the domain and integration level. The
+  future administrative cancellation command remains part of the operational
+  API stage.
 
 ### 7.5. Security and Privacy
 
@@ -309,10 +313,11 @@ discounts. Dine-in orders additionally preserve `table_number_snapshot`.
 - `order_access_token` has at least 256 bits of randomness, is returned in raw
   form only during order creation, and only its SHA-256 hash exists in the
   database. Token comparison must be secure.
-- The Stage 8 public status response contains only the public number,
+- The public status response contains only the public number,
   `order_status`, order type, optional table-number snapshot, currency,
   historical public item lines, subtotal, total, `created_at`, and `updated_at`.
-  A payment summary is deferred until Payment exists.
+  Stage 9 deliberately adds no `payment_summary`; any future exposure requires
+  a separately approved public contract.
 - Public status does not expose an email address, internal UUIDs, Stripe
   identifiers, or administrator data. An invalid number and an invalid token
   return the same generic error.

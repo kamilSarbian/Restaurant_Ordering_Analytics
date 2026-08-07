@@ -157,16 +157,18 @@ def _database_snapshot(
     return categories, items
 
 
-def _persistent_order_counts(engine: Engine) -> tuple[int, int]:
+def _persistent_order_counts(engine: Engine) -> tuple[int, int, int, int]:
     with engine.connect() as connection:
         row = connection.execute(
             text(
                 "SELECT "
                 "(SELECT count(*) FROM orders), "
-                "(SELECT count(*) FROM order_items)"
+                "(SELECT count(*) FROM order_items), "
+                "(SELECT count(*) FROM order_status_history), "
+                "(SELECT count(*) FROM payments)"
             )
         ).one()
-    return int(row[0]), int(row[1])
+    return int(row[0]), int(row[1]), int(row[2]), int(row[3])
 
 
 def test_quote_one_item_uses_server_name_price_and_integer_arithmetic(
@@ -702,11 +704,11 @@ def test_docs_health_and_existing_menu_regression(client: TestClient) -> None:
     assert client.get("/api/v1/menu").json() == {"categories": []}
 
 
-def test_foundation_tables_and_routes_exist_without_payment_or_quote_persistence(
+def test_foundation_tables_and_routes_exist_without_quote_persistence(
     client: TestClient,
     test_database_engine: Engine,
 ) -> None:
-    """Allow Stage 8 order routes without payment or quote persistence."""
+    """Allow Stage 9 payment routes without quote persistence."""
     table_names = set(inspect(test_database_engine).get_table_names(schema="public"))
     assert table_names == {
         "alembic_version",
@@ -715,10 +717,10 @@ def test_foundation_tables_and_routes_exist_without_payment_or_quote_persistence
         "order_items",
         "order_status_history",
         "orders",
+        "payments",
         "restaurant_tables",
     }
     assert {
-        "payments",
         "quotes",
         "idempotency_keys",
         "stripe_events",
@@ -726,7 +728,7 @@ def test_foundation_tables_and_routes_exist_without_payment_or_quote_persistence
     assert client.post("/api/v1/orders", json={}).status_code == 422
     paths = client.get("/openapi.json").json()["paths"]
     assert "post" in paths["/api/v1/orders"]
-    assert all("payment" not in path.lower() for path in paths)
+    assert "/api/v1/orders/{public_order_number}/checkout-session" in paths
 
 
 def test_endpoint_quote_does_not_mutate_database(

@@ -4,6 +4,7 @@ from app.categories.models import Category
 from app.database.base import Base
 from app.menu.models import MenuItem
 from app.orders.models import Order, OrderItem, OrderStatusHistory
+from app.payments.models import Payment
 from app.restaurant_tables.models import RestaurantTable
 
 metadata = Base.metadata
@@ -14,6 +15,7 @@ __all__ = [
     "Order",
     "OrderItem",
     "OrderStatusHistory",
+    "Payment",
     "RestaurantTable",
     "metadata",
 ]

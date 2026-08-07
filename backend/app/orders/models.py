@@ -21,6 +21,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base
 from app.orders.statuses import OrderStatus
+from app.payments.models import Payment
 
 
 class Order(Base):
@@ -68,6 +69,11 @@ class Order(Base):
     status_history: Mapped[list[OrderStatusHistory]] = relationship(
         back_populates="order",
         order_by="OrderStatusHistory.sequence",
+        passive_deletes="all",
+    )
+    payments: Mapped[list[Payment]] = relationship(
+        back_populates="order",
+        order_by=lambda: (Payment.created_at, Payment.id),
         passive_deletes="all",
     )
 

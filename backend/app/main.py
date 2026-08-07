@@ -1,5 +1,6 @@
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
+from datetime import datetime
 from typing import Any
 
 from fastapi import FastAPI
@@ -12,6 +13,9 @@ from app.database.session import create_database_engine, create_session_factory
 from app.menu.router import router as menu_router
 from app.menu.schemas import PublicMenuResponse
 from app.orders.router import router as orders_router
+from app.payments.checkout import utc_now
+from app.payments.router import router as payments_router
+from app.payments.stripe_checkout import StripeCheckoutClient
 
 
 def create_app(
@@ -19,6 +23,9 @@ def create_app(
     settings: Settings | None = None,
     session_factory: sessionmaker[Session] | None = None,
     order_creation_rate_limiter: FixedWindowRateLimiter | None = None,
+    checkout_rate_limiter: FixedWindowRateLimiter | None = None,
+    stripe_checkout_client: StripeCheckoutClient | None = None,
+    checkout_now_provider: Callable[[], datetime] | None = None,
 ) -> FastAPI:
     """Create and configure the FastAPI application.
 
@@ -26,6 +33,9 @@ def create_app(
         settings: Optional application settings override.
         session_factory: Optional database session factory for dependency injection.
         order_creation_rate_limiter: Optional app-scoped limiter override.
+        checkout_rate_limiter: Optional app-scoped checkout limiter override.
+        stripe_checkout_client: Optional app-scoped Stripe adapter override.
+        checkout_now_provider: Optional deterministic checkout clock override.
 
     Returns:
         Configured FastAPI application.
@@ -65,9 +75,27 @@ def create_app(
         if order_creation_rate_limiter is not None
         else FixedWindowRateLimiter(limit=10, window_seconds=60)
     )
+    application.state.checkout_rate_limiter = (
+        checkout_rate_limiter
+        if checkout_rate_limiter is not None
+        else FixedWindowRateLimiter(limit=10, window_seconds=60)
+    )
+    application.state.stripe_checkout_client = (
+        stripe_checkout_client
+        if stripe_checkout_client is not None
+        else (
+            StripeCheckoutClient(resolved_settings.stripe_secret_key)
+            if resolved_settings.stripe_secret_key is not None
+            else None
+        )
+    )
+    application.state.stripe_success_url = resolved_settings.stripe_success_url
+    application.state.stripe_cancel_url = resolved_settings.stripe_cancel_url
+    application.state.checkout_now_provider = checkout_now_provider or utc_now
     application.include_router(health_router)
     application.include_router(menu_router)
     application.include_router(orders_router)
+    application.include_router(payments_router)
 
     default_openapi = application.openapi
 

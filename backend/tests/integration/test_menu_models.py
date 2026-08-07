@@ -47,6 +47,9 @@ EXPECTED_INDEXES = {
     "ix_categories_name_normalized_unique",
     "ix_menu_items_active_category_display_order",
     "ix_menu_items_category_name_normalized_unique",
+    "ix_payments_order_created_at_id",
+    "ix_payments_order_pending_unique",
+    "ix_payments_order_succeeded_unique",
 }
 ADMIN_OPERATIONS: tuple[Callable[[Engine, str], None], ...] = (
     _terminate_test_database_connections,
@@ -257,6 +260,7 @@ def test_schema_matches_approved_contract(test_database_engine: Engine) -> None:
         "order_items",
         "order_status_history",
         "orders",
+        "payments",
         "restaurant_tables",
     }
     assert inspector.get_pk_constraint("categories")["name"] == "pk_categories"
