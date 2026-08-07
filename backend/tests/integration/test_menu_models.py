@@ -254,6 +254,10 @@ def test_schema_matches_approved_contract(test_database_engine: Engine) -> None:
         "alembic_version",
         "categories",
         "menu_items",
+        "order_items",
+        "order_status_history",
+        "orders",
+        "restaurant_tables",
     }
     assert inspector.get_pk_constraint("categories")["name"] == "pk_categories"
     assert inspector.get_pk_constraint("menu_items")["name"] == "pk_menu_items"

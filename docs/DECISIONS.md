@@ -552,6 +552,94 @@ and `pending_payment` are not `order_status` values.
   order creation. Durable price snapshots belong to `OrderItem`, not to
   transient quotes.
 
+## D-037: Persistent Order Aggregate and Initial State
+
+- **Status:** accepted on 2026-08-07
+- **Decision:** Stage 8 persists RestaurantTable, Order, OrderItem, and
+  OrderStatusHistory. Each entity has an application-generated private UUID
+  primary key. Order additionally has a unique presentational
+  `public_order_number`, starts in `created`, and is written with all items and
+  the initial history entry in one aggregate transaction.
+- **Rationale:** a durable aggregate is required before payment, fulfilment,
+  and analytics can safely refer to an order. The public identifier must remain
+  separate from the internal relational key.
+- **Consequences:** successful creation produces exactly one Order, one or more
+  ordered OrderItems, and sequence-zero history. A failed write rolls back the
+  complete aggregate. Stage 8 creates no Payment or Stripe session.
+
+## D-038: Durable Server-Authoritative Order Snapshot
+
+- **Status:** accepted on 2026-08-07
+- **Decision:** OrderItem stores category name, item name, quantity, unit price,
+  nullable unit cost, `tax_rate_bps_snapshot`,
+  `discount_amount_snapshot`, and line total. Stage 8 stores the tax-rate
+  snapshot as NULL and the discount snapshot as zero. Dine-in Order stores a
+  table-number snapshot. Order stores currency, subtotal, and total. Derived
+  totals use `BIGINT`.
+- **Rationale:** the historical order must not change when menu, category,
+  cost, price, availability, or table data changes later. Values supplied by
+  the client are not authoritative.
+- **Consequences:** creation re-reads current source rows and calculates integer
+  minor-unit totals. Taxes and discounts are reserved snapshot fields but are
+  not calculated in Stage 8. Future source changes do not rewrite history.
+
+## D-039: Transactional Menu Revalidation and Row Locking
+
+- **Status:** accepted on 2026-08-07
+- **Decision:** creation revalidates current activity, availability, names,
+  prices, costs, category names, and currency inside one short transaction.
+  Dine-in first locks RestaurantTable with `FOR SHARE`; all creations then lock
+  MenuItem and Category with `FOR SHARE` in deterministic MenuItem UUID order.
+- **Rationale:** quote data and browser state may be stale. Shared row locks
+  keep the source snapshot stable without serializing independent read-only
+  creations globally.
+- **Consequences:** the lock order is RestaurantTable before MenuItem/Category.
+  Concurrent shared creations may proceed, while a conflicting source UPDATE
+  or DELETE waits until the creation transaction ends. Request-order error
+  precedence is evaluated after the deterministic database read.
+
+## D-040: Order Creation Idempotency Deferred
+
+- **Status:** accepted on 2026-08-07
+- **Decision:** Stage 8 does not accept `Idempotency-Key`, store a request
+  fingerprint, or deduplicate creation requests. Each valid POST creates a new
+  Order. A network retry can therefore create a duplicate Order.
+- **Rationale:** guest creation returns a high-entropy raw access token exactly
+  once and persists only its SHA-256 hash. Reversible or plaintext token
+  storage was rejected, and safely replaying the exact response would require
+  a broader idempotency design.
+- **Consequences:** clients must treat a lost creation response as ambiguous.
+  Payment and Checkout idempotency remain a separate Stage 9 concern and will
+  use the Payment-attempt boundary approved by O-002.
+
+## D-041: Historical Order Retention and Foreign-Key Policy
+
+- **Status:** accepted on 2026-08-07
+- **Decision:** Order foreign keys use `ON DELETE RESTRICT`. ORM relationships
+  use no delete or delete-orphan cascade. Order lifecycle changes status rather
+  than physically deleting the aggregate, and snapshots preserve its
+  historical meaning.
+- **Rationale:** deleting a referenced menu item, table, item line, history
+  record, or order could destroy auditable operational and future financial
+  history.
+- **Consequences:** physical deletion is not a normal workflow. D-016 remains
+  the cancellation source of truth. Stage 8 implements its pure cancellation
+  policy, while Payment-aware transactional integration remains deferred until
+  a real Payment model exists.
+
+## D-042: In-Memory Order Creation Rate Limit
+
+- **Status:** accepted on 2026-08-07
+- **Decision:** order creation uses a thread-safe fixed-window limiter allowing
+  10 attempts per 60 seconds for each direct `request.client.host`. The limiter
+  is app-scoped and per process, uses an injectable monotonic clock, and returns
+  a positive `Retry-After` value when denying a request.
+- **Rationale:** a small local MVP needs predictable abuse protection without
+  introducing external infrastructure before a shared limiter is required.
+- **Consequences:** denied requests execute no SQL. `X-Forwarded-For` is not
+  trusted without future trusted-proxy configuration. Process restart resets
+  buckets, and multi-worker shared or global limiting is deferred.
+
 ## History of Decisions That Required Resolution
 
 ### O-002: Boundary Between Order Creation and Stripe Checkout Session

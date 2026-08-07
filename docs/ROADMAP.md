@@ -11,6 +11,7 @@
 
 ## 1. Repository Initialization
 
+- **Status:** completed
 - **Goal:** create a minimal repository skeleton and shared working rules.
 - **Outcome:** Git, the `backend`, `frontend`, and `docs` directories, a basic
   README, `.gitignore`, and `.env.example` without secrets.
@@ -22,6 +23,7 @@
 
 ## 2. FastAPI Foundation
 
+- **Status:** completed
 - **Goal:** run the smallest valid backend application.
 - **Outcome:** application configuration, a `/health` router, settings handling,
   and basic API tests.
@@ -33,6 +35,7 @@
 
 ## 3. PostgreSQL and Alembic
 
+- **Status:** completed
 - **Goal:** prepare a secure database connection and schema versioning.
 - **Outcome:** minimal Docker Compose running only PostgreSQL, SQLAlchemy
   configuration, a database session, Alembic, and the first non-destructive
@@ -48,6 +51,7 @@
 
 ## 4. Menu Models
 
+- **Status:** completed
 - **Goal:** model categories and menu items with data integrity.
 - **Outcome:** category and product models, UUIDs, integer prices, currency,
   allergens, `is_active`, `is_available`, constraints, indexes, and a migration.
@@ -58,6 +62,7 @@
 
 ## 5. Data Seed
 
+- **Status:** completed
 - **Goal:** provide a controlled demonstration menu dataset.
 - **Outcome:** an explicit, repeatable mechanism for seeding categories and
   products.
@@ -69,6 +74,7 @@
 
 ## 6. Public Menu API
 
+- **Status:** completed
 - **Goal:** expose active categories and products to the customer.
 - **Outcome:** `GET /api/v1/menu`, its `available_only` filter, and
   `GET /api/v1/menu/items/{item_id}` with strict typed response schemas and one
@@ -81,6 +87,7 @@
 
 ## 7. Order Quoting
 
+- **Status:** completed
 - **Goal:** build pure, testable, server-authoritative order quote logic.
 - **Outcome:** a transient quote endpoint accepting only menu item identifiers
   and quantities, with duplicate rejection, current database prices, active and
@@ -96,6 +103,7 @@
 
 ## 8. Order Creation
 
+- **Status:** completed
 - **Goal:** persist guest orders and historical snapshots.
 - **Outcome:** table, order, item, and status-history models, a migration,
   dine-in/takeaway rules, `order_status` starting at `created`, a
@@ -109,20 +117,20 @@
 - **Completion criterion:** the order and all snapshots are created atomically,
   the token has at least 256 bits of randomness, only its SHA-256 hash exists in
   the database, an invalid table is rejected, menu changes do not alter
-  history, and the domain cancellation rule accounts for related `Payment`
-  attempts. Operations on an existing order begin the shared locking protocol
-  with `Order`.
+  history, and the pure cancellation policy accepts a future
+  blocking-payment flag. Payment-aware database integration is deferred until
+  Payment exists.
 - **Test:** tests for transactionality, snapshots, table validation, both order
   types, initial `order_status = created`, token generation and hashing, the
   same error for an invalid number and token, absence of `Payment` creation,
-  constraints, and exceeding the `POST /orders` limit. Domain-logic tests cover
-  cancellation without `Payment`, after `failed`, after `expired`, rejection
-  for `pending` as `active_payment_attempt`, and rejection for `succeeded`. A
-  transactional test confirms that cancellation locks `Order` before reading or
-  locking `Payment`.
+  constraints, and exceeding the `POST /orders` limit. Pure domain tests cover
+  cancellation of a `created` order with and without a blocking-payment flag.
+  Tests that require real `Payment` records and transactional `Order -> Payment`
+  locking remain in Stage 9 or the first stage that implements Payment.
 
 ## 9. Stripe Checkout
 
+- **Status:** not started; requires separate user approval
 - **Goal:** create a test payment session for the stored order amount.
 - **Outcome:** an `Order 1:N Payment` relationship, partial unique indexes for
   one `pending` and one `succeeded` payment, a Stripe adapter, and a Checkout
@@ -148,6 +156,9 @@
   contain `order_status = cancelled` together with `Payment(status=pending)`.
   A test also confirms that no transaction remains open during the mocked
   Stripe call. Stripe keys require manual configuration.
+- **Deferred Stage 8 verification:** implement D-016 and D-017 against real
+  Payment records, including blocking cancellation for `pending` and
+  `succeeded` attempts and enforcing the `Order -> Payment` lock protocol.
 
 ## 10. Stripe Webhook
 
@@ -317,8 +328,11 @@
 
 ## Next Recommended Stage
 
-Stage 1 through Stage 7 have been completed and verified. The next recommended
-stage is **Stage 8 — Order Creation**.
+Stage 1 through Stage 8 have been completed and verified. The next recommended
+stage is **Stage 9 — Stripe Checkout**.
 
-Stage 8 requires separate user approval before implementation. This roadmap
-update does not authorize starting Stage 8.
+Stage 9 has not started and requires separate user approval before
+implementation. Payment-dependent verification from D-016 and D-017, including
+pending/succeeded cancellation blocking and the `Order -> Payment` lock
+protocol, will be implemented in Stage 9 or the first stage with a real Payment
+model. This roadmap update does not authorize starting Stage 9.

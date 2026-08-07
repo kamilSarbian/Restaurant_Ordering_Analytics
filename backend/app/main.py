@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.health import router as health_router
 from app.core.config import Settings
+from app.core.rate_limit import FixedWindowRateLimiter
 from app.database.session import create_database_engine, create_session_factory
 from app.menu.router import router as menu_router
 from app.menu.schemas import PublicMenuResponse
@@ -17,12 +18,14 @@ def create_app(
     *,
     settings: Settings | None = None,
     session_factory: sessionmaker[Session] | None = None,
+    order_creation_rate_limiter: FixedWindowRateLimiter | None = None,
 ) -> FastAPI:
     """Create and configure the FastAPI application.
 
     Args:
         settings: Optional application settings override.
         session_factory: Optional database session factory for dependency injection.
+        order_creation_rate_limiter: Optional app-scoped limiter override.
 
     Returns:
         Configured FastAPI application.
@@ -56,6 +59,11 @@ def create_app(
         version=resolved_settings.app_version,
         debug=resolved_settings.app_debug,
         lifespan=lifespan,
+    )
+    application.state.order_creation_rate_limiter = (
+        order_creation_rate_limiter
+        if order_creation_rate_limiter is not None
+        else FixedWindowRateLimiter(limit=10, window_seconds=60)
     )
     application.include_router(health_router)
     application.include_router(menu_router)

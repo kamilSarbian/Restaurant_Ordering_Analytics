@@ -440,6 +440,17 @@ def test_openapi_documents_routes_filter_responses_and_public_fields(
 ) -> None:
     document = client.get("/openapi.json").json()
     paths = document["paths"]
+    schemas = document["components"]["schemas"]
+    public_menu_schema_names = {
+        "PublicMenuItemResponse",
+        "PublicCategoryResponse",
+        "PublicMenuResponse",
+        "PublicMenuItemCategoryResponse",
+        "PublicMenuItemDetailResponse",
+    }
+
+    assert public_menu_schema_names <= set(schemas)
+    public_menu_schemas = {name: schemas[name] for name in public_menu_schema_names}
 
     assert set(paths["/api/v1/menu"]) == {"get"}
     assert set(paths["/api/v1/menu/items/{item_id}"]) == {"get"}
@@ -448,7 +459,7 @@ def test_openapi_documents_routes_filter_responses_and_public_fields(
     assert parameter["schema"]["default"] is False
     assert "temporarily unavailable" in parameter["description"]
     assert "404" in paths["/api/v1/menu/items/{item_id}"]["get"]["responses"]
-    schema_text = str(document["components"]["schemas"])
+    schema_text = str(public_menu_schemas)
     assert all(field not in schema_text for field in INTERNAL_FIELDS)
     assert paths["/api/v1/menu"]["get"]["tags"] == ["menu"]
     assert paths["/api/v1/menu/items/{item_id}"]["get"]["tags"] == ["menu"]

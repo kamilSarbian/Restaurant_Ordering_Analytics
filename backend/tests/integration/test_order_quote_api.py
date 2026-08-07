@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import delete, event, inspect, select
+from sqlalchemy import delete, event, inspect, select, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -155,6 +155,18 @@ def _database_snapshot(
             ).order_by(MenuItem.id)
         ).all()
     return categories, items
+
+
+def _persistent_order_counts(engine: Engine) -> tuple[int, int]:
+    with engine.connect() as connection:
+        row = connection.execute(
+            text(
+                "SELECT "
+                "(SELECT count(*) FROM orders), "
+                "(SELECT count(*) FROM order_items)"
+            )
+        ).one()
+    return int(row[0]), int(row[1])
 
 
 def test_quote_one_item_uses_server_name_price_and_integer_arithmetic(
@@ -642,6 +654,13 @@ def test_openapi_documents_only_the_transient_quote_contract(
     document = response.json()
     operation = document["paths"][QUOTE_PATH]["post"]
     schemas = document["components"]["schemas"]
+    quote_schema_names = {
+        "OrderQuoteItemRequest",
+        "OrderQuoteRequest",
+        "OrderQuoteLineResponse",
+        "OrderQuoteResponse",
+    }
+    quote_schemas = {name: schemas[name] for name in quote_schema_names}
 
     assert set(document["paths"][QUOTE_PATH]) == {"post"}
     assert operation["tags"] == ["orders"]
@@ -660,8 +679,8 @@ def test_openapi_documents_only_the_transient_quote_contract(
     ].endswith("/OrderQuoteResponse")
     assert schemas["OrderQuoteRequest"]["example"]["items"][0]["quantity"] == 2
     assert schemas["OrderQuoteResponse"]["example"]["total_amount"] == 53700
-    assert set(schemas).isdisjoint({"Order", "OrderItem", "Payment"})
-    schema_text = json.dumps(schemas)
+    assert set(quote_schemas).isdisjoint({"Order", "OrderItem", "Payment"})
+    schema_text = json.dumps(quote_schemas)
     assert all(
         value not in schema_text
         for value in (
@@ -683,31 +702,44 @@ def test_docs_health_and_existing_menu_regression(client: TestClient) -> None:
     assert client.get("/api/v1/menu").json() == {"categories": []}
 
 
-def test_no_order_creation_payment_tables_or_routes(
+def test_foundation_tables_and_routes_exist_without_payment_or_quote_persistence(
     client: TestClient,
     test_database_engine: Engine,
 ) -> None:
-    """Keep persistence and later-stage routes outside Stage 7."""
-    assert set(inspect(test_database_engine).get_table_names(schema="public")) == {
+    """Allow Stage 8 order routes without payment or quote persistence."""
+    table_names = set(inspect(test_database_engine).get_table_names(schema="public"))
+    assert table_names == {
         "alembic_version",
         "categories",
         "menu_items",
+        "order_items",
+        "order_status_history",
+        "orders",
+        "restaurant_tables",
     }
-    assert client.post("/api/v1/orders", json={}).status_code == 404
+    assert {
+        "payments",
+        "quotes",
+        "idempotency_keys",
+        "stripe_events",
+    }.isdisjoint(table_names)
+    assert client.post("/api/v1/orders", json={}).status_code == 422
     paths = client.get("/openapi.json").json()["paths"]
-    assert "/api/v1/orders" not in paths
+    assert "post" in paths["/api/v1/orders"]
     assert all("payment" not in path.lower() for path in paths)
 
 
 def test_endpoint_quote_does_not_mutate_database(
     client: TestClient,
     api_session_factory: sessionmaker[Session],
+    test_database_engine: Engine,
 ) -> None:
     """Keep counts, fields, and timestamps stable across an HTTP quote."""
     category = _category()
     item = _item(category, name="HTTP read only")
     _store(api_session_factory, category, item)
     before = _database_snapshot(api_session_factory)
+    order_counts_before = _persistent_order_counts(test_database_engine)
 
     response = client.post(
         QUOTE_PATH,
@@ -716,3 +748,4 @@ def test_endpoint_quote_does_not_mutate_database(
 
     assert response.status_code == 200
     assert _database_snapshot(api_session_factory) == before
+    assert _persistent_order_counts(test_database_engine) == order_counts_before

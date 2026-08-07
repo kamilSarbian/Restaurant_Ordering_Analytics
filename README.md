@@ -2,14 +2,14 @@
 
 ## Current status
 
-Stage 7 is complete. The repository contains a verified FastAPI and menu data
-foundation with application settings, a process-level health endpoint, a
-read-only public menu API, a transient server-authoritative order quote API,
-PostgreSQL 17 local development infrastructure, synchronous SQLAlchemy 2,
-Psycopg 3, Alembic, menu models, and an explicit local demonstration seed.
+Stage 8 is complete. The repository contains a verified FastAPI application,
+public menu and transient quote APIs, persistent guest order creation, secure
+public order status retrieval, PostgreSQL 17 local development infrastructure,
+synchronous SQLAlchemy 2, Psycopg 3, Alembic, and an explicit local
+demonstration menu seed.
 
-Order creation and payment features, Stripe integration, frontend, full-system
-containerisation, CI, and deployment have not started.
+Payment models, Stripe integration, frontend, full-system containerisation,
+CI, and deployment have not started.
 
 ## Business problem
 
@@ -34,6 +34,14 @@ without introducing infrastructure that is unnecessary for a single venue.
   endpoints with explicit response schemas.
 - Public order quote endpoint with strict quantities, server-owned menu data,
   integer minor-unit totals, availability revalidation, and zero persistence.
+- Persistent RestaurantTable, Order, OrderItem, and OrderStatusHistory models
+  with migration `0003_create_order_models`.
+- Transactional `POST /api/v1/orders` creation with durable snapshots,
+  server-authoritative menu revalidation, shared row locks, and rollback.
+- Guest order access using a public number and one-time token whose SHA-256
+  hash is the only token value stored in PostgreSQL.
+- Authenticated public order status retrieval without exposing internal IDs or
+  token hashes.
 - Isolated PostgreSQL integration tests for models, constraints, and migration
   upgrades, downgrades, seed idempotency, and data protection.
 - Ruff, Black, and isort quality configuration.
@@ -122,8 +130,10 @@ Run Alembic from the `backend` directory:
 ```powershell
 & .\.venv\Scripts\python.exe -m alembic upgrade head
 & .\.venv\Scripts\python.exe -m alembic current
-& .\.venv\Scripts\python.exe -m alembic downgrade base
 ```
+
+Never run a downgrade against the development database. Migration lifecycle
+tests create, downgrade, upgrade, and remove only the isolated test database.
 
 Return to the repository root and stop the local database without removing its
 named volume:
@@ -135,8 +145,9 @@ docker compose --env-file .env down
 Warning: `docker compose down -v` also deletes the named PostgreSQL volume and
 its local data. Do not use `-v` unless data deletion is intentional.
 
-Stage 4 adds migration `0002_create_menu_models`. It creates `categories` and
-`menu_items`; it does not add seed data or a menu API.
+Stage 4 adds migration `0002_create_menu_models`. Stage 8 adds the schema-only
+`0003_create_order_models` migration for restaurant tables and persistent order
+aggregates. Neither migration runs the seed.
 
 ## Menu data foundation
 
@@ -345,8 +356,8 @@ error details. Unsupported methods return HTTP 405.
 
 The quote is a point-in-time calculation with no identifier, timestamp,
 expiry, persistence, price reservation, or availability reservation. It does
-not create an Order or Payment. Future Stage 8 order creation must re-read and
-revalidate all server-owned menu data.
+not create an Order or Payment. Order creation re-reads and revalidates all
+server-owned menu data instead of trusting a previous quote.
 
 With Uvicorn running, the approved example can be requested with:
 
@@ -380,7 +391,78 @@ available at `/openapi.json`. From `backend`, run the Stage 7 tests with:
 & .\.venv\Scripts\python.exe -m pytest tests\integration\test_order_quote_api.py
 ```
 
-Stage 8 order creation has not started and requires separate approval.
+## Stage 8 order creation
+
+`POST /api/v1/orders` creates either a `takeaway` or `dine_in` guest order and
+returns HTTP 201 with a `Location` header. Requests contain 1–50 unique menu
+item identifiers, quantities from 1–99, the order type, and a table number only
+for dine-in orders. Clients never submit prices. Creation revalidates current
+menu activity, availability, names, prices, costs, category names, and currency
+inside one transaction before storing the server-authoritative snapshot.
+
+Dine-in creation requires an existing active RestaurantTable. The
+RestaurantTable provisioning and administration workflow has not been
+implemented, so tables currently require a future administrative feature. The
+initial fulfilment status is `created`. Order and item totals use integer minor
+units, with derived totals stored as `BIGINT`.
+
+The transaction locks a dine-in RestaurantTable first and then MenuItem and
+Category rows using `FOR SHARE` in deterministic order. A validation or insert
+failure rolls back the complete aggregate. Concurrent read-locking creations
+may proceed, while conflicting source updates wait until creation finishes.
+
+Each successful response contains a presentational `public_order_number` and a
+one-time `order_access_token`. The raw token is returned only by creation; the
+database stores only its SHA-256 hash. Public status is retrieved through
+`GET /api/v1/orders/{public_order_number}` with the
+`X-Order-Access-Token` header. Unknown numbers and missing or incorrect tokens
+all return the same HTTP 404 response.
+
+Order creation is limited to 10 attempts per 60 seconds for each direct
+`request.client.host`. A rejected request returns HTTP 429 with `Retry-After`
+and performs no SQL. The limiter is in-memory, per process, and intentionally
+does not trust `X-Forwarded-For` without a future trusted-proxy configuration.
+
+Stage 8 does not implement order-creation idempotency. Every valid POST creates
+a distinct Order, so a network retry can create a duplicate order. It also
+creates no Payment and does not call Stripe. Payment and Checkout idempotency
+belong to Stage 9.
+
+Example takeaway creation:
+
+```bash
+curl -i -X POST http://127.0.0.1:8000/api/v1/orders \
+  -H "Content-Type: application/json" \
+  -d '{"order_type":"takeaway","items":[{"menu_item_id":"9933957b-7f5d-47d8-84c3-ba8ad21b2d8c","quantity":1}]}'
+```
+
+```powershell
+$createBody = @{
+    order_type = "takeaway"
+    items = @(
+        @{
+            menu_item_id = "9933957b-7f5d-47d8-84c3-ba8ad21b2d8c"
+            quantity = 1
+        }
+    )
+} | ConvertTo-Json -Depth 3
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/api/v1/orders `
+    -ContentType "application/json" -Body $createBody
+```
+
+Use placeholders rather than a real guest credential when documenting status
+access:
+
+```bash
+curl http://127.0.0.1:8000/api/v1/orders/ROA-ORDERNUMBER \
+  -H "X-Order-Access-Token: ORDER_ACCESS_TOKEN"
+```
+
+```powershell
+$headers = @{ "X-Order-Access-Token" = "ORDER_ACCESS_TOKEN" }
+Invoke-RestMethod -Uri http://127.0.0.1:8000/api/v1/orders/ROA-ORDERNUMBER `
+    -Headers $headers
+```
 
 ## Tests and quality checks
 
@@ -407,6 +489,8 @@ Available endpoints:
 - Public menu: <http://127.0.0.1:8000/api/v1/menu>
 - Public menu item: `http://127.0.0.1:8000/api/v1/menu/items/{item_id}`
 - Order quote: <http://127.0.0.1:8000/api/v1/orders/quote>
+- Order creation: `POST http://127.0.0.1:8000/api/v1/orders`
+- Public order status: `GET http://127.0.0.1:8000/api/v1/orders/{public_order_number}`
 - Swagger UI: <http://127.0.0.1:8000/docs>
 - OpenAPI document: <http://127.0.0.1:8000/openapi.json>
 

@@ -8,37 +8,76 @@
 - **Stage 5:** completed
 - **Stage 6:** completed
 - **Stage 7:** completed
-- **Current stage:** waiting for approval to start Stage 8
-- **Backend:** FastAPI, database foundation, menu models, local seed data, and
-  the read-only public menu and order quote APIs completed
+- **Stage 8:** completed
+- **Current stage:** waiting for approval to start Stage 9
+- **Backend:** FastAPI, database foundation, menu models, local seed data,
+  public menu, transient quoting, persistent order creation, and secure public
+  order status completed
 - **Frontend:** not started
-- **Database:** PostgreSQL, Alembic, menu models, and deterministic seed
-  completed
+- **Database:** PostgreSQL, Alembic, menu and order models, migration
+  `0003_create_order_models`, and deterministic menu seed completed
 - **Seed data:** completed and verified
 - **Public menu API:** list, availability filter, item details, and 404 contract
   completed and verified
 - **Menu write API:** not started
 - **Order quoting:** completed and verified
-- **Order creation:** not started
+- **Order creation:** completed and verified
+- **Public order status:** completed and verified
+- **RestaurantTable foundation:** completed; provisioning and administration
+  workflow not started
 - **Payments:** not started
 - **Stripe:** not started
-- **Application tests:** 251 health, database, migration, model, constraint,
-  seed, schema, public API, quoting, idempotency, and data-protection tests
-  completed
+- **Application tests:** 469 health, database, migration, model, constraint,
+  seed, schema, public API, quoting, order creation, security, rate-limit,
+  rollback, and concurrency tests completed
 - **Deployment:** not started
 
 ## Known limitations
 
-- The backend exposes process health, read-only public menu endpoints, and a
-  transient public quote endpoint; menu writes have not started.
-- Authentication, order creation, payments, Stripe, and frontend work have not
+- The backend exposes health, read-only public menu and quote endpoints,
+  persistent guest order creation, and token-protected public order status;
+  menu writes have not started.
+- Payment, Stripe, administrator authentication, and frontend work have not
   started.
+- RestaurantTable provisioning and administration have not started, so Stage 8
+  only provides the persistence and validation foundation.
+- Order creation has no idempotency key; a network retry can create a duplicate
+  Order. Its fixed-window limiter is per process and resets on restart.
+- Payment-aware cancellation and the `Order -> Payment` locking integration
+  remain deferred until the Payment model exists. Only the pure cancellation
+  policy is implemented in Stage 8.
 - The seed is restricted to the exact local development database and is not a
   production bootstrap process.
 - Full-system containerisation, continuous integration, and deployment have
   not started.
 
 ## Last verification
+
+Stage 8 verified on 2026-08-07:
+
+- Independent model, migration, transaction, access, locking, rate-limit, and
+  public-contract audit: PASS
+- PostgreSQL 17 health and host-to-container mapping `5433:5432`: PASS
+- `0003_create_order_models` upgrade/downgrade/second-upgrade lifecycle on the
+  isolated test database: PASS
+- Status/cancellation 8, creation schemas 61, access security 7, rate limiter
+  14, order models 81, migration 3, status API 14, creation API 26, and
+  concurrency 4 tests passed
+- Public Menu 33, Order Quote 45, Seed 25, and Menu Models 66 regression tests
+  passed
+- Full pytest suite: 469 passed with one accepted Starlette warning
+- Ruff, Black, isort, FastAPI import, router prefix, and metadata: PASS
+- Alembic check reported no new upgrade operations: PASS
+- Development database migrated additively from `0002_create_menu_models` to
+  `0003_create_order_models` without changing its OID: PASS
+- All 20 seed UUIDs, business values, `created_at`, `updated_at`, unrelated-data
+  digest, and menu counts 5/15 remained unchanged: PASS
+- Read-only development smoke for health, menu 5/15, availability 14, approved
+  quote 53700, docs, and OpenAPI: PASS
+- RestaurantTable, Order, OrderItem, and OrderStatusHistory development tables
+  exist and remain empty: PASS
+- Isolated test database removal, named-volume preservation, and local
+  PostgreSQL 18 preservation: PASS
 
 Stage 7 verified on 2026-08-06:
 

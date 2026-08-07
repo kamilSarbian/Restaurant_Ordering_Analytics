@@ -54,6 +54,20 @@ def _counts(session_factory: sessionmaker[Session]) -> tuple[int, int]:
         )
 
 
+def _stage_eight_counts(engine: Engine) -> tuple[int, int, int, int]:
+    with engine.connect() as connection:
+        row = connection.execute(
+            text(
+                "SELECT "
+                "(SELECT count(*) FROM restaurant_tables), "
+                "(SELECT count(*) FROM orders), "
+                "(SELECT count(*) FROM order_items), "
+                "(SELECT count(*) FROM order_status_history)"
+            )
+        ).one()
+    return tuple(int(value) for value in row)
+
+
 def _assert_canonical_records(session_factory: sessionmaker[Session]) -> None:
     with session_factory() as session:
         categories = {
@@ -124,7 +138,7 @@ def _wait_for_distinct_database_timestamp(
         session.execute(text("SELECT pg_sleep(0.01)"))
 
 
-def test_migration_leaves_seed_tables_empty_at_revision_0002(
+def test_migration_leaves_business_tables_empty_at_current_head(
     test_database_engine: Engine,
     seed_session_factory: sessionmaker[Session],
 ) -> None:
@@ -133,17 +147,20 @@ def test_migration_leaves_seed_tables_empty_at_revision_0002(
         revision = connection.execute(
             text("SELECT version_num FROM alembic_version")
         ).scalar_one()
-    assert revision == "0002_create_menu_models"
+    assert revision == "0003_create_order_models"
     assert _counts(seed_session_factory) == (0, 0)
+    assert _stage_eight_counts(test_database_engine) == (0, 0, 0, 0)
 
 
 def test_first_seed_inserts_the_complete_canonical_dataset(
+    test_database_engine: Engine,
     seed_session_factory: sessionmaker[Session],
 ) -> None:
     """Insert all approved records and return the exact processed counts."""
     result = seed_menu_data(seed_session_factory)
     assert result == SeedResult(categories_processed=5, menu_items_processed=15)
     assert _counts(seed_session_factory) == (5, 15)
+    assert _stage_eight_counts(test_database_engine) == (0, 0, 0, 0)
     _assert_canonical_records(seed_session_factory)
 
     with seed_session_factory() as session:

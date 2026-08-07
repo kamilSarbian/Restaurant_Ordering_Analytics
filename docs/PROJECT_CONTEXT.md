@@ -74,11 +74,27 @@ administrator can:
    and calculates line totals, subtotal, and total with integer minor units.
 3. The quote response is a point-in-time snapshot of names and prices. It is
    not persisted and does not reserve price or availability.
-4. Stage 8 order creation will accept identifiers and quantities again and
-   revalidate active state, availability, price, and currency.
-5. Only Stage 8 will create an order, store durable item snapshots, generate
-   public access data, and apply order-type or table rules. It will create
-   neither a `Payment` record nor a Stripe session.
+4. Stage 8 order creation accepts identifiers and quantities again and
+   revalidates current activity, availability, names, prices, costs, category
+   names, and currency. A previous quote is never authoritative.
+5. One short transaction stores the `Order`, ordered `OrderItem` snapshots, and
+   initial `OrderStatusHistory(created)` entry. Dine-in creation first locks and
+   validates an active RestaurantTable, then all creations lock MenuItem and
+   Category rows with `FOR SHARE` in deterministic order.
+6. The durable aggregate has a private internal UUID and a separate
+   `public_order_number`. Dine-in orders preserve a table-number snapshot, and
+   later menu or table changes cannot alter the historical order.
+7. Creation returns a one-time raw `order_access_token`; PostgreSQL stores only
+   its SHA-256 hash. Public status requires the number and the
+   `X-Order-Access-Token` header.
+8. Every valid creation POST creates a distinct Order. Stage 8 has no
+   `Idempotency-Key` or request fingerprint, so a network retry may create a
+   duplicate order.
+9. The in-memory, app-scoped creation limiter permits 10 attempts per 60
+   seconds for each direct client host and returns HTTP 429 with `Retry-After`
+   before any SQL when the limit is exceeded.
+10. Stage 8 creates neither a `Payment` record nor a Stripe session. Stage 9 is
+    disabled until separate user approval.
 
 ### 4.3. Stripe Payment
 
@@ -223,6 +239,12 @@ A menu change cannot alter a historical order or report. A product used in an
 order is not physically deleted; `is_active` and `is_available` control its
 visibility and whether it can be sold.
 
+The implemented Stage 8 snapshot stores category and item names, quantity,
+unit price, nullable unit cost, currency, line total, and the Order subtotal and
+total. It reserves `tax_rate_bps_snapshot` as NULL and
+`discount_amount_snapshot` as zero because Stage 8 does not calculate taxes or
+discounts. Dine-in orders additionally preserve `table_number_snapshot`.
+
 ### 7.3. Time
 
 - Timestamps are stored in UTC.
@@ -268,6 +290,10 @@ visibility and whether it can be sold.
 - Confirmation of `succeeded` may come only from a verified webhook.
 - Redelivery of the same Stripe event must not repeat its effects.
 - A future `refund_status` remains a separate lifecycle.
+- Stage 8 implements the pure cancellation policy for the current status and a
+  future blocking-payment flag. Transactional Payment-aware cancellation and
+  the `Order -> Payment` lock protocol remain deferred until a real Payment
+  model exists.
 
 ### 7.5. Security and Privacy
 
@@ -283,12 +309,16 @@ visibility and whether it can be sold.
 - `order_access_token` has at least 256 bits of randomness, is returned in raw
   form only during order creation, and only its SHA-256 hash exists in the
   database. Token comparison must be secure.
-- Public status contains only `public_order_number`, `order_status`, a payment
-  summary without Stripe identifiers, `order_type`, `created_at`, `updated_at`,
-  and an estimated or completed timestamp when one exists.
+- The Stage 8 public status response contains only the public number,
+  `order_status`, order type, optional table-number snapshot, currency,
+  historical public item lines, subtotal, total, `created_at`, and `updated_at`.
+  A payment summary is deferred until Payment exists.
 - Public status does not expose an email address, internal UUIDs, Stripe
   identifiers, or administrator data. An invalid number and an invalid token
   return the same generic error.
+- Order creation is rate-limited per direct peer host by an app-scoped,
+  per-process fixed window. Forwarded headers are not trusted without a future
+  trusted-proxy configuration.
 - Financial operations and critical changes are performed transactionally.
 
 ## 8. Expected Portfolio Value

@@ -1,0 +1,1 @@
+"""Restaurant table domain package."""
