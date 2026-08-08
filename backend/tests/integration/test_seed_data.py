@@ -54,7 +54,7 @@ def _counts(session_factory: sessionmaker[Session]) -> tuple[int, int]:
         )
 
 
-def _non_seed_counts(engine: Engine) -> tuple[int, int, int, int, int]:
+def _non_seed_counts(engine: Engine) -> tuple[int, int, int, int, int, int]:
     with engine.connect() as connection:
         row = connection.execute(
             text(
@@ -63,7 +63,8 @@ def _non_seed_counts(engine: Engine) -> tuple[int, int, int, int, int]:
                 "(SELECT count(*) FROM orders), "
                 "(SELECT count(*) FROM order_items), "
                 "(SELECT count(*) FROM order_status_history), "
-                "(SELECT count(*) FROM payments)"
+                "(SELECT count(*) FROM payments), "
+                "(SELECT count(*) FROM stripe_events)"
             )
         ).one()
     return tuple(int(value) for value in row)
@@ -148,9 +149,9 @@ def test_migration_leaves_business_tables_empty_at_current_head(
         revision = connection.execute(
             text("SELECT version_num FROM alembic_version")
         ).scalar_one()
-    assert revision == "0004_create_payment_model"
+    assert revision == "0005_create_stripe_event_model"
     assert _counts(seed_session_factory) == (0, 0)
-    assert _non_seed_counts(test_database_engine) == (0, 0, 0, 0, 0)
+    assert _non_seed_counts(test_database_engine) == (0, 0, 0, 0, 0, 0)
 
 
 def test_first_seed_inserts_the_complete_canonical_dataset(
@@ -161,7 +162,7 @@ def test_first_seed_inserts_the_complete_canonical_dataset(
     result = seed_menu_data(seed_session_factory)
     assert result == SeedResult(categories_processed=5, menu_items_processed=15)
     assert _counts(seed_session_factory) == (5, 15)
-    assert _non_seed_counts(test_database_engine) == (0, 0, 0, 0, 0)
+    assert _non_seed_counts(test_database_engine) == (0, 0, 0, 0, 0, 0)
     _assert_canonical_records(seed_session_factory)
 
     with seed_session_factory() as session:

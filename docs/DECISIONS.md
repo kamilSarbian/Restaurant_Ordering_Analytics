@@ -730,10 +730,62 @@ and `pending_payment` are not `order_status` values.
 - **Consequences:** Checkout URLs must not be logged. Payment summary exposure
   and webhook transport require separate approved contracts.
 
-D-016 is now verified against persisted Payment rows at the domain and
-integration level. D-017 is now verified through real PostgreSQL lock-order,
-provider-boundary, and concurrency tests. The future administrative
-cancellation command and Stripe webhook retain their later-stage scopes.
+D-016 remains verified against persisted Payment rows at the domain and
+integration level. D-017 is verified through real PostgreSQL lock-order,
+provider-boundary, Checkout, webhook, and cancellation-eligibility concurrency
+tests. The future administrative cancellation command retains its later-stage
+scope.
+
+## D-047: Verified Stripe Webhook and Provider-Authoritative Transitions
+
+- **Status:** accepted on 2026-08-08
+- **Decision:** only an event whose exact raw request bytes and
+  `Stripe-Signature` pass official Stripe SDK verification may apply
+  provider-confirmed Payment outcomes. Stage 10 accepts
+  `checkout.session.completed`, `checkout.session.async_payment_succeeded`,
+  `checkout.session.async_payment_failed`, and `checkout.session.expired`.
+  Completed and paid or asynchronous success may confirm `succeeded`; completed
+  and unpaid remains pending for an asynchronous result; asynchronous failure
+  may confirm `failed`; and an unpaid expired session may confirm `expired`.
+- **Authority:** redirects, client claims, and local clocks cannot confirm a
+  provider outcome. The first terminal Payment state wins and is never replaced
+  by a later contradictory event.
+- **Consequences:** webhook configuration is optional for general startup, the
+  endpoint is hidden from OpenAPI, and automated verification uses local
+  signatures without real Stripe calls.
+
+## D-048: Durable Event Receipts, Correlation, and Transactional Idempotency
+
+- **Status:** accepted on 2026-08-08
+- **Decision:** StripeEvent stores one minimal durable receipt identified by a
+  globally unique `stripe_event_id`. A known Payment transition and its receipt
+  commit in one transaction. The nullable Payment foreign key permits a signed
+  event with unknown correlation to be retained as
+  `reconciliation_required` without inventing a Payment.
+- **Correlation:** the service checks Payment ID, Order ID, public order number,
+  Checkout Session ID, amount, currency, and mode against server-owned data.
+  A mismatch is acknowledged only after a durable reconciliation receipt and
+  never becomes a signature error.
+- **Consequences:** duplicates remain idempotent across restarts. Valid signed
+  events outside the Stage 10 allowlist are acknowledged without persistence,
+  and raw payloads, signatures, Checkout URLs, and metadata JSON are not stored.
+
+## D-049: Webhook Concurrency with Checkout and Cancellation
+
+- **Status:** accepted on 2026-08-08
+- **Decision:** known webhook processing reuses D-017 and locks Order before
+  related Payments ordered by creation time and UUID. It never uses an
+  Event-to-Payment-to-Order lock order. Event-ID uniqueness additionally
+  protects concurrent duplicate delivery.
+- **Races:** the first committed terminal event wins. A webhook may precede
+  Checkout Phase 3; Phase 3 may then fill an entirely empty provider session
+  tuple for the exact already-succeeded Payment without regressing status, but
+  cannot do so after failure or expiration. Future cancellation uses the same
+  Order-to-Payment lock order and D-016 blocking policy.
+- **Consequences:** real PostgreSQL tests cover known and unknown duplicate
+  races, success versus expiration, Checkout Phase 3, and cancellation
+  eligibility without deadlocks. This decision extends D-016, D-017, and
+  D-043 through D-046 without adding a cancellation endpoint.
 
 ## History of Decisions That Required Resolution
 

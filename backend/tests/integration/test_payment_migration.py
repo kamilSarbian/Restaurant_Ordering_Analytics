@@ -25,7 +25,8 @@ EXPECTED_STAGE_EIGHT_TABLES = {
     "orders",
     "restaurant_tables",
 }
-EXPECTED_HEAD_TABLES = EXPECTED_STAGE_EIGHT_TABLES | {"payments"}
+EXPECTED_0004_TABLES = EXPECTED_STAGE_EIGHT_TABLES | {"payments"}
+EXPECTED_REPOSITORY_HEAD_TABLES = EXPECTED_0004_TABLES | {"stripe_events"}
 EXPECTED_CHECKS = {
     "ck_payments_amount_positive",
     "ck_payments_checkout_session_fields_consistent",
@@ -114,7 +115,7 @@ def test_payment_migration_has_the_approved_parent() -> None:
     script = ScriptDirectory.from_config(_alembic_config())
     revision = script.get_revision("0004_create_payment_model")
     assert revision is not None
-    assert revision.revision == HEAD_REVISION
+    assert revision.revision == "0004_create_payment_model"
     assert revision.down_revision == "0003_create_order_models"
     assert script.get_current_head() == HEAD_REVISION
 
@@ -130,8 +131,8 @@ def test_upgrade_downgrade_and_second_upgrade_preserve_stage_eight(
         assert _public_tables(test_database_url) == EXPECTED_STAGE_EIGHT_TABLES
 
         _upgrade(test_database_url, "0004_create_payment_model")
-        assert _current_revision(test_database_url) == HEAD_REVISION
-        assert _public_tables(test_database_url) == EXPECTED_HEAD_TABLES
+        assert _current_revision(test_database_url) == "0004_create_payment_model"
+        assert _public_tables(test_database_url) == EXPECTED_0004_TABLES
         _assert_payment_schema(test_database_engine)
 
         _downgrade(test_database_url, "0003_create_order_models")
@@ -142,7 +143,7 @@ def test_upgrade_downgrade_and_second_upgrade_preserve_stage_eight(
         _upgrade(test_database_url, "head")
 
     assert _current_revision(test_database_url) == HEAD_REVISION
-    assert _public_tables(test_database_url) == EXPECTED_HEAD_TABLES
+    assert _public_tables(test_database_url) == EXPECTED_REPOSITORY_HEAD_TABLES
 
 
 def test_payment_model_matches_migration_and_alembic_has_no_drift(

@@ -10,13 +10,16 @@
 - **Stage 7:** completed
 - **Stage 8:** completed
 - **Stage 9:** completed
-- **Current stage:** waiting for approval to start Stage 10
+- **Stage 10:** completed
+- **Current stage:** waiting for approval to start Stage 11
 - **Backend:** FastAPI, database foundation, menu models, local seed data,
   public menu, transient quoting, persistent order creation, and secure public
-  order status, Payment persistence, and Stripe Checkout completed
+  order status, Payment persistence, Stripe Checkout, and verified Stripe
+  webhook processing completed
 - **Frontend:** not started
-- **Database:** PostgreSQL, Alembic, menu, order, and Payment models, migration
-  `0004_create_payment_model`, and deterministic menu seed completed
+- **Database:** PostgreSQL, Alembic, menu, order, Payment, and StripeEvent
+  models, migration `0005_create_stripe_event_model`, and deterministic menu
+  seed completed
 - **Seed data:** completed and verified
 - **Public menu API:** list, availability filter, item details, and 404 contract
   completed and verified
@@ -34,9 +37,12 @@
   and integration level
 - **D-017 Order -> Payment locking and provider transaction boundary:**
   completed and verified
-- **Stripe webhook:** not started
-- **Provider-confirmed succeeded/expired transitions:** not started; Stage 10
-- **Application tests:** 628 health, database, migration, model, constraint,
+- **StripeEvent persistence:** completed and verified
+- **Stripe webhook signature verification and idempotency:** completed and
+  verified
+- **Provider-authoritative Payment transitions:** completed and verified
+- **Webhook/Checkout Phase 3 race:** completed and verified
+- **Application tests:** 757 health, database, migration, model, constraint,
   seed, schema, public API, quoting, order creation, payment, security,
   rate-limit, rollback, and concurrency tests completed
 - **Deployment:** not started
@@ -46,8 +52,7 @@
 - The backend exposes health, read-only public menu and quote endpoints,
   persistent guest order creation, and token-protected public order status;
   menu writes have not started.
-- Stripe webhook handling, administrator authentication, and frontend work have
-  not started.
+- Administrator authentication and frontend work have not started.
 - RestaurantTable provisioning and administration have not started, so Stage 8
   only provides the persistence and validation foundation.
 - Order creation has no idempotency key; a network retry can create a duplicate
@@ -55,15 +60,39 @@
 - D-016 is verified against persisted Payment rows and D-017 is verified with
   PostgreSQL concurrency tests. The future administrative cancellation command
   remains part of the operational API stage.
-- Stage 9 persists pending attempts and may mark definitive Checkout creation
-  failures as failed. It does not confirm succeeded or expired outcomes, expose
-  `payment_summary` in public Order status, or implement a webhook.
+- Stage 10 verifies and durably deduplicates webhook events and applies
+  provider-authoritative terminal Payment outcomes. It still exposes no
+  `payment_summary` in public Order status and adds no cancellation endpoint.
+- A real Stripe CLI smoke remains optional and manual; automated tests use
+  injected adapters or synthetic local signatures and perform no Stripe calls.
 - The seed is restricted to the exact local development database and is not a
   production bootstrap process.
 - Full-system containerisation, continuous integration, and deployment have
   not started.
 
 ## Last verification
+
+Stage 10 verified on 2026-08-08:
+
+- Independent StripeEvent, signature, service, HTTP, state-machine, exposure,
+  idempotency, and concurrency audit: PASS
+- StripeEvent models 37, migration 3, webhook adapter 32, webhook API 44, and
+  webhook concurrency 12 tests passed
+- Full pytest suite: 757 passed with one accepted Starlette warning
+- Ruff, Black, isort, OpenAPI, and Alembic drift checks: PASS
+- Isolated `0004_create_payment_model` to `0005_create_stripe_event_model`
+  upgrade, downgrade, second upgrade, model parity, and no-drift lifecycle: PASS
+- Development database migrated additively from `0004` to `0005` without
+  changing OID 16384 or any seed UUID, business value, or timestamp: PASS
+- Development menu remains 5/15; RestaurantTable, Order, OrderItem,
+  OrderStatusHistory, Payment, and StripeEvent counts remain zero: PASS
+- Read-only health, menu, availability, approved quote 53700, docs, and OpenAPI
+  smoke: PASS
+- D-016 and D-017 remain verified; webhook/Checkout and webhook/cancellation
+  races complete without deadlocks: PASS
+- No public payment summary, cancellation endpoint, real Stripe request, seed,
+  or demonstration financial data: PASS
+
 
 Stage 9 verified on 2026-08-07:
 

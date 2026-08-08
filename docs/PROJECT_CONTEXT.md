@@ -119,12 +119,22 @@ administrator can:
    not auto-expired by the local clock.
 7. The customer proceeds to the hosted Stripe page. Returning to the success
    page does not change the payment state.
-8. Stage 9 does not expose Payment state through the public Order status
-   response and does not implement a webhook. Stage 10 will verify Stripe
-   signatures, process events idempotently, and own provider-confirmed
-   `succeeded` and `expired` transitions.
-9. Automated Stage 9 tests use a fake Stripe client, make no real provider
-   request, and require no real Stripe secret.
+8. Stage 10 accepts Stripe webhooks through a provider-facing endpoint hidden
+   from OpenAPI. It verifies the exact raw body and `Stripe-Signature` through
+   the official SDK before any database processing.
+9. Each in-scope event is durably deduplicated by its Stripe event ID. Known
+   attempts are correlated using Payment ID, Order ID, public order number,
+   Checkout Session ID, amount, currency, and mode.
+10. The verified webhook is authoritative for `succeeded`, `failed`, and
+    `expired`. A completed unpaid session remains `pending` while awaiting an
+    asynchronous result, and the first terminal result cannot be overwritten.
+11. A signed event with inconsistent or unknown business correlation creates a
+    durable reconciliation receipt. A signed event outside the Stage 10 event
+    set is acknowledged without persistence.
+12. Stage 10 still does not expose Payment state through the public Order status
+    response. A public `payment_summary` requires a separate approved contract.
+13. Automated Checkout and webhook tests use fake adapters or local signatures,
+    make no real provider request, and require no real Stripe secret.
 
 ### 4.4. Order Fulfilment
 
@@ -293,6 +303,11 @@ discounts. Dine-in orders additionally preserve `table_number_snapshot`.
 - Every allowed `order_status` change is recorded in the history.
 - Confirmation of `succeeded` may come only from a verified webhook.
 - Redelivery of the same Stripe event must not repeat its effects.
+- StripeEvent receipts preserve durable idempotency across process restarts.
+- The first terminal Payment state wins; contradictory later provider events
+  require reconciliation and cannot overwrite it.
+- Signed business mismatches are receipted for reconciliation rather than
+  misclassified as signature failures.
 - A future `refund_status` remains a separate lifecycle.
 - Stage 9 verifies D-016 against persisted Payment rows and verifies the D-017
   `Order -> Payment` lock protocol at the domain and integration level. The
@@ -316,7 +331,7 @@ discounts. Dine-in orders additionally preserve `table_number_snapshot`.
 - The public status response contains only the public number,
   `order_status`, order type, optional table-number snapshot, currency,
   historical public item lines, subtotal, total, `created_at`, and `updated_at`.
-  Stage 9 deliberately adds no `payment_summary`; any future exposure requires
+  Stage 10 deliberately adds no `payment_summary`; any future exposure requires
   a separately approved public contract.
 - Public status does not expose an email address, internal UUIDs, Stripe
   identifiers, or administrator data. An invalid number and an invalid token
@@ -327,6 +342,9 @@ discounts. Dine-in orders additionally preserve `table_number_snapshot`.
 - Financial operations and critical changes are performed transactionally.
 
 ## 8. Expected Portfolio Value
+
+Stage 10 is complete. The next exact stage is **Stage 11 — Administrator
+Authentication**, which has not started and requires separate approval.
 
 The project should demonstrate to a recruiter that its author can:
 

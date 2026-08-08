@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     app_debug: bool = False
     database_url: PostgresDsn | None = Field(default=None, repr=False)
     stripe_secret_key: SecretStr | None = Field(default=None, repr=False)
+    stripe_webhook_secret: SecretStr | None = Field(default=None, repr=False)
     stripe_success_url: str | None = None
     stripe_cancel_url: str | None = None
 

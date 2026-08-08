@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -117,6 +118,77 @@ class Payment(Base):
             "ix_payments_order_created_at_id",
             "order_id",
             "created_at",
+            "id",
+        ),
+    )
+
+
+class StripeEvent(Base):
+    """Represent one durable receipt for an in-scope Stripe event."""
+
+    __tablename__ = "stripe_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False
+    )
+    stripe_event_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    livemode: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    stripe_created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    stripe_checkout_session_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    payment_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("payments.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    processing_result: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "event_type IN ("
+            "'checkout.session.completed', "
+            "'checkout.session.async_payment_succeeded', "
+            "'checkout.session.async_payment_failed', "
+            "'checkout.session.expired'"
+            ")",
+            name="event_type_allowed",
+        ),
+        CheckConstraint(
+            "processing_result IN ("
+            "'transitioned', "
+            "'awaiting_async_payment', "
+            "'already_applied', "
+            "'reconciliation_required'"
+            ")",
+            name="processing_result_allowed",
+        ),
+        CheckConstraint(
+            "char_length(btrim(stripe_event_id)) > 0",
+            name="stripe_event_id_not_blank",
+        ),
+        CheckConstraint(
+            "char_length(btrim(stripe_checkout_session_id)) > 0",
+            name="checkout_session_id_not_blank",
+        ),
+        UniqueConstraint(
+            "stripe_event_id",
+            name="uq_stripe_events_stripe_event_id",
+        ),
+        Index(
+            "ix_stripe_events_payment_created_at_id",
+            "payment_id",
+            "stripe_created_at",
+            "id",
+        ),
+        Index(
+            "ix_stripe_events_session_created_at_id",
+            "stripe_checkout_session_id",
+            "stripe_created_at",
             "id",
         ),
     )

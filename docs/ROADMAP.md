@@ -167,7 +167,7 @@
 
 ## 10. Stripe Webhook
 
-- **Status:** not started; requires separate user approval
+- **Status:** completed
 - **Goal:** confirm payment outcomes securely.
 - **Outcome:** a raw webhook endpoint, signature verification, an event table,
   event ID uniqueness, payments, and transactional event handling.
@@ -184,9 +184,14 @@
   `succeeded` webhook, two concurrent webhooks for the same event, and the
   impossibility of obtaining `order_status = cancelled` together with
   `Payment(status=succeeded)`.
+- **Verified outcome:** Stage 10 stores durable StripeEvent receipts, verifies
+  raw payloads through the official SDK, applies provider-authoritative Payment
+  transitions atomically, preserves the first terminal result, and handles
+  duplicate, Checkout Phase 3, and future cancellation races without deadlock.
 
 ## 11. Administrator Authentication
 
+- **Status:** not started; requires separate user approval
 - **Goal:** protect all internal features.
 - **Outcome:** a user model, an administrator seed/creation command, secure
   password hashing, sign-in, JWT, `/auth/me`, and sign-in rate limiting.
@@ -334,11 +339,10 @@
 
 ## Next Recommended Stage
 
-Stage 1 through Stage 9 have been completed and verified. Stage 9 implements
-pending Payment attempts and idempotent Stripe Checkout Session creation; it
-does not implement webhook verification or provider-confirmed `succeeded` and
-`expired` transitions.
+Stage 1 through Stage 10 have been completed and verified. Stage 10 implements
+the verified, idempotent Stripe webhook and provider-authoritative Payment
+transitions.
 
-The next recommended stage is **Stage 10 — Stripe Webhook**. Stage 10 has not
-started and requires separate user approval. This roadmap update does not
-authorize starting Stage 10.
+The next recommended stage is **Stage 11 — Administrator Authentication**.
+Stage 11 has not started and requires separate user approval. This roadmap
+update does not authorize starting Stage 11.

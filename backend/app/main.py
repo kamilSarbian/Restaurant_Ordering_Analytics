@@ -16,6 +16,8 @@ from app.orders.router import router as orders_router
 from app.payments.checkout import utc_now
 from app.payments.router import router as payments_router
 from app.payments.stripe_checkout import StripeCheckoutClient
+from app.payments.stripe_webhook import StripeWebhookVerifier
+from app.payments.webhook_router import router as webhook_router
 
 
 def create_app(
@@ -25,6 +27,7 @@ def create_app(
     order_creation_rate_limiter: FixedWindowRateLimiter | None = None,
     checkout_rate_limiter: FixedWindowRateLimiter | None = None,
     stripe_checkout_client: StripeCheckoutClient | None = None,
+    stripe_webhook_verifier: StripeWebhookVerifier | None = None,
     checkout_now_provider: Callable[[], datetime] | None = None,
 ) -> FastAPI:
     """Create and configure the FastAPI application.
@@ -35,6 +38,7 @@ def create_app(
         order_creation_rate_limiter: Optional app-scoped limiter override.
         checkout_rate_limiter: Optional app-scoped checkout limiter override.
         stripe_checkout_client: Optional app-scoped Stripe adapter override.
+        stripe_webhook_verifier: Optional app-scoped webhook verifier override.
         checkout_now_provider: Optional deterministic checkout clock override.
 
     Returns:
@@ -89,6 +93,15 @@ def create_app(
             else None
         )
     )
+    application.state.stripe_webhook_verifier = (
+        stripe_webhook_verifier
+        if stripe_webhook_verifier is not None
+        else (
+            StripeWebhookVerifier(resolved_settings.stripe_webhook_secret)
+            if resolved_settings.stripe_webhook_secret is not None
+            else None
+        )
+    )
     application.state.stripe_success_url = resolved_settings.stripe_success_url
     application.state.stripe_cancel_url = resolved_settings.stripe_cancel_url
     application.state.checkout_now_provider = checkout_now_provider or utc_now
@@ -96,6 +109,7 @@ def create_app(
     application.include_router(menu_router)
     application.include_router(orders_router)
     application.include_router(payments_router)
+    application.include_router(webhook_router)
 
     default_openapi = application.openapi
 

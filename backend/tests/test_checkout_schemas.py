@@ -111,12 +111,14 @@ def test_stripe_settings_are_optional_without_environment_values(
     """Keep application construction safe before Stripe is configured."""
     for variable_name in (
         "STRIPE_SECRET_KEY",
+        "STRIPE_WEBHOOK_SECRET",
         "STRIPE_SUCCESS_URL",
         "STRIPE_CANCEL_URL",
     ):
         monkeypatch.delenv(variable_name, raising=False)
     settings = Settings(_env_file=None)
     assert settings.stripe_secret_key is None
+    assert settings.stripe_webhook_secret is None
     assert settings.stripe_success_url is None
     assert settings.stripe_cancel_url is None
 
@@ -126,6 +128,7 @@ def test_stripe_settings_load_from_the_approved_environment_names(
 ) -> None:
     """Load exactly the approved Stripe configuration values from the environment."""
     monkeypatch.setenv("STRIPE_SECRET_KEY", "not-a-real-secret")
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "not-a-real-webhook-secret")
     monkeypatch.setenv(
         "STRIPE_SUCCESS_URL",
         "https://restaurant.example/orders/{public_order_number}/success",
@@ -137,16 +140,36 @@ def test_stripe_settings_load_from_the_approved_environment_names(
     settings = Settings(_env_file=None)
     assert isinstance(settings.stripe_secret_key, SecretStr)
     assert settings.stripe_secret_key.get_secret_value() == "not-a-real-secret"
+    assert isinstance(settings.stripe_webhook_secret, SecretStr)
+    assert (
+        settings.stripe_webhook_secret.get_secret_value() == "not-a-real-webhook-secret"
+    )
     assert settings.stripe_success_url.endswith("/success")
     assert settings.stripe_cancel_url.endswith("/cancel")
 
 
-def test_settings_representation_does_not_reveal_the_stripe_secret() -> None:
-    """Exclude the raw Stripe secret from settings representations."""
-    raw_secret = "not-a-real-secret"
-    settings = Settings(_env_file=None, stripe_secret_key=raw_secret)
-    assert raw_secret not in repr(settings)
-    assert raw_secret not in str(settings)
+def test_settings_representation_does_not_reveal_stripe_secrets() -> None:
+    """Exclude both raw Stripe secrets from settings representations."""
+    raw_api_secret = "not-a-real-api-secret"
+    raw_webhook_secret = "not-a-real-webhook-secret"
+    settings = Settings(
+        _env_file=None,
+        stripe_secret_key=raw_api_secret,
+        stripe_webhook_secret=raw_webhook_secret,
+    )
+    for raw_secret in (raw_api_secret, raw_webhook_secret):
+        assert raw_secret not in repr(settings)
+        assert raw_secret not in str(settings)
+
+
+def test_app_construction_does_not_require_a_webhook_secret() -> None:
+    """Keep the general application available before webhook configuration."""
+    from app.main import create_app
+
+    settings = Settings(_env_file=None)
+    application = create_app(settings=settings)
+    assert settings.stripe_webhook_secret is None
+    assert application.title == settings.app_name
 
 
 def test_parse_checkout_idempotency_key_accepts_canonical_uuid4() -> None:

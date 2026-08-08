@@ -2,13 +2,15 @@
 
 ## Current status
 
-Stage 9 is complete. The repository contains a verified FastAPI application,
+Stage 10 is complete. The repository contains a verified FastAPI application,
 public menu and transient quote APIs, persistent guest order creation, secure
 public order status retrieval, durable payment attempts, and idempotent Stripe
-Checkout Session creation. Local development uses PostgreSQL 17, synchronous
-SQLAlchemy 2, Psycopg 3, Alembic, and an explicit demonstration menu seed.
+Checkout Session creation. It also provides an idempotent, signature-verified
+Stripe webhook that applies provider-authoritative Payment transitions. Local
+development uses PostgreSQL 17, synchronous SQLAlchemy 2, Psycopg 3, Alembic,
+and an explicit demonstration menu seed.
 
-Stripe webhook handling, frontend, full-system containerisation, CI, and
+Administrator authentication, frontend, full-system containerisation, CI, and
 deployment have not started.
 
 ## Business problem
@@ -44,6 +46,8 @@ without introducing infrastructure that is unnecessary for a single venue.
   token hashes.
 - Durable `Order 1:N Payment` attempts with database-enforced integrity,
   idempotent hosted Stripe Checkout creation, and fake-provider tests.
+- Durable StripeEvent receipts, raw-body signature verification, transactional
+  webhook idempotency, and provider-authoritative Payment transitions.
 - Isolated PostgreSQL integration tests for models, constraints, and migration
   upgrades, downgrades, seed idempotency, and data protection.
 - Ruff, Black, and isort quality configuration.
@@ -53,8 +57,8 @@ without introducing infrastructure that is unnecessary for a single venue.
 - Implemented: Python 3.12, FastAPI, Pydantic 2, PostgreSQL 17, SQLAlchemy 2,
   Alembic, Psycopg 3, Stripe Python SDK, Docker Compose, pytest, Ruff, Black,
   and isort.
-- Planned: Stripe webhooks, React, TypeScript, Vite, full-system containers,
-  GitHub Actions, and deployment.
+- Planned: administrator authentication, React, TypeScript, Vite, full-system
+  containers, GitHub Actions, and deployment.
 
 ## Repository structure
 
@@ -151,7 +155,9 @@ its local data. Do not use `-v` unless data deletion is intentional.
 Stage 4 adds migration `0002_create_menu_models`. Stage 8 adds the schema-only
 `0003_create_order_models` migration for restaurant tables and persistent order
 aggregates. Stage 9 adds the schema-only `0004_create_payment_model` migration
-for durable payment attempts. None of these migrations runs the seed.
+for durable payment attempts. Stage 10 adds the schema-only
+`0005_create_stripe_event_model` migration for durable webhook receipts. None
+of these migrations runs the seed.
 
 ## Menu data foundation
 
@@ -473,9 +479,9 @@ Invoke-RestMethod -Uri http://127.0.0.1:8000/api/v1/orders/ROA-ORDERNUMBER `
 Stage 9 persists each hosted Checkout attempt as a `Payment` related to one
 durable `Order`. Attempts have the statuses `pending`, `succeeded`, `failed`,
 and `expired`. Stage 9 creates `pending` attempts and may mark a definitively
-rejected creation as `failed`; it does not produce provider-confirmed
-`succeeded` or `expired` transitions. Those transitions and verified webhook
-processing belong to Stage 10, which has not started.
+rejected creation as `failed`. Stage 10 implements provider-confirmed
+`succeeded`, `failed`, and `expired` transitions through the verified webhook
+described below.
 
 Create or replay a Checkout Session with:
 
@@ -490,7 +496,8 @@ order number and access token, then uses only the durable `Order.total_amount`
 and `Order.currency`. Stripe receives one hosted Checkout line item in
 `mode=payment`. A new attempt returns HTTP 201; replay of the same completed
 operation returns HTTP 200. The public response contains only the public order
-number, `pending` status, sensitive hosted Checkout URL, and expiration time.
+number, Payment attempt status, sensitive hosted Checkout URL, and expiration
+time.
 It does not expose internal IDs, Stripe Session IDs, idempotency keys, guest
 credentials, or a payment summary through the public Order status endpoint.
 
@@ -542,6 +549,51 @@ The redirect URLs may contain the single
 `{public_order_number}` placeholder. Use only local test-mode credentials and
 approved redirect destinations; no real values belong in repository files.
 
+## Stripe Webhook
+
+Stage 10 adds the provider-facing `POST /api/v1/stripe/webhook` endpoint. It is
+intentionally hidden from OpenAPI, accepts the exact raw request body, requires
+the `Stripe-Signature` header, and verifies signatures with the official Stripe
+Python SDK. `STRIPE_WEBHOOK_SECRET` is optional for general application startup
+but required to serve the webhook. The default signature tolerance is 300
+seconds.
+
+The following validly signed Checkout events are processed:
+
+- `checkout.session.completed`;
+- `checkout.session.async_payment_succeeded`;
+- `checkout.session.async_payment_failed`;
+- `checkout.session.expired`.
+
+A validly signed event outside this set is acknowledged with HTTP 200 without a
+database receipt. In-scope deliveries use the unique Stripe event ID for
+durable idempotency. Known payments are correlated using the Payment ID, Order
+ID, public order number, Checkout Session ID, amount, currency, and
+`mode=payment`. The service locks Order before deterministically ordered Payment
+rows and stores the StripeEvent receipt atomically with any Payment transition.
+
+Provider facts drive the state machine:
+
+- completed and paid transitions a pending Payment to `succeeded`;
+- completed and unpaid keeps it `pending` while awaiting asynchronous payment;
+- asynchronous success transitions it to `succeeded`;
+- asynchronous failure transitions it to `failed`;
+- an expired unpaid session transitions it to `expired`.
+
+The first terminal state wins. A contradictory later event cannot regress or
+replace it and instead creates a `reconciliation_required` receipt. Missing or
+inconsistent business correlation also creates a durable reconciliation receipt
+and returns HTTP 200. An invalid signature or payload returns HTTP 400, missing
+webhook configuration returns HTTP 503, and a database failure before commit
+returns HTTP 500 so Stripe can retry.
+
+Webhook processing performs no Stripe retrieval or other external network
+request and stores no raw payload, signature, Checkout URL, or metadata JSON.
+It does not add a public `payment_summary` or a cancellation endpoint.
+Automated tests are fully offline and use injected verifiers or clearly
+synthetic local signatures. A Stripe CLI smoke test remains optional and
+manual; it is not required for automated validation or a commit.
+
 ## Tests and quality checks
 
 Run these commands from the `backend` directory:
@@ -570,6 +622,7 @@ Available endpoints:
 - Order creation: `POST http://127.0.0.1:8000/api/v1/orders`
 - Public order status: `GET http://127.0.0.1:8000/api/v1/orders/{public_order_number}`
 - Stripe Checkout: `POST http://127.0.0.1:8000/api/v1/orders/{public_order_number}/checkout-session`
+- Stripe webhook: `POST http://127.0.0.1:8000/api/v1/stripe/webhook` (provider-facing and hidden from OpenAPI)
 - Swagger UI: <http://127.0.0.1:8000/docs>
 - OpenAPI document: <http://127.0.0.1:8000/openapi.json>
 

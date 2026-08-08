@@ -376,12 +376,18 @@ def _persist_provider_success(
         if order is None:
             raise PaymentSessionReconciliationRequiredError
         payments = _lock_payments(session, order.id)
-        if any(payment.status == PaymentStatus.SUCCEEDED.value for payment in payments):
+        if any(
+            payment.status == PaymentStatus.SUCCEEDED.value and payment.id != payment_id
+            for payment in payments
+        ):
             raise OrderAlreadyPaidError
         payment = next((item for item in payments if item.id == payment_id), None)
         if payment is None:
             raise PaymentSessionReconciliationRequiredError
-        if payment.status != PaymentStatus.PENDING.value:
+        if payment.status not in {
+            PaymentStatus.PENDING.value,
+            PaymentStatus.SUCCEEDED.value,
+        }:
             raise PaymentSessionReconciliationRequiredError
 
         session_state = _session_field_state(payment)

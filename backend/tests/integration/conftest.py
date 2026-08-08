@@ -26,7 +26,7 @@ ADMIN_DATABASE_NAME = "postgres"
 ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
 REQUIRED_DRIVER = "postgresql+psycopg"
 REQUIRED_PORT = 5433
-HEAD_REVISION = "0004_create_payment_model"
+HEAD_REVISION = "0005_create_stripe_event_model"
 BASELINE_REVISION = "0001_database_baseline"
 
 
@@ -223,6 +223,7 @@ def _verify_migration_cycle(database_url: URL) -> None:
         "orders",
         "payments",
         "restaurant_tables",
+        "stripe_events",
     }:
         raise RuntimeError("First migration upgrade created unexpected public tables")
 

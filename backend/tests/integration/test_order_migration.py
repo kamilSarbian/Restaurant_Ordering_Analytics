@@ -24,6 +24,7 @@ EXPECTED_HEAD_TABLES = {
     "orders",
     "payments",
     "restaurant_tables",
+    "stripe_events",
 }
 EXPECTED_0002_TABLES = {
     "alembic_version",
@@ -36,7 +37,7 @@ STAGE_EIGHT_TABLES = {
     "orders",
     "restaurant_tables",
 }
-EXPECTED_0003_TABLES = EXPECTED_HEAD_TABLES - {"payments"}
+EXPECTED_0003_TABLES = EXPECTED_0002_TABLES | STAGE_EIGHT_TABLES
 
 
 def _upgrade(database_url: URL, revision: str) -> None:

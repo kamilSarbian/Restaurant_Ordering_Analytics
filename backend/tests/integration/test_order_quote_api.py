@@ -157,7 +157,7 @@ def _database_snapshot(
     return categories, items
 
 
-def _persistent_order_counts(engine: Engine) -> tuple[int, int, int, int]:
+def _persistent_order_counts(engine: Engine) -> tuple[int, int, int, int, int]:
     with engine.connect() as connection:
         row = connection.execute(
             text(
@@ -165,10 +165,11 @@ def _persistent_order_counts(engine: Engine) -> tuple[int, int, int, int]:
                 "(SELECT count(*) FROM orders), "
                 "(SELECT count(*) FROM order_items), "
                 "(SELECT count(*) FROM order_status_history), "
-                "(SELECT count(*) FROM payments)"
+                "(SELECT count(*) FROM payments), "
+                "(SELECT count(*) FROM stripe_events)"
             )
         ).one()
-    return int(row[0]), int(row[1]), int(row[2]), int(row[3])
+    return tuple(int(value) for value in row)
 
 
 def test_quote_one_item_uses_server_name_price_and_integer_arithmetic(
@@ -719,11 +720,11 @@ def test_foundation_tables_and_routes_exist_without_quote_persistence(
         "orders",
         "payments",
         "restaurant_tables",
+        "stripe_events",
     }
     assert {
         "quotes",
         "idempotency_keys",
-        "stripe_events",
     }.isdisjoint(table_names)
     assert client.post("/api/v1/orders", json={}).status_code == 422
     paths = client.get("/openapi.json").json()["paths"]

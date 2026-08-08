@@ -149,6 +149,7 @@ def test_schema_has_exact_constraints_and_restricted_foreign_keys(
         "orders",
         "payments",
         "restaurant_tables",
+        "stripe_events",
     }
     for table_name, expected in EXPECTED_CHECKS.items():
         assert {
