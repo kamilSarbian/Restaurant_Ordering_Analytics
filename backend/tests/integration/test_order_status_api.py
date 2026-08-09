@@ -468,7 +468,7 @@ def test_get_quote_remains_405_and_post_quote_still_works(
     assert response.status_code == 200
 
 
-def test_openapi_documents_status_without_creation_or_security_scheme(
+def test_openapi_documents_status_without_an_order_security_requirement(
     client: TestClient,
 ) -> None:
     """Expose guest status without weakening its access or data boundary."""
@@ -515,7 +515,11 @@ def test_openapi_documents_status_without_creation_or_security_scheme(
     status_schema_text = str(document["components"]["schemas"]["OrderStatusResponse"])
     assert "Payment" not in status_schema_text
     assert "Stripe" not in status_schema_text
-    assert "securitySchemes" not in document.get("components", {})
+    assert document["components"]["securitySchemes"]["AdminBearer"] == {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+    }
 
 
 def test_post_order_creation_is_documented(client: TestClient) -> None:

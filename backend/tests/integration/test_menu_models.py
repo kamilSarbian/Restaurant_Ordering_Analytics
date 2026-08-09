@@ -256,6 +256,7 @@ def test_schema_matches_approved_contract(test_database_engine: Engine) -> None:
     """Verify exact tables, constraints, indexes, types, and delete behavior."""
     inspector = inspect(test_database_engine)
     assert set(inspector.get_table_names(schema="public")) == {
+        "admin_users",
         "alembic_version",
         "categories",
         "menu_items",

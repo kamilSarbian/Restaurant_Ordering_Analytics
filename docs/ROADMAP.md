@@ -191,16 +191,21 @@
 
 ## 11. Administrator Authentication
 
-- **Status:** not started; requires separate user approval
+- **Status:** completed
 - **Goal:** protect all internal features.
-- **Outcome:** a user model, an administrator seed/creation command, secure
-  password hashing, sign-in, JWT, `/auth/me`, and sign-in rate limiting.
+- **Outcome:** a minimal AdminUser model, explicit interactive administrator
+  creation command, Argon2id password hashing, sign-in, short-lived JWT,
+  `/auth/me`, reusable AdminBearer authorization, and sign-in rate limiting.
 - **Dependencies:** Stage 3 and decisions about JWT lifetime and revocation.
 - **Completion criterion:** there is no public registration, the password is
   neither stored nor logged in plain text, and a protected endpoint rejects a
   missing or invalid token. Sign-in enforces the configured request limit.
 - **Test:** tests for successful and unsuccessful sign-in, password hashes, JWT
   expiration, authorization, and exceeding the sign-in limit.
+- **Verified outcome:** Stage 11 persists normalized administrator identities,
+  creates zero accounts through migration, supports race-safe interactive
+  bootstrap, resists login enumeration, validates active database identity on
+  every protected request, and leaves all public customer routes unauthenticated.
 
 ## 12. Administrator Panel — Operational API
 
@@ -339,10 +344,11 @@
 
 ## Next Recommended Stage
 
-Stage 1 through Stage 10 have been completed and verified. Stage 10 implements
-the verified, idempotent Stripe webhook and provider-authoritative Payment
-transitions.
+Stage 1 through Stage 11 have been completed and verified. Stage 11 implements
+persisted administrator identities, Argon2id password storage, explicit
+bootstrap, login, short-lived JWT access tokens, current active-identity checks,
+and sign-in rate limiting.
 
-The next recommended stage is **Stage 11 — Administrator Authentication**.
-Stage 11 has not started and requires separate user approval. This roadmap
-update does not authorize starting Stage 11.
+The next recommended stage is **Stage 12 — Administrator Panel — Operational
+API**. Stage 12 has not started and requires separate user approval. This
+roadmap update does not authorize starting Stage 12.

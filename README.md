@@ -2,16 +2,17 @@
 
 ## Current status
 
-Stage 10 is complete. The repository contains a verified FastAPI application,
+Stage 11 is complete. The repository contains a verified FastAPI application,
 public menu and transient quote APIs, persistent guest order creation, secure
 public order status retrieval, durable payment attempts, and idempotent Stripe
 Checkout Session creation. It also provides an idempotent, signature-verified
-Stripe webhook that applies provider-authoritative Payment transitions. Local
-development uses PostgreSQL 17, synchronous SQLAlchemy 2, Psycopg 3, Alembic,
-and an explicit demonstration menu seed.
+Stripe webhook that applies provider-authoritative Payment transitions and
+administrator authentication with Argon2id password hashes and short-lived JWT
+access tokens. Local development uses PostgreSQL 17, synchronous SQLAlchemy 2,
+Psycopg 3, Alembic, and an explicit demonstration menu seed.
 
-Administrator authentication, frontend, full-system containerisation, CI, and
-deployment have not started.
+The administrator operational API, frontend, full-system containerisation, CI,
+and deployment have not started.
 
 ## Business problem
 
@@ -48,6 +49,9 @@ without introducing infrastructure that is unnecessary for a single venue.
   idempotent hosted Stripe Checkout creation, and fake-provider tests.
 - Durable StripeEvent receipts, raw-body signature verification, transactional
   webhook idempotency, and provider-authoritative Payment transitions.
+- Persisted AdminUser identities, explicit interactive bootstrap, Argon2id
+  password hashing, administrator sign-in, JWT access tokens, `/auth/me`, a
+  reusable AdminBearer dependency, and sign-in rate limiting.
 - Isolated PostgreSQL integration tests for models, constraints, and migration
   upgrades, downgrades, seed idempotency, and data protection.
 - Ruff, Black, and isort quality configuration.
@@ -55,10 +59,10 @@ without introducing infrastructure that is unnecessary for a single venue.
 ## Technology status
 
 - Implemented: Python 3.12, FastAPI, Pydantic 2, PostgreSQL 17, SQLAlchemy 2,
-  Alembic, Psycopg 3, Stripe Python SDK, Docker Compose, pytest, Ruff, Black,
-  and isort.
-- Planned: administrator authentication, React, TypeScript, Vite, full-system
-  containers, GitHub Actions, and deployment.
+  Alembic, Psycopg 3, Stripe Python SDK, pwdlib with Argon2, PyJWT,
+  email-validator, Docker Compose, pytest, Ruff, Black, and isort.
+- Planned: administrator operational APIs, React, TypeScript, Vite,
+  full-system containers, GitHub Actions, and deployment.
 
 ## Repository structure
 
@@ -156,8 +160,70 @@ Stage 4 adds migration `0002_create_menu_models`. Stage 8 adds the schema-only
 `0003_create_order_models` migration for restaurant tables and persistent order
 aggregates. Stage 9 adds the schema-only `0004_create_payment_model` migration
 for durable payment attempts. Stage 10 adds the schema-only
-`0005_create_stripe_event_model` migration for durable webhook receipts. None
-of these migrations runs the seed.
+`0005_create_stripe_event_model` migration for durable webhook receipts. Stage
+11 adds schema-only migration `0006_create_admin_user_model`. It creates the
+`admin_users` table but creates zero administrator accounts. None of these
+migrations runs the seed or administrator bootstrap.
+
+## Administrator authentication
+
+Stage 11 persists a separate `AdminUser` identity with an application-generated
+UUID, a normalized lowercase email, an Argon2id password hash, an activation
+flag, and timestamps. There is no customer or general User authentication and
+no public administrator registration.
+
+Bootstrap passwords contain 15 through 128 Unicode code points and are
+preserved exactly, including whitespace. pwdlib applies Argon2id with memory
+cost 19456 KiB, time cost 2, parallelism 1, and a library-generated salt. Login
+accepts password input from 1 through 128 code points because existing valid
+credentials must remain usable. Passwords and hashes must never be logged.
+
+The only administrator creation boundary is the explicit interactive command,
+run from `backend` after migration `0006` has been applied:
+
+```powershell
+& .\.venv\Scripts\python.exe -m app.auth.bootstrap --email <email>
+```
+
+The CLI prompts with `getpass` for the password and confirmation, so the value
+is not echoed. It has no `--password` option and does not read an administrator
+password from configuration. Imports, application startup, Alembic, Docker
+Compose, and the menu seed never create an administrator automatically.
+Duplicate normalized emails fail without changing the existing hash,
+activation state, or timestamps.
+
+`POST /api/v1/admin/auth/login` accepts JSON containing `email` and `password`.
+It returns a JWT Bearer access token after an exact normalized email lookup and
+Argon2id verification. Unknown identities perform a process-local dummy
+verification generated from random source material, while unknown identities,
+wrong passwords, and inactive identities share one HTTP 401 response. The
+separate login limiter permits five attempts per 60 seconds for each direct
+peer, ignores `X-Forwarded-For`, and returns HTTP 429 with `Retry-After` before
+SQL, Argon2, or token generation.
+
+`GET /api/v1/admin/auth/me` requires the OpenAPI `AdminBearer` security scheme.
+Every protected request validates the token and reloads the current AdminUser
+from PostgreSQL; setting `is_active=false` therefore invalidates an otherwise
+unexpired token immediately. Public health, menu, quote, guest order, public
+status, and Checkout routes remain unauthenticated by AdminBearer. The Stripe
+webhook remains hidden from OpenAPI.
+
+Administrator access tokens use only HS256 with a fixed issuer, audience, token
+type, canonical AdminUser UUID `sub`, `iat`, and `exp`. The default lifetime is
+30 minutes and may be configured from 1 through 60 minutes. Stage 11 provides
+no refresh tokens, logout, revocation list, password reset/change, or MFA.
+
+Authentication configuration uses:
+
+- `ADMIN_JWT_SECRET`: no default; at least 32 UTF-8 bytes;
+- `ADMIN_ACCESS_TOKEN_EXPIRE_MINUTES`: integer from 1 through 60, default 30.
+
+Keep configuration in an ignored local environment file and use HTTPS in any
+deployment because Bearer tokens must not cross an unencrypted connection.
+Migration `0006` intentionally creates zero administrators. After the future
+Stage 11 commit, an operator must first set `ADMIN_JWT_SECRET` in the ignored
+local environment and then run the interactive bootstrap command once. These
+are manual operational setup steps, not automated test requirements.
 
 ## Menu data foundation
 

@@ -11,15 +11,16 @@
 - **Stage 8:** completed
 - **Stage 9:** completed
 - **Stage 10:** completed
-- **Current stage:** waiting for approval to start Stage 11
+- **Stage 11:** completed
+- **Current stage:** waiting for approval to start Stage 12
 - **Backend:** FastAPI, database foundation, menu models, local seed data,
   public menu, transient quoting, persistent order creation, and secure public
   order status, Payment persistence, Stripe Checkout, and verified Stripe
-  webhook processing completed
+  webhook processing, plus administrator authentication completed
 - **Frontend:** not started
-- **Database:** PostgreSQL, Alembic, menu, order, Payment, and StripeEvent
-  models, migration `0005_create_stripe_event_model`, and deterministic menu
-  seed completed
+- **Database:** PostgreSQL, Alembic, menu, order, Payment, StripeEvent, and
+  AdminUser models, migration `0006_create_admin_user_model`, and deterministic
+  menu seed completed; the development AdminUser count is zero
 - **Seed data:** completed and verified
 - **Public menu API:** list, availability filter, item details, and 404 contract
   completed and verified
@@ -42,7 +43,16 @@
   verified
 - **Provider-authoritative Payment transitions:** completed and verified
 - **Webhook/Checkout Phase 3 race:** completed and verified
-- **Application tests:** 757 health, database, migration, model, constraint,
+- **AdminUser persistence:** completed and verified
+- **Argon2id password hashing:** completed and verified through pwdlib
+- **Administrator JWT:** completed and verified with fixed HS256 contracts
+- **Administrator login and `/auth/me`:** completed and verified
+- **Reusable AdminBearer dependency:** completed and verified
+- **Administrator login limiter:** completed and verified at 5 attempts per 60
+  seconds for each direct peer
+- **Administrator bootstrap CLI:** completed and verified; no real development
+  administrator has been created
+- **Application tests:** 925 health, database, migration, model, constraint,
   seed, schema, public API, quoting, order creation, payment, security,
   rate-limit, rollback, and concurrency tests completed
 - **Deployment:** not started
@@ -52,7 +62,12 @@
 - The backend exposes health, read-only public menu and quote endpoints,
   persistent guest order creation, and token-protected public order status;
   menu writes have not started.
-- Administrator authentication and frontend work have not started.
+- Administrator operational endpoints and frontend work have not started.
+- Administrator authentication has no refresh, logout, revocation, password
+  reset/change, or MFA. Its limiter is per process and resets on restart.
+- Migration `0006` creates no administrator. Manual setup after the future
+  Stage 11 commit still requires an operator to configure a local JWT secret
+  and run the interactive bootstrap command; neither action is part of tests.
 - RestaurantTable provisioning and administration have not started, so Stage 8
   only provides the persistence and validation foundation.
 - Order creation has no idempotency key; a network retry can create a duplicate
@@ -71,6 +86,28 @@
   not started.
 
 ## Last verification
+
+Stage 11 verified on 2026-08-09:
+
+- Independent AdminUser, Argon2id, JWT, login, Bearer, limiter, bootstrap,
+  OpenAPI, exposure, and concurrency audit: PASS
+- Administrator passwords 20, schemas 19, tokens 55, models 14, migration 3,
+  auth API 16, bootstrap 23, and rate-limit 22 tests passed
+- Full pytest suite: 925 passed with one accepted Starlette warning
+- Ruff, Black, isort, OpenAPI, and Alembic drift checks: PASS
+- Isolated `0005_create_stripe_event_model` to
+  `0006_create_admin_user_model` upgrade, downgrade, second upgrade, model
+  parity, and no-drift lifecycle: PASS
+- Development database migrated additively from `0005` to `0006` without
+  changing OID 16384 or any seed UUID, business value, or timestamp: PASS
+- Development menu remains 5/15; RestaurantTable, Order, OrderItem,
+  OrderStatusHistory, Payment, StripeEvent, and AdminUser counts remain zero:
+  PASS
+- Read-only health, menu, availability, approved quote 53700, docs, OpenAPI,
+  and bootstrap-help smoke: PASS
+- No public registration, automatic administrator, real JWT secret, bootstrap
+  execution, development seed, Stage 12 endpoint, or Git history operation:
+  PASS
 
 Stage 10 verified on 2026-08-08:
 

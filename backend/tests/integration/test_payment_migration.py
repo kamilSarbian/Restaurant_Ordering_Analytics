@@ -26,7 +26,10 @@ EXPECTED_STAGE_EIGHT_TABLES = {
     "restaurant_tables",
 }
 EXPECTED_0004_TABLES = EXPECTED_STAGE_EIGHT_TABLES | {"payments"}
-EXPECTED_REPOSITORY_HEAD_TABLES = EXPECTED_0004_TABLES | {"stripe_events"}
+EXPECTED_REPOSITORY_HEAD_TABLES = EXPECTED_0004_TABLES | {
+    "admin_users",
+    "stripe_events",
+}
 EXPECTED_CHECKS = {
     "ck_payments_amount_positive",
     "ck_payments_checkout_session_fields_consistent",

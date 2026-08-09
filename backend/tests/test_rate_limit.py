@@ -1,10 +1,12 @@
 """Unit tests for the app-scoped fixed-window rate limiter."""
 
 from concurrent.futures import ThreadPoolExecutor
+from uuid import UUID
 
 import pytest
 from starlette.requests import Request
 
+from app.auth.tokens import AdminTokenService
 from app.core.config import Settings
 from app.core.rate_limit import (
     UNKNOWN_CLIENT_BUCKET,
@@ -175,6 +177,89 @@ def test_create_app_preserves_an_injected_checkout_limiter() -> None:
         checkout_rate_limiter=limiter,
     )
     assert application.state.checkout_rate_limiter is limiter
+
+
+def test_create_app_builds_default_admin_login_limiter() -> None:
+    """Configure the independent administrator limit at five per minute."""
+    application = create_app(settings=Settings(database_url=None))
+    limiter = application.state.admin_login_rate_limiter
+    assert limiter.limit == 5
+    assert limiter.window_seconds == 60
+    assert limiter is not application.state.order_creation_rate_limiter
+    assert limiter is not application.state.checkout_rate_limiter
+
+
+def test_create_app_builds_distinct_admin_login_limiters_per_app() -> None:
+    """Keep administrator login attempts isolated between app instances."""
+    first_app = create_app(settings=Settings(database_url=None))
+    second_app = create_app(settings=Settings(database_url=None))
+    first_limiter = first_app.state.admin_login_rate_limiter
+    second_limiter = second_app.state.admin_login_rate_limiter
+    assert first_limiter is not second_limiter
+    for _ in range(5):
+        assert first_limiter.check("client").allowed
+    assert first_limiter.check("client").allowed is False
+    assert second_limiter.check("client").allowed
+
+
+def test_create_app_preserves_an_injected_admin_login_limiter() -> None:
+    """Store the exact injected administrator limiter on application state."""
+    limiter = FixedWindowRateLimiter(limit=2, window_seconds=30)
+    application = create_app(
+        settings=Settings(database_url=None),
+        admin_login_rate_limiter=limiter,
+    )
+    assert application.state.admin_login_rate_limiter is limiter
+
+
+def test_admin_login_limiter_uses_existing_direct_peer_key_policy() -> None:
+    """Ignore forwarded addresses for administrator limiter bucket selection."""
+    application = create_app(settings=Settings(database_url=None))
+    limiter = application.state.admin_login_rate_limiter
+    direct_peer = get_client_bucket_key(
+        _request(("127.0.0.1", 1234), forwarded_for="203.0.113.10")
+    )
+    assert direct_peer == "127.0.0.1"
+    for _ in range(5):
+        assert limiter.check(direct_peer).allowed
+    assert limiter.check(direct_peer).allowed is False
+
+
+def test_create_app_preserves_an_injected_admin_token_service() -> None:
+    """Store the exact injected token service without generating a token."""
+    token_service = AdminTokenService("s" * 32)
+    application = create_app(
+        settings=Settings(_env_file=None, database_url=None),
+        admin_token_service=token_service,
+    )
+    assert application.state.admin_token_service is token_service
+
+
+def test_create_app_constructs_token_service_only_for_a_configured_secret() -> None:
+    """Keep auth optional while constructing one service from valid settings."""
+    unavailable_app = create_app(
+        settings=Settings(
+            _env_file=None,
+            database_url=None,
+            admin_jwt_secret=None,
+        )
+    )
+    configured_app = create_app(
+        settings=Settings(
+            _env_file=None,
+            database_url=None,
+            admin_jwt_secret="s" * 32,
+            admin_access_token_expire_minutes=7,
+        )
+    )
+    assert unavailable_app.state.admin_token_service is None
+    token_service = configured_app.state.admin_token_service
+    assert isinstance(token_service, AdminTokenService)
+    token = token_service.create_access_token(
+        UUID("f47ac10b-58cc-4372-a567-0e02b2c3d479")
+    )
+    claims = token_service.decode_access_token(token)
+    assert (claims.expires_at - claims.issued_at).total_seconds() == 420
 
 
 @pytest.mark.parametrize(

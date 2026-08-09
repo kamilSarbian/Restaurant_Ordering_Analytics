@@ -787,6 +787,69 @@ scope.
   eligibility without deadlocks. This decision extends D-016, D-017, and
   D-043 through D-046 without adding a cancellation endpoint.
 
+## D-050: Persisted Administrator Identity and Argon2id Password Storage
+
+- **Status:** accepted on 2026-08-09
+- **Decision:** administrators use a separate minimal `AdminUser` with an
+  application-generated UUID, normalized unique lowercase email, nonblank
+  password hash, `is_active`, and timezone-aware timestamps. pwdlib hashes exact
+  15–128-code-point bootstrap passwords with Argon2id using memory cost 19456
+  KiB, time cost 2, parallelism 1, and a library-generated salt. There is no
+  pepper, plaintext password, role, token version, reset state, MFA state,
+  customer account, general User model, or public registration.
+- **Provisioning:** migration `0006_create_admin_user_model` is schema-only and
+  creates zero administrators. Creation occurs only through the explicit
+  `python -m app.auth.bootstrap --email <email>` CLI, which reads password and
+  confirmation through `getpass`, exposes no password argument, and never
+  overwrites or reactivates a duplicate normalized identity. PostgreSQL email
+  uniqueness is the final arbiter for concurrent creation.
+- **Consequences:** imports, application startup, migrations, Docker Compose,
+  tests, and the menu seed never create a default administrator. Password
+  reset/change and MFA remain deferred and require separate approval.
+
+## D-051: Short-Lived Administrator JWT Access Tokens
+
+- **Status:** accepted on 2026-08-09
+- **Decision:** administrator access tokens use PyJWT with only HS256 and key
+  material of at least 32 UTF-8 bytes. Tokens contain exactly canonical
+  AdminUser UUID `sub`, fixed administrator token `type`, integer `iat` and
+  `exp`, fixed issuer, and fixed audience. Decoding explicitly allowlists
+  `algorithms=[HS256]`, requires every claim, rejects noncanonical subjects and
+  invalid time windows, and uses an injectable UTC clock.
+- **Lifetime:** the default access-token lifetime is 30 minutes and
+  configuration permits only 1 through 60 minutes. There is no default JWT
+  secret. General application startup remains possible without auth
+  configuration, while auth operations return 503 until configured.
+- **Consequences:** Stage 11 has no refresh tokens, logout endpoint, revocation
+  list, token version, or MFA. Every protected request additionally reloads the
+  current active AdminUser, so deactivation invalidates an unexpired token
+  immediately. Deployment must use HTTPS.
+
+## D-052: Administrator Login Protection and Failure Semantics
+
+- **Status:** accepted on 2026-08-09
+- **Decision:** login validates and normalizes email, accepts password input
+  from 1 through 128 code points, performs one exact email SELECT, and uses real
+  Argon2 verification for a known identity. An unknown identity performs one
+  lazily initialized process-local dummy verification whose source is random;
+  no static dummy credential or hash is stored. Inactive identities complete
+  real password verification before rejection.
+- **HTTP boundary:** unknown identities, wrong passwords, and inactive
+  identities share one login 401. Missing, malformed, expired, wrong, unknown,
+  or inactive Bearer identities share one protected 401 with a Bearer
+  challenge. `AdminBearer` performs token validation before a current active
+  AdminUser lookup. Public customer routes remain unauthenticated, login is
+  public, `/auth/me` is protected, and the Stripe webhook remains hidden from
+  OpenAPI.
+- **Rate limiting:** a separate app-scoped, per-process fixed window permits
+  five login attempts per 60 seconds for each direct peer. It ignores
+  `X-Forwarded-For` without trusted-proxy configuration and returns 429 with a
+  positive `Retry-After` before SQL, Argon2, or token creation. Schema 422 and
+  unavailable-service 503 outcomes precede limiter consumption where defined.
+- **Consequences:** a distributed limiter and trusted-proxy identity policy are
+  deferred until deployment needs demonstrate them. Stage 12 reuses the
+  authorization dependency but remains separately approved scope.
+
 ## History of Decisions That Required Resolution
 
 ### O-002: Boundary Between Order Creation and Stripe Checkout Session

@@ -162,6 +162,84 @@ def test_settings_representation_does_not_reveal_stripe_secrets() -> None:
         assert raw_secret not in str(settings)
 
 
+def test_admin_auth_settings_are_optional_with_the_approved_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Allow startup without a JWT secret and default access tokens to 30 minutes."""
+    monkeypatch.delenv("ADMIN_JWT_SECRET", raising=False)
+    monkeypatch.delenv("ADMIN_ACCESS_TOKEN_EXPIRE_MINUTES", raising=False)
+    settings = Settings(_env_file=None)
+    assert settings.admin_jwt_secret is None
+    assert settings.admin_access_token_expire_minutes == 30
+
+
+def test_admin_auth_settings_load_from_the_approved_environment_names(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Load the administrator JWT key and lifetime from their environment names."""
+    raw_secret = "s" * 32
+    monkeypatch.setenv("ADMIN_JWT_SECRET", raw_secret)
+    monkeypatch.setenv("ADMIN_ACCESS_TOKEN_EXPIRE_MINUTES", "45")
+    settings = Settings(_env_file=None)
+    assert isinstance(settings.admin_jwt_secret, SecretStr)
+    assert settings.admin_jwt_secret.get_secret_value() == raw_secret
+    assert settings.admin_access_token_expire_minutes == 45
+
+
+def test_admin_jwt_secret_is_absent_from_settings_representations() -> None:
+    """Keep raw administrator signing key material out of Settings text."""
+    raw_secret = "representation-safe-synthetic-key"
+    settings = Settings(_env_file=None, admin_jwt_secret=raw_secret)
+    assert raw_secret not in repr(settings)
+    assert raw_secret not in str(settings)
+
+
+@pytest.mark.parametrize("raw_secret", ["", " " * 32, "s" * 31])
+def test_admin_jwt_secret_rejects_blank_or_short_values(raw_secret: str) -> None:
+    """Reject blank key material and values shorter than 32 UTF-8 bytes."""
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, admin_jwt_secret=raw_secret)
+
+
+def test_admin_jwt_secret_accepts_exactly_thirty_two_bytes_unchanged() -> None:
+    """Accept the exact byte boundary without trimming the configured value."""
+    raw_secret = " " + "s" * 31
+    settings = Settings(_env_file=None, admin_jwt_secret=raw_secret)
+    assert settings.admin_jwt_secret is not None
+    assert settings.admin_jwt_secret.get_secret_value() == raw_secret
+
+
+def test_admin_jwt_secret_uses_utf8_byte_length() -> None:
+    """Measure multi-byte key material by UTF-8 bytes instead of code points."""
+    accepted_secret = "\N{LOCK}" * 8
+    rejected_secret = "\N{LOCK}" * 7
+    settings = Settings(_env_file=None, admin_jwt_secret=accepted_secret)
+    assert settings.admin_jwt_secret is not None
+    assert settings.admin_jwt_secret.get_secret_value() == accepted_secret
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, admin_jwt_secret=rejected_secret)
+
+
+@pytest.mark.parametrize("minutes", [1, 60])
+def test_admin_access_token_ttl_accepts_boundaries(minutes: int) -> None:
+    """Accept both approved administrator access-token lifetime boundaries."""
+    settings = Settings(
+        _env_file=None,
+        admin_access_token_expire_minutes=minutes,
+    )
+    assert settings.admin_access_token_expire_minutes == minutes
+
+
+@pytest.mark.parametrize("minutes", [0, 61])
+def test_admin_access_token_ttl_rejects_out_of_range_values(minutes: int) -> None:
+    """Reject administrator access-token lifetimes outside 1 through 60 minutes."""
+    with pytest.raises(ValidationError):
+        Settings(
+            _env_file=None,
+            admin_access_token_expire_minutes=minutes,
+        )
+
+
 def test_app_construction_does_not_require_a_webhook_secret() -> None:
     """Keep the general application available before webhook configuration."""
     from app.main import create_app
@@ -169,6 +247,7 @@ def test_app_construction_does_not_require_a_webhook_secret() -> None:
     settings = Settings(_env_file=None)
     application = create_app(settings=settings)
     assert settings.stripe_webhook_secret is None
+    assert settings.admin_jwt_secret is None
     assert application.title == settings.app_name
 
 

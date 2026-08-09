@@ -26,7 +26,8 @@ EXPECTED_0004_TABLES = {
     "payments",
     "restaurant_tables",
 }
-EXPECTED_HEAD_TABLES = EXPECTED_0004_TABLES | {"stripe_events"}
+EXPECTED_0005_TABLES = EXPECTED_0004_TABLES | {"stripe_events"}
+EXPECTED_HEAD_TABLES = EXPECTED_0005_TABLES | {"admin_users"}
 EXPECTED_COLUMNS = [
     "id",
     "stripe_event_id",
@@ -137,7 +138,7 @@ def test_stripe_event_migration_has_the_approved_parent() -> None:
     script = ScriptDirectory.from_config(_alembic_config())
     revision = script.get_revision("0005_create_stripe_event_model")
     assert revision is not None
-    assert revision.revision == HEAD_REVISION
+    assert revision.revision == "0005_create_stripe_event_model"
     assert revision.down_revision == "0004_create_payment_model"
     assert script.get_current_head() == HEAD_REVISION
 
@@ -153,8 +154,8 @@ def test_upgrade_downgrade_and_second_upgrade_preserve_existing_schema(
         assert _public_tables(test_database_url) == EXPECTED_0004_TABLES
 
         _upgrade(test_database_url, "0005_create_stripe_event_model")
-        assert _current_revision(test_database_url) == HEAD_REVISION
-        assert _public_tables(test_database_url) == EXPECTED_HEAD_TABLES
+        assert _current_revision(test_database_url) == "0005_create_stripe_event_model"
+        assert _public_tables(test_database_url) == EXPECTED_0005_TABLES
         _assert_stripe_event_schema(test_database_engine)
 
         _downgrade(test_database_url, "0004_create_payment_model")

@@ -136,7 +136,30 @@ administrator can:
 13. Automated Checkout and webhook tests use fake adapters or local signatures,
     make no real provider request, and require no real Stripe secret.
 
-### 4.4. Order Fulfilment
+### 4.4. Administrator Authentication
+
+1. Administrators use a separate persisted `AdminUser` identity; customers do
+   not receive accounts and there is no general User model or public
+   registration.
+2. An administrator is created only through the explicit interactive bootstrap
+   CLI. The email is validated and normalized, the 15–128-code-point password
+   is read twice through `getpass`, and pwdlib stores an Argon2id hash. Migration
+   `0006_create_admin_user_model` creates zero identities.
+3. Login validates a 1–128-code-point password input, applies a separate 5 per
+   60 second direct-peer limiter, performs an exact normalized email lookup,
+   and uses either real or process-local dummy Argon2 verification to resist
+   identity enumeration.
+4. Successful login issues a short-lived HS256 JWT containing only the fixed
+   issuer, audience, token type, canonical AdminUser UUID subject, issue time,
+   and expiration. The default lifetime is 30 minutes.
+5. `AdminBearer` validates the token and reloads the current active AdminUser
+   from PostgreSQL on every protected request. Deactivation therefore blocks an
+   existing unexpired token immediately.
+6. Public customer routes remain public, and the provider-facing Stripe webhook
+   remains hidden from OpenAPI. Stage 12 will reuse the existing
+   `require_admin` dependency for operational endpoints.
+
+### 4.5. Order Fulfilment
 
 1. The administrator sees the order and the independent outcomes of its
    payment attempts.
@@ -157,7 +180,7 @@ administrator can:
 8. The customer may read a minimal status view by providing the
    `public_order_number` and the `X-Order-Access-Token` header.
 
-### 4.5. Analytics and Reports
+### 4.6. Analytics and Reports
 
 1. The administrator selects a time range and the required data breakdown.
 2. The backend calculates the basic MVP KPIs according to the following
@@ -316,9 +339,18 @@ discounts. Dine-in orders additionally preserve `table_number_snapshot`.
 
 ### 7.5. Security and Privacy
 
-- The administrator uses a securely hashed password and JWT; there is no public
-  administrator registration.
-- Administrator access is verified by the backend.
+- Administrators use a separate persisted identity with normalized lowercase
+  email and pwdlib Argon2id password hashing; there is no customer account,
+  general User authentication, or public administrator registration.
+- Administrator bootstrap is explicit and interactive. Alembic, application
+  startup, Docker Compose, and the menu seed create zero administrators.
+- Login uses real or process-local dummy Argon2 verification with uniform
+  credential failures to resist identity enumeration.
+- Administrator JWT Bearer access is verified by the backend, and every
+  protected request performs a current active-identity lookup in PostgreSQL.
+- The app-scoped administrator login limiter permits five attempts per 60
+  seconds for each direct peer and ignores forwarded identity headers until a
+  trusted-proxy policy exists.
 - Secrets exist only in environment variables.
 - CORS is restricted to known origins.
 - Sign-in, order creation, and Stripe session creation are rate-limited.
@@ -343,8 +375,8 @@ discounts. Dine-in orders additionally preserve `table_number_snapshot`.
 
 ## 8. Expected Portfolio Value
 
-Stage 10 is complete. The next exact stage is **Stage 11 — Administrator
-Authentication**, which has not started and requires separate approval.
+Stage 11 is complete. The next exact stage is **Stage 12 — Administrator Panel
+— Operational API**, which has not started and requires separate approval.
 
 The project should demonstrate to a recruiter that its author can:
 

@@ -157,7 +157,7 @@ def _database_snapshot(
     return categories, items
 
 
-def _persistent_order_counts(engine: Engine) -> tuple[int, int, int, int, int]:
+def _persistent_order_counts(engine: Engine) -> tuple[int, int, int, int, int, int]:
     with engine.connect() as connection:
         row = connection.execute(
             text(
@@ -166,7 +166,8 @@ def _persistent_order_counts(engine: Engine) -> tuple[int, int, int, int, int]:
                 "(SELECT count(*) FROM order_items), "
                 "(SELECT count(*) FROM order_status_history), "
                 "(SELECT count(*) FROM payments), "
-                "(SELECT count(*) FROM stripe_events)"
+                "(SELECT count(*) FROM stripe_events), "
+                "(SELECT count(*) FROM admin_users)"
             )
         ).one()
     return tuple(int(value) for value in row)
@@ -712,6 +713,7 @@ def test_foundation_tables_and_routes_exist_without_quote_persistence(
     """Allow Stage 9 payment routes without quote persistence."""
     table_names = set(inspect(test_database_engine).get_table_names(schema="public"))
     assert table_names == {
+        "admin_users",
         "alembic_version",
         "categories",
         "menu_items",

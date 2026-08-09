@@ -26,7 +26,7 @@ ADMIN_DATABASE_NAME = "postgres"
 ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
 REQUIRED_DRIVER = "postgresql+psycopg"
 REQUIRED_PORT = 5433
-HEAD_REVISION = "0005_create_stripe_event_model"
+HEAD_REVISION = "0006_create_admin_user_model"
 BASELINE_REVISION = "0001_database_baseline"
 
 
@@ -215,6 +215,7 @@ def _verify_migration_cycle(database_url: URL) -> None:
             "First migration upgrade did not reach the expected revision"
         )
     if _public_tables(database_url) != {
+        "admin_users",
         "alembic_version",
         "categories",
         "menu_items",
