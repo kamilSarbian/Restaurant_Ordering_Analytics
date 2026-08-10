@@ -162,7 +162,9 @@ def main(
                 "Application database configuration is required"
             )
         database_url = _validate_application_database_url(settings.database_url)
-        engine = create_database_engine(database_url)
+        engine = create_database_engine(
+            database_url.render_as_string(hide_password=False)
+        )
         session_factory = create_session_factory(engine)
         with session_factory() as session:
             create_admin(session, email=arguments.email, password=password)

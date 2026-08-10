@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, sentinel
 import jwt
 import pytest
 from sqlalchemy import delete, event, func, select
-from sqlalchemy.engine import URL, Engine
+from sqlalchemy.engine import URL, Engine, make_url
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -303,6 +303,10 @@ def _configure_cli(
     create_result: AdminPrincipal | Exception,
 ) -> tuple[MagicMock, MagicMock, object]:
     engine = MagicMock(spec=Engine)
+    validated_url = URL.create(
+        REQUIRED_DRIVER,
+        database="restaurant_ordering_analytics_dev",
+    )
     session_context = MagicMock()
     session = sentinel.session
     session_context.__enter__.return_value = session
@@ -321,7 +325,7 @@ def _configure_cli(
     monkeypatch.setattr(
         bootstrap_module,
         "_validate_application_database_url",
-        lambda _value: sentinel.validated_url,
+        lambda _value: validated_url,
     )
     monkeypatch.setattr(
         bootstrap_module,
@@ -414,6 +418,53 @@ def test_cli_success_calls_core_once_and_prints_only_safe_output(
     assert captured.err == ""
     assert SYNTHETIC_PASSWORD not in captured.out
     assert SYNTHETIC_HASH not in captured.out
+
+
+def test_cli_real_session_flow_preserves_database_credentials(
+    test_database_url: URL,
+    admin_session_factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Create through the real CLI/session flow on only the isolated test DB."""
+    development_url = test_database_url.set(
+        database="restaurant_ordering_analytics_dev"
+    )
+    real_create_database_engine = bootstrap_module.create_database_engine
+
+    def create_isolated_engine(database_url: str | URL) -> Engine:
+        serialized_url = str(database_url)
+        isolated_url = make_url(serialized_url).set(database=test_database_url.database)
+        return real_create_database_engine(
+            isolated_url.render_as_string(hide_password=False)
+        )
+
+    monkeypatch.setattr(
+        bootstrap_module,
+        "Settings",
+        lambda: SimpleNamespace(
+            database_url=development_url.render_as_string(hide_password=False)
+        ),
+    )
+    monkeypatch.setattr(
+        bootstrap_module,
+        "create_database_engine",
+        create_isolated_engine,
+    )
+
+    result = bootstrap_module.main(
+        ["--email", ADMIN_EMAIL],
+        getpass_fn=lambda _prompt: SYNTHETIC_PASSWORD,
+    )
+    captured = capsys.readouterr()
+
+    assert result == 0
+    assert captured.out == "Administrator created.\n"
+    assert captured.err == ""
+    assert SYNTHETIC_PASSWORD not in captured.out
+    admin = _load_admin(admin_session_factory)
+    assert admin.email == ADMIN_EMAIL
+    assert verify_password(SYNTHETIC_PASSWORD, admin.password_hash) is True
 
 
 @pytest.mark.parametrize(
