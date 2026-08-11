@@ -23,6 +23,7 @@ from app.payments.router import router as payments_router
 from app.payments.stripe_checkout import StripeCheckoutClient
 from app.payments.stripe_webhook import StripeWebhookVerifier
 from app.payments.webhook_router import router as webhook_router
+from app.reports.router import router as reports_router
 
 
 def create_app(
@@ -138,6 +139,7 @@ def create_app(
     application.include_router(admin_orders_router)
     application.include_router(admin_menu_router)
     application.include_router(analytics_router)
+    application.include_router(reports_router)
     application.include_router(payments_router)
     application.include_router(webhook_router)
 

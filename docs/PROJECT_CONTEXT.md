@@ -226,9 +226,22 @@ administrator can:
    converted or combined.
 8. Queries use aware instants and half-open UTC ranges; response range metadata
    is presented in `Europe/Oslo`.
-9. Stage 13 adds no analytics persistence, database migration, frontend
-   analytics, or Stage 14 CSV implementation. Planned MVP CSV exports remain
-   orders, product sales, and payments.
+9. Stage 13 adds no analytics persistence or database migration. Stage 14
+   reuses its qualified succeeded-Payment source and product aggregation rather
+   than duplicating financial-event logic.
+10. Stage 14 exposes three administrator-only CSV datasets: operational orders,
+    full historical product sales without the Stage 13 JSON top-N cutoff, and
+    qualified succeeded payments. There are no public export routes.
+11. Orders are selected by `Order.created_at`, while product-sales and payment
+    exports use the earliest qualifying transitioned successful StripeEvent as
+    authoritative Payment success time. These source boundaries are
+    intentionally different.
+12. CSV responses are synchronous and buffered, use deterministic ASCII
+    filenames and a fixed UTF-8-SIG, single-BOM, comma, minimal-quoting, CRLF
+    contract. Serialization neutralizes formula-like text and removes NUL
+    without changing persisted values or historical grouping.
+13. Stage 14 adds no persistence, table, materialized view, index, migration,
+    generated file, frontend, or Stage 15 implementation.
 
 ## 5. MVP Scope
 
@@ -399,8 +412,8 @@ discounts. Dine-in orders additionally preserve `table_number_snapshot`.
 
 ## 8. Expected Portfolio Value
 
-Stages 11 through 13 are complete. The next exact stage is **Stage 14 — CSV
-Export**, which has not started and requires separate approval.
+Stages 11 through 14 are complete. The next exact stage is **Stage 15 —
+Customer Frontend**, which has not started and requires separate approval.
 
 The project should demonstrate to a recruiter that its author can:
 

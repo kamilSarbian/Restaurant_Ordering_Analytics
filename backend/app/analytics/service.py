@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+from sqlalchemy.sql import Select
 from sqlalchemy.sql.selectable import CTE
 
 from app.analytics.schemas import (
@@ -55,7 +56,7 @@ def get_analytics_overview(
     """
     start_utc = start.astimezone(UTC)
     end_utc = end.astimezone(UTC)
-    qualified_payments = _qualified_succeeded_payments(
+    qualified_payments = build_qualified_succeeded_payments(
         start_utc=start_utc,
         end_utc=end_utc,
         currency=currency,
@@ -106,51 +107,12 @@ def get_product_analytics(
     limit: int,
 ) -> AnalyticsProductResponse:
     """Aggregate historical product snapshots with a per-currency limit."""
-    qualified = _qualified_succeeded_payments(
-        start_utc=start.astimezone(UTC),
-        end_utc=end.astimezone(UTC),
-        currency=currency,
-    )
-    product_groups_statement = (
-        select(
-            OrderItem.menu_item_id.label("menu_item_id"),
-            OrderItem.name_snapshot.label("item_name"),
-            Order.currency.label("currency"),
-            func.sum(OrderItem.quantity).label("quantity_sold"),
-            func.sum(OrderItem.line_total_amount).label("sales_amount"),
-        )
-        .join(Order, Order.id == OrderItem.order_id)
-        .join(qualified, qualified.c.order_id == Order.id)
-        .group_by(OrderItem.menu_item_id, OrderItem.name_snapshot, Order.currency)
-    )
-    if currency is not None:
-        product_groups_statement = product_groups_statement.where(
-            Order.currency == currency
-        )
-    aggregated = product_groups_statement.cte("product_sales_groups")
-    ranked = select(
-        *aggregated.c,
-        func.row_number()
-        .over(
-            partition_by=aggregated.c.currency,
-            order_by=(
-                aggregated.c.sales_amount.desc(),
-                aggregated.c.quantity_sold.desc(),
-                aggregated.c.menu_item_id.asc(),
-                aggregated.c.item_name.asc(),
-            ),
-        )
-        .label("currency_rank"),
-    ).cte("ranked_product_sales")
     rows = session.execute(
-        select(ranked)
-        .where(ranked.c.currency_rank <= limit)
-        .order_by(
-            ranked.c.currency.asc(),
-            ranked.c.sales_amount.desc(),
-            ranked.c.quantity_sold.desc(),
-            ranked.c.menu_item_id.asc(),
-            ranked.c.item_name.asc(),
+        build_product_sales_statement(
+            start_utc=start.astimezone(UTC),
+            end_utc=end.astimezone(UTC),
+            currency=currency,
+            limit_per_currency=limit,
         )
     ).all()
     return AnalyticsProductResponse(
@@ -178,7 +140,7 @@ def get_category_analytics(
     limit: int,
 ) -> AnalyticsCategoryResponse:
     """Aggregate historical category snapshots with a per-currency limit."""
-    qualified = _qualified_succeeded_payments(
+    qualified = build_qualified_succeeded_payments(
         start_utc=start.astimezone(UTC),
         end_utc=end.astimezone(UTC),
         currency=currency,
@@ -245,7 +207,7 @@ def get_order_type_analytics(
     currency: str | None,
 ) -> AnalyticsOrderTypeResponse:
     """Aggregate collected payment KPIs by order type and currency."""
-    qualified = _qualified_succeeded_payments(
+    qualified = build_qualified_succeeded_payments(
         start_utc=start.astimezone(UTC),
         end_utc=end.astimezone(UTC),
         currency=currency,
@@ -277,13 +239,23 @@ def get_order_type_analytics(
     )
 
 
-def _qualified_succeeded_payments(
+def build_qualified_succeeded_payments(
     *,
     start_utc: datetime,
     end_utc: datetime,
     currency: str | None,
 ) -> CTE:
-    """Build the reusable one-row-per-payment financial source."""
+    """Build the reusable one-row-per-qualified-payment financial source.
+
+    Args:
+        start_utc: Inclusive UTC success-time boundary.
+        end_utc: Exclusive UTC success-time boundary.
+        currency: Optional exact Payment currency filter.
+
+    Returns:
+        A CTE containing one row per succeeded Payment with its earliest
+        transitioned success-capable Stripe event time.
+    """
 
     authoritative_receipts = (
         select(
@@ -302,9 +274,12 @@ def _qualified_succeeded_payments(
 
     qualified_payments_statement = (
         select(
+            Payment.id.label("payment_id"),
             Payment.order_id.label("order_id"),
+            Payment.status.label("payment_status"),
             Payment.amount.label("amount"),
             Payment.currency.label("currency"),
+            authoritative_receipts.c.success_at.label("success_at"),
         )
         .join(
             authoritative_receipts,
@@ -324,6 +299,79 @@ def _qualified_succeeded_payments(
         "qualified_succeeded_payments"
     )
     return qualified_payments
+
+
+def build_product_sales_statement(
+    *,
+    start_utc: datetime,
+    end_utc: datetime,
+    currency: str | None,
+    limit_per_currency: int | None,
+) -> Select[tuple[object, ...]]:
+    """Build the shared historical product-sales aggregation statement.
+
+    Args:
+        start_utc: Inclusive UTC payment-success boundary.
+        end_utc: Exclusive UTC payment-success boundary.
+        currency: Optional currency required on both Payment and Order.
+        limit_per_currency: Optional per-currency rank cutoff. ``None`` keeps
+            every product group for CSV export.
+
+    Returns:
+        Deterministically ordered product-sales aggregate SELECT.
+    """
+    qualified = build_qualified_succeeded_payments(
+        start_utc=start_utc,
+        end_utc=end_utc,
+        currency=currency,
+    )
+    product_groups_statement = (
+        select(
+            OrderItem.menu_item_id.label("menu_item_id"),
+            OrderItem.name_snapshot.label("item_name"),
+            Order.currency.label("currency"),
+            func.sum(OrderItem.quantity).label("quantity_sold"),
+            func.sum(OrderItem.line_total_amount).label("sales_amount"),
+        )
+        .join(Order, Order.id == OrderItem.order_id)
+        .join(qualified, qualified.c.order_id == Order.id)
+        .group_by(OrderItem.menu_item_id, OrderItem.name_snapshot, Order.currency)
+    )
+    if currency is not None:
+        product_groups_statement = product_groups_statement.where(
+            Order.currency == currency
+        )
+    aggregated = product_groups_statement.cte("product_sales_groups")
+    ordering = (
+        aggregated.c.currency.asc(),
+        aggregated.c.sales_amount.desc(),
+        aggregated.c.quantity_sold.desc(),
+        aggregated.c.menu_item_id.asc(),
+        aggregated.c.item_name.asc(),
+    )
+    if limit_per_currency is None:
+        return select(aggregated).order_by(*ordering)
+
+    ranked = select(
+        *aggregated.c,
+        func.row_number()
+        .over(
+            partition_by=aggregated.c.currency,
+            order_by=ordering[1:],
+        )
+        .label("currency_rank"),
+    ).cte("ranked_product_sales")
+    return (
+        select(ranked)
+        .where(ranked.c.currency_rank <= limit_per_currency)
+        .order_by(
+            ranked.c.currency.asc(),
+            ranked.c.sales_amount.desc(),
+            ranked.c.quantity_sold.desc(),
+            ranked.c.menu_item_id.asc(),
+            ranked.c.item_name.asc(),
+        )
+    )
 
 
 def _currency_response(

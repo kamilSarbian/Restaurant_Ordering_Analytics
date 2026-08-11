@@ -259,6 +259,7 @@
 
 ## 14. CSV Export
 
+- **Status:** completed and verified on 2026-08-11.
 - **Goal:** expose reporting data in a predictable format.
 - **Outcome:** three protected MVP exports—orders, product sales, and
   payments—with filters, headers, and explicit encoding.
@@ -268,6 +269,11 @@
   empty result.
 - **Test:** tests for CSV content and headers, escaping, filters, authorization,
   and totals consistent with a controlled dataset.
+- **Verified outcome:** exactly three protected synchronous CSV routes expose
+  orders, full historical product sales, and qualified succeeded payments with
+  strict query, source-time, UTF-8-SIG, single-BOM, CRLF, deterministic
+  filename, spreadsheet-safety, and exposure contracts. Each performs one
+  report SELECT after authentication, with no persistence or migration.
 
 ## 15. Customer Frontend
 
@@ -356,9 +362,10 @@
 
 ## Next Recommended Stage
 
-Stage 1 through Stage 13 have been completed and verified. Stage 13 implements
-four protected administrator analytics endpoints for the six defined KPIs.
+Stage 1 through Stage 14 have been completed and verified. Stage 14 preserves
+the original goal to expose reporting data in a predictable format through
+three protected CSV exports.
 
-The next recommended stage is **Stage 14 — CSV Export**. Stage 14 has not
-started and requires separate user approval. This roadmap update does not
-authorize starting Stage 14.
+The next recommended stage is **Stage 15 — Customer Frontend**. Stage 15 has
+not started and requires separate user approval. This roadmap update does not
+authorize starting Stage 15.

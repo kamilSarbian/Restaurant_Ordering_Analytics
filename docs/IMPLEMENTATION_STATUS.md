@@ -14,12 +14,14 @@
 - **Stage 11:** completed
 - **Stage 12:** completed
 - **Stage 13:** completed
-- **Current stage:** waiting for approval to start Stage 14 — CSV Export
+- **Stage 14:** completed
+- **Current stage:** waiting for approval to start Stage 15 — Customer Frontend
 - **Backend:** FastAPI, database foundation, menu models, local seed data,
   public menu, transient quoting, persistent order creation, and secure public
   order status, Payment persistence, Stripe Checkout, and verified Stripe
   webhook processing, administrator authentication, and administrator order
-  and menu operational APIs, and administrator analytics completed
+  and menu operational APIs, administrator analytics, and administrator CSV
+  reports completed
 - **Frontend:** not started
 - **Database:** PostgreSQL, Alembic, menu, order, Payment, StripeEvent, and
   AdminUser models, migration `0006_create_admin_user_model`, and deterministic
@@ -67,7 +69,12 @@
   snapshots, and order-type breakdowns, with currency separation, half-open
   UTC queries, Europe/Oslo range metadata, and one SELECT per endpoint; no
   migration required
-- **Application tests:** 1258 health, database, migration, model, constraint,
+- **Administrator CSV export:** exactly three protected buffered routes for
+  operational orders, full historical product sales, and qualified succeeded
+  payments; deterministic UTF-8-SIG, BOM, CSV dialect, filename, query,
+  time-source, formula-safety, and exposure contracts completed and verified;
+  one report SELECT per route and no migration required
+- **Application tests:** 1379 health, database, migration, model, constraint,
   seed, schema, public API, quoting, order creation, payment, security,
   rate-limit, rollback, and concurrency tests completed
 - **Deployment:** not started
@@ -76,8 +83,8 @@
 
 - The backend exposes health, public menu and quote endpoints, persistent guest
   ordering and payment flows, secure public status, authenticated administrator
-  order and menu operations, and administrator analytics. Frontend and Stage 14
-  CSV export work have not started.
+  order and menu operations, administrator analytics, and three protected CSV
+  exports. Frontend work has not started.
 - Administrator authentication has no refresh, logout, revocation, password
   reset/change, or MFA. Its limiter is per process and resets on restart.
 - Migration `0006` creates no administrator. Manual setup requires an operator
@@ -96,7 +103,9 @@
   API.
 - Stage 13 provides no RestaurantTable administration, menu DELETE, refund,
   actor attribution, generic audit log, cost or margin analytics, time series,
-  frontend analytics, or CSV export.
+  or frontend analytics. Stage 14 CSV exports are synchronous and buffered in
+  memory; streaming and background exports are deferred until measured scale
+  justifies them.
 - A real Stripe CLI smoke remains optional and manual; automated tests use
   injected adapters or synthetic local signatures and perform no Stripe calls.
 - The seed is restricted to the exact local development database and is not a
@@ -105,6 +114,38 @@
   not started.
 
 ## Last verification
+
+Stage 14 verified on 2026-08-11:
+
+- Exactly three AdminBearer CSV routes for orders, full product sales, and
+  qualified succeeded payments, with no public or fourth export route: PASS
+- Strict aware ranges, half-open UTC filtering, source-specific order creation
+  or Payment success time, uppercase currency, exact filters, and unknown-query
+  rejection: PASS
+- Exact headers, deterministic ordering and filenames, integer minor-unit
+  amounts, Europe/Oslo ISO 8601 offsets, and empty header-only responses: PASS
+- UTF-8-SIG, one BOM, comma delimiter, minimal double-quote quoting, CRLF,
+  Unicode, formula neutralization, apostrophe preservation, and NUL removal:
+  PASS
+- Historical product grouping, full CSV without JSON top-N, immutable
+  snapshots, qualified-Payment deduplication, and mixed-currency protection:
+  PASS
+- One set-based report SELECT per route, zero DML, no provider calls, no N+1,
+  no generated file, and non-blocking EXPLAIN plans: PASS
+- CSV utility 29, CSV integration 92, and administrator auth/OpenAPI 16 tests
+  passed
+- Stage 13 regression: analytics schemas 59 and analytics API 78 tests passed
+- Stage 12 regression: admin orders 63, admin menu 18, and admin order
+  concurrency 5 tests passed
+- Full pytest suite: 1379 passed with one accepted Starlette warning
+- Ruff, Black, isort, OpenAPI, and Alembic drift checks: PASS
+- Alembic remains at `0006_create_admin_user_model`; Stage 14 requires no model,
+  index, migration, or persistence change: PASS
+- Development menu remains 5/15; RestaurantTable, Order, OrderItem,
+  OrderStatusHistory, Payment, and StripeEvent counts remain zero; the one
+  existing development administrator remains unchanged: PASS
+- Isolated test database removal, named-volume preservation, local PostgreSQL
+  18 preservation, and port cleanup: PASS
 
 Stage 13 verified on 2026-08-11:
 

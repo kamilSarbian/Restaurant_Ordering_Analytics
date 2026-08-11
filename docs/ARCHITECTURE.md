@@ -126,6 +126,9 @@ current database state, so deactivation takes effect immediately. Public routes
 are not globally protected. Stage 12 reuses `require_admin` for operational
 orders and menu endpoints; Stage 13 analytics uses the same
 boundary. React presents results but does not define permissions or KPI rules.
+Stage 14 reports use the same authorization boundary and call shared analytics
+query builders in-process; they do not call the JSON analytics routes over
+HTTP.
 
 ### 5.4. Independent Status Lifecycles
 
@@ -270,9 +273,48 @@ measured production-scale need exists.
 
 Refunds are outside the MVP, so collected revenue is not automatically reduced
 by refunds. Refund-adjusted revenue and other extended KPIs remain later work.
-Stage 14 CSV exports have not started.
 
-### 5.8. Menu, Order, and Administrator Data Model
+### 5.8. Implemented CSV Reports
+
+The implemented `backend/app/reports/` package contains `__init__.py`,
+`schemas.py`, `csv_utils.py`, `service.py`, and `router.py`. Schemas define
+strict aware-range, uppercase-currency, order-status, and order-type query
+contracts and reject unknown parameters. CSV utilities own UTF-8-SIG encoding,
+the single BOM, comma/minimal-quoting/CRLF dialect, formula safety, NUL removal,
+deterministic filenames, and Europe/Oslo datetime formatting. The service owns
+set-based data retrieval and CSV row mapping. The router owns the existing
+AdminBearer boundary and the CSV HTTP response headers.
+
+The reports service reuses the analytics service's qualified
+succeeded-Payment source. Product aggregation is also shared: Stage 13 JSON
+applies a per-currency top-N rank, while product-sales CSV invokes the same
+aggregation without a cutoff. Success-event qualification is therefore not
+duplicated, and reports do not call analytics endpoints over HTTP.
+
+The query boundary is one report SELECT after administrator authentication for
+each dataset:
+
+- `orders.csv` performs one Order SELECT over the half-open
+  `Order.created_at` range and orders by creation time and internal ID;
+- `product-sales.csv` performs one set-based aggregate SELECT over the shared
+  qualified-Payment source and historical OrderItem snapshots;
+- `payments.csv` performs one set-based qualified-Payment SELECT joined to
+  Order only for the public order number.
+
+All three paths perform zero DML, make no provider call, avoid N+1 queries, and
+create no local CSV file. The response is generated completely in memory. This
+has no silent truncation and is acceptable for the current single-restaurant
+MVP scale; streaming and background exports remain deferred until measured
+volume justifies them.
+
+The Stage 14B-3 performance audit ran EXPLAIN for all three statements on
+isolated PostgreSQL. The plans had no blocking issue, existing indexes were
+sufficient for current scale, and sequential scans on tiny relations were not
+a concern. No index or migration `0007` was introduced. Future indexing,
+streaming, or background processing remains measurement-driven rather than an
+unverified enterprise-scale claim.
+
+### 5.9. Menu, Order, and Administrator Data Model
 
 ```mermaid
 erDiagram
@@ -449,7 +491,7 @@ to true, while timezone-aware creation and update timestamps follow the shared
 model convention. The schema has no role, token version, reset, MFA, plaintext
 password, or relationship to guest orders. Migration `0006` inserts no rows.
 
-### 5.9. Local Demonstration Seed
+### 5.10. Local Demonstration Seed
 
 The seed has an immutable, typed data layer containing fixed UUIDs and a
 transactional runner that performs normalized-name preflight checks followed by
@@ -464,7 +506,7 @@ migration, Docker Compose, CI, deployment, or other automatic hook. Conditional
 `IS DISTINCT FROM` updates restore canonical values while preserving
 `created_at` and avoiding an `updated_at` change for a no-op rerun.
 
-### 5.10. Implemented Public Menu API
+### 5.11. Implemented Public Menu API
 
 The FastAPI application is created through an injectable app factory. Its
 lifespan creates one synchronous SQLAlchemy Engine and session factory for a
@@ -492,7 +534,7 @@ list. Inactive categories, their items, inactive items, and categories without
 visible items are omitted. Categories and items are ordered by
 `display_order`, then UUID. This read path does not change the Stage 4 ERD.
 
-### 5.11. Implemented Order Quoting
+### 5.12. Implemented Order Quoting
 
 The `orders` package retains a separate public quote use case with request and
 response schemas, a FastAPI-independent quoting layer, and the
@@ -516,7 +558,7 @@ standard 422 response. Order creation ignores previous quote responses,
 re-reads all authoritative menu state, and creates durable snapshots only when
 an Order is persisted.
 
-### 5.12. Implemented Order Creation and Public Status
+### 5.13. Implemented Order Creation and Public Status
 
 `create_order()` owns one short synchronous `Session.begin()` transaction. It
 revalidates server-authoritative MenuItem and Category activity, availability,
@@ -553,7 +595,7 @@ Payment rows and verifies the D-017 `Order -> Payment` lock protocol through
 PostgreSQL integration and concurrency tests. The administrative cancellation
 command itself remains part of the later operational API stage.
 
-### 5.13. Implemented Stripe Checkout
+### 5.14. Implemented Stripe Checkout
 
 The `payments` module separates persistence, pure status policy, strict public
 schemas, the Stripe adapter, orchestration, and the FastAPI transport. The
@@ -595,7 +637,7 @@ Phase 3, Phase 3 may fill the complete all-null provider session tuple for that
 exact already-succeeded Payment without regressing its status. The same fill is
 forbidden after `failed` or `expired`.
 
-### 5.14. Implemented Stripe Webhook
+### 5.15. Implemented Stripe Webhook
 
 `POST /api/v1/stripe/webhook` is a provider-facing asynchronous route hidden
 from OpenAPI. It reads `request.body()` exactly once and passes the unchanged
@@ -626,7 +668,7 @@ cancellation transaction. PostgreSQL concurrency tests cover duplicate races,
 opposing terminal events, webhook-before-Checkout-Phase-3, and webhook versus
 future cancellation without deadlocks.
 
-### 5.15. Implemented Administrator Authentication
+### 5.16. Implemented Administrator Authentication
 
 pwdlib uses Argon2id with memory cost 19456 KiB, time cost 2, parallelism 1,
 and a library-generated salt. Bootstrap accepts 15 through 128 Unicode code
@@ -656,7 +698,7 @@ general startup when no JWT secret is configured, but protected auth operations
 then return 503. Login and `/me` are visible in OpenAPI, the Stripe webhook is
 hidden, and public customer operations have no AdminBearer requirement.
 
-### 5.16. Implemented Administrator Operational API
+### 5.17. Implemented Administrator Operational API
 
 Stage 12 keeps HTTP, validation, and database responsibilities separated. The
 orders module uses `admin_router.py`, `admin_schemas.py`, and
@@ -827,8 +869,9 @@ valid Stripe signature and is intentionally absent from OpenAPI.
 
 The implemented administrator scope includes sign-in, the current user, order
 list and detail, fulfilment status changes, category and menu-item management,
-and four protected analytics endpoints for the six basic KPIs. CSV reports for
-orders, product sales, and payments remain planned for Stage 14.
+four protected analytics endpoints for the six basic KPIs, and exactly three
+protected CSV exports for orders, full product sales, and qualified succeeded
+payments.
 
 Exact contracts, response codes, and the access policy will be defined in the
 stages that implement the relevant features. The context document is not yet a

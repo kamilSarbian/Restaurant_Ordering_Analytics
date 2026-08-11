@@ -2,7 +2,7 @@
 
 ## Current status
 
-Stage 12 is complete. The repository contains a verified FastAPI application,
+Stage 14 is complete. The repository contains a verified FastAPI application,
 public menu and transient quote APIs, persistent guest order creation, secure
 public order status retrieval, durable payment attempts, and idempotent Stripe
 Checkout Session creation. It also provides an idempotent, signature-verified
@@ -13,8 +13,9 @@ payment-aware fulfilment transitions, and menu category and item management.
 Local development uses PostgreSQL 17, synchronous SQLAlchemy 2, Psycopg 3,
 Alembic, and an explicit demonstration menu seed.
 
-Stage 13 administrator analytics is complete. The frontend, CSV exports,
-full-system containerisation, CI, and deployment have not started.
+Stage 13 administrator analytics and the three Stage 14 administrator CSV
+exports are complete. The frontend, full-system containerisation, CI, and
+deployment have not started.
 
 ## Business problem
 
@@ -60,6 +61,8 @@ without introducing infrastructure that is unnecessary for a single venue.
   update endpoints with soft deactivation and serialized concurrent updates.
 - Four protected administrator analytics routes covering the six MVP KPIs with
   UTC filtering, Europe/Oslo presentation, and historical sales snapshots.
+- Three protected administrator CSV exports for orders, full product sales,
+  and qualified succeeded payments with deterministic wire contracts.
 - Isolated PostgreSQL integration tests for models, constraints, and migration
   upgrades, downgrades, seed idempotency, and data protection.
 - Ruff, Black, and isort quality configuration.
@@ -69,8 +72,8 @@ without introducing infrastructure that is unnecessary for a single venue.
 - Implemented: Python 3.12, FastAPI, Pydantic 2, PostgreSQL 17, SQLAlchemy 2,
   Alembic, Psycopg 3, Stripe Python SDK, pwdlib with Argon2, PyJWT,
   email-validator, Docker Compose, pytest, Ruff, Black, and isort.
-- Planned: CSV exports, React, TypeScript, Vite, full-system containers, GitHub
-  Actions, and deployment.
+- Planned: React, TypeScript, Vite, full-system containers, GitHub Actions, and
+  deployment.
 
 ## Repository structure
 
@@ -82,6 +85,7 @@ without introducing infrastructure that is unnecessary for a single venue.
 │   │   ├── api/
 │   │   ├── core/
 │   │   ├── database/
+│   │   ├── reports/
 │   │   ├── seed/
 │   │   └── main.py
 │   ├── tests/
@@ -321,6 +325,94 @@ not rewrite history, renamed product snapshots may form separate groups for one
 menu item UUID, and renamed historical categories remain separate groups.
 Stage 13 includes no margin, cost, time-series, status, cancellation,
 fulfilment-duration, CSV, or frontend analytics functionality.
+
+## Administrator CSV export API
+
+Stage 14 exposes exactly three synchronous, buffered CSV routes protected by
+the existing `require_admin` dependency and OpenAPI `AdminBearer` scheme:
+
+- `GET /api/v1/admin/exports/orders.csv`
+- `GET /api/v1/admin/exports/product-sales.csv`
+- `GET /api/v1/admin/exports/payments.csv`
+
+There is no public or fourth export route, streaming or background export,
+XLSX/PDF output, generated file on disk, or Stage 15 frontend implementation.
+Each request returns one complete in-memory response. This is appropriate for
+the current single-restaurant MVP scale and never silently truncates results;
+streaming or background processing is deferred until measured scale justifies
+it.
+
+Every successful response uses `Content-Type: text/csv; charset=utf-8` and an
+attachment `Content-Disposition` with a deterministic ASCII filename. Content
+is UTF-8-SIG with exactly one UTF-8 BOM, a comma delimiter, double-quote
+quotechar, minimal quoting, and CRLF line terminators. An empty result is HTTP
+200 with only the BOM and header row ending in CRLF; it contains no synthetic
+data row. UTF-8-SIG supports Windows and Excel interoperability while
+preserving international text, including Norwegian and Polish characters.
+Filename forms are
+`orders_<startUTC>_<endUTC>_<currency/all>_<status/all>_<order-type/all>.csv`,
+`product-sales_<startUTC>_<endUTC>_<currency/all>.csv`, and
+`payments_<startUTC>_<endUTC>_<currency/all>.csv`, where each UTC token uses
+`YYYYMMDDTHHMMSSZ`. Equivalent instants therefore produce identical filename
+tokens, regardless of the input offset.
+
+All exports require timezone-aware `start` and `end`, enforce `start < end`,
+and use the half-open interval `[start, end)`. Optional `currency` is exactly
+three uppercase ASCII letters. Unknown parameters are rejected, and there are
+no `limit`, `offset`, `filename`, or `format` parameters. Orders additionally
+accept optional `status` and `order_type`; product-sales and payments do not.
+Filtering compares actual UTC instants. Range and datetime cells are ISO 8601
+values carrying the applicable `Europe/Oslo` offset.
+
+The three datasets intentionally use different time sources. `orders.csv`
+selects by `Order.created_at`. `product-sales.csv` and `payments.csv` select by
+the authoritative Payment success time: the earliest successful StripeEvent
+whose processing result is `transitioned` for a succeeded Payment.
+
+`orders.csv` contains these columns in order:
+
+```text
+range_start,range_end,timezone,public_order_number,created_at,updated_at,order_status,order_type,table_number,currency,subtotal_amount,total_amount
+```
+
+Rows are ordered by `Order.created_at ASC` and then internal Order ID as a
+stable tie-breaker. The internal ID is not exported, and no Payment or Stripe
+field is present. Subtotal and total are integer minor-unit amounts.
+
+`product-sales.csv` contains these columns in order:
+
+```text
+range_start,range_end,timezone,menu_item_id,item_name,currency,quantity_sold,sales_amount
+```
+
+It is the full historical export with no top-N cutoff, unlike the Stage 13 JSON
+product endpoint. It groups by `OrderItem.menu_item_id`, historical
+`name_snapshot`, and `Order.currency`, and sums quantity and
+`OrderItem.line_total_amount`. It does not join current MenuItem or Category
+rows, so current catalog edits cannot rewrite history. Per-row currency comes
+from Order; an explicit currency filter requires both the qualified Payment
+and Order currency to match.
+
+`payments.csv` contains these columns in order:
+
+```text
+range_start,range_end,timezone,public_order_number,payment_status,success_at,currency,amount
+```
+
+It returns one row per qualified succeeded Payment. Currency and integer
+minor-unit amount come from Payment, while `success_at` is the earliest
+qualifying transitioned success receipt. Non-success attempts are excluded,
+and duplicate receipts do not duplicate rows. The export contains no Payment
+ID, Stripe ID, Checkout URL, event data, idempotency key, guest credential,
+administrator identity, cost, or personal data.
+
+During CSV serialization, text that could be interpreted as a spreadsheet
+formula is prefixed with an apostrophe. This covers `=`, `+`, `-`, and `@`,
+including dangerous leading whitespace and control forms. Existing safe
+apostrophes are not doubled, and NUL characters are removed from exported text.
+This focused formula-injection safeguard is not a complete spreadsheet security
+model. It runs only after database aggregation and changes neither persisted
+values nor grouping identities.
 
 ## Menu data foundation
 

@@ -843,6 +843,37 @@ def test_openapi_documents_exact_admin_auth_contract_and_keeps_public_routes_ope
         "/api/v1/admin/analytics/order-types",
     }
 
+    export_operations = [
+        document["paths"]["/api/v1/admin/exports/orders.csv"]["get"],
+        document["paths"]["/api/v1/admin/exports/product-sales.csv"]["get"],
+        document["paths"]["/api/v1/admin/exports/payments.csv"]["get"],
+    ]
+    assert [operation["summary"] for operation in export_operations] == [
+        "Export administrator orders as CSV",
+        "Export administrator product sales as CSV",
+        "Export administrator qualified payments as CSV",
+    ]
+    assert all(
+        operation["tags"] == ["admin-exports"] for operation in export_operations
+    )
+    assert all(
+        operation["security"] == [{"AdminBearer": []}]
+        for operation in export_operations
+    )
+    assert all(
+        set(operation["responses"]["200"]["content"]) == {"text/csv"}
+        for operation in export_operations
+    )
+    assert all(
+        "application/json" not in operation["responses"]["200"]["content"]
+        for operation in export_operations
+    )
+    assert {path for path in document["paths"] if "/api/v1/admin/exports" in path} == {
+        "/api/v1/admin/exports/orders.csv",
+        "/api/v1/admin/exports/product-sales.csv",
+        "/api/v1/admin/exports/payments.csv",
+    }
+
     public_operations = [
         document["paths"]["/health"]["get"],
         document["paths"]["/api/v1/menu"]["get"],

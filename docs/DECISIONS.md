@@ -938,6 +938,33 @@ while preserving these financial concurrency rules.
   functions. Current MVP scale requires no analytics persistence, new index,
   or migration.
 
+## D-058 — CSV Export Contract, Source Boundaries, and Spreadsheet Safety
+
+- **Status:** accepted on 2026-08-11
+- **Decision:** Stage 14 exposes exactly three administrator-only CSV routes
+  for orders, full product sales, and qualified succeeded payments. Responses
+  are synchronous and buffered, use deterministic ASCII filenames, and encode
+  UTF-8-SIG with exactly one BOM, comma delimiters, minimal double-quote
+  quoting, and CRLF record terminators.
+- **Source boundaries:** the orders range is based on `Order.created_at`.
+  Product-sales and payments ranges use the earliest qualifying transitioned
+  successful StripeEvent time for a succeeded Payment. Product-sales reuses
+  the Stage 13 historical aggregation without its JSON per-currency top-N
+  cutoff; success-event qualification is not duplicated.
+- **Spreadsheet safety:** formula-like text beginning with `=`, `+`, `-`, or
+  `@`, including dangerous leading whitespace and control forms, is
+  neutralized with a leading apostrophe during serialization. NUL characters
+  are removed first. Sanitization occurs after database grouping and never
+  changes persisted values.
+- **Exposure boundary:** exports include only approved operational and
+  historical fields. They contain no PII, internal Order, Payment, or
+  StripeEvent IDs, provider URLs or identifiers, event data, idempotency keys,
+  guest credentials, administrator identity, or cost data.
+- **Consequences:** Stage 14 adds no export persistence, table, materialized
+  view, index, or migration. In-memory buffering is accepted for the current
+  single-restaurant MVP scale; streaming and background exports require a
+  measured need and separate approval.
+
 ## History of Decisions That Required Resolution
 
 ### O-002: Boundary Between Order Creation and Stripe Checkout Session
