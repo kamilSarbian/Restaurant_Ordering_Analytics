@@ -209,6 +209,7 @@
 
 ## 12. Administrator Panel — Operational API
 
+- **Status:** completed
 - **Goal:** expose secure order and menu management.
 - **Outcome:** protected endpoints for lists, filters, details, status changes,
   menu editing, and availability.
@@ -229,6 +230,11 @@
   that an active Stripe attempt cannot coexist with an `order_status`
   transition to `cancelled` and that every path locks records in the
   `Order -> Payment` order.
+- **Verified outcome:** Stage 12 provides authenticated order list, detail, and
+  transactional status mutation plus category and menu-item list, create, and
+  partial update operations. Payment-aware transitions, atomic history,
+  normalized menu uniqueness, soft deactivation, public-menu behavior, and
+  historical snapshots are verified without a model or migration change.
 
 ## 13. Analytics
 
@@ -344,11 +350,10 @@
 
 ## Next Recommended Stage
 
-Stage 1 through Stage 11 have been completed and verified. Stage 11 implements
-persisted administrator identities, Argon2id password storage, explicit
-bootstrap, login, short-lived JWT access tokens, current active-identity checks,
-and sign-in rate limiting.
+Stage 1 through Stage 12 have been completed and verified. Stage 12 implements
+authenticated administrator order reads, payment-aware fulfilment transitions,
+atomic status history, and soft-deactivation menu management.
 
-The next recommended stage is **Stage 12 — Administrator Panel — Operational
-API**. Stage 12 has not started and requires separate user approval. This
-roadmap update does not authorize starting Stage 12.
+The next recommended stage is **Stage 13 — Analytics**. Stage 13 has not
+started and requires separate user approval. This roadmap update does not
+authorize starting Stage 13.

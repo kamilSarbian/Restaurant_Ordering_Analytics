@@ -2,17 +2,19 @@
 
 ## Current status
 
-Stage 11 is complete. The repository contains a verified FastAPI application,
+Stage 12 is complete. The repository contains a verified FastAPI application,
 public menu and transient quote APIs, persistent guest order creation, secure
 public order status retrieval, durable payment attempts, and idempotent Stripe
 Checkout Session creation. It also provides an idempotent, signature-verified
 Stripe webhook that applies provider-authoritative Payment transitions and
 administrator authentication with Argon2id password hashes and short-lived JWT
-access tokens. Local development uses PostgreSQL 17, synchronous SQLAlchemy 2,
-Psycopg 3, Alembic, and an explicit demonstration menu seed.
+access tokens. Authenticated administrator operations now cover order reads,
+payment-aware fulfilment transitions, and menu category and item management.
+Local development uses PostgreSQL 17, synchronous SQLAlchemy 2, Psycopg 3,
+Alembic, and an explicit demonstration menu seed.
 
-The administrator operational API, frontend, full-system containerisation, CI,
-and deployment have not started.
+Analytics, the frontend, full-system containerisation, CI, and deployment have
+not started.
 
 ## Business problem
 
@@ -52,6 +54,10 @@ without introducing infrastructure that is unnecessary for a single venue.
 - Persisted AdminUser identities, explicit interactive bootstrap, Argon2id
   password hashing, administrator sign-in, JWT access tokens, `/auth/me`, a
   reusable AdminBearer dependency, and sign-in rate limiting.
+- Authenticated administrator order list, detail, and transactional fulfilment
+  status mutation endpoints with payment-aware acceptance and cancellation.
+- Authenticated administrator category and menu-item list, create, and partial
+  update endpoints with soft deactivation and serialized concurrent updates.
 - Isolated PostgreSQL integration tests for models, constraints, and migration
   upgrades, downgrades, seed idempotency, and data protection.
 - Ruff, Black, and isort quality configuration.
@@ -61,8 +67,8 @@ without introducing infrastructure that is unnecessary for a single venue.
 - Implemented: Python 3.12, FastAPI, Pydantic 2, PostgreSQL 17, SQLAlchemy 2,
   Alembic, Psycopg 3, Stripe Python SDK, pwdlib with Argon2, PyJWT,
   email-validator, Docker Compose, pytest, Ruff, Black, and isort.
-- Planned: administrator operational APIs, React, TypeScript, Vite,
-  full-system containers, GitHub Actions, and deployment.
+- Planned: analytics, React, TypeScript, Vite, full-system containers, GitHub
+  Actions, and deployment.
 
 ## Repository structure
 
@@ -220,10 +226,58 @@ Authentication configuration uses:
 
 Keep configuration in an ignored local environment file and use HTTPS in any
 deployment because Bearer tokens must not cross an unencrypted connection.
-Migration `0006` intentionally creates zero administrators. After the future
-Stage 11 commit, an operator must first set `ADMIN_JWT_SECRET` in the ignored
-local environment and then run the interactive bootstrap command once. These
-are manual operational setup steps, not automated test requirements.
+Migration `0006` intentionally creates zero administrators. An operator must
+set `ADMIN_JWT_SECRET` in the ignored local environment and run the interactive
+bootstrap command before using protected administrator routes. These are
+manual operational setup steps, not automated test requirements.
+
+## Administrator operational API
+
+Stage 12 exposes authenticated order and menu operations under
+`/api/v1/admin`. An administrator first signs in through
+`POST /api/v1/admin/auth/login`; `GET /api/v1/admin/auth/me` returns the current
+active identity. Every operational route below requires the OpenAPI
+`AdminBearer` security scheme:
+
+- `GET /api/v1/admin/orders`
+- `GET /api/v1/admin/orders/{public_order_number}`
+- `PATCH /api/v1/admin/orders/{public_order_number}/status`
+- `GET /api/v1/admin/menu/categories`
+- `POST /api/v1/admin/menu/categories`
+- `PATCH /api/v1/admin/menu/categories/{category_id}`
+- `GET /api/v1/admin/menu/items`
+- `POST /api/v1/admin/menu/items`
+- `PATCH /api/v1/admin/menu/items/{item_id}`
+
+The fulfilment state machine permits exactly:
+
+```text
+created -> accepted
+created -> cancelled
+accepted -> preparing
+preparing -> ready
+ready -> completed
+```
+
+`completed` and `cancelled` are terminal. Acceptance requires at least one
+related `Payment(status=succeeded)`. Cancellation is available only from
+`created`: a succeeded payment forbids it, a pending attempt blocks it while
+the attempt is active, and failed, expired, or absent payments allow it. If
+both succeeded and pending historical attempts exist, the paid-order conflict
+takes precedence. Cancellation does not issue a refund or call Stripe. Every
+successful status change and its history row are committed atomically.
+
+Categories and menu items use soft lifecycle changes rather than physical
+deletion. Setting `Category.is_active=false` hides the category publicly but
+does not rewrite child item flags. `MenuItem.is_active` controls lifecycle
+visibility, while `MenuItem.is_available` independently controls temporary
+availability and orderability. Prices and optional costs remain integer minor
+units, and currency is an uppercase three-character code. Menu changes never
+rewrite historical `OrderItem` name, category, price, or cost snapshots.
+
+Stage 12 provides no menu DELETE route, RestaurantTable administration,
+refund endpoint, StripeEvent diagnostic API, actor attribution, or generic
+audit-log endpoint.
 
 ## Menu data foundation
 

@@ -156,29 +156,40 @@ administrator can:
    from PostgreSQL on every protected request. Deactivation therefore blocks an
    existing unexpired token immediately.
 6. Public customer routes remain public, and the provider-facing Stripe webhook
-   remains hidden from OpenAPI. Stage 12 will reuse the existing
-   `require_admin` dependency for operational endpoints.
+   remains hidden from OpenAPI. Stage 12 reuses the existing `require_admin`
+   dependency for every operational order and menu endpoint.
 
-### 4.5. Order Fulfilment
+### 4.5. Administrator Operations and Order Fulfilment
 
-1. The administrator sees the order and the independent outcomes of its
-   payment attempts.
-2. The administrator may change `order_status` from `created` to `accepted`
+1. The authenticated operational boundary provides order list, filter, detail,
+   and status mutation endpoints. Order detail exposes bounded Payment summaries
+   but no StripeEvent, Checkout URL, Session ID, or idempotency key.
+2. Administrators can list, create, and partially update categories and menu
+   items. Category and item deactivation is soft; no administrative DELETE
+   endpoint exists.
+3. `MenuItem.is_active` controls lifecycle visibility and
+   `MenuItem.is_available` independently controls temporary orderability.
+   Deactivating a category does not rewrite its child item flags, and later menu
+   changes do not alter historical `OrderItem` snapshots.
+4. The administrator may change `order_status` from `created` to `accepted`
    only when a related `Payment(status=succeeded)` exists.
-3. `created -> cancelled` is possible only when no related
+5. `created -> cancelled` is possible only when no related
    `Payment(status=pending)` or `Payment(status=succeeded)` exists.
-4. An active `pending` attempt blocks cancellation with the provisional domain
+6. An active `pending` attempt blocks cancellation with the provisional domain
    conflict `active_payment_attempt`, because a later Stripe webhook may still
    confirm payment. The customer or administrator must wait for the attempt to
    finish.
-5. `failed`, `expired`, and the absence of `Payment` records do not block
+7. `failed`, `expired`, and the absence of `Payment` records do not block
    cancellation. After `failed` or `expired`, the user may cancel the order or
    create a new payment attempt.
-6. After successful payment, the order cannot be cancelled in the MVP because
+8. After successful payment, the order cannot be cancelled in the MVP because
    doing so would require a refund process.
-7. Every status change is recorded in the history.
-8. The customer may read a minimal status view by providing the
+9. Every allowed status change and its history row are committed atomically
+   under the shared Order lock.
+10. The customer may read a minimal status view by providing the
    `public_order_number` and the `X-Order-Access-Token` header.
+11. Stage 12 adds no RestaurantTable administration, refund processing, actor
+    attribution, generic audit log, analytics, or Stage 13 implementation.
 
 ### 4.6. Analytics and Reports
 
@@ -332,10 +343,9 @@ discounts. Dine-in orders additionally preserve `table_number_snapshot`.
 - Signed business mismatches are receipted for reconciliation rather than
   misclassified as signature failures.
 - A future `refund_status` remains a separate lifecycle.
-- Stage 9 verifies D-016 against persisted Payment rows and verifies the D-017
-  `Order -> Payment` lock protocol at the domain and integration level. The
-  future administrative cancellation command remains part of the operational
-  API stage.
+- Stage 12 applies D-016 to the administrator cancellation transition and
+  preserves D-017's `Order -> Payment` lock protocol across cancellation,
+  Checkout, and verified webhook processing.
 
 ### 7.5. Security and Privacy
 

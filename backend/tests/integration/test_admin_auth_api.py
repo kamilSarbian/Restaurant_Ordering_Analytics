@@ -734,7 +734,7 @@ def test_deactivation_immediately_invalidates_an_unexpired_login_token(
 def test_openapi_documents_exact_admin_auth_contract_and_keeps_public_routes_open(
     client: TestClient,
 ) -> None:
-    """Expose only login and current-admin auth operations with AdminBearer."""
+    """Expose administrator operations without securing public routes globally."""
     document = client.get("/openapi.json").json()
     assert "/api/v1/stripe/webhook" not in document["paths"]
     assert "/api/v1/admin/auth/register" not in document["paths"]
@@ -762,6 +762,48 @@ def test_openapi_documents_exact_admin_auth_contract_and_keeps_public_routes_ope
         "scheme": "bearer",
         "bearerFormat": "JWT",
     }
+
+    admin_order_operations = [
+        document["paths"]["/api/v1/admin/orders"]["get"],
+        document["paths"]["/api/v1/admin/orders/{public_order_number}"]["get"],
+        document["paths"]["/api/v1/admin/orders/{public_order_number}/status"]["patch"],
+    ]
+    assert [operation["summary"] for operation in admin_order_operations] == [
+        "List administrator orders",
+        "Get administrator order detail",
+        "Update administrator order status",
+    ]
+    assert all(
+        operation["tags"] == ["admin-orders"] for operation in admin_order_operations
+    )
+    assert all(
+        operation["security"] == [{"AdminBearer": []}]
+        for operation in admin_order_operations
+    )
+
+    admin_menu_operations = [
+        document["paths"]["/api/v1/admin/menu/categories"]["get"],
+        document["paths"]["/api/v1/admin/menu/categories"]["post"],
+        document["paths"]["/api/v1/admin/menu/categories/{category_id}"]["patch"],
+        document["paths"]["/api/v1/admin/menu/items"]["get"],
+        document["paths"]["/api/v1/admin/menu/items"]["post"],
+        document["paths"]["/api/v1/admin/menu/items/{item_id}"]["patch"],
+    ]
+    assert [operation["summary"] for operation in admin_menu_operations] == [
+        "List administrator categories",
+        "Create administrator category",
+        "Update administrator category",
+        "List administrator menu items",
+        "Create administrator menu item",
+        "Update administrator menu item",
+    ]
+    assert all(
+        operation["tags"] == ["admin-menu"] for operation in admin_menu_operations
+    )
+    assert all(
+        operation["security"] == [{"AdminBearer": []}]
+        for operation in admin_menu_operations
+    )
 
     public_operations = [
         document["paths"]["/health"]["get"],

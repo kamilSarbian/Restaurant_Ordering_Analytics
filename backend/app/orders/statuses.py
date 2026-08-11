@@ -14,6 +14,39 @@ class OrderStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
+ALLOWED_ORDER_STATUS_TRANSITIONS = frozenset(
+    {
+        (OrderStatus.CREATED, OrderStatus.ACCEPTED),
+        (OrderStatus.CREATED, OrderStatus.CANCELLED),
+        (OrderStatus.ACCEPTED, OrderStatus.PREPARING),
+        (OrderStatus.PREPARING, OrderStatus.READY),
+        (OrderStatus.READY, OrderStatus.COMPLETED),
+    }
+)
+
+
+def can_transition_order_status(
+    current_status: str | OrderStatus,
+    target_status: str | OrderStatus,
+) -> bool:
+    """Return whether the approved fulfilment graph allows a transition.
+
+    Args:
+        current_status: Current persisted fulfilment status.
+        target_status: Requested next fulfilment status.
+
+    Returns:
+        True only for one of the five approved directed graph edges. Unknown
+        raw values are rejected without raising an exception.
+    """
+    try:
+        current = OrderStatus(current_status)
+        target = OrderStatus(target_status)
+    except ValueError:
+        return False
+    return (current, target) in ALLOWED_ORDER_STATUS_TRANSITIONS
+
+
 def can_cancel_order(
     status: OrderStatus,
     *,

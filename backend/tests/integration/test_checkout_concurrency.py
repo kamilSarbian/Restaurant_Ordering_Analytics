@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Generator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
-from threading import Barrier, Event, Lock
+from threading import Barrier, Event, Lock, local
 from uuid import UUID, uuid4
 
 import pytest
@@ -19,15 +19,21 @@ from app.orders.access import (
     generate_public_order_number,
     hash_order_access_token,
 )
+from app.orders.admin_service import (
+    AdminOrderActivePaymentError,
+    AdminOrderCannotCancelError,
+    AdminOrderInvalidTransitionError,
+    transition_order_status,
+)
 from app.orders.models import Order, OrderItem, OrderStatusHistory
-from app.orders.statuses import OrderStatus, can_cancel_order
+from app.orders.statuses import OrderStatus
 from app.payments.checkout import (
     ActivePaymentAttemptError,
     CheckoutOutcome,
+    OrderNotPayableError,
     checkout_order,
 )
 from app.payments.models import Payment
-from app.payments.policies import has_blocking_payment_status
 from app.payments.statuses import PaymentStatus
 from app.payments.stripe_checkout import (
     CheckoutSessionResult,
@@ -100,18 +106,25 @@ def _store_order(
     public_number = generate_public_order_number()
     token = generate_order_access_token()
     with session_factory.begin() as session:
+        order = Order(
+            id=order_id,
+            public_order_number=public_number,
+            order_access_token_hash=hash_order_access_token(token),
+            order_type="takeaway",
+            table_id=None,
+            table_number_snapshot=None,
+            status=OrderStatus.CREATED.value,
+            currency="NOK",
+            subtotal_amount=53700,
+            total_amount=53700,
+        )
+        session.add(order)
         session.add(
-            Order(
-                id=order_id,
-                public_order_number=public_number,
-                order_access_token_hash=hash_order_access_token(token),
-                order_type="takeaway",
-                table_id=None,
-                table_number_snapshot=None,
-                status=OrderStatus.CREATED.value,
-                currency="NOK",
-                subtotal_amount=53700,
-                total_amount=53700,
+            OrderStatusHistory(
+                order=order,
+                sequence=0,
+                previous_status=None,
+                new_status=OrderStatus.CREATED.value,
             )
         )
     return order_id, public_number, token
@@ -138,30 +151,27 @@ def _run_checkout(
         )
 
 
-def _locked_cancellation_decision(
+def _run_cancellation(
     session_factory: sessionmaker[Session],
-    order_id: UUID,
+    public_number: str,
 ) -> bool:
-    with session_factory() as session, session.begin():
-        order = session.scalar(
-            select(Order).where(Order.id == order_id).with_for_update()
-        )
-        assert order is not None
-        payments = session.scalars(
-            select(Payment)
-            .where(Payment.order_id == order.id)
-            .order_by(Payment.created_at.asc(), Payment.id.asc())
-            .with_for_update()
-        ).all()
-        return can_cancel_order(
-            OrderStatus(order.status),
-            has_blocking_payment=has_blocking_payment_status(
-                payment.status for payment in payments
-            ),
-        )
+    with session_factory() as session:
+        try:
+            transition_order_status(
+                session,
+                public_order_number=public_number,
+                target_status=OrderStatus.CANCELLED,
+            )
+        except (
+            AdminOrderActivePaymentError,
+            AdminOrderCannotCancelError,
+            AdminOrderInvalidTransitionError,
+        ):
+            return False
+    return True
 
 
-def test_provider_call_has_no_transaction_and_releases_order_for_cancellation(
+def test_checkout_wins_before_provider_call_and_real_cancellation_is_blocked(
     checkout_session_factory: sessionmaker[Session],
 ) -> None:
     """Prove external I/O holds no DB transaction or Order/Payment lock."""
@@ -197,15 +207,20 @@ def test_provider_call_has_no_transaction_and_releases_order_for_cancellation(
     with ThreadPoolExecutor(max_workers=1) as executor:
         future = executor.submit(worker)
         assert provider_entered.wait(timeout=10)
-        assert (
-            _locked_cancellation_decision(checkout_session_factory, order_id) is False
-        )
+        assert _run_cancellation(checkout_session_factory, public_number) is False
         release_provider.set()
         outcome = future.result(timeout=10)
 
     assert observed_no_transaction == [True]
     assert outcome.created is True
     assert outcome.response.checkout_url == CHECKOUT_RESULT.checkout_url
+    with checkout_session_factory() as session:
+        stored_order = session.get(Order, order_id)
+        stored_payment = session.scalar(select(Payment))
+    assert stored_order is not None
+    assert stored_order.status == OrderStatus.CREATED.value
+    assert stored_payment is not None
+    assert stored_payment.status == PaymentStatus.PENDING.value
 
 
 def test_every_checkout_transaction_locks_order_before_ordered_payments(
@@ -397,13 +412,13 @@ def test_stale_definitive_failure_cannot_overwrite_concurrent_success(
         (PaymentStatus.EXPIRED, True),
     ],
 )
-def test_future_cancellation_uses_the_same_order_payment_lock_protocol(
+def test_real_cancellation_uses_the_same_order_payment_lock_protocol(
     checkout_session_factory: sessionmaker[Session],
     status: PaymentStatus,
     expected: bool,
 ) -> None:
     """Apply D-016 under the same D-017 Order-to-Payment locking order."""
-    order_id, _, _ = _store_order(checkout_session_factory)
+    order_id, public_number, _ = _store_order(checkout_session_factory)
     payment_id = uuid4()
     with checkout_session_factory.begin() as session:
         session.add(
@@ -417,7 +432,103 @@ def test_future_cancellation_uses_the_same_order_payment_lock_protocol(
                 stripe_idempotency_key=build_stripe_idempotency_key(payment_id),
             )
         )
-    assert _locked_cancellation_decision(checkout_session_factory, order_id) is expected
+    assert _run_cancellation(checkout_session_factory, public_number) is expected
+
+
+def test_cancellation_wins_order_lock_and_checkout_cannot_create_payment(
+    checkout_session_factory: sessionmaker[Session],
+    test_database_engine: Engine,
+) -> None:
+    """Serialize cancellation before Checkout Phase 1 without a deadlock."""
+    order_id, public_number, token = _store_order(checkout_session_factory)
+    thread_role = local()
+    cancellation_locked = Event()
+    release_cancellation = Event()
+    checkout_attempted = Event()
+
+    def before_cursor_execute(
+        _connection: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        normalized = " ".join(statement.lower().split())
+        if (
+            getattr(thread_role, "value", None) == "checkout"
+            and " from orders " in normalized
+            and "for update" in normalized
+        ):
+            checkout_attempted.set()
+
+    def after_cursor_execute(
+        _connection: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        normalized = " ".join(statement.lower().split())
+        if (
+            getattr(thread_role, "value", None) == "cancellation"
+            and " from orders " in normalized
+            and "for update" in normalized
+        ):
+            cancellation_locked.set()
+            assert release_cancellation.wait(timeout=10)
+
+    fake = CallbackStripeClient(lambda _request: CHECKOUT_RESULT)
+
+    def cancel_worker() -> bool:
+        thread_role.value = "cancellation"
+        return _run_cancellation(checkout_session_factory, public_number)
+
+    def checkout_worker() -> CheckoutOutcome:
+        thread_role.value = "checkout"
+        return _run_checkout(
+            checkout_session_factory,
+            public_number=public_number,
+            token=token,
+            request_key=uuid4(),
+            stripe_client=fake,
+        )
+
+    event.listen(test_database_engine, "before_cursor_execute", before_cursor_execute)
+    event.listen(test_database_engine, "after_cursor_execute", after_cursor_execute)
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            cancellation = executor.submit(cancel_worker)
+            assert cancellation_locked.wait(timeout=10)
+            checkout = executor.submit(checkout_worker)
+            assert checkout_attempted.wait(timeout=10)
+            release_cancellation.set()
+            assert cancellation.result(timeout=10) is True
+            with pytest.raises(OrderNotPayableError):
+                checkout.result(timeout=10)
+    finally:
+        release_cancellation.set()
+        event.remove(
+            test_database_engine, "before_cursor_execute", before_cursor_execute
+        )
+        event.remove(test_database_engine, "after_cursor_execute", after_cursor_execute)
+
+    with checkout_session_factory() as session:
+        stored_order = session.get(Order, order_id)
+        payments = list(session.scalars(select(Payment)).all())
+        history = list(
+            session.scalars(
+                select(OrderStatusHistory)
+                .where(OrderStatusHistory.order_id == order_id)
+                .order_by(OrderStatusHistory.sequence.asc())
+            ).all()
+        )
+    assert stored_order is not None
+    assert stored_order.status == OrderStatus.CANCELLED.value
+    assert payments == []
+    assert [entry.sequence for entry in history] == [0, 1]
+    assert fake.requests == []
 
 
 def test_unexpected_payment_insert_error_rolls_back_and_propagates(

@@ -123,7 +123,7 @@ verification.
 The protected-request flow is `AdminBearer -> JWT validation -> current active
 AdminUser SELECT -> AdminPrincipal -> endpoint`. Every protected request checks
 current database state, so deactivation takes effect immediately. Public routes
-are not globally protected. Stage 12 will reuse `require_admin` for operational
+are not globally protected. Stage 12 reuses `require_admin` for operational
 orders and menu endpoints; later analytics and reports modules will use the same
 boundary. React presents results but does not define permissions or KPI rules.
 
@@ -622,6 +622,45 @@ general startup when no JWT secret is configured, but protected auth operations
 then return 503. Login and `/me` are visible in OpenAPI, the Stripe webhook is
 hidden, and public customer operations have no AdminBearer requirement.
 
+### 5.16. Implemented Administrator Operational API
+
+Stage 12 keeps HTTP, validation, and database responsibilities separated. The
+orders module uses `admin_router.py`, `admin_schemas.py`, and
+`admin_service.py`; the menu module uses the corresponding `admin_*` files.
+Routers apply `require_admin` and map stable HTTP errors. Services contain no
+FastAPI or JWT logic and return strict detached response schemas.
+
+Administrator order reads use one count and one deterministic page query for
+the list, while detail reads the Order, immutable OrderItem snapshots, ordered
+history, and ordered Payment summaries without N+1 loading. The summary omits
+StripeEvent data, Checkout URLs, Session IDs, idempotency keys, and guest access
+material.
+
+Status mutation starts a short transaction and locks the Order with
+`FOR UPDATE`. The transition graph is checked before payment reads.
+Payment-sensitive acceptance and cancellation then lock related Payments in
+`created_at, id` order, preserving the shared `Order -> Payment` protocol.
+Acceptance requires a succeeded attempt. Cancellation preserves D-016: pending
+and succeeded attempts block it, while failed, expired, or absent attempts do
+not. The Order status update and exactly one history insert commit atomically;
+the Order lock serializes the next history sequence. No Stripe provider call is
+made while these locks are held, and Stage 12 adds no actor field.
+
+Administrator menu lists use one count and one deterministic page query and
+include inactive resources. Create and PATCH operations use short transactions;
+PATCH locks its target row with `FOR UPDATE`. PostgreSQL normalized unique
+indexes remain the final arbiter for global category names and category-scoped
+menu-item names. Known uniqueness violations alone become 409 conflicts.
+Category and item changes are soft: there is no DELETE, item activity and
+availability remain independent, category deactivation does not rewrite child
+flags, and historical OrderItem snapshots remain unchanged. The separate public
+menu router stays unauthenticated and retains its existing visibility rules.
+
+Stage 12 changes no SQLAlchemy model and requires no migration after
+`0006_create_admin_user_model`. RestaurantTable administration, refunds,
+StripeEvent diagnostics, a generic audit log, and analytics remain outside this
+operational API.
+
 ## 6. Architecture Diagram
 
 ```mermaid
@@ -730,6 +769,8 @@ Code is grouped primarily by feature. Shared components are placed in
 - Critical order, payment, and history writes are transactional.
 - Cancellation, `Payment` creation, and the webhook lock `Order` first and then
   `Payment`; no lock is held during a Stripe call.
+- Administrator menu PATCH operations lock the target Category or MenuItem row;
+  database uniqueness remains authoritative for concurrent writes.
 - The database enforces foreign keys, uniqueness, and valid constraints
   independently of Pydantic validation.
 - Partial unique indexes limit `Payment` attempts with status `pending` and
@@ -750,9 +791,10 @@ the path parameter is the returned public number, not an internal UUID. Status
 retrieval uses the same access token. `POST /api/v1/stripe/webhook` requires a
 valid Stripe signature and is intentionally absent from OpenAPI.
 
-The administrator scope includes sign-in, the current user, orders, menu, six
-basic analytics metrics, and CSV reports for orders, product sales, and
-payments.
+The implemented administrator scope includes sign-in, the current user, order
+list and detail, fulfilment status changes, and category and menu-item list,
+create, and partial update operations. Later stages retain six basic analytics
+metrics and CSV reports for orders, product sales, and payments.
 
 Exact contracts, response codes, and the access policy will be defined in the
 stages that implement the relevant features. The context document is not yet a

@@ -733,8 +733,8 @@ and `pending_payment` are not `order_status` values.
 D-016 remains verified against persisted Payment rows at the domain and
 integration level. D-017 is verified through real PostgreSQL lock-order,
 provider-boundary, Checkout, webhook, and cancellation-eligibility concurrency
-tests. The future administrative cancellation command retains its later-stage
-scope.
+tests. D-054 now defines the implemented administrator cancellation transition
+while preserving these financial concurrency rules.
 
 ## D-047: Verified Stripe Webhook and Provider-Authoritative Transitions
 
@@ -849,6 +849,61 @@ scope.
 - **Consequences:** a distributed limiter and trusted-proxy identity policy are
   deferred until deployment needs demonstrate them. Stage 12 reuses the
   authorization dependency but remains separately approved scope.
+
+## D-053: Administrator Operational API Boundary
+
+- **Status:** accepted on 2026-08-11
+- **Decision:** authenticated operational endpoints use the
+  `/api/v1/admin/...` route family and the existing `require_admin` dependency.
+  Stage 12 exposes administrator order list, detail, and status mutation plus
+  category and menu-item list, create, and partial update operations.
+- **Security boundary:** the login endpoint remains public, `/auth/me` and all
+  operational routes use AdminBearer, and public customer routes receive no
+  global administrator dependency. The provider-facing Stripe webhook remains
+  hidden from OpenAPI.
+- **Consequences:** Stage 12 adds no RestaurantTable management, refund,
+  StripeEvent diagnostic, generic audit-log, or analytics endpoint. Those
+  capabilities require separately approved stages.
+
+## D-054: Transactional Order Status Transition and History Protocol
+
+- **Status:** accepted on 2026-08-11
+- **Decision:** the fulfilment graph permits exactly `created -> accepted`,
+  `created -> cancelled`, `accepted -> preparing`, `preparing -> ready`, and
+  `ready -> completed`; `completed` and `cancelled` are terminal. Acceptance
+  requires at least one related `Payment(status=succeeded)`.
+- **Transaction protocol:** a transition locks Order with `FOR UPDATE`.
+  Acceptance and cancellation then lock related Payments in stable creation
+  time and UUID order, preserving D-017's `Order -> Payment` protocol. D-016
+  remains authoritative for cancellation: pending and succeeded attempts block
+  it, while failed, expired, or absent attempts do not.
+- **Atomicity:** one successful operation updates `Order.status` and appends
+  exactly one sequenced history row in the same short transaction. The Order
+  lock serializes sequence allocation, and no Stripe provider call occurs while
+  locks are held.
+- **Consequences:** Stage 12 adds no reversal, separate cancellation endpoint,
+  paid-order cancellation, refund, or actor attribution to status history.
+
+## D-055: Administrative Menu Mutation and Soft-Deactivation Semantics
+
+- **Status:** accepted on 2026-08-11
+- **Decision:** administrators may list, create, and partially update Category
+  and MenuItem records. There is no physical DELETE route or service operation;
+  lifecycle changes use `is_active`, while `MenuItem.is_available` independently
+  represents temporary orderability.
+- **Integrity:** category names remain globally unique by
+  `lower(btrim(name))`; menu-item names remain unique by category and
+  `lower(btrim(name))`. PostgreSQL indexes are the final arbiter. PATCH locks
+  the target row with `FOR UPDATE`, and only known uniqueness violations map to
+  a conflict.
+- **Visibility and history:** deactivating a category does not rewrite child
+  item flags. Inactive categories remain manageable, item reassignment to an
+  existing inactive category is allowed, and activity and availability flags
+  have no automatic coupling. Public menu rules continue to filter current
+  state, while persisted OrderItem name, category, price, and cost snapshots
+  remain immutable.
+- **Consequences:** Stage 12 requires no model or migration change and adds no
+  menu audit actor or generic audit log.
 
 ## History of Decisions That Required Resolution
 

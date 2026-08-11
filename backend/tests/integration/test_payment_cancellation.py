@@ -6,13 +6,17 @@ import secrets
 import uuid
 
 import pytest
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.orders.models import Order
-from app.orders.statuses import OrderStatus, can_cancel_order
+from app.orders.admin_service import (
+    AdminOrderActivePaymentError,
+    AdminOrderCannotCancelError,
+    AdminOrderInvalidTransitionError,
+    transition_order_status,
+)
+from app.orders.models import Order, OrderStatusHistory
+from app.orders.statuses import OrderStatus
 from app.payments.models import Payment
-from app.payments.policies import has_blocking_payment_status
 from app.payments.statuses import PaymentStatus
 
 pytestmark = pytest.mark.integration
@@ -46,38 +50,58 @@ def _payment(order: Order, status: PaymentStatus) -> Payment:
     )
 
 
-def _can_cancel_persisted_order(session: Session, order: Order) -> bool:
-    statuses = session.scalars(
-        select(Payment.status).where(Payment.order_id == order.id)
-    ).all()
-    return can_cancel_order(
-        OrderStatus(order.status),
-        has_blocking_payment=has_blocking_payment_status(statuses),
+def _store_initial_history(session: Session, order: Order) -> None:
+    session.add(
+        OrderStatusHistory(
+            order=order,
+            sequence=0,
+            previous_status=None,
+            new_status=OrderStatus.CREATED.value,
+        )
+    )
+
+
+def _cancel_persisted_order(session: Session, order: Order) -> None:
+    transition_order_status(
+        session,
+        public_order_number=order.public_order_number,
+        target_status=OrderStatus.CANCELLED,
     )
 
 
 @pytest.mark.parametrize(
-    ("payment_status", "expected"),
+    ("payment_status", "expected_error"),
     [
-        (None, True),
-        (PaymentStatus.FAILED, True),
-        (PaymentStatus.EXPIRED, True),
-        (PaymentStatus.PENDING, False),
-        (PaymentStatus.SUCCEEDED, False),
+        (None, None),
+        (PaymentStatus.FAILED, None),
+        (PaymentStatus.EXPIRED, None),
+        (PaymentStatus.PENDING, AdminOrderActivePaymentError),
+        (PaymentStatus.SUCCEEDED, AdminOrderCannotCancelError),
     ],
 )
 def test_created_order_cancellation_uses_persisted_payment_statuses(
     db_session: Session,
     payment_status: PaymentStatus | None,
-    expected: bool,
+    expected_error: type[Exception] | None,
 ) -> None:
-    """Apply the D-016 blocking rule to real Payment rows."""
+    """Apply real Stage 12 cancellation to persisted Payment rows."""
     order = _order()
     db_session.add(order)
+    _store_initial_history(db_session, order)
     if payment_status is not None:
         db_session.add(_payment(order, payment_status))
-    db_session.flush()
-    assert _can_cancel_persisted_order(db_session, order) is expected
+    db_session.commit()
+
+    if expected_error is None:
+        _cancel_persisted_order(db_session, order)
+        db_session.expire(order, ["status_history"])
+        assert order.status == OrderStatus.CANCELLED.value
+        assert [entry.sequence for entry in order.status_history] == [0, 1]
+    else:
+        with pytest.raises(expected_error):
+            _cancel_persisted_order(db_session, order)
+        assert order.status == OrderStatus.CREATED.value
+        assert [entry.sequence for entry in order.status_history] == [0]
 
 
 @pytest.mark.parametrize("payment_status", [None, *list(PaymentStatus)])
@@ -88,7 +112,41 @@ def test_accepted_order_is_never_cancellable(
     """Keep fulfilment status authoritative regardless of payment attempts."""
     order = _order(status=OrderStatus.ACCEPTED)
     db_session.add(order)
+    _store_initial_history(db_session, order)
+    db_session.add(
+        OrderStatusHistory(
+            order=order,
+            sequence=1,
+            previous_status=OrderStatus.CREATED.value,
+            new_status=OrderStatus.ACCEPTED.value,
+        )
+    )
     if payment_status is not None:
         db_session.add(_payment(order, payment_status))
-    db_session.flush()
-    assert _can_cancel_persisted_order(db_session, order) is False
+    db_session.commit()
+
+    with pytest.raises(AdminOrderInvalidTransitionError):
+        _cancel_persisted_order(db_session, order)
+    assert order.status == OrderStatus.ACCEPTED.value
+    assert [entry.sequence for entry in order.status_history] == [0, 1]
+
+
+def test_succeeded_precedes_pending_when_both_attempts_exist(
+    db_session: Session,
+) -> None:
+    """Return the stronger terminal cancellation conflict deterministically."""
+    order = _order()
+    db_session.add(order)
+    _store_initial_history(db_session, order)
+    db_session.add_all(
+        [
+            _payment(order, PaymentStatus.PENDING),
+            _payment(order, PaymentStatus.SUCCEEDED),
+        ]
+    )
+    db_session.commit()
+
+    with pytest.raises(AdminOrderCannotCancelError):
+        _cancel_persisted_order(db_session, order)
+    assert order.status == OrderStatus.CREATED.value
+    assert [entry.sequence for entry in order.status_history] == [0]

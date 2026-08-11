@@ -6,7 +6,7 @@ from collections.abc import Callable, Generator
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from threading import Barrier, Event, Lock, local
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 from sqlalchemy import delete, event, select
@@ -18,15 +18,20 @@ from app.orders.access import (
     generate_public_order_number,
     hash_order_access_token,
 )
+from app.orders.admin_service import (
+    AdminOrderActivePaymentError,
+    AdminOrderCannotCancelError,
+    AdminOrderInvalidTransitionError,
+    transition_order_status,
+)
 from app.orders.models import Order, OrderItem, OrderStatusHistory
-from app.orders.statuses import OrderStatus, can_cancel_order
+from app.orders.statuses import OrderStatus
 from app.payments.checkout import (
     CheckoutOutcome,
     PaymentSessionReconciliationRequiredError,
     checkout_order,
 )
 from app.payments.models import Payment, StripeEvent
-from app.payments.policies import has_blocking_payment_status
 from app.payments.statuses import PaymentStatus
 from app.payments.stripe_checkout import (
     CheckoutSessionResult,
@@ -139,6 +144,14 @@ def _store_order(
     )
     with session_factory.begin() as session:
         session.add(order)
+        session.add(
+            OrderStatusHistory(
+                order=order,
+                sequence=0,
+                previous_status=None,
+                new_status=OrderStatus.CREATED.value,
+            )
+        )
     return order, token
 
 
@@ -506,29 +519,24 @@ def test_failed_or_expired_webhook_before_phase_three_remains_incompatible(
     assert stored_payment.stripe_checkout_expires_at is None
 
 
-def _locked_cancellation_decision(
+def _run_cancellation(
     session_factory: sessionmaker[Session],
-    order_id: UUID,
+    public_number: str,
 ) -> bool:
-    with session_factory() as session, session.begin():
-        order = session.scalar(
-            select(Order).where(Order.id == order_id).with_for_update()
-        )
-        assert order is not None
-        payments = list(
-            session.scalars(
-                select(Payment)
-                .where(Payment.order_id == order.id)
-                .order_by(Payment.created_at.asc(), Payment.id.asc())
-                .with_for_update()
-            ).all()
-        )
-        return can_cancel_order(
-            OrderStatus(order.status),
-            has_blocking_payment=has_blocking_payment_status(
-                payment.status for payment in payments
-            ),
-        )
+    with session_factory() as session:
+        try:
+            transition_order_status(
+                session,
+                public_order_number=public_number,
+                target_status=OrderStatus.CANCELLED,
+            )
+        except (
+            AdminOrderActivePaymentError,
+            AdminOrderCannotCancelError,
+            AdminOrderInvalidTransitionError,
+        ):
+            return False
+    return True
 
 
 @pytest.mark.parametrize(
@@ -539,7 +547,7 @@ def _locked_cancellation_decision(
         (StripeWebhookEventType.EXPIRED, True),
     ],
 )
-def test_webhook_and_future_cancellation_share_lock_order_without_deadlock(
+def test_webhook_and_real_cancellation_share_lock_order_without_deadlock(
     concurrency_session_factory: sessionmaker[Session],
     test_database_engine: Engine,
     event_type: StripeWebhookEventType,
@@ -549,25 +557,88 @@ def test_webhook_and_future_cancellation_share_lock_order_without_deadlock(
     order, _ = _store_order(concurrency_session_factory)
     payment = _store_payment(concurrency_session_factory, order)
     verified = _verified_event(order, payment, event_type=event_type)
-    webhook_outcome, cancellation_allowed = _run_order_lock_race(
+    webhook_outcome, cancellation_applied = _run_order_lock_race(
         test_database_engine,
         lambda: _process(concurrency_session_factory, verified),
-        lambda: _locked_cancellation_decision(
+        lambda: _run_cancellation(
             concurrency_session_factory,
-            order.id,
+            order.public_order_number,
         ),
     )
     assert webhook_outcome is WebhookProcessingOutcome.TRANSITIONED
-    assert cancellation_allowed is expected_cancellable
+    assert cancellation_applied is expected_cancellable
+
+    with concurrency_session_factory() as session:
+        stored_order = session.get(Order, order.id)
+        stored_payment = session.get(Payment, payment.id)
+    assert stored_order is not None
+    assert stored_payment is not None
+    assert stored_order.status == (
+        OrderStatus.CANCELLED.value
+        if expected_cancellable
+        else OrderStatus.CREATED.value
+    )
+    assert stored_payment.status == (
+        PaymentStatus.SUCCEEDED.value
+        if event_type is StripeWebhookEventType.COMPLETED
+        else (
+            PaymentStatus.FAILED.value
+            if event_type is StripeWebhookEventType.ASYNC_PAYMENT_FAILED
+            else PaymentStatus.EXPIRED.value
+        )
+    )
 
 
-def test_pending_payment_blocks_future_cancellation(
+def test_pending_payment_blocks_real_cancellation(
     concurrency_session_factory: sessionmaker[Session],
 ) -> None:
     """Retain D-016 before any terminal webhook has arrived."""
     order, _ = _store_order(concurrency_session_factory)
     _store_payment(concurrency_session_factory, order)
-    assert _locked_cancellation_decision(concurrency_session_factory, order.id) is False
+    assert (
+        _run_cancellation(
+            concurrency_session_factory,
+            order.public_order_number,
+        )
+        is False
+    )
+
+
+def test_cancellation_attempt_before_success_webhook_cannot_create_invalid_state(
+    concurrency_session_factory: sessionmaker[Session],
+    test_database_engine: Engine,
+) -> None:
+    """Block cancellation on pending before the waiting webhook succeeds."""
+    order, _ = _store_order(concurrency_session_factory)
+    payment = _store_payment(concurrency_session_factory, order)
+    verified = _verified_event(order, payment)
+
+    cancellation_result, webhook_outcome = _run_order_lock_race(
+        test_database_engine,
+        lambda: _run_cancellation(
+            concurrency_session_factory,
+            order.public_order_number,
+        ),
+        lambda: _process(concurrency_session_factory, verified),
+    )
+    assert cancellation_result is False
+    assert webhook_outcome is WebhookProcessingOutcome.TRANSITIONED
+
+    with concurrency_session_factory() as session:
+        stored_order = session.get(Order, order.id)
+        stored_payment = session.get(Payment, payment.id)
+        history = list(
+            session.scalars(
+                select(OrderStatusHistory)
+                .where(OrderStatusHistory.order_id == order.id)
+                .order_by(OrderStatusHistory.sequence.asc())
+            ).all()
+        )
+    assert stored_order is not None
+    assert stored_payment is not None
+    assert stored_order.status == OrderStatus.CREATED.value
+    assert stored_payment.status == PaymentStatus.SUCCEEDED.value
+    assert [entry.sequence for entry in history] == [0]
 
 
 def test_known_webhook_locks_order_before_ordered_payments(

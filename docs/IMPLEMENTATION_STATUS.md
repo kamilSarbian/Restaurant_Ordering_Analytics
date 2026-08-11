@@ -12,19 +12,22 @@
 - **Stage 9:** completed
 - **Stage 10:** completed
 - **Stage 11:** completed
-- **Current stage:** waiting for approval to start Stage 12
+- **Stage 12:** completed
+- **Current stage:** waiting for approval to start Stage 13
 - **Backend:** FastAPI, database foundation, menu models, local seed data,
   public menu, transient quoting, persistent order creation, and secure public
   order status, Payment persistence, Stripe Checkout, and verified Stripe
-  webhook processing, plus administrator authentication completed
+  webhook processing, administrator authentication, and administrator order
+  and menu operational APIs completed
 - **Frontend:** not started
 - **Database:** PostgreSQL, Alembic, menu, order, Payment, StripeEvent, and
   AdminUser models, migration `0006_create_admin_user_model`, and deterministic
-  menu seed completed; the development AdminUser count is zero
+  menu seed completed; the development AdminUser count is one
 - **Seed data:** completed and verified
 - **Public menu API:** list, availability filter, item details, and 404 contract
   completed and verified
-- **Menu write API:** not started
+- **Menu write API:** administrator category and item list, create, partial
+  update, activity, availability, and reassignment completed and verified
 - **Order quoting:** completed and verified
 - **Order creation:** completed and verified
 - **Public order status:** completed and verified
@@ -50,34 +53,43 @@
 - **Reusable AdminBearer dependency:** completed and verified
 - **Administrator login limiter:** completed and verified at 5 attempts per 60
   seconds for each direct peer
-- **Administrator bootstrap CLI:** completed and verified; no real development
-  administrator has been created
-- **Application tests:** 925 health, database, migration, model, constraint,
+- **Administrator bootstrap CLI:** completed and verified; no development
+  administrator was created by migration or automated tests
+- **Administrator order API:** list, filters, pagination, detail, safe Payment
+  summaries, and immutable snapshots completed and verified
+- **Administrator order transitions:** exact fulfilment graph, payment-aware
+  acceptance and cancellation, atomic history, and concurrency completed
+- **Administrator menu API:** six protected list/create/PATCH operations, soft
+  deactivation, normalized uniqueness, and row-lock concurrency completed
+- **Application tests:** 1121 health, database, migration, model, constraint,
   seed, schema, public API, quoting, order creation, payment, security,
   rate-limit, rollback, and concurrency tests completed
 - **Deployment:** not started
 
 ## Known limitations
 
-- The backend exposes health, read-only public menu and quote endpoints,
-  persistent guest order creation, and token-protected public order status;
-  menu writes have not started.
-- Administrator operational endpoints and frontend work have not started.
+- The backend exposes health, public menu and quote endpoints, persistent guest
+  ordering and payment flows, secure public status, and authenticated
+  administrator order and menu operations. Analytics and frontend work have not
+  started.
 - Administrator authentication has no refresh, logout, revocation, password
   reset/change, or MFA. Its limiter is per process and resets on restart.
-- Migration `0006` creates no administrator. Manual setup after the future
-  Stage 11 commit still requires an operator to configure a local JWT secret
-  and run the interactive bootstrap command; neither action is part of tests.
+- Migration `0006` creates no administrator. Manual setup requires an operator
+  to configure a local JWT secret and run the interactive bootstrap command;
+  neither action is part of tests.
 - RestaurantTable provisioning and administration have not started, so Stage 8
   only provides the persistence and validation foundation.
 - Order creation has no idempotency key; a network retry can create a duplicate
   Order. Its fixed-window limiter is per process and resets on restart.
-- D-016 is verified against persisted Payment rows and D-017 is verified with
-  PostgreSQL concurrency tests. The future administrative cancellation command
-  remains part of the operational API stage.
+- D-016 is enforced by the implemented administrator cancellation transition,
+  and D-017 is verified with PostgreSQL concurrency tests across cancellation,
+  Checkout, and webhook flows.
 - Stage 10 verifies and durably deduplicates webhook events and applies
-  provider-authoritative terminal Payment outcomes. It still exposes no
-  `payment_summary` in public Order status and adds no cancellation endpoint.
+  provider-authoritative terminal Payment outcomes. Public Order status still
+  exposes no `payment_summary`, and Stage 12 exposes no StripeEvent diagnostic
+  API.
+- Stage 12 provides no RestaurantTable administration, menu DELETE, refund,
+  actor attribution, generic audit log, or analytics endpoint.
 - A real Stripe CLI smoke remains optional and manual; automated tests use
   injected adapters or synthetic local signatures and perform no Stripe calls.
 - The seed is restricted to the exact local development database and is not a
@@ -86,6 +98,32 @@
   not started.
 
 ## Last verification
+
+Stage 12 verified on 2026-08-11:
+
+- Administrator order list, filters, deterministic pagination, detail,
+  immutable snapshots, safe Payment summaries, and bounded SQL: PASS
+- Exact fulfilment graph, succeeded-payment acceptance, D-016 cancellation,
+  D-017 lock order, atomic history, and concurrent transitions: PASS
+- Six administrator menu routes, strict schemas, normalized uniqueness,
+  row-locked PATCH operations, soft deactivation, independent activity and
+  availability, public-menu and quote regression, and snapshot immutability:
+  PASS
+- Admin order schemas 10, order statuses 48, admin menu schemas 56, admin order
+  API 63, admin order concurrency 5, payment cancellation 11, Checkout
+  concurrency 11, webhook concurrency 13, admin menu API 18, and admin auth API
+  16 tests passed
+- Full pytest suite: 1121 passed with one accepted Starlette warning
+- Ruff, Black, isort, OpenAPI, and Alembic drift checks: PASS
+- Alembic remains at `0006_create_admin_user_model`; Stage 12 requires no model
+  or migration change: PASS
+- Development menu remains 5/15; RestaurantTable, Order, OrderItem,
+  OrderStatusHistory, Payment, and StripeEvent counts remain zero; the one
+  existing development administrator remains unchanged: PASS
+- Isolated test database removal, named-volume preservation, local PostgreSQL
+  18 preservation, and port cleanup: PASS
+- No table administration, DELETE menu route, refund, StripeEvent API, generic
+  audit log, Stage 13 implementation, secret, or Git history operation: PASS
 
 Stage 11 verified on 2026-08-09:
 
