@@ -124,7 +124,7 @@ The protected-request flow is `AdminBearer -> JWT validation -> current active
 AdminUser SELECT -> AdminPrincipal -> endpoint`. Every protected request checks
 current database state, so deactivation takes effect immediately. Public routes
 are not globally protected. Stage 12 reuses `require_admin` for operational
-orders and menu endpoints; later analytics and reports modules will use the same
+orders and menu endpoints; Stage 13 analytics uses the same
 boundary. React presents results but does not define permissions or KPI rules.
 
 ### 5.4. Independent Status Lifecycles
@@ -226,17 +226,51 @@ not add `payment_summary` even though Payment persistence now exists.
 
 ### 5.7. MVP Analytics
 
-The basic dashboard contains collected revenue, succeeded orders count, average
-order value, sales by product, sales by category, and dine-in vs takeaway.
-Collected revenue is the sum of `Payment(status=succeeded)` records by
-confirmation time. Succeeded orders count counts distinct orders with such a
-payment, and average order value is the quotient of these two metrics. Product
-and category sales use `OrderItem` snapshots from successfully paid orders.
-Dine-in vs takeaway groups their count and collected revenue by `order_type`.
+The implemented `backend/app/analytics/` package contains `router.py`,
+`service.py`, `schemas.py`, and `__init__.py`. The router owns query validation,
+the existing `require_admin` dependency, and the HTTP boundary only. Strict
+Pydantic schemas require aware timestamps, expose integer minor-unit values,
+and keep currencies separate. The service owns the shared qualified-payment
+source and set-based PostgreSQL aggregation; it performs no DML, provider call,
+or current-catalog join.
+
+The shared source includes only `Payment(status=succeeded)` rows with a matching
+StripeEvent for the same Payment, a transition-capable successful event type,
+and `processing_result=transitioned`. Its authoritative success time is
+`MIN(StripeEvent.stripe_created_at)`. A succeeded Payment without such a
+receipt is excluded from time-bounded analytics; there is no fallback to
+`Payment.updated_at`.
+
+The six metrics are collected revenue, succeeded paid-order count, average
+order value, product sales, category sales, and dine-in versus takeaway.
+Revenue sums qualified `Payment.amount`, order count uses distinct
+`Payment.order_id`, and average order value is rounded `ROUND_HALF_UP` per
+currency in integer minor units. Product and category breakdowns aggregate
+historical `OrderItem` snapshots; categories group by the historical name
+because no historical Category UUID exists. Catalog mutations cannot rewrite
+these results.
+
+All four endpoints require aware `start` and `end`, filter the half-open
+`[start, end)` interval as UTC instants, and return range metadata normalized
+to `Europe/Oslo`. An optional strict uppercase three-letter currency filter is
+supported. Currencies are never combined and no FX conversion is performed.
+
+Overview and order-type endpoints each execute one set-based aggregate SELECT.
+Product and category endpoints execute one set-based aggregate SELECT with
+per-currency ranking through PostgreSQL window functions. Thus every endpoint
+performs one analytics SELECT after authentication, with no N+1 queries,
+Python full-table grouping, Pandas, DML, or Stripe network access.
+
+The Stage 13 performance audit used EXPLAIN on isolated PostgreSQL and observed
+the expected aggregates, joins, and window operations. Sequential scans on the
+tiny test relations are not blocking. Existing indexes are sufficient for the
+MVP single-restaurant scale, so no analytics persistence, materialized view,
+new index, or migration `0007` is introduced. Index tuning is deferred until a
+measured production-scale need exists.
 
 Refunds are outside the MVP, so collected revenue is not automatically reduced
-by refunds. Refund-adjusted revenue and other extended KPIs will be added later.
-MVP exports cover orders, product sales, and payments.
+by refunds. Refund-adjusted revenue and other extended KPIs remain later work.
+Stage 14 CSV exports have not started.
 
 ### 5.8. Menu, Order, and Administrator Data Model
 
@@ -792,9 +826,9 @@ retrieval uses the same access token. `POST /api/v1/stripe/webhook` requires a
 valid Stripe signature and is intentionally absent from OpenAPI.
 
 The implemented administrator scope includes sign-in, the current user, order
-list and detail, fulfilment status changes, and category and menu-item list,
-create, and partial update operations. Later stages retain six basic analytics
-metrics and CSV reports for orders, product sales, and payments.
+list and detail, fulfilment status changes, category and menu-item management,
+and four protected analytics endpoints for the six basic KPIs. CSV reports for
+orders, product sales, and payments remain planned for Stage 14.
 
 Exact contracts, response codes, and the access policy will be defined in the
 stages that implement the relevant features. The context document is not yet a

@@ -905,6 +905,39 @@ while preserving these financial concurrency rules.
 - **Consequences:** Stage 12 requires no model or migration change and adds no
   menu audit actor or generic audit log.
 
+## D-056: Analytics Source-of-Truth and Historical Snapshot Semantics
+
+- **Status:** accepted on 2026-08-11
+- **Decision:** collected revenue uses `Payment.amount` from succeeded
+  Payments, and paid-order count uses distinct succeeded `Payment.order_id`.
+  Time-bounded inclusion is anchored to the earliest transitioned successful
+  StripeEvent receipt for that Payment. `Payment.updated_at` is not analytics
+  event time.
+- **History boundary:** product and category analytics use immutable
+  `OrderItem` snapshots and never current catalog state. Products retain their
+  menu-item UUID and historical name; categories group by historical name
+  because OrderItem stores no historical Category UUID. Catalog changes do not
+  rewrite historical results.
+- **Consequences:** Stage 13 has no cost or margin analytics, and
+  `Order.total_amount` is not the source of collected revenue.
+
+## D-057: Analytics Time-Range, Currency, Aggregation, and Query Boundary
+
+- **Status:** accepted on 2026-08-11
+- **Decision:** every analytics request requires aware `start` and `end` and
+  applies the half-open `[start, end)` interval to UTC instants. Response range
+  metadata is normalized to `Europe/Oslo`. An optional currency filter is
+  exactly three uppercase ASCII letters; mixed-currency totals and FX
+  conversion are prohibited.
+- **Result semantics:** an unfiltered empty overview has no currency rows,
+  while an explicit valid empty currency has one zero row. Product and category
+  top-N limits apply independently per currency. AOV is calculated per currency
+  in integer minor units with `ROUND_HALF_UP`.
+- **Query boundary:** each endpoint performs one set-based aggregate SELECT
+  after authentication. Product and category ranking uses PostgreSQL window
+  functions. Current MVP scale requires no analytics persistence, new index,
+  or migration.
+
 ## History of Decisions That Required Resolution
 
 ### O-002: Boundary Between Order Creation and Stripe Checkout Session

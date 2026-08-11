@@ -189,7 +189,8 @@ administrator can:
 10. The customer may read a minimal status view by providing the
    `public_order_number` and the `X-Order-Access-Token` header.
 11. Stage 12 adds no RestaurantTable administration, refund processing, actor
-    attribution, generic audit log, analytics, or Stage 13 implementation.
+    attribution, generic audit log, or analytics. Analytics are introduced
+    separately in Stage 13.
 
 ### 4.6. Analytics and Reports
 
@@ -214,7 +215,20 @@ administrator can:
    are outside the MVP. Refund-adjusted revenue is a later feature.
 4. Day boundaries are presented in the `Europe/Oslo` time zone even though
    database timestamps are stored in UTC.
-5. MVP CSV exports cover orders, product sales, and payments.
+5. Stage 13 exposes the six KPIs through four administrator-only backend
+   endpoints. There are no public analytics routes.
+6. Financial metrics use `Payment.amount` from succeeded payments whose
+   success time is the earliest matching transitioned successful StripeEvent.
+   `Payment.updated_at` and `Order.total_amount` are not analytics event time or
+   collected revenue.
+7. Product and category breakdowns use immutable `OrderItem` snapshots rather
+   than current catalog rows. Currencies remain separate and are never
+   converted or combined.
+8. Queries use aware instants and half-open UTC ranges; response range metadata
+   is presented in `Europe/Oslo`.
+9. Stage 13 adds no analytics persistence, database migration, frontend
+   analytics, or Stage 14 CSV implementation. Planned MVP CSV exports remain
+   orders, product sales, and payments.
 
 ## 5. MVP Scope
 
@@ -385,8 +399,8 @@ discounts. Dine-in orders additionally preserve `table_number_snapshot`.
 
 ## 8. Expected Portfolio Value
 
-Stage 11 is complete. The next exact stage is **Stage 12 — Administrator Panel
-— Operational API**, which has not started and requires separate approval.
+Stages 11 through 13 are complete. The next exact stage is **Stage 14 — CSV
+Export**, which has not started and requires separate approval.
 
 The project should demonstrate to a recruiter that its author can:
 

@@ -13,8 +13,8 @@ payment-aware fulfilment transitions, and menu category and item management.
 Local development uses PostgreSQL 17, synchronous SQLAlchemy 2, Psycopg 3,
 Alembic, and an explicit demonstration menu seed.
 
-Analytics, the frontend, full-system containerisation, CI, and deployment have
-not started.
+Stage 13 administrator analytics is complete. The frontend, CSV exports,
+full-system containerisation, CI, and deployment have not started.
 
 ## Business problem
 
@@ -58,6 +58,8 @@ without introducing infrastructure that is unnecessary for a single venue.
   status mutation endpoints with payment-aware acceptance and cancellation.
 - Authenticated administrator category and menu-item list, create, and partial
   update endpoints with soft deactivation and serialized concurrent updates.
+- Four protected administrator analytics routes covering the six MVP KPIs with
+  UTC filtering, Europe/Oslo presentation, and historical sales snapshots.
 - Isolated PostgreSQL integration tests for models, constraints, and migration
   upgrades, downgrades, seed idempotency, and data protection.
 - Ruff, Black, and isort quality configuration.
@@ -67,7 +69,7 @@ without introducing infrastructure that is unnecessary for a single venue.
 - Implemented: Python 3.12, FastAPI, Pydantic 2, PostgreSQL 17, SQLAlchemy 2,
   Alembic, Psycopg 3, Stripe Python SDK, pwdlib with Argon2, PyJWT,
   email-validator, Docker Compose, pytest, Ruff, Black, and isort.
-- Planned: analytics, React, TypeScript, Vite, full-system containers, GitHub
+- Planned: CSV exports, React, TypeScript, Vite, full-system containers, GitHub
   Actions, and deployment.
 
 ## Repository structure
@@ -278,6 +280,47 @@ rewrite historical `OrderItem` name, category, price, or cost snapshots.
 Stage 12 provides no menu DELETE route, RestaurantTable administration,
 refund endpoint, StripeEvent diagnostic API, actor attribution, or generic
 audit-log endpoint.
+
+## Administrator analytics API
+
+Stage 13 exposes exactly four routes protected by the existing `require_admin`
+dependency and the OpenAPI `AdminBearer` scheme:
+
+- `GET /api/v1/admin/analytics/overview`
+- `GET /api/v1/admin/analytics/products`
+- `GET /api/v1/admin/analytics/categories`
+- `GET /api/v1/admin/analytics/order-types`
+
+All require timezone-aware `start` and `end` values and use the half-open
+interval `[start, end)`. Filtering compares UTC instants, while response range
+metadata is normalized to `Europe/Oslo`. Optional `currency` is exactly three
+uppercase ASCII letters. Product and category routes additionally accept a
+per-currency `limit` from 1 through 100, defaulting to 50. There are no public
+analytics routes.
+
+The six KPIs are collected revenue, succeeded paid-order count, average order
+value, product quantity and value, category quantity and value, and dine-in
+versus takeaway paid-order count and collected revenue. Financial KPIs use
+`Payment.amount` only for `Payment(status=succeeded)` records with a matching
+`transitioned` `checkout.session.completed` or
+`checkout.session.async_payment_succeeded` receipt. The earliest matching
+`StripeEvent.stripe_created_at` is the authoritative success time. Paid-order
+count uses distinct `Payment.order_id`; AOV is calculated per currency in
+integer minor units with `ROUND_HALF_UP`. `Order.total_amount` is not collected
+revenue.
+
+Currencies are never combined and no FX conversion occurs. An empty unfiltered
+overview returns `currencies=[]`; an explicit empty currency returns one zero
+overview row. Empty breakdowns return `items=[]`.
+
+Product analytics groups historical `OrderItem.menu_item_id`, `name_snapshot`,
+quantity, `line_total_amount`, and `Order.currency`. Categories use
+`category_name_snapshot` because no historical Category UUID is stored.
+Current MenuItem or Category rows are not joined. Catalog edits therefore do
+not rewrite history, renamed product snapshots may form separate groups for one
+menu item UUID, and renamed historical categories remain separate groups.
+Stage 13 includes no margin, cost, time-series, status, cancellation,
+fulfilment-duration, CSV, or frontend analytics functionality.
 
 ## Menu data foundation
 

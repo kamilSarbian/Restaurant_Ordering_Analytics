@@ -238,6 +238,7 @@
 
 ## 13. Analytics
 
+- **Status:** completed and verified on 2026-08-11.
 - **Goal:** calculate six basic KPIs directly from transactional data.
 - **Outcome:** endpoints for collected revenue, succeeded orders count, average
   order value, sales by product, sales by category, and dine-in vs takeaway.
@@ -250,6 +251,11 @@
 - **Test:** a separate test for each KPI on a small dataset, including empty
   data, an unpaid order, multiple completed payment attempts, a successful
   payment, and local-date boundaries.
+- **Verified outcome:** four protected administrator endpoints implement the
+  six KPIs from qualified succeeded payments and historical item snapshots,
+  with per-currency results, half-open UTC filtering, Europe/Oslo response
+  metadata, and one set-based analytics SELECT per endpoint. No migration was
+  required.
 
 ## 14. CSV Export
 
@@ -350,10 +356,9 @@
 
 ## Next Recommended Stage
 
-Stage 1 through Stage 12 have been completed and verified. Stage 12 implements
-authenticated administrator order reads, payment-aware fulfilment transitions,
-atomic status history, and soft-deactivation menu management.
+Stage 1 through Stage 13 have been completed and verified. Stage 13 implements
+four protected administrator analytics endpoints for the six defined KPIs.
 
-The next recommended stage is **Stage 13 — Analytics**. Stage 13 has not
+The next recommended stage is **Stage 14 — CSV Export**. Stage 14 has not
 started and requires separate user approval. This roadmap update does not
-authorize starting Stage 13.
+authorize starting Stage 14.

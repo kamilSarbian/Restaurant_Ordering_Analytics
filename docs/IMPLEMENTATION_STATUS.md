@@ -13,12 +13,13 @@
 - **Stage 10:** completed
 - **Stage 11:** completed
 - **Stage 12:** completed
-- **Current stage:** waiting for approval to start Stage 13
+- **Stage 13:** completed
+- **Current stage:** waiting for approval to start Stage 14 — CSV Export
 - **Backend:** FastAPI, database foundation, menu models, local seed data,
   public menu, transient quoting, persistent order creation, and secure public
   order status, Payment persistence, Stripe Checkout, and verified Stripe
   webhook processing, administrator authentication, and administrator order
-  and menu operational APIs completed
+  and menu operational APIs, and administrator analytics completed
 - **Frontend:** not started
 - **Database:** PostgreSQL, Alembic, menu, order, Payment, StripeEvent, and
   AdminUser models, migration `0006_create_admin_user_model`, and deterministic
@@ -61,7 +62,12 @@
   acceptance and cancellation, atomic history, and concurrency completed
 - **Administrator menu API:** six protected list/create/PATCH operations, soft
   deactivation, normalized uniqueness, and row-lock concurrency completed
-- **Application tests:** 1121 health, database, migration, model, constraint,
+- **Administrator analytics:** four protected routes implementing the six
+  roadmap KPIs from qualified succeeded payments, historical product/category
+  snapshots, and order-type breakdowns, with currency separation, half-open
+  UTC queries, Europe/Oslo range metadata, and one SELECT per endpoint; no
+  migration required
+- **Application tests:** 1258 health, database, migration, model, constraint,
   seed, schema, public API, quoting, order creation, payment, security,
   rate-limit, rollback, and concurrency tests completed
 - **Deployment:** not started
@@ -69,9 +75,9 @@
 ## Known limitations
 
 - The backend exposes health, public menu and quote endpoints, persistent guest
-  ordering and payment flows, secure public status, and authenticated
-  administrator order and menu operations. Analytics and frontend work have not
-  started.
+  ordering and payment flows, secure public status, authenticated administrator
+  order and menu operations, and administrator analytics. Frontend and Stage 14
+  CSV export work have not started.
 - Administrator authentication has no refresh, logout, revocation, password
   reset/change, or MFA. Its limiter is per process and resets on restart.
 - Migration `0006` creates no administrator. Manual setup requires an operator
@@ -88,8 +94,9 @@
   provider-authoritative terminal Payment outcomes. Public Order status still
   exposes no `payment_summary`, and Stage 12 exposes no StripeEvent diagnostic
   API.
-- Stage 12 provides no RestaurantTable administration, menu DELETE, refund,
-  actor attribution, generic audit log, or analytics endpoint.
+- Stage 13 provides no RestaurantTable administration, menu DELETE, refund,
+  actor attribution, generic audit log, cost or margin analytics, time series,
+  frontend analytics, or CSV export.
 - A real Stripe CLI smoke remains optional and manual; automated tests use
   injected adapters or synthetic local signatures and perform no Stripe calls.
 - The seed is restricted to the exact local development database and is not a
@@ -98,6 +105,29 @@
   not started.
 
 ## Last verification
+
+Stage 13 verified on 2026-08-11:
+
+- Four AdminBearer analytics routes and exactly six roadmap KPIs: PASS
+- Qualified succeeded-Payment source, earliest transitioned successful
+  StripeEvent time, distinct paid orders, and per-currency `ROUND_HALF_UP` AOV:
+  PASS
+- Historical product/category snapshots, order-type breakdown, per-currency
+  top-N, deterministic ordering, mixed-currency protection, and empty-result
+  contracts: PASS
+- Half-open UTC filtering, equivalent instants, Europe/Oslo response metadata,
+  spring and autumn DST boundaries, and naive-datetime rejection: PASS
+- One set-based SELECT per endpoint, zero DML, no provider calls, no N+1, SQL
+  window ranking, and no current catalog joins: PASS
+- Full pytest suite: 1258 passed with one accepted Starlette warning
+- Ruff, Black, isort, OpenAPI, and Alembic drift checks: PASS
+- Alembic remains at `0006_create_admin_user_model`; Stage 13 requires no model,
+  index, or migration change: PASS
+- Development menu remains 5/15; RestaurantTable, Order, OrderItem,
+  OrderStatusHistory, Payment, and StripeEvent counts remain zero; the one
+  existing development administrator remains unchanged: PASS
+- Isolated test database removal, named-volume preservation, local PostgreSQL
+  18 preservation, and port cleanup: PASS
 
 Stage 12 verified on 2026-08-11:
 

@@ -6,6 +6,7 @@ from typing import Any
 from fastapi import FastAPI
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.analytics.router import router as analytics_router
 from app.api.health import router as health_router
 from app.auth.router import router as auth_router
 from app.auth.tokens import AdminTokenService
@@ -136,6 +137,7 @@ def create_app(
     application.include_router(orders_router)
     application.include_router(admin_orders_router)
     application.include_router(admin_menu_router)
+    application.include_router(analytics_router)
     application.include_router(payments_router)
     application.include_router(webhook_router)
 

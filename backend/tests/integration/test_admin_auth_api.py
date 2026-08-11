@@ -805,6 +805,44 @@ def test_openapi_documents_exact_admin_auth_contract_and_keeps_public_routes_ope
         for operation in admin_menu_operations
     )
 
+    analytics_operations = [
+        document["paths"]["/api/v1/admin/analytics/overview"]["get"],
+        document["paths"]["/api/v1/admin/analytics/products"]["get"],
+        document["paths"]["/api/v1/admin/analytics/categories"]["get"],
+        document["paths"]["/api/v1/admin/analytics/order-types"]["get"],
+    ]
+    assert [operation["summary"] for operation in analytics_operations] == [
+        "Get administrator analytics overview",
+        "Get administrator product analytics",
+        "Get administrator category analytics",
+        "Get administrator order-type analytics",
+    ]
+    assert all(
+        operation["tags"] == ["admin-analytics"] for operation in analytics_operations
+    )
+    assert all(
+        operation["security"] == [{"AdminBearer": []}]
+        for operation in analytics_operations
+    )
+    response_schemas = [
+        operation["responses"]["200"]["content"]["application/json"]["schema"]["$ref"]
+        for operation in analytics_operations
+    ]
+    assert [schema.rsplit("/", 1)[-1] for schema in response_schemas] == [
+        "AnalyticsOverviewResponse",
+        "AnalyticsProductResponse",
+        "AnalyticsCategoryResponse",
+        "AnalyticsOrderTypeResponse",
+    ]
+    assert {
+        path for path in document["paths"] if "/api/v1/admin/analytics" in path
+    } == {
+        "/api/v1/admin/analytics/overview",
+        "/api/v1/admin/analytics/products",
+        "/api/v1/admin/analytics/categories",
+        "/api/v1/admin/analytics/order-types",
+    }
+
     public_operations = [
         document["paths"]["/health"]["get"],
         document["paths"]["/api/v1/menu"]["get"],
