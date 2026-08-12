@@ -2,7 +2,9 @@
 
 ## Current status
 
-Stage 14 is complete. The repository contains a verified FastAPI application,
+Stages 1 through 15 are complete and verified. Stage 15 customer-frontend
+automated validation and mandatory manual responsive QA both passed. The
+repository contains a verified FastAPI application,
 public menu and transient quote APIs, persistent guest order creation, secure
 public order status retrieval, durable payment attempts, and idempotent Stripe
 Checkout Session creation. It also provides an idempotent, signature-verified
@@ -14,8 +16,10 @@ Local development uses PostgreSQL 17, synchronous SQLAlchemy 2, Psycopg 3,
 Alembic, and an explicit demonstration menu seed.
 
 Stage 13 administrator analytics and the three Stage 14 administrator CSV
-exports are complete. The frontend, full-system containerisation, CI, and
-deployment have not started.
+exports are complete. The guest-only React customer frontend now covers menu
+browsing through secure fulfilment-status polling. Customer accounts and an
+administrator frontend are not implemented. Full-system containerisation, CI,
+and deployment have not started.
 
 ## Business problem
 
@@ -63,6 +67,9 @@ without introducing infrastructure that is unnecessary for a single venue.
   UTC filtering, Europe/Oslo presentation, and historical sales snapshots.
 - Three protected administrator CSV exports for orders, full product sales,
   and qualified succeeded payments with deterministic wire contracts.
+- A guest-only React customer interface for menu browsing, cart persistence,
+  server quoting, order creation, idempotent Checkout, neutral return screens,
+  and secure fulfilment-status polling.
 - Isolated PostgreSQL integration tests for models, constraints, and migration
   upgrades, downgrades, seed idempotency, and data protection.
 - Ruff, Black, and isort quality configuration.
@@ -71,9 +78,11 @@ without introducing infrastructure that is unnecessary for a single venue.
 
 - Implemented: Python 3.12, FastAPI, Pydantic 2, PostgreSQL 17, SQLAlchemy 2,
   Alembic, Psycopg 3, Stripe Python SDK, pwdlib with Argon2, PyJWT,
-  email-validator, Docker Compose, pytest, Ruff, Black, and isort.
-- Planned: React, TypeScript, Vite, full-system containers, GitHub Actions, and
-  deployment.
+  email-validator, Docker Compose, pytest, Ruff, Black, isort, React,
+  TypeScript, Vite, React Router, CSS Modules, native `fetch`, `sessionStorage`,
+  Vitest, and React Testing Library.
+- Planned: the administrator frontend, full-system containers, GitHub Actions,
+  and deployment.
 
 ## Repository structure
 
@@ -92,7 +101,7 @@ without introducing infrastructure that is unnecessary for a single venue.
 │   ├── alembic.ini
 │   └── pyproject.toml
 ├── docs/
-├── frontend/      # Placeholder for a later stage
+├── frontend/      # Guest customer React application
 ├── compose.yaml
 ├── AGENTS.md
 └── README.md
@@ -336,7 +345,8 @@ the existing `require_admin` dependency and OpenAPI `AdminBearer` scheme:
 - `GET /api/v1/admin/exports/payments.csv`
 
 There is no public or fourth export route, streaming or background export,
-XLSX/PDF output, generated file on disk, or Stage 15 frontend implementation.
+XLSX/PDF output, or generated file on disk. The customer frontend is the
+separate Stage 15 application and does not alter these export contracts.
 Each request returns one complete in-memory response. This is appropriate for
 the current single-restaurant MVP scale and never silently truncates results;
 streaming or background processing is deferred until measured scale justifies
@@ -848,6 +858,152 @@ It does not add a public `payment_summary` or a cancellation endpoint.
 Automated tests are fully offline and use injected verifiers or clearly
 synthetic local signatures. A Stripe CLI smoke test remains optional and
 manual; it is not required for automated validation or a commit.
+
+## Customer frontend
+
+Stage 15 provides a guest-only customer application in `frontend/`. It uses
+React, TypeScript, Vite, React Router, CSS Modules, native `fetch`,
+`sessionStorage`, Vitest, and React Testing Library. It has no customer account,
+sign-in, profile, or administrator interface.
+
+The implemented routes are exactly:
+
+- `/` for the public menu and client-side category/availability filters;
+- `/cart` for the cart, server quote, and guest order form;
+- `/orders/:publicOrderNumber/checkout` for hosted Checkout initiation;
+- `/orders/:publicOrderNumber/payment-return` for the neutral success return;
+- `/orders/:publicOrderNumber/checkout-cancelled` for the neutral cancel return;
+- `/orders/:publicOrderNumber/status` for protected fulfilment status;
+- `*` for the not-found screen.
+
+The intended guest journey is:
+
+1. Load `GET /api/v1/menu` without an `available_only` query parameter.
+2. Filter the returned categories and availability locally; unavailable items
+   remain visible by default and backend category/item ordering is preserved.
+3. Add products to the cart. Duplicate additions merge into one line.
+4. Change quantities within 1 through 99 and at most 50 unique products.
+5. Request a server-authoritative quote after a 400 ms debounce.
+6. Choose takeaway or dine-in and provide a positive table number for dine-in.
+7. Obtain a fresh quote immediately before the non-idempotent order POST.
+8. Create the guest order once and retain its one-time access token only in the
+   current browser session or transient memory.
+9. Start or replay one idempotent Checkout attempt and continue in the same tab
+   to the validated hosted HTTPS Checkout URL.
+10. Treat both Stripe return routes as navigation outcomes only, never as
+    confirmation of payment.
+11. Read and poll the protected public Order fulfilment status.
+
+### Browser trust and cart contract
+
+The browser stores only menu-item identifiers and quantities for the cart.
+Names, prices, availability, currency, totals, and all order or payment states
+remain server-authoritative. The versioned cart key is
+`restaurant-ordering:cart:v1`; malformed, wrong-version, duplicate, or
+out-of-range stored data is discarded. The app uses `sessionStorage`, never
+`localStorage`, and keeps usable in-memory state when browser storage is
+unavailable where the flow supports it.
+
+Menu images are rendered only from validated HTTP(S) URLs and fall back to a
+local placeholder when missing, unsafe, or broken. Allergen text repeats the
+backend-provided list as advisory information; it is not a medical or
+cross-contamination guarantee.
+
+Quote requests send only identifiers and quantities. The app debounces normal
+cart changes by 400 ms, aborts stale work, ignores stale responses, and renders
+only validated server line totals and totals. A quote is informational: order
+creation requests a fresh quote and still relies on the backend to revalidate
+current menu data.
+
+Order creation has no idempotency contract. The submit guard prevents an
+ordinary duplicate click, and the client never automatically retries a network
+failure or timeout because the first request may have created an Order. An
+explicit retry remains available with a duplicate-order warning. The returned
+`order_access_token` is available only once, is stored under
+`restaurant-ordering:order-access:v1:<PUBLIC_ORDER_NUMBER>` for the current
+session with an in-memory fallback, and is never placed in a URL, rendered in
+the DOM, or logged.
+
+### Checkout and Stripe returns
+
+Checkout calls:
+
+```text
+POST /api/v1/orders/{public_order_number}/checkout-session
+X-Order-Access-Token: ORDER_ACCESS_TOKEN
+Idempotency-Key: CANONICAL_LOWERCASE_UUID_V4
+```
+
+The attempt key is generated with `crypto.randomUUID()` and stored under
+`restaurant-ordering:checkout-attempt:v1:<PUBLIC_ORDER_NUMBER>`. Network and
+timeout failures, HTTP 429 and 503, and redirect failures preserve the same
+attempt. A new key is generated only after the customer explicitly starts a
+new attempt following definitive HTTP 502 provider rejection. There is no
+automatic Checkout retry, Stripe.js integration, card form, Checkout URL
+persistence, or guest token in Checkout storage. A validated Checkout URL is
+opened in the same tab.
+
+The payment-return page says only that the customer returned from Stripe and
+must check order progress. It does not claim that payment succeeded. The
+checkout-cancelled page likewise does not infer Payment state or cancel the
+Order. Both lead to the protected status screen when this browser session still
+has the guest token.
+
+### Fulfilment status polling
+
+Status retrieval calls
+`GET /api/v1/orders/{public_order_number}` with only the
+`X-Order-Access-Token` header. The UI presents the six fulfilment states as
+`Order received`, `Accepted`, `Preparing`, `Ready`, `Completed`, and
+`Cancelled`; it does not display or infer a Payment status.
+
+Polling starts immediately, allows one request in flight, and schedules the
+next request only after the current one settles. Normal polling uses 8 seconds.
+Transient failures retry after 8, 16, then at most 30 seconds. Polling pauses
+while the document is hidden or the browser is offline, resumes immediately
+when both visible and online, and stops at `completed`, `cancelled`, a
+privacy-preserving HTTP 404, or an invalid response contract. AbortController
+cleanup and the current effect generation prevent stale results from replacing
+newer state. WebSockets and server-sent events are not used.
+
+### Visual, responsive, and accessibility direction
+
+The customer UI uses a warm restaurant palette, readable type scale, prominent
+server totals, clear availability states, focus-visible controls, semantic
+headings and forms, textual status cues, and controls sized for touch. CSS
+Modules contain mobile-first responsive rules for menu grids, cart lines,
+forms, Checkout, return screens, and the order timeline. Data-driven screens
+provide applicable loading, empty, error, and success states. Automated
+component and build checks pass. Manual acceptance also passed at 375x812,
+768x1024, and 1280x800, including keyboard navigation, visible focus, touch
+targets, text wrapping, and protection against color-only status meaning.
+
+### Local frontend setup
+
+From the repository root:
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+Vite serves the UI at <http://localhost:5173>. In local development its `/api`
+proxy targets `http://127.0.0.1:8000`. `VITE_API_BASE_URL` is intentionally
+empty for same-origin paths through that proxy; a deployment may set a public
+HTTP(S) API base URL without a trailing slash. The application does not add or
+depend on local FastAPI CORS middleware.
+
+Frontend verification commands are:
+
+```powershell
+npm run test:run
+npm run lint
+npm run format:check
+npm run build
+```
+
+`npm run format` writes formatting changes and should be used deliberately.
 
 ## Tests and quality checks
 

@@ -1,0 +1,132 @@
+.page {
+    display: grid;
+    width: 100%;
+    place-items: start center;
+}
+
+.panel {
+    width: min(100%, 42rem);
+    padding: var(--space-6);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-medium);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-small);
+}
+
+.eyebrow {
+    margin-bottom: var(--space-2);
+    color: var(--color-accent);
+    font-size: 0.8rem;
+    font-weight: 800;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+}
+
+.orderNumberLabel {
+    margin-top: var(--space-6);
+    color: var(--color-muted);
+    font-size: 0.875rem;
+    font-weight: 700;
+}
+
+.orderNumber {
+    overflow-wrap: anywhere;
+    color: var(--color-primary-hover);
+    font-size: clamp(1.25rem, 5vw, 1.75rem);
+    font-weight: 850;
+    letter-spacing: 0.04em;
+}
+
+.actions {
+    margin-top: var(--space-6);
+}
+
+.primaryAction,
+.secondaryAction {
+    min-height: 2.75rem;
+    border-radius: var(--radius-small);
+    font: inherit;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.primaryAction {
+    width: 100%;
+    padding: var(--space-3) var(--space-5);
+    border: 1px solid var(--color-primary);
+    background: var(--color-primary);
+    color: var(--color-surface);
+}
+
+.primaryAction:hover:not(:disabled) {
+    background: var(--color-primary-hover);
+}
+
+.primaryAction:disabled {
+    cursor: not-allowed;
+    opacity: 0.62;
+}
+
+.secondaryAction {
+    width: 100%;
+    margin-top: var(--space-3);
+    padding: var(--space-2) var(--space-4);
+    border: 1px solid var(--color-accent);
+    background: transparent;
+    color: var(--color-accent);
+}
+
+.notice,
+.errorNotice {
+    margin-top: var(--space-4);
+    padding: var(--space-4);
+    border-radius: var(--radius-small);
+}
+
+.notice {
+    border: 1px solid var(--color-sage);
+    background: var(--color-background);
+}
+
+.errorNotice {
+    border: 1px solid var(--color-accent);
+    color: var(--color-accent);
+}
+
+.errorNotice:focus {
+    outline: none;
+    box-shadow: var(--focus-ring);
+}
+
+.links {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    margin-top: var(--space-6);
+}
+
+.links a {
+    min-height: 2.75rem;
+    padding: var(--space-2) var(--space-4);
+    border: 1px solid var(--color-primary);
+    border-radius: var(--radius-small);
+    color: var(--color-primary);
+    font-weight: 750;
+    line-height: 1.6;
+    text-align: center;
+    text-decoration: none;
+}
+
+@media (min-width: 40rem) {
+    .panel {
+        padding: var(--space-10);
+    }
+
+    .links {
+        flex-direction: row;
+    }
+
+    .secondaryAction {
+        width: auto;
+    }
+}

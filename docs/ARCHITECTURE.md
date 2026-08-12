@@ -26,9 +26,12 @@ job interview.
 - TypeScript;
 - Vite;
 - React Router;
-- React Context initially; Zustand only if shared state becomes difficult to
-  maintain;
-- Recharts for dashboard charts.
+- React Context for the Stage 15 cart;
+- CSS Modules and shared CSS design tokens;
+- native `fetch`, `sessionStorage`, Vitest, and React Testing Library.
+
+Zustand and Recharts remain possible Stage 16 administrator-frontend choices;
+Stage 15 does not require them.
 
 ### Integrations and Infrastructure
 
@@ -737,6 +740,59 @@ Stage 12 changes no SQLAlchemy model and requires no migration after
 StripeEvent diagnostics, a generic audit log, and analytics remain outside this
 operational API.
 
+### 5.18. Implemented Customer Frontend Runtime
+
+The Stage 15 application is a guest-only React and TypeScript client. Its
+feature directories are `menu`, `cart`, `checkout`, and `order-status`.
+`src/api` owns transport and strict runtime response validation,
+`src/components` owns genuinely shared shell and notice components,
+`src/routes` owns the exact public route table, and `src/styles` owns global
+tokens and base rules. No administrator route or customer-account state exists.
+
+The browser is not a pricing or lifecycle authority. It sends item identifiers,
+quantities, order type, and an optional dine-in table number; FastAPI supplies
+menu facts, validates the current quote and order, owns all money, and owns
+Order and Payment state. The public guest credential is returned once by order
+creation and sent only in `X-Order-Access-Token`. It is never part of a URL,
+rendered DOM, or log.
+
+Browser persistence is limited to `sessionStorage` with these exact versioned
+keys:
+
+- `restaurant-ordering:cart:v1`;
+- `restaurant-ordering:order-access:v1:<PUBLIC_ORDER_NUMBER>`;
+- `restaurant-ordering:checkout-attempt:v1:<PUBLIC_ORDER_NUMBER>`.
+
+The cart record contains only menu-item identifiers and quantities. The order
+access record contains the guest credential for the current session. The
+Checkout record contains the public order number and canonical UUIDv4
+idempotency key, but no guest token, Checkout URL, Stripe identifier, or
+Payment identifier. The app never uses `localStorage`. Malformed persisted
+records are discarded; storage failures such as `SecurityError` leave the
+current in-memory flow usable where an in-memory value already exists.
+
+The API layer accepts only paths below `/api/` and classifies failures as
+`http`, `network`, `timeout`, `aborted`, or `invalid-response`. Feature layers
+map those transport facts to safe customer messages; raw backend details are
+not rendered. Quote changes use a 400 ms debounce plus AbortController cleanup.
+Order creation is never automatically retried after an ambiguous outcome.
+Checkout preserves its idempotency key for network, timeout, 429, 503, and
+redirect failures and replaces it only through explicit customer action after
+a definitive 502.
+
+Fulfilment polling performs one request at a time. It requests immediately,
+schedules the next normal request 8 seconds after settlement, and uses bounded
+8, 16, and 30 second delays after transient failures. It pauses when the page
+is hidden or offline, resumes immediately only when visible and online, and
+stops for `completed`, `cancelled`, privacy-preserving 404, or an invalid
+response contract. AbortController cleanup and the active effect generation
+prevent stale updates. Stage 15 uses no WebSocket or server-sent event channel.
+
+During local development the network path is `Browser -> Vite :5173 -> /api
+proxy -> FastAPI 127.0.0.1:8000`. The default `VITE_API_BASE_URL` is empty, so
+requests remain same-origin through the Vite proxy and no local CORS middleware
+is required. Cross-origin production policy is deferred to deployment.
+
 ## 6. Architecture Diagram
 
 ```mermaid
@@ -807,7 +863,7 @@ Files such as `models.py`, `schemas.py`, `router.py`, and `service.py` are
 allowed within a module, but they are created only when the module actually
 needs the relevant responsibility.
 
-## 8. Planned Frontend Structure
+## 8. Implemented Customer Frontend Structure
 
 ```text
 frontend/
@@ -818,23 +874,21 @@ frontend/
 │   │   ├── menu/
 │   │   ├── cart/
 │   │   ├── checkout/
-│   │   ├── order-status/
-│   │   ├── admin-orders/
-│   │   ├── admin-menu/
-│   │   └── analytics/
-│   ├── layouts/
+│   │   └── order-status/
 │   ├── routes/
-│   ├── types/
+│   ├── styles/
+│   ├── test/
 │   ├── App.tsx
 │   └── main.tsx
-├── public/
+├── index.html
 ├── package.json
 ├── tsconfig.json
 └── vite.config.ts
 ```
 
 Code is grouped primarily by feature. Shared components are placed in
-`components` only when they are genuinely shared.
+`components` only when they are genuinely shared. Administrator order, menu,
+and analytics features remain Stage 16 work and are not present here.
 
 ## 9. Trust Boundaries and Data Integrity
 
@@ -853,6 +907,9 @@ Code is grouped primarily by feature. Shared components are placed in
   `succeeded` to one each per `Order`.
 - UUIDs are internal primary keys; public access to order status requires the
   `public_order_number` and a token whose raw value is not stored.
+- Customer state uses current-session storage only. No guest credential or
+  Checkout URL is placed in a URL, persistent local storage, rendered DOM, or
+  application log.
 - Secrets do not enter the repository, the frontend image, or logs.
 
 ## 10. Planned API

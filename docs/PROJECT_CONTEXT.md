@@ -240,8 +240,32 @@ administrator can:
     filenames and a fixed UTF-8-SIG, single-BOM, comma, minimal-quoting, CRLF
     contract. Serialization neutralizes formula-like text and removes NUL
     without changing persisted values or historical grouping.
-13. Stage 14 adds no persistence, table, materialized view, index, migration,
-    generated file, frontend, or Stage 15 implementation.
+13. Stage 14 added no persistence, table, materialized view, index, migration,
+    generated file, or frontend. The separate Stage 15 client does not alter
+    the export boundary.
+
+### 4.7. Guest Customer Frontend
+
+Stage 15 implements the customer journey as a guest-only React application.
+The browser retrieves the public menu, filters it locally, stores only cart
+identifiers and quantities for the current session, obtains server-authoritative
+quotes, and creates a takeaway or dine-in Order. It preserves the one-time
+guest access token in `sessionStorage` or transient memory and sends it only in
+the `X-Order-Access-Token` header.
+
+Order creation remains deliberately non-idempotent, so ambiguous failures are
+not retried automatically. Hosted Checkout is a separate idempotent operation:
+the browser retains one canonical UUIDv4 attempt key for ambiguous outcomes and
+creates a replacement only after explicit customer action following a
+definitive provider rejection. The success and cancellation return routes are
+neutral navigation outcomes and never determine Payment state.
+
+The protected status view shows only the six fulfilment states and polls with
+one request in flight, visibility/offline pauses, bounded transient backoff,
+and terminal stopping. It exposes no Payment status. Stage 15 adds no customer
+account, PII collection, administrator frontend, backend schema, model, route,
+or migration. Its implementation, automated checks, and mandatory manual
+responsive acceptance are complete and verified.
 
 ## 5. MVP Scope
 
@@ -389,7 +413,9 @@ discounts. Dine-in orders additionally preserve `table_number_snapshot`.
   seconds for each direct peer and ignores forwarded identity headers until a
   trusted-proxy policy exists.
 - Secrets exist only in environment variables.
-- CORS is restricted to known origins.
+- Local Stage 15 development uses the same-origin Vite `/api` proxy. A
+  restricted production CORS policy is deferred to deployment and is not
+  currently active in FastAPI.
 - Sign-in, order creation, and Stripe session creation are rate-limited.
 - Logs do not contain passwords, tokens, keys, or card data.
 - The public order view reveals only necessary information and requires the
@@ -412,8 +438,10 @@ discounts. Dine-in orders additionally preserve `table_number_snapshot`.
 
 ## 8. Expected Portfolio Value
 
-Stages 11 through 14 are complete. The next exact stage is **Stage 15 —
-Customer Frontend**, which has not started and requires separate approval.
+Stages 11 through 15 are complete and verified. The Stage 15 customer frontend
+passed automated validation and manual responsive acceptance at the required
+mobile, tablet, and desktop viewports. Stage 16 — Administrator Frontend is the
+next exact stage and has not started.
 
 The project should demonstrate to a recruiter that its author can:
 

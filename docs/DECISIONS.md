@@ -965,6 +965,52 @@ while preserving these financial concurrency rules.
   single-restaurant MVP scale; streaming and background exports require a
   measured need and separate approval.
 
+## D-059 — Customer Frontend Trust, Guest Session, and Order-Creation Boundary
+
+- **Status:** accepted on 2026-08-11
+- **Decision:** Stage 15 is a guest-only React application. The browser submits
+  only menu-item identifiers, quantities, order type, and an optional table
+  number; the backend remains authoritative for visibility, availability,
+  names, prices, currency, totals, Order state, and Payment state. There is no
+  customer account, PII collection, administrator frontend, or frontend-owned
+  business transition.
+- **Session boundary:** the versioned cart stores only identifiers and
+  quantities in `sessionStorage`. The raw order access token returned once by
+  creation is retained only for the current session or transient memory and is
+  sent only in `X-Order-Access-Token`. The app uses no `localStorage` and never
+  places the guest token in a URL, rendered DOM, or log.
+- **Order-creation boundary:** cart changes obtain transient, debounced quotes,
+  and submit obtains a fresh quote before `POST /orders`. Because order creation
+  is not idempotent, the client prevents ordinary duplicate submission but does
+  not automatically retry an ambiguous network or timeout result. A deliberate
+  retry remains possible only with an explicit duplicate-order warning.
+- **Consequences:** corrupted session records are discarded, raw backend error
+  details are not rendered, and Stage 15 requires no backend model, schema,
+  route, migration, customer identity, or long-lived browser credential.
+
+## D-060 — Checkout Idempotency, Return Semantics, and Fulfilment Polling
+
+- **Status:** accepted on 2026-08-11
+- **Decision:** each browser Checkout attempt uses a canonical lowercase UUIDv4
+  `Idempotency-Key` and the guest access header. Network, timeout, HTTP 429 and
+  503, and redirect failures retain the same attempt. Only explicit customer
+  action after definitive HTTP 502 creates a new key. The attempt record stores
+  no token, Checkout URL, Stripe identifier, or Payment identifier, and hosted
+  Checkout opens in the same tab without Stripe.js.
+- **Return semantics:** the payment-return and checkout-cancelled routes are
+  neutral navigation outcomes. Neither route changes or infers Payment state,
+  and the success URL is never presented as payment confirmation. The public
+  status screen displays only fulfilment status.
+- **Polling boundary:** protected Order status begins immediately with at most
+  one request in flight. Normal polls occur 8 seconds after settlement;
+  transient retries use bounded 8, 16, and 30 second delays. Polling pauses when
+  hidden or offline, resumes when visible and online, aborts stale work, and
+  stops for `completed`, `cancelled`, privacy-preserving 404, or an invalid
+  response contract. WebSockets and server-sent events are deferred.
+- **Consequences:** webhook processing remains the only authority for terminal
+  Payment transitions. Responsive manual acceptance at the approved mobile,
+  tablet, and desktop viewports remains a completion gate for Stage 15.
+
 ## History of Decisions That Required Resolution
 
 ### O-002: Boundary Between Order Creation and Stripe Checkout Session

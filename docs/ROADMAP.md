@@ -277,6 +277,7 @@
 
 ## 15. Customer Frontend
 
+- **Status:** completed and verified on 2026-08-12.
 - **Goal:** deliver a responsive flow from menu to order status.
 - **Outcome:** menu, filters, cart, order-type and table selection, quoting,
   Checkout, return screen, and secure status retrieval.
@@ -286,6 +287,14 @@
 - **Test:** component and API integration tests, a TypeScript build, and a
   manual responsive scenario that does not treat the success URL as payment
   confirmation.
+- **Verified outcome:** the guest-only React application implements the menu,
+  local filters, session cart, server-authoritative quote, non-idempotent order
+  creation safeguards, idempotent hosted Checkout, neutral return screens, and
+  protected fulfilment polling. The complete frontend automated suite, lint,
+  format check, build, dependency audits, and contract/security scans pass.
+  Manual visual acceptance passed at 375x812, 768x1024, and 1280x800 for the
+  complete customer flow from menu through order status, including keyboard,
+  focus, touch-target, overflow, neutral-return, and non-color-only semantics.
 
 ## 16. Administrator Frontend
 
@@ -362,10 +371,9 @@
 
 ## Next Recommended Stage
 
-Stage 1 through Stage 14 have been completed and verified. Stage 14 preserves
-the original goal to expose reporting data in a predictable format through
-three protected CSV exports.
+Stage 1 through Stage 15 have been completed and verified. Stage 15 preserves
+the original goal to deliver a responsive flow from menu to order status and
+passed both automated validation and the mandatory responsive manual scenario.
 
-The next recommended stage is **Stage 15 — Customer Frontend**. Stage 15 has
-not started and requires separate user approval. This roadmap update does not
-authorize starting Stage 15.
+The next recommended stage is **Stage 16 — Administrator Frontend**. Stage 16
+has not started and requires separate user approval.

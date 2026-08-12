@@ -1,0 +1,29 @@
+:root {
+    --color-primary: #246146;
+    --color-primary-hover: #173d2b;
+    --color-sage: #a9b9aa;
+    --color-accent: #7a1f32;
+    --color-accent-strong: #b42a3c;
+    --color-background: #f7f3ea;
+    --color-surface: #fffcf7;
+    --color-text: #202622;
+    --color-muted: #68716b;
+    --color-border: #ddd8ce;
+
+    --space-1: 0.25rem;
+    --space-2: 0.5rem;
+    --space-3: 0.75rem;
+    --space-4: 1rem;
+    --space-5: 1.25rem;
+    --space-6: 1.5rem;
+    --space-8: 2rem;
+    --space-10: 2.5rem;
+    --space-12: 3rem;
+
+    --radius-small: 0.5rem;
+    --radius-medium: 1rem;
+    --shadow-small: 0 0.5rem 1.5rem rgb(32 38 34 / 10%);
+    --max-content-width: 75rem;
+    --focus-ring:
+        0 0 0 0.2rem var(--color-background), 0 0 0 0.4rem var(--color-accent);
+}

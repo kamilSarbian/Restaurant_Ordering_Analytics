@@ -15,14 +15,18 @@
 - **Stage 12:** completed
 - **Stage 13:** completed
 - **Stage 14:** completed
-- **Current stage:** waiting for approval to start Stage 15 — Customer Frontend
+- **Stage 15:** completed
+- **Current stage:** waiting for approval to start Stage 16 — Administrator Frontend
 - **Backend:** FastAPI, database foundation, menu models, local seed data,
   public menu, transient quoting, persistent order creation, and secure public
   order status, Payment persistence, Stripe Checkout, and verified Stripe
   webhook processing, administrator authentication, and administrator order
   and menu operational APIs, administrator analytics, and administrator CSV
   reports completed
-- **Frontend:** not started
+- **Frontend:** guest menu, client filters, session cart, server quote, guest
+  order creation, idempotent Checkout, neutral Stripe returns, and protected
+  fulfilment-status polling completed and verified through automated validation
+  and manual responsive acceptance
 - **Database:** PostgreSQL, Alembic, menu, order, Payment, StripeEvent, and
   AdminUser models, migration `0006_create_admin_user_model`, and deterministic
   menu seed completed; the development AdminUser count is one
@@ -74,9 +78,9 @@
   payments; deterministic UTF-8-SIG, BOM, CSV dialect, filename, query,
   time-source, formula-safety, and exposure contracts completed and verified;
   one report SELECT per route and no migration required
-- **Application tests:** 1379 health, database, migration, model, constraint,
+- **Application tests:** 1379 backend health, database, migration, model, constraint,
   seed, schema, public API, quoting, order creation, payment, security,
-  rate-limit, rollback, and concurrency tests completed
+  rate-limit, rollback, and concurrency tests plus 263 frontend tests completed
 - **Deployment:** not started
 
 ## Known limitations
@@ -84,7 +88,7 @@
 - The backend exposes health, public menu and quote endpoints, persistent guest
   ordering and payment flows, secure public status, authenticated administrator
   order and menu operations, administrator analytics, and three protected CSV
-  exports. Frontend work has not started.
+  exports. The guest customer frontend is completed and verified.
 - Administrator authentication has no refresh, logout, revocation, password
   reset/change, or MFA. Its limiter is per process and resets on restart.
 - Migration `0006` creates no administrator. Manual setup requires an operator
@@ -110,10 +114,48 @@
   injected adapters or synthetic local signatures and perform no Stripe calls.
 - The seed is restricted to the exact local development database and is not a
   production bootstrap process.
-- Full-system containerisation, continuous integration, and deployment have
-  not started.
+- Customer accounts and the administrator frontend are not implemented.
+  Full-system containerisation, continuous integration, and deployment have not
+  started.
 
 ## Last verification
+
+Stage 15 completed and verified on 2026-08-12:
+
+- Exactly seven route entries, including the not-found wildcard, with no
+  administrator, account, or dead placeholder route: PASS
+- Public menu retrieval without `available_only`, local category and
+  availability filters, backend ordering, unavailable-item visibility, safe
+  image handling, and cautious allergen wording: PASS
+- Identifier-and-quantity cart, 1–99 quantity range, 50 unique-item limit,
+  duplicate merge, versioned `sessionStorage`, corrupted-data discard, no
+  `localStorage`, 400 ms quote debounce, stale cancellation, and server totals:
+  PASS
+- Fresh quote before non-idempotent order creation, duplicate submit guard, no
+  ambiguous automatic retry, explicit duplicate warning, and one-time guest
+  token confinement: PASS
+- Canonical UUIDv4 Checkout idempotency, same-key ambiguous retry, new key only
+  after explicit post-502 action, same-tab hosted redirect, and neutral return
+  semantics: PASS
+- Protected fulfilment polling with six statuses, immediate request, one request
+  in flight, 8-second cadence, 8/16/30-second backoff, hidden/offline pause,
+  resume, terminal stop, privacy-preserving 404, and no Payment status: PASS
+- Frontend full suite: 263 passed; ESLint, Prettier check, TypeScript/Vite build,
+  npm production audit, and npm full audit: PASS
+- Source and repository scans found no real secret, credential, guest-token
+  value, persisted Checkout URL, real Stripe identifier, runtime
+  `localStorage` use, generated report, or forbidden frontend artifact: PASS
+- User-performed manual responsive acceptance at 375x812, 768x1024, and
+  1280x800, covering the customer flow from public menu through secure order
+  status: PASS
+- Responsive product cards, cart and quantity controls, server quote states and
+  totals, order-type/table validation, order and Checkout CTA states, neutral
+  return screens, status timeline, long-text wrapping, and absence of material
+  horizontal overflow: PASS
+- Keyboard navigation, visible focus, usable controls and touch targets, no
+  payment-success claim on return pages, and no color-only status semantics:
+  PASS
+- Stage 16 Administrator Frontend: not started
 
 Stage 14 verified on 2026-08-11:
 
