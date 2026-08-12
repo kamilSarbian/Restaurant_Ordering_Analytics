@@ -8,8 +8,11 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.analytics.router import router as analytics_router
 from app.api.health import router as health_router
+from app.auth.admin_router import router as admin_users_router
 from app.auth.router import router as auth_router
+from app.auth.service import UserTokenService, create_auth_token_services
 from app.auth.tokens import AdminTokenService
+from app.auth.users_router import router as users_router
 from app.core.config import Settings
 from app.core.rate_limit import FixedWindowRateLimiter
 from app.database.session import create_database_engine, create_session_factory
@@ -33,7 +36,10 @@ def create_app(
     order_creation_rate_limiter: FixedWindowRateLimiter | None = None,
     checkout_rate_limiter: FixedWindowRateLimiter | None = None,
     admin_login_rate_limiter: FixedWindowRateLimiter | None = None,
+    user_register_rate_limiter: FixedWindowRateLimiter | None = None,
+    user_login_rate_limiter: FixedWindowRateLimiter | None = None,
     admin_token_service: AdminTokenService | None = None,
+    user_token_service: UserTokenService | None = None,
     stripe_checkout_client: StripeCheckoutClient | None = None,
     stripe_webhook_verifier: StripeWebhookVerifier | None = None,
     checkout_now_provider: Callable[[], datetime] | None = None,
@@ -46,7 +52,10 @@ def create_app(
         order_creation_rate_limiter: Optional app-scoped limiter override.
         checkout_rate_limiter: Optional app-scoped checkout limiter override.
         admin_login_rate_limiter: Optional administrator login limiter override.
+        user_register_rate_limiter: Optional canonical registration limiter.
+        user_login_rate_limiter: Optional canonical user-login limiter.
         admin_token_service: Optional app-scoped administrator token service.
+        user_token_service: Optional app-scoped canonical user token service.
         stripe_checkout_client: Optional app-scoped Stripe adapter override.
         stripe_webhook_verifier: Optional app-scoped webhook verifier override.
         checkout_now_provider: Optional deterministic checkout clock override.
@@ -99,17 +108,33 @@ def create_app(
         if admin_login_rate_limiter is not None
         else FixedWindowRateLimiter(limit=5, window_seconds=60)
     )
+    application.state.user_register_rate_limiter = (
+        user_register_rate_limiter
+        if user_register_rate_limiter is not None
+        else FixedWindowRateLimiter(limit=5, window_seconds=60)
+    )
+    application.state.user_login_rate_limiter = (
+        user_login_rate_limiter
+        if user_login_rate_limiter is not None
+        else FixedWindowRateLimiter(limit=5, window_seconds=60)
+    )
+    if resolved_settings.auth_access_token_expire_minutes is None:
+        raise RuntimeError("Effective authentication token lifetime is unavailable")
+    configured_user_token_service, configured_admin_token_service = (
+        create_auth_token_services(
+            resolved_settings.auth_jwt_secret,
+            resolved_settings.auth_access_token_expire_minutes,
+        )
+    )
     application.state.admin_token_service = (
         admin_token_service
         if admin_token_service is not None
-        else (
-            AdminTokenService(
-                resolved_settings.admin_jwt_secret,
-                resolved_settings.admin_access_token_expire_minutes,
-            )
-            if resolved_settings.admin_jwt_secret is not None
-            else None
-        )
+        else configured_admin_token_service
+    )
+    application.state.user_token_service = (
+        user_token_service
+        if user_token_service is not None
+        else configured_user_token_service
     )
     application.state.stripe_checkout_client = (
         stripe_checkout_client
@@ -133,11 +158,13 @@ def create_app(
     application.state.stripe_cancel_url = resolved_settings.stripe_cancel_url
     application.state.checkout_now_provider = checkout_now_provider or utc_now
     application.include_router(auth_router)
+    application.include_router(users_router)
     application.include_router(health_router)
     application.include_router(menu_router)
     application.include_router(orders_router)
     application.include_router(admin_orders_router)
     application.include_router(admin_menu_router)
+    application.include_router(admin_users_router)
     application.include_router(analytics_router)
     application.include_router(reports_router)
     application.include_router(payments_router)

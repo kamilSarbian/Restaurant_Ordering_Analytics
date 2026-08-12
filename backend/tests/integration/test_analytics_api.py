@@ -15,6 +15,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.auth.models import AdminUser
+from app.auth.roles import UserRole
 from app.auth.tokens import AdminTokenService
 from app.categories.models import Category
 from app.core.config import Settings
@@ -156,6 +157,7 @@ def _store_admin(
         admin = AdminUser(
             email=email,
             password_hash="synthetic-argon2id-hash",
+            role=UserRole.SUPER_ADMIN,
             is_active=is_active,
         )
         session.add(admin)

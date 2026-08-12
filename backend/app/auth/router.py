@@ -5,18 +5,24 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import require_admin
+from app.auth.roles import UserRole
 from app.auth.schemas import (
     AdminLoginRequest,
     AdminMeResponse,
     AdminPrincipal,
     AdminTokenResponse,
 )
-from app.auth.service import AdminAuthenticationError, authenticate_admin
-from app.auth.tokens import AdminTokenService
-from app.core.rate_limit import get_client_bucket_key
+from app.auth.service import (
+    UserTokenConfigurationError,
+    UserTokenInvalidError,
+    UserTokenService,
+)
+from app.auth.user_service import UserAuthenticationError, authenticate_user
+from app.core.rate_limit import get_auth_login_rate_limiter, get_client_bucket_key
 from app.database.dependencies import get_db_session
 
 router = APIRouter(prefix="/api/v1/admin/auth", tags=["admin-auth"])
@@ -40,9 +46,9 @@ def login_admin(
     session: DatabaseSession,
 ) -> AdminTokenResponse:
     """Authenticate an administrator and issue one access token."""
-    token_service: AdminTokenService | None = getattr(
+    token_service: UserTokenService | None = getattr(
         request.app.state,
-        "admin_token_service",
+        "user_token_service",
         None,
     )
     if token_service is None:
@@ -51,7 +57,7 @@ def login_admin(
             detail="Authentication service unavailable",
         )
 
-    limiter = request.app.state.admin_login_rate_limiter
+    limiter = get_auth_login_rate_limiter(request)
     rate_limit = limiter.check(get_client_bucket_key(request))
     if not rate_limit.allowed:
         raise HTTPException(
@@ -61,16 +67,23 @@ def login_admin(
         )
 
     try:
-        principal = authenticate_admin(
+        user = authenticate_user(
             session,
             email=payload.email,
             password=payload.password.get_secret_value(),
         )
-    except AdminAuthenticationError:
+        if user.role not in {UserRole.ADMIN, UserRole.SUPER_ADMIN}:
+            raise UserAuthenticationError("Credentials are invalid")
+    except UserAuthenticationError:
         raise _invalid_credentials_error() from None
+    except SQLAlchemyError:
+        raise _service_unavailable_error() from None
 
-    access_token = token_service.create_access_token(principal.id)
-    claims = token_service.decode_access_token(access_token)
+    try:
+        access_token = token_service.create_access_token(user.id)
+        claims = token_service.decode_access_token(access_token)
+    except (UserTokenConfigurationError, UserTokenInvalidError):
+        raise _service_unavailable_error() from None
     expires_in = int((claims.expires_at - claims.issued_at).total_seconds())
     return AdminTokenResponse(
         access_token=access_token,
@@ -98,4 +111,11 @@ def _invalid_credentials_error() -> HTTPException:
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Invalid credentials",
         headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+def _service_unavailable_error() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="Authentication service unavailable",
     )

@@ -21,8 +21,9 @@ from app.auth.bootstrap import (
     AdminBootstrapInputError,
     create_admin,
 )
-from app.auth.models import AdminUser
+from app.auth.models import AdminUser, User
 from app.auth.passwords import verify_password
+from app.auth.roles import UserRole
 from app.auth.schemas import AdminPrincipal
 from app.database.session import create_session_factory
 
@@ -62,6 +63,23 @@ def _load_admin(session_factory: sessionmaker[Session]) -> AdminUser:
         return session.scalars(select(AdminUser)).one()
 
 
+def _store_existing_user(
+    session_factory: sessionmaker[Session],
+    *,
+    role: UserRole,
+    is_active: bool = True,
+) -> None:
+    with session_factory.begin() as session:
+        session.add(
+            User(
+                email=f"existing-{role.value}@example.com",
+                password_hash="synthetic-existing-password-hash",
+                role=role,
+                is_active=is_active,
+            )
+        )
+
+
 def test_create_admin_normalizes_hashes_activates_and_returns_safe_principal(
     admin_session_factory: sessionmaker[Session],
 ) -> None:
@@ -76,6 +94,9 @@ def test_create_admin_normalizes_hashes_activates_and_returns_safe_principal(
     admin = _load_admin(admin_session_factory)
     assert admin.email == ADMIN_EMAIL
     assert admin.is_active is True
+    assert admin.role is UserRole.SUPER_ADMIN
+    assert AdminUser is User
+    assert admin.__table__.name == "users"
     assert admin.password_hash
     assert admin.password_hash != SYNTHETIC_PASSWORD
     assert verify_password(SYNTHETIC_PASSWORD, admin.password_hash) is True
@@ -196,6 +217,53 @@ def test_duplicate_normalized_identity_conflicts_without_overwrite(
     assert verify_password(OTHER_SYNTHETIC_PASSWORD, current.password_hash) is False
 
 
+@pytest.mark.parametrize("role", [UserRole.CUSTOMER, UserRole.ADMIN])
+def test_bootstrap_is_allowed_when_only_non_super_admin_users_exist(
+    admin_session_factory: sessionmaker[Session],
+    role: UserRole,
+) -> None:
+    """Allow the first super-administrator after ordinary identities exist."""
+    _store_existing_user(admin_session_factory, role=role)
+    with admin_session_factory() as session:
+        create_admin(session, email=ADMIN_EMAIL, password=SYNTHETIC_PASSWORD)
+    with admin_session_factory() as session:
+        roles = session.scalars(select(User.role).order_by(User.role)).all()
+    assert roles.count(UserRole.SUPER_ADMIN) == 1
+    assert role in roles
+
+
+@pytest.mark.parametrize("is_active", [True, False])
+def test_bootstrap_refuses_any_existing_super_admin(
+    admin_session_factory: sessionmaker[Session],
+    is_active: bool,
+) -> None:
+    """Refuse a second highest-trust identity regardless of active state."""
+    _store_existing_user(
+        admin_session_factory,
+        role=UserRole.SUPER_ADMIN,
+        is_active=is_active,
+    )
+    with admin_session_factory() as session:
+        with pytest.raises(
+            AdminBootstrapConflictError,
+            match="identity already exists",
+        ):
+            create_admin(
+                session,
+                email=ADMIN_EMAIL,
+                password=SYNTHETIC_PASSWORD,
+            )
+    with admin_session_factory() as session:
+        assert (
+            session.scalar(
+                select(func.count())
+                .select_from(User)
+                .where(User.role == UserRole.SUPER_ADMIN)
+            )
+            == 1
+        )
+
+
 def test_unrelated_integrity_error_propagates_after_rollback(
     admin_session_factory: sessionmaker[Session],
     monkeypatch: pytest.MonkeyPatch,
@@ -295,6 +363,48 @@ def test_concurrent_same_identity_allows_one_insert_and_one_safe_conflict(
     with admin_session_factory() as session:
         assert session.scalar(select(func.count()).select_from(AdminUser)) == 1
         assert session.execute(select(1)).scalar_one() == 1
+
+
+def test_concurrent_different_identities_create_exactly_one_super_admin(
+    admin_session_factory: sessionmaker[Session],
+) -> None:
+    """Serialize bootstrap globally so different emails cannot race highest trust."""
+    barrier = Barrier(2)
+
+    def attempt(email: str) -> AdminPrincipal:
+        barrier.wait(timeout=10)
+        with admin_session_factory() as session:
+            return create_admin(
+                session,
+                email=email,
+                password=SYNTHETIC_PASSWORD,
+            )
+
+    outcomes: list[AdminPrincipal | Exception] = []
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [
+            executor.submit(attempt, "first-super@example.com"),
+            executor.submit(attempt, "second-super@example.com"),
+        ]
+        for future in futures:
+            try:
+                outcomes.append(future.result(timeout=20))
+            except AdminBootstrapConflictError as exc:
+                outcomes.append(exc)
+
+    assert sum(isinstance(value, AdminPrincipal) for value in outcomes) == 1
+    assert (
+        sum(isinstance(value, AdminBootstrapConflictError) for value in outcomes) == 1
+    )
+    with admin_session_factory() as session:
+        assert (
+            session.scalar(
+                select(func.count())
+                .select_from(User)
+                .where(User.role == UserRole.SUPER_ADMIN)
+            )
+            == 1
+        )
 
 
 def _configure_cli(

@@ -27,8 +27,8 @@ EXPECTED_STAGE_EIGHT_TABLES = {
 }
 EXPECTED_0004_TABLES = EXPECTED_STAGE_EIGHT_TABLES | {"payments"}
 EXPECTED_REPOSITORY_HEAD_TABLES = EXPECTED_0004_TABLES | {
-    "admin_users",
     "stripe_events",
+    "users",
 }
 EXPECTED_CHECKS = {
     "ck_payments_amount_positive",

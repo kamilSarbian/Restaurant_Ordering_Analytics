@@ -21,22 +21,43 @@ browsing through secure fulfilment-status polling. The Stage 16 administrator
 frontend implements authentication, protected routing, order operations, menu
 management, analytics, and CSV downloads. Its automated acceptance gates and
 user-performed manual responsive QA at the required viewports pass.
-Customer accounts are not implemented. Full-system containerisation, CI, and
-deployment have not started.
+The backend now provides unified registered identities, public customer
+registration and sign-in, database-authoritative role checks, and
+super-administrator role management. Order ownership, customer order history,
+and the unified account frontend are not implemented. Full-system
+containerisation, CI, and deployment have not started.
 
-## Planned unified accounts and landing direction
+## Unified identity backend and planned account direction
 
-The accepted post-Stage-16-admin-screen direction is planned work, not current
-behavior. It will be completed before Stage 17. An anonymous `guest` will remain
-able to browse, order, pay, and check one order without an account. A registered
-normal account will be a `customer`; public registration will always create
-that role. An `admin` will retain the operational restaurant permissions, while
-a securely bootstrapped `super_admin` will additionally manage promotion and
-demotion between `customer` and `admin`. Ordinary administrators will not be
-able to grant `super_admin`.
+Stage 16D implements one `User` backend for all registered identities with the
+mutually exclusive roles `customer`, `admin`, and `super_admin`. An anonymous
+`guest` remains outside the User model and role enum and can still browse,
+order, pay, and check one order without an account. Public registration always
+creates `customer` and rejects role, activation, and unknown privilege fields.
+An `admin` retains operational restaurant permissions, while a securely
+bootstrapped `super_admin` can promote `customer` to `admin` or demote `admin`
+to `customer`. The ordinary role API cannot create or modify a `super_admin`.
 
-The planned browser route target is separate from the currently implemented
-route list documented under Customer frontend:
+The implemented canonical backend routes are:
+
+- `POST /api/v1/auth/register`;
+- `POST /api/v1/auth/login`;
+- `GET /api/v1/auth/me`;
+- `GET /api/v1/admin/users` for `super_admin` only;
+- `PATCH /api/v1/admin/users/{user_id}/role` for `super_admin` only.
+
+Canonical tokens use the strict `user_access` type and user audience. They do
+not contain a role authority claim: every protected request reloads the current
+User role and `is_active` from PostgreSQL. The existing administrator frontend
+continues to use `/api/v1/admin/auth/login` and `/api/v1/admin/auth/me`. The
+login alias delegates to unified User authentication, accepts only current
+`admin` or `super_admin`, returns a generic 401 for a customer, and issues
+`user_access`. Older strict `admin_access` tokens remain validation-only
+compatibility during the transition. Operational administrator routes allow a
+current `admin` or `super_admin`; a customer receives 403.
+
+The planned Stage 16F browser route target remains separate from the currently
+implemented route list documented under Customer frontend:
 
 - `/` for the concise restaurant landing page with Order as guest, Log in, and
   Create account actions;
@@ -48,7 +69,8 @@ route list documented under Customer frontend:
 - the existing `/orders/:publicOrderNumber/...` Checkout, return, and protected
   status routes;
 - `/admin/...` for operational administration;
-- `/admin/users` for `super_admin` role management only.
+- `/admin/users` for the frontend over the already implemented
+  super-administrator backend API.
 
 The target keeps an independent order-access token for every Order, including
 an Order linked to a registered customer. Registration will never be required
@@ -89,9 +111,10 @@ without introducing infrastructure that is unnecessary for a single venue.
   idempotent hosted Stripe Checkout creation, and fake-provider tests.
 - Durable StripeEvent receipts, raw-body signature verification, transactional
   webhook idempotency, and provider-authoritative Payment transitions.
-- Persisted AdminUser identities, explicit interactive bootstrap, Argon2id
-  password hashing, administrator sign-in, JWT access tokens, `/auth/me`, a
-  reusable AdminBearer dependency, and sign-in rate limiting.
+- Unified User identities with constrained customer, admin, and super-admin
+  roles; canonical registration/login/me; Argon2id password hashing; strict JWT
+  families; database-authoritative authorization; explicit first-super-admin
+  bootstrap; role management; and shared sign-in rate limiting.
 - Authenticated administrator order list, detail, and transactional fulfilment
   status mutation endpoints with payment-aware acceptance and cancellation.
 - Authenticated administrator category and menu-item list, create, and partial
@@ -114,9 +137,9 @@ without introducing infrastructure that is unnecessary for a single venue.
   email-validator, Docker Compose, pytest, Ruff, Black, isort, React,
   TypeScript, Vite, React Router, CSS Modules, native `fetch`, `sessionStorage`,
   Vitest, and React Testing Library.
-- Planned: independent review of the implemented administrator frontend,
-  unified accounts and role authorization, the landing and account frontend,
-  full-system containers, GitHub Actions, and deployment.
+- Planned: order ownership and own-order APIs, the landing and unified account
+  frontend, integrated Stage 16 finalization, full-system containers, GitHub
+  Actions, and deployment.
 
 ## Repository structure
 
@@ -216,16 +239,29 @@ Stage 4 adds migration `0002_create_menu_models`. Stage 8 adds the schema-only
 aggregates. Stage 9 adds the schema-only `0004_create_payment_model` migration
 for durable payment attempts. Stage 10 adds the schema-only
 `0005_create_stripe_event_model` migration for durable webhook receipts. Stage
-11 adds schema-only migration `0006_create_admin_user_model`. It creates the
-`admin_users` table but creates zero administrator accounts. None of these
+11 adds schema-only migration `0006_create_admin_user_model`. Stage 16D adds
+tested migration `0007_unify_user_auth_roles`, which renames `admin_users` to
+`users`, adds the constrained non-null role without a server default, and
+preserves zero or one historical administrator. One historical row becomes
+`super_admin` while preserving its identity, email, password hash, active state,
+and timestamps; more than one makes the migration fail atomically. Its
+downgrade is guarded so registered customer rows cannot be deleted. None of these
 migrations runs the seed or administrator bootstrap.
 
-## Administrator authentication
+Repository code and Alembic have head `0007_unify_user_auth_roles`. The current
+local development database in this workflow deliberately remains at
+`0006_create_admin_user_model`. Before running the unified-auth backend against
+that database, the development upgrade to 0007 must be performed as a separate,
+explicitly approved migration step after warning about the manual database
+intervention. C1 does not perform that upgrade.
 
-Stage 11 persists a separate `AdminUser` identity with an application-generated
-UUID, a normalized lowercase email, an Argon2id password hash, an activation
-flag, and timestamps. There is no customer or general User authentication and
-no public administrator registration.
+## Unified authentication and administrator compatibility
+
+Stage 16D evolves the Stage 11 identity into one `User` with an
+application-generated UUID, normalized lowercase email, Argon2id password hash,
+exact role, activation flag, and timestamps. `AdminUser` is now only a temporary
+Python import alias for `User`, not a second mapped table. Public registration
+creates only a customer; there is no public administrator registration.
 
 Bootstrap passwords contain 15 through 128 Unicode code points and are
 preserved exactly, including whitespace. pwdlib applies Argon2id with memory
@@ -233,8 +269,8 @@ cost 19456 KiB, time cost 2, parallelism 1, and a library-generated salt. Login
 accepts password input from 1 through 128 code points because existing valid
 credentials must remain usable. Passwords and hashes must never be logged.
 
-The only administrator creation boundary is the explicit interactive command,
-run from `backend` after migration `0006` has been applied:
+The only first-super-admin creation boundary is the explicit interactive
+command, run from `backend` after migration 0007 has been explicitly applied:
 
 ```powershell
 & .\.venv\Scripts\python.exe -m app.auth.bootstrap --email <email>
@@ -243,42 +279,51 @@ run from `backend` after migration `0006` has been applied:
 The CLI prompts with `getpass` for the password and confirmation, so the value
 is not echoed. It has no `--password` option and does not read an administrator
 password from configuration. Imports, application startup, Alembic, Docker
-Compose, and the menu seed never create an administrator automatically.
-Duplicate normalized emails fail without changing the existing hash,
-activation state, or timestamps.
+Compose, and the menu seed never create a privileged identity automatically.
+The bootstrap takes a deterministic PostgreSQL transaction advisory lock,
+checks for any active or inactive `super_admin`, and creates the first one only.
+Existing customer or admin rows do not block it. Concurrent attempts therefore
+create exactly one `super_admin`.
 
-`POST /api/v1/admin/auth/login` accepts JSON containing `email` and `password`.
-It returns a JWT Bearer access token after an exact normalized email lookup and
-Argon2id verification. Unknown identities perform a process-local dummy
-verification generated from random source material, while unknown identities,
-wrong passwords, and inactive identities share one HTTP 401 response. The
-separate login limiter permits five attempts per 60 seconds for each direct
-peer, ignores `X-Forwarded-For`, and returns HTTP 429 with `Retry-After` before
-SQL, Argon2, or token generation.
+Canonical register and login accept exact validated email/password bodies.
+Registration passwords contain 15 through 128 code points; login input permits
+1 through 128. Duplicate registration returns 409. The canonical and legacy
+login aliases share one five-attempt-per-60-second direct-peer limiter, while
+registration has a separate limiter. Unknown identities perform process-local
+dummy verification, and credential failures do not reveal identity state.
 
-`GET /api/v1/admin/auth/me` requires the OpenAPI `AdminBearer` security scheme.
-Every protected request validates the token and reloads the current AdminUser
-from PostgreSQL; setting `is_active=false` therefore invalidates an otherwise
-unexpired token immediately. Public health, menu, quote, guest order, public
-status, and Checkout routes remain unauthenticated by AdminBearer. The Stripe
-webhook remains hidden from OpenAPI.
+`get_current_user` accepts canonical `user_access` for any active User.
+`require_admin` accepts strict canonical `user_access` or temporary legacy
+`admin_access`, reloads the current User, and permits `admin` or `super_admin`.
+`require_super_admin` permits only `super_admin`. Missing, invalid, inactive, or
+missing identities return 401; an authenticated insufficient role returns 403.
+Role changes affect an existing token immediately because PostgreSQL state is
+authoritative.
 
-Administrator access tokens use only HS256 with a fixed issuer, audience, token
-type, canonical AdminUser UUID `sub`, `iat`, and `exp`. The default lifetime is
-30 minutes and may be configured from 1 through 60 minutes. Stage 11 provides
-no refresh tokens, logout, revocation list, password reset/change, or MFA.
+Tokens use only HS256 and contain `sub`, `type`, `iat`, `exp`, `iss`, and `aud`.
+Canonical `user_access` and legacy `admin_access` have strict distinct
+audiences. Production login routes issue only `user_access`; `admin_access` is
+validation-only compatibility. No token carries email, active state, or role
+authority. There are no refresh tokens, logout, revocation list, password
+reset/change, or MFA.
 
 Authentication configuration uses:
 
-- `ADMIN_JWT_SECRET`: no default; at least 32 UTF-8 bytes;
-- `ADMIN_ACCESS_TOKEN_EXPIRE_MINUTES`: integer from 1 through 60, default 30.
+- `AUTH_JWT_SECRET`: canonical, no default, at least 32 UTF-8 bytes;
+- `AUTH_ACCESS_TOKEN_EXPIRE_MINUTES`: canonical integer from 1 through 60,
+  default 30;
+- `ADMIN_JWT_SECRET` and `ADMIN_ACCESS_TOKEN_EXPIRE_MINUTES`: temporary input
+  aliases for existing local environments.
+
+Canonical-only and legacy-only configuration work, and equal dual values are
+allowed. Conflicting canonical and legacy values fail safely without displaying
+the secret. New configuration should use `AUTH_*`.
 
 Keep configuration in an ignored local environment file and use HTTPS in any
 deployment because Bearer tokens must not cross an unencrypted connection.
-Migration `0006` intentionally creates zero administrators. An operator must
-set `ADMIN_JWT_SECRET` in the ignored local environment and run the interactive
-bootstrap command before using protected administrator routes. These are
-manual operational setup steps, not automated test requirements.
+An operator must configure an ignored local authentication secret and run the
+interactive bootstrap when migration 0007 produces no initial super-admin.
+These are manual operational setup steps, not automated test requirements.
 
 ## Administrator operational API
 
@@ -297,6 +342,20 @@ active identity. Every operational route below requires the OpenAPI
 - `GET /api/v1/admin/menu/items`
 - `POST /api/v1/admin/menu/items`
 - `PATCH /api/v1/admin/menu/items/{item_id}`
+
+Current `admin` and `super_admin` roles may use these operational routes; a
+customer receives 403. User governance is separately restricted to
+`super_admin`:
+
+- `GET /api/v1/admin/users` returns deterministic `limit`/`offset` pages with
+  safe identity fields only;
+- `PATCH /api/v1/admin/users/{user_id}/role` permits only
+  `customer -> admin` and `admin -> customer`.
+
+Role PATCH locks the target User row with `FOR UPDATE`. A missing target returns
+404, a same-role transition or any `super_admin` target returns 409, and a
+`super_admin` payload fails schema validation with 422. There is no active-state
+mutation, deletion, or ordinary super-admin assignment endpoint.
 
 The fulfilment state machine permits exactly:
 
@@ -472,9 +531,9 @@ Stage 16 implements the current administrator interface under the dedicated
 - `/admin/exports`;
 - `/admin/*` for the protected administrator-local not-found screen.
 
-`/admin/users` is not implemented. Unified authentication, customer accounts,
-the landing page, and role management remain the separate planned work described
-above.
+The `/admin/users` frontend is not implemented. Its backend list and ordinary
+role-transition routes are implemented, while the unified browser session,
+customer account UI, landing page, and ownership views remain Stage 16F work.
 
 ### Administrator session
 
@@ -1177,6 +1236,11 @@ Available endpoints:
 - Public menu item: `http://127.0.0.1:8000/api/v1/menu/items/{item_id}`
 - Order quote: <http://127.0.0.1:8000/api/v1/orders/quote>
 - Order creation: `POST http://127.0.0.1:8000/api/v1/orders`
+- User registration: `POST http://127.0.0.1:8000/api/v1/auth/register`
+- User login: `POST http://127.0.0.1:8000/api/v1/auth/login`
+- Current User: `GET http://127.0.0.1:8000/api/v1/auth/me`
+- Administrator user list: `GET http://127.0.0.1:8000/api/v1/admin/users`
+- Administrator role change: `PATCH http://127.0.0.1:8000/api/v1/admin/users/{user_id}/role`
 - Public order status: `GET http://127.0.0.1:8000/api/v1/orders/{public_order_number}`
 - Stripe Checkout: `POST http://127.0.0.1:8000/api/v1/orders/{public_order_number}/checkout-session`
 - Stripe webhook: `POST http://127.0.0.1:8000/api/v1/stripe/webhook` (provider-facing and hidden from OpenAPI)

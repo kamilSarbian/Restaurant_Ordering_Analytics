@@ -71,7 +71,7 @@ details where doing so improves testability.
 | ------------------- | -------------------------------------------------------------------------------------------- |
 | `core`              | configuration, security, shared errors, and cross-cutting concerns                           |
 | `database`          | engine, sessions, model base, and migration integration                                      |
-| `auth`              | administrator persistence, bootstrap, sign-in, JWT, and authorization                        |
+| `auth`              | unified User persistence, bootstrap, registration, sign-in, JWT, and role authorization       |
 | `categories`        | categories and their order in the menu                                                       |
 | `menu`              | menu items, prices, allergens, activity, and availability                                    |
 | `restaurant_tables` | tables and dine-in order validation                                                          |
@@ -110,28 +110,32 @@ and idempotency data. Stripe is called after the transaction commits. The
 session identifier or failure outcome is stored in another short transaction,
 again following the `Order -> Payment` order.
 
-### 5.3. Administration and Analytics
+### 5.3. Authentication, Administration, and Analytics
 
-The explicit bootstrap flow is `CLI -> email normalization -> bootstrap password
-policy -> Argon2id hashing -> AdminUser insert`. Password and confirmation are
-read through `getpass`; no password CLI argument, automatic account, or token is
-created.
+The first-super-admin bootstrap flow is `CLI -> email normalization -> password
+confirmation and policy validation -> Argon2id hashing -> short database
+transaction -> transaction advisory lock -> existing-super-admin check -> User
+insert -> commit`. Password and confirmation are read through `getpass`; no
+password CLI argument, automatic account, or token is created. Normalization,
+password validation, and hashing are application work performed before the
+database critical section. The short transaction-level advisory lock serializes
+only the race-sensitive check and insert. Customer and admin rows do not block
+the first super-admin, while any active or inactive super-admin does. Concurrent
+attempts therefore insert exactly one first super-admin.
 
-The login flow is `request schema -> direct-peer limiter -> exact AdminUser
-SELECT -> real or dummy Argon2 verification -> AdminPrincipal -> token service
--> JWT`. Unknown identities, wrong passwords, and inactive identities share one
-credential failure. An inactive identity is rejected only after real password
-verification.
+Canonical registration creates only a customer. Canonical login and the legacy
+administrator alias use exact User lookup plus real or dummy Argon2
+verification. The administrator alias rejects a customer with the same generic
+credential failure and production login routes issue only `user_access`.
 
-The protected-request flow is `AdminBearer -> JWT validation -> current active
-AdminUser SELECT -> AdminPrincipal -> endpoint`. Every protected request checks
-current database state, so deactivation takes effect immediately. Public routes
-are not globally protected. Stage 12 reuses `require_admin` for operational
-orders and menu endpoints; Stage 13 analytics uses the same
-boundary. React presents results but does not define permissions or KPI rules.
-Stage 14 reports use the same authorization boundary and call shared analytics
-query builders in-process; they do not call the JSON analytics routes over
-HTTP.
+The protected-request flow is `strict JWT validation -> current active User
+SELECT -> database role check -> endpoint`. `get_current_user` accepts canonical
+tokens, `require_admin` permits current `admin` or `super_admin`, and
+`require_super_admin` permits only `super_admin`. Every request checks current
+database state, so deactivation or a role change takes effect immediately.
+Public routes are not globally protected. Operational orders, menu, analytics,
+and reports use `require_admin`; role management uses `require_super_admin`.
+React presents results but does not define permissions or KPI rules.
 
 ### 5.4. Independent Status Lifecycles
 
@@ -271,7 +275,8 @@ The Stage 13 performance audit used EXPLAIN on isolated PostgreSQL and observed
 the expected aggregates, joins, and window operations. Sequential scans on the
 tiny test relations are not blocking. Existing indexes are sufficient for the
 MVP single-restaurant scale, so no analytics persistence, materialized view,
-new index, or migration `0007` is introduced. Index tuning is deferred until a
+new index, or migration was introduced by Stage 13. Migration 0007 was added
+later by Stage 16D for unified identities. Index tuning is deferred until a
 measured production-scale need exists.
 
 Refunds are outside the MVP, so collected revenue is not automatically reduced
@@ -313,9 +318,9 @@ volume justifies them.
 The Stage 14B-3 performance audit ran EXPLAIN for all three statements on
 isolated PostgreSQL. The plans had no blocking issue, existing indexes were
 sufficient for current scale, and sequential scans on tiny relations were not
-a concern. No index or migration `0007` was introduced. Future indexing,
-streaming, or background processing remains measurement-driven rather than an
-unverified enterprise-scale claim.
+a concern. Stage 14 introduced no index or migration; migration 0007 was added
+later by Stage 16D. Future indexing, streaming, or background processing remains
+measurement-driven rather than an unverified enterprise-scale claim.
 
 ### 5.9. Menu, Order, and Administrator Data Model
 
@@ -487,12 +492,14 @@ The `(payment_id, stripe_created_at, id)` and
 `(stripe_checkout_session_id, stripe_created_at, id)` indexes support ordered
 history access.
 
-Stage 11 adds the independent AdminUser identity. Its UUID is generated by the
-application, email is unique and constrained to normalized lowercase text, and
-the password column stores only a nonblank Argon2id hash. `is_active` defaults
-to true, while timezone-aware creation and update timestamps follow the shared
-model convention. The schema has no role, token version, reset, MFA, plaintext
-password, or relationship to guest orders. Migration `0006` inserts no rows.
+Stage 11 originally adds `admin_users`; Stage 16D migration 0007 evolves it into
+the unified `users` table. A User has an application-generated UUID, unique
+normalized lowercase email, nonblank Argon2id hash, active flag, aware
+timestamps, and exactly one constrained role: `customer`, `admin`, or
+`super_admin`. The role is a `VARCHAR`, is non-null, has a database `CHECK`, and
+has no server default. There is no Role table, join table, token version, reset,
+MFA, plaintext password, or relationship to guest orders. `AdminUser` is only a
+temporary Python import alias for this mapped User.
 
 ### 5.10. Local Demonstration Seed
 
@@ -671,7 +678,7 @@ cancellation transaction. PostgreSQL concurrency tests cover duplicate races,
 opposing terminal events, webhook-before-Checkout-Phase-3, and webhook versus
 future cancellation without deadlocks.
 
-### 5.16. Implemented Administrator Authentication
+### 5.16. Implemented Unified Authentication and Role Authorization
 
 pwdlib uses Argon2id with memory cost 19456 KiB, time cost 2, parallelism 1,
 and a library-generated salt. Bootstrap accepts 15 through 128 Unicode code
@@ -679,27 +686,36 @@ points without trimming or composition rules. Login accepts 1 through 128 code
 points and performs one process-local, lazily generated dummy verification when
 the normalized identity is absent. No static dummy credential or hash exists.
 
-`AdminTokenService` uses only HS256 and requires at least 32 UTF-8 bytes of key
+The token service uses only HS256 and requires at least 32 UTF-8 bytes of key
 material. Tokens contain exactly `sub`, `type`, `iat`, `exp`, `iss`, and `aud`;
-the subject is a canonical AdminUser UUID. The default lifetime is 30 minutes
-and configuration permits 1 through 60 minutes. The issuer, audience, and token
-type are fixed. The clock is injectable for tests. Stage 11 has no refresh,
-revocation, logout, password reset/change, or MFA.
+the subject is a canonical User UUID. Canonical `user_access` and temporary
+legacy `admin_access` have strict distinct audiences. Production login routes
+issue only `user_access`; legacy tokens are validation-only compatibility. No
+token contains role authority. The default lifetime is 30 minutes and
+configuration permits 1 through 60 minutes. There is no refresh, revocation,
+logout, password reset/change, or MFA.
 
-`POST /api/v1/admin/auth/login` is public and returns one Bearer access token.
-The independent app-scoped fixed-window limiter allows five attempts per 60
-seconds for each direct peer, ignores `X-Forwarded-For`, and returns 429 with a
-positive `Retry-After` before SQL, Argon2, or token creation. Request validation
-still precedes the endpoint, so malformed payloads return 422 without consuming
-the limiter.
+`POST /api/v1/auth/register`, `POST /api/v1/auth/login`, and
+`GET /api/v1/auth/me` are the canonical contracts. Registration always creates
+an active customer and rejects privilege fields. The existing
+`POST /api/v1/admin/auth/login` alias delegates to unified authentication,
+accepts only admin or super-admin, and issues `user_access`. The canonical and
+alias login endpoints share one app-scoped fixed-window limiter allowing five
+attempts per 60 seconds for each direct peer. Registration has a separate
+limiter. Both ignore `X-Forwarded-For`.
 
-`GET /api/v1/admin/auth/me` uses the reusable `AdminBearer` dependency and one
-current AdminUser lookup. Missing, malformed, expired, or otherwise invalid
-tokens and missing or inactive identities share a Bearer-challenged 401. Login
-credential failures use their own uniform 401. The auth service is optional at
-general startup when no JWT secret is configured, but protected auth operations
-then return 503. Login and `/me` are visible in OpenAPI, the Stripe webhook is
-hidden, and public customer operations have no AdminBearer requirement.
+`GET /api/v1/admin/auth/me` remains a compatibility alias. Every protected auth
+request reloads the current User and active state. Missing, malformed, expired,
+or otherwise invalid tokens and missing or inactive identities share a
+Bearer-challenged 401; an authenticated insufficient role returns 403. The auth
+service is optional at general startup when no JWT secret is configured, but
+protected auth operations then return 503. The Stripe webhook remains hidden.
+
+Canonical configuration uses `AUTH_JWT_SECRET` and
+`AUTH_ACCESS_TOKEN_EXPIRE_MINUTES`. `ADMIN_JWT_SECRET` and
+`ADMIN_ACCESS_TOKEN_EXPIRE_MINUTES` remain temporary input aliases. Either
+family alone works, equal dual values are accepted, and conflicting dual values
+fail safely without exposing the secret.
 
 ### 5.17. Implemented Administrator Operational API
 
@@ -772,8 +788,9 @@ current-tab session usable in memory. `AdminRouteGuard` requires successful
 the session, while a network or 503 validation failure preserves it behind an
 explicit retry state. The app never uses `localStorage`, and the token is never
 placed in a URL, DOM node, or log. Frontend logout clears this state because the
-current backend has no logout endpoint. The planned unified-auth implementation
-will replace this current session model.
+current backend has no logout endpoint. The backend already issues canonical
+`user_access` from the legacy login alias; migration to the shared browser
+AuthContext remains Stage 16F.
 
 Order list/detail views remain read-only except for explicit detail actions
 derived from the current status. Mutation requires inline confirmation and
@@ -859,11 +876,9 @@ proxy -> FastAPI 127.0.0.1:8000`. The default `VITE_API_BASE_URL` is empty, so
 requests remain same-origin through the Vite proxy and no local CORS middleware
 is required. Cross-origin production policy is deferred to deployment.
 
-### 5.20. Planned Unified Identity, Authorization, and Account Boundary
+### 5.20. Unified Identity and Planned Account Ownership Boundary
 
-This subsection records the accepted target after administrator-frontend
-acceptance. It is not an implementation claim. The target replaces
-the permanent AdminUser/customer split with one minimal registered identity:
+Stage 16D implements one minimal registered identity:
 
 ```text
 User
@@ -876,22 +891,26 @@ User
 - updated_at: aware UTC timestamp
 ```
 
-`role` will be a Python `StrEnum` represented by a `VARCHAR` column and a
-database `CHECK` constraint. It is one mutually exclusive role, so no Role
-table, role join table, or multi-role RBAC layer is planned. An anonymous
-`guest` is neither a User nor a role. Public registration creates only
-`customer`; no request field can select `admin` or `super_admin`.
+`role` is a Python `StrEnum` represented by a non-null `VARCHAR` column, with no
+server default and with a database `CHECK` constraint. It is one mutually
+exclusive role, so there is no Role table, role join table, or multi-role RBAC
+layer. An anonymous `guest` is neither a User nor a role. Public registration
+creates only `customer`; no request field can select `admin` or `super_admin`.
 
-JWT access tokens will identify a User. The database remains authoritative for
-the current role and `is_active` on every protected request; a token role claim,
-if ever present, cannot authorize an operation. The planned dependencies are:
+JWT access tokens identify a User. PostgreSQL is authoritative for current role
+and `is_active` on every protected request. Implemented dependencies are:
 
-- `get_current_user` for any active registered identity;
-- `require_admin` for `admin` or `super_admin` operational access;
-- `require_super_admin` for role management;
+- `get_current_user` accepts canonical `user_access` only for any active User;
+- `require_admin` accepts strict `user_access` or temporary strict
+  `admin_access`, reloads the User, and permits `admin` or `super_admin`;
+- `require_super_admin` uses the same current-User authority and permits only
+  `super_admin` for role management;
 - no Bearer requirement for anonymous guest ordering.
 
-The planned browser transport preserves explicit trust boundaries:
+An invalid, missing, inactive, or deleted identity returns 401; a valid identity
+with insufficient role returns 403.
+
+The planned Stage 16F browser transport preserves explicit trust boundaries:
 
 - `publicApi` sends no Bearer token;
 - `authenticatedApi` may send Bearer only to an explicit account-route
@@ -900,7 +919,7 @@ The planned browser transport preserves explicit trust boundaries:
 - no global interceptor may attach the account token to arbitrary requests.
 
 Guest Checkout and public status continue to use `X-Order-Access-Token`. The
-planned account token will not replace this per-Order credential.
+account token will not replace this per-Order credential.
 
 The ownership extension is a nullable indexed
 `Order.customer_user_id -> User.id` foreign key with `ON DELETE SET NULL`.
@@ -910,20 +929,25 @@ filter by the current User on the server. Every Order still gets an independent
 order-access token, and no flow will claim an earlier anonymous Order
 retroactively.
 
-The planned data migration renames and evolves `admin_users` into `users`,
-preserving UUID, normalized email, password hash, active state, and timestamps.
-It adds the constrained role column and maps the documented single existing
-administrator to `super_admin`. Zero existing rows are valid and allow a later
-secure bootstrap. If the migration finds more than one AdminUser while assuming
-one main administrator, it must fail safely instead of assigning highest trust
-arbitrarily. No schema or data migration is executed by this addendum.
+Migration `0007_unify_user_auth_roles` renames and evolves `admin_users` into
+`users`, preserving UUID, normalized email, password hash, active state, and
+timestamps. It adds the constrained role column and maps exactly one historical
+administrator to `super_admin`. Zero rows are valid for later bootstrap; more
+than one makes the migration fail atomically. Downgrade is guarded against
+discarding customer data. Migration validation uses only the disposable exact
+test database on the project PostgreSQL listener at 5433; it does not mutate the
+development database or host PostgreSQL at 5432.
+Repository and Alembic head are 0007, while the local development database
+deliberately remains at 0006 until a separately approved migration operation.
 
-Public registration always creates `customer`, and ordinary administrators
-cannot assign `super_admin`. The normal role API and UI will allow only
-`customer <-> admin`; assigning `super_admin` is outside the ordinary MVP
-workflow. Any backend operation capable of demoting or deactivating a
-`super_admin` must transactionally preserve at least one active
-`super_admin`.
+Public registration always creates `customer`. The super-admin-only list API
+returns safe User fields and deterministic pagination. Its role PATCH locks the
+target row and allows only `customer <-> admin`; it cannot assign or modify a
+`super_admin`, mutate active state, or delete a User. The `/admin/users`
+frontend is not implemented. Order ownership, account order history, and the
+shared authentication frontend remain planned for Stages 16E and 16F.
+Because every protected request reloads the User, a successful role change
+affects authorization immediately even when the client reuses the same token.
 
 ## 6. Architecture Diagram
 
@@ -1047,7 +1071,7 @@ mobile, tablet, and desktop viewports.
   application log.
 - Secrets do not enter the repository, the frontend image, or logs.
 
-## 10. Planned API
+## 10. API Scope
 
 The public scope includes a health check, categories, menu, quoting, order
 creation, Checkout Session creation, restricted status retrieval, and the
@@ -1059,19 +1083,18 @@ the path parameter is the returned public number, not an internal UUID. Status
 retrieval uses the same access token. `POST /api/v1/stripe/webhook` requires a
 valid Stripe signature and is intentionally absent from OpenAPI.
 
-The implemented administrator scope includes sign-in, the current user, order
-list and detail, fulfilment status changes, category and menu-item management,
-four protected analytics endpoints for the six basic KPIs, and exactly three
-protected CSV exports for orders, full product sales, and qualified succeeded
-payments.
+The implemented unified identity scope includes `POST /api/v1/auth/register`,
+`POST /api/v1/auth/login`, and `GET /api/v1/auth/me`. Administrator login and me
+aliases remain compatible. The administrator scope also includes order list and
+detail, fulfilment status changes, category and menu-item management, four
+protected analytics endpoints for the six basic KPIs, exactly three protected
+CSV exports, and super-admin-only `GET /api/v1/admin/users` and
+`PATCH /api/v1/admin/users/{user_id}/role`. Existing operational contracts now
+use database-backed unified User role checks.
 
-The accepted future account scope plans `POST /api/v1/auth/register`,
-`POST /api/v1/auth/login`, and `GET /api/v1/auth/me`. It also plans own-order
-list and detail under `/api/v1/account/orders`, plus a minimum super-admin-only
-`GET /api/v1/admin/users` and
-`PATCH /api/v1/admin/users/{user_id}/role`. Existing operational
-`/api/v1/admin/...` contracts remain stable while their authorization dependency
-moves from AdminUser-specific authentication to the unified role checks.
+Own-order list and detail under `/api/v1/account/orders` remain planned for
+Stage 16E. Their exact contracts and ownership policy will be frozen in that
+approved stage.
 
 Exact contracts, response codes, and the access policy will be defined in the
 stages that implement the relevant features. The context document is not yet a

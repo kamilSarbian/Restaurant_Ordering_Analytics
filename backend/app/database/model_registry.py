@@ -1,6 +1,6 @@
 """Register all SQLAlchemy models in the shared metadata."""
 
-from app.auth.models import AdminUser
+from app.auth.models import User
 from app.categories.models import Category
 from app.database.base import Base
 from app.menu.models import MenuItem
@@ -11,7 +11,7 @@ from app.restaurant_tables.models import RestaurantTable
 metadata = Base.metadata
 
 __all__ = [
-    "AdminUser",
+    "User",
     "Category",
     "MenuItem",
     "Order",

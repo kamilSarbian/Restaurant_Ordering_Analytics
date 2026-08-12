@@ -15,9 +15,17 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.auth import router as auth_router_module
 from app.auth import service as auth_service
+from app.auth import user_service as canonical_user_service
 from app.auth.models import AdminUser
 from app.auth.passwords import hash_password
-from app.auth.service import AdminAuthenticationError, authenticate_admin
+from app.auth.roles import UserRole
+from app.auth.service import (
+    USER_AUDIENCE,
+    USER_TOKEN_TYPE,
+    AdminAuthenticationError,
+    UserTokenService,
+    authenticate_admin,
+)
 from app.auth.tokens import (
     ALGORITHM,
     AUDIENCE,
@@ -58,8 +66,8 @@ class MutableClock:
         self.value += amount
 
 
-class CountingAdminTokenService(AdminTokenService):
-    """Count token creation while preserving real signing behavior."""
+class CountingUserTokenService(UserTokenService):
+    """Count canonical token creation while preserving real signing behavior."""
 
     def __init__(self, *args: object, **kwargs: object) -> None:
         super().__init__(*args, **kwargs)  # type: ignore[arg-type]
@@ -119,16 +127,26 @@ def _application(
     *,
     token_service: AdminTokenService | None,
     limiter: FixedWindowRateLimiter | None = None,
+    user_token_service: UserTokenService | None = None,
 ):
+    resolved_user_token_service = user_token_service
+    if resolved_user_token_service is None and token_service is not None:
+        resolved_user_token_service = UserTokenService(
+            SYNTHETIC_SECRET,
+            access_token_expire_minutes=7,
+            now_provider=lambda: FIXED_NOW,
+        )
     return create_app(
         settings=Settings(
             _env_file=None,
             database_url=None,
-            admin_jwt_secret=None,
+            auth_jwt_secret=None,
         ),
         session_factory=session_factory,
         admin_token_service=token_service,
         admin_login_rate_limiter=limiter,
+        user_token_service=resolved_user_token_service,
+        user_login_rate_limiter=limiter,
     )
 
 
@@ -138,11 +156,13 @@ def _store_admin(
     email: str = ADMIN_EMAIL,
     password: str = SYNTHETIC_PASSWORD,
     is_active: bool = True,
+    role: UserRole = UserRole.SUPER_ADMIN,
 ) -> UUID:
     with session_factory.begin() as session:
         admin = AdminUser(
             email=email,
             password_hash=hash_password(password),
+            role=role,
             is_active=is_active,
         )
         session.add(admin)
@@ -198,7 +218,6 @@ def _signed_token(
 def test_successful_login_normalizes_email_returns_exact_token_contract_and_is_read_only(
     client: TestClient,
     admin_session_factory: sessionmaker[Session],
-    token_service: AdminTokenService,
 ) -> None:
     """Authenticate real Argon2 credentials and return the custom JWT lifetime."""
     admin_id = _store_admin(admin_session_factory)
@@ -218,9 +237,10 @@ def test_successful_login_normalizes_email_returns_exact_token_contract_and_is_r
     assert body["expires_in"] == 420
     token = body["access_token"]
     assert isinstance(token, str) and token
-    decoded = token_service.decode_access_token(token)
-    assert decoded.admin_id == admin_id
     unverified_claims = jwt.decode(token, options={"verify_signature": False})
+    assert unverified_claims["sub"] == str(admin_id)
+    assert unverified_claims["type"] == USER_TOKEN_TYPE
+    assert unverified_claims["aud"] == USER_AUDIENCE
     assert {"email", "role", "password_hash"}.isdisjoint(unverified_claims)
 
     with admin_session_factory() as session:
@@ -228,6 +248,45 @@ def test_successful_login_normalizes_email_returns_exact_token_contract_and_is_r
             select(AdminUser.updated_at).where(AdminUser.id == admin_id)
         )
     assert current_updated_at == original_updated_at
+
+
+def test_legacy_login_uses_canonical_auth_config_and_shared_legacy_validator(
+    admin_session_factory: sessionmaker[Session],
+) -> None:
+    """Wire both strict token families from only canonical AUTH settings."""
+    admin_id = _store_admin(admin_session_factory)
+    application = create_app(
+        settings=Settings(
+            _env_file=None,
+            database_url=None,
+            auth_jwt_secret=SYNTHETIC_SECRET,
+            auth_access_token_expire_minutes=7,
+        ),
+        session_factory=admin_session_factory,
+    )
+    with TestClient(application) as client:
+        login = client.post(LOGIN_PATH, json=_login_payload())
+        assert login.status_code == 200
+        body = login.json()
+        assert set(body) == {"access_token", "token_type", "expires_in"}
+        assert body["expires_in"] == 420
+        claims = jwt.decode(body["access_token"], options={"verify_signature": False})
+        assert claims["type"] == USER_TOKEN_TYPE
+        assert claims["aud"] == USER_AUDIENCE
+        assert "role" not in claims
+        assert (
+            application.state.user_token_service.decode_access_token(
+                body["access_token"]
+            ).user_id
+            == admin_id
+        )
+
+        legacy_token = application.state.admin_token_service.create_access_token(
+            admin_id
+        )
+        legacy_me = client.get(ME_PATH, headers=_authorization(legacy_token))
+        assert legacy_me.status_code == 200
+        assert legacy_me.json() == {"email": ADMIN_EMAIL, "is_active": True}
 
 
 def test_authenticate_admin_uses_one_exact_email_select(
@@ -262,7 +321,7 @@ def test_authenticate_admin_uses_one_exact_email_select(
     assert principal.id == admin_id
     assert len(statements) == 1
     normalized_statement = " ".join(statements[0].lower().split())
-    assert "admin_users.email =" in normalized_statement
+    assert "users.email =" in normalized_statement
     assert " like " not in normalized_statement
     assert " ilike " not in normalized_statement
     assert " for update" not in normalized_statement
@@ -373,7 +432,7 @@ def test_invalid_login_schemas_return_422_without_consuming_limiter_or_sql(
     ) -> None:
         statements.append(statement)
 
-    monkeypatch.setattr(auth_service, "verify_dummy_password", fake_dummy)
+    monkeypatch.setattr(canonical_user_service, "verify_dummy_password", fake_dummy)
     invalid_payloads = [
         _login_payload(email="invalid"),
         _login_payload(password=""),
@@ -429,7 +488,7 @@ def test_unavailable_service_precedes_limiter_sql_and_verification(
     ) -> None:
         statements.append(statement)
 
-    monkeypatch.setattr(auth_router_module, "authenticate_admin", fake_authenticate)
+    monkeypatch.setattr(auth_router_module, "authenticate_user", fake_authenticate)
     event.listen(test_database_engine, "before_cursor_execute", capture_statement)
     try:
         with TestClient(application) as test_client:
@@ -456,15 +515,19 @@ def test_sixth_login_attempt_is_denied_before_sql_verification_or_token_creation
     dummy_calls = 0
     real_verify_calls = 0
     statements: list[str] = []
-    counting_service = CountingAdminTokenService(
+    counting_service = CountingUserTokenService(
         SYNTHETIC_SECRET,
         now_provider=lambda: FIXED_NOW,
     )
     limiter = FixedWindowRateLimiter(limit=5, window_seconds=60, clock=lambda: 0.0)
     application = _application(
         admin_session_factory,
-        token_service=counting_service,
+        token_service=AdminTokenService(
+            SYNTHETIC_SECRET,
+            now_provider=lambda: FIXED_NOW,
+        ),
         limiter=limiter,
+        user_token_service=counting_service,
     )
 
     def fake_dummy(_password: str) -> None:
@@ -486,8 +549,8 @@ def test_sixth_login_attempt_is_denied_before_sql_verification_or_token_creation
     ) -> None:
         statements.append(statement)
 
-    monkeypatch.setattr(auth_service, "verify_dummy_password", fake_dummy)
-    monkeypatch.setattr(auth_service, "verify_password", fake_verify)
+    monkeypatch.setattr(canonical_user_service, "verify_dummy_password", fake_dummy)
+    monkeypatch.setattr(canonical_user_service, "verify_password", fake_verify)
     event.listen(test_database_engine, "before_cursor_execute", capture_statement)
     try:
         with TestClient(application, client=("same-peer", 50000)) as test_client:
@@ -528,7 +591,11 @@ def test_login_limiter_ignores_xff_and_keeps_direct_peers_independent(
         token_service=token_service,
         limiter=limiter,
     )
-    monkeypatch.setattr(auth_service, "verify_dummy_password", lambda _password: None)
+    monkeypatch.setattr(
+        canonical_user_service,
+        "verify_dummy_password",
+        lambda _password: None,
+    )
 
     with TestClient(application, client=("first-peer", 50000)) as first_client:
         for index in range(5):
@@ -577,7 +644,7 @@ def test_login_limiter_window_resets_with_injected_clock(
         nonlocal dummy_calls
         dummy_calls += 1
 
-    monkeypatch.setattr(auth_service, "verify_dummy_password", fake_dummy)
+    monkeypatch.setattr(canonical_user_service, "verify_dummy_password", fake_dummy)
     with TestClient(application) as test_client:
         for _ in range(5):
             _assert_login_failure(
@@ -729,6 +796,68 @@ def test_deactivation_immediately_invalidates_an_unexpired_login_token(
         admin.is_active = False
 
     _assert_protected_failure(client.get(ME_PATH, headers=_authorization(token)))
+
+
+def test_admin_role_uses_legacy_login_alias_and_canonical_token_on_admin_routes(
+    client: TestClient,
+    admin_session_factory: sessionmaker[Session],
+) -> None:
+    """Keep the legacy frontend contract while issuing unified user_access."""
+    admin_id = _store_admin(admin_session_factory, role=UserRole.ADMIN)
+    response = client.post(LOGIN_PATH, json=_login_payload())
+    assert response.status_code == 200
+    body = response.json()
+    assert set(body) == {"access_token", "token_type", "expires_in"}
+    claims = jwt.decode(body["access_token"], options={"verify_signature": False})
+    assert claims["sub"] == str(admin_id)
+    assert claims["type"] == USER_TOKEN_TYPE
+    assert claims["aud"] == USER_AUDIENCE
+    headers = _authorization(body["access_token"])
+    assert client.get(ME_PATH, headers=headers).status_code == 200
+    assert client.get("/api/v1/admin/orders", headers=headers).status_code == 200
+
+
+def test_customer_credentials_on_legacy_login_match_invalid_credentials(
+    client: TestClient,
+    admin_session_factory: sessionmaker[Session],
+) -> None:
+    """Hide a valid customer's existence and insufficient administrator role."""
+    _store_admin(admin_session_factory, role=UserRole.CUSTOMER)
+    customer = client.post(LOGIN_PATH, json=_login_payload())
+    invalid = client.post(
+        LOGIN_PATH,
+        json=_login_payload(password=WRONG_SYNTHETIC_PASSWORD),
+    )
+    _assert_login_failure(customer)
+    _assert_login_failure(invalid)
+    assert customer.json() == invalid.json()
+
+
+def test_customer_canonical_and_demoted_legacy_tokens_receive_403(
+    client: TestClient,
+    admin_session_factory: sessionmaker[Session],
+    token_service: AdminTokenService,
+) -> None:
+    """Use current database role for both canonical and legacy admin boundaries."""
+    admin_id = _store_admin(admin_session_factory, role=UserRole.ADMIN)
+    canonical = UserTokenService(
+        SYNTHETIC_SECRET,
+        access_token_expire_minutes=7,
+        now_provider=lambda: FIXED_NOW,
+    ).create_access_token(admin_id)
+    legacy = token_service.create_access_token(admin_id)
+    assert client.get(ME_PATH, headers=_authorization(canonical)).status_code == 200
+    assert client.get(ME_PATH, headers=_authorization(legacy)).status_code == 200
+
+    with admin_session_factory.begin() as session:
+        admin = session.get(AdminUser, admin_id)
+        assert admin is not None
+        admin.role = UserRole.CUSTOMER
+
+    for token in (canonical, legacy):
+        response = client.get(ME_PATH, headers=_authorization(token))
+        assert response.status_code == 403
+        assert response.json() == {"detail": "Administrator access required"}
 
 
 def test_openapi_documents_exact_admin_auth_contract_and_keeps_public_routes_open(

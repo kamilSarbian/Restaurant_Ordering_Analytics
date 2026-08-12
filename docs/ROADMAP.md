@@ -332,7 +332,8 @@
 - **Outcome:** D-061 and D-062 record the accepted unified User, exact roles,
   anonymous guest boundary, landing/auth direction, nullable Order ownership,
   own-order history, and super-admin role-management plan. This is documentation
-  only; current AdminUser and guest-ordering behavior remains implemented.
+  only; at that historical boundary the AdminUser and guest-ordering behavior
+  remained implemented.
 
 ### 16B-4 — Admin Menu
 
@@ -364,11 +365,16 @@
 
 ### 16D — Unified User, Authentication, and Role Authorization Backend
 
-- **Status:** not started.
-- **Outcome:** evolve AdminUser into the unified User model, add the constrained
-  role, unified register/login/me contracts, database-backed `require_admin`
-  and `require_super_admin`, secure super-admin bootstrap, minimum role API,
-  and compatibility for existing administrator auth consumers.
+- **Status:** PRE-COMMIT READY; D1 through D5 and C1 are complete, with
+  independent review and commit pending.
+- **Outcome:** AdminUser is evolved into the unified User model with constrained
+  role; canonical register/login/me, database-backed current-user/admin/
+  super-admin authorization, secure first-super-admin bootstrap, minimum role
+  API, auth configuration transition, and existing administrator consumer
+  compatibility are implemented.
+- **Migration boundary:** repository and Alembic head are 0007. The development
+  database deliberately remains at 0006 and requires a separately approved
+  migration operation before local unified-auth runtime use.
 
 ### 16E — Order Ownership and Customer Account API
 
@@ -456,14 +462,14 @@
 
 ## Next Recommended Stage
 
-Stage 1 through Stage 15 are complete and verified. Stage 16B-1 through B6 and
-the documentation-only B3A architecture addendum are implemented. Automated C1
-acceptance and user-performed manual administrator responsive QA pass;
-independent review remains pending. Unified accounts remain planned and are not
-current runtime behavior.
+Stage 1 through Stage 15 and the Stage 16 administrator frontend are complete
+and verified. Stage 16D D1 through D5 implement the unified User,
+authentication, database-authoritative role authorization, super-admin
+governance, bootstrap, and configuration transition. Its C1 documentation and
+pre-commit validation gate is complete.
 
-The immediate gate is **Stage 16C independent review and commit**. The next
-planned implementation stage after administrator-frontend acceptance is
-**Stage 16D — Unified User,
-Authentication, and Role Authorization Backend**. Stage 17 remains blocked on
-completion of Stage 16C through Stage 16G and requires separate approval.
+The immediate gate is **Stage 16D independent review and commit**. After that
+separate gate, the next planned implementation stage is **Stage 16E — Order
+Ownership and Customer Account API**. Stages 16E, 16F, and 16G have not started.
+Stage 17 has not started and remains blocked on completion of Stage 16G with
+separate approval.

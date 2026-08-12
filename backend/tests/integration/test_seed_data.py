@@ -65,7 +65,7 @@ def _non_seed_counts(engine: Engine) -> tuple[int, int, int, int, int, int, int]
                 "(SELECT count(*) FROM order_status_history), "
                 "(SELECT count(*) FROM payments), "
                 "(SELECT count(*) FROM stripe_events), "
-                "(SELECT count(*) FROM admin_users)"
+                "(SELECT count(*) FROM users)"
             )
         ).one()
     return tuple(int(value) for value in row)
@@ -150,7 +150,7 @@ def test_migration_leaves_business_tables_empty_at_current_head(
         revision = connection.execute(
             text("SELECT version_num FROM alembic_version")
         ).scalar_one()
-    assert revision == "0006_create_admin_user_model"
+    assert revision == "0007_unify_user_auth_roles"
     assert _counts(seed_session_factory) == (0, 0)
     assert _non_seed_counts(test_database_engine) == (0, 0, 0, 0, 0, 0, 0)
 

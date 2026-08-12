@@ -27,7 +27,8 @@ EXPECTED_0005_TABLES = {
     "restaurant_tables",
     "stripe_events",
 }
-EXPECTED_HEAD_TABLES = EXPECTED_0005_TABLES | {"admin_users"}
+EXPECTED_0006_TABLES = EXPECTED_0005_TABLES | {"admin_users"}
+EXPECTED_HEAD_TABLES = EXPECTED_0005_TABLES | {"users"}
 EXPECTED_COLUMNS = [
     "id",
     "email",
@@ -85,13 +86,13 @@ def _assert_admin_schema(engine: Engine) -> None:
 
 
 def test_admin_migration_has_the_approved_parent() -> None:
-    """Keep 0006 as the single additive child of the StripeEvent migration."""
+    """Keep historical 0006 unchanged below the current unified-user head."""
     from alembic.script import ScriptDirectory
 
     script = ScriptDirectory.from_config(_alembic_config())
     revision = script.get_revision("0006_create_admin_user_model")
     assert revision is not None
-    assert revision.revision == HEAD_REVISION
+    assert revision.revision == "0006_create_admin_user_model"
     assert revision.down_revision == "0005_create_stripe_event_model"
     assert script.get_current_head() == HEAD_REVISION
 
@@ -108,8 +109,8 @@ def test_upgrade_downgrade_and_second_upgrade_preserve_stage_one_through_ten(
         assert "admin_users" not in inspect(test_database_engine).get_table_names()
 
         _upgrade(test_database_url, "0006_create_admin_user_model")
-        assert _current_revision(test_database_url) == HEAD_REVISION
-        assert _public_tables(test_database_url) == EXPECTED_HEAD_TABLES
+        assert _current_revision(test_database_url) == "0006_create_admin_user_model"
+        assert _public_tables(test_database_url) == EXPECTED_0006_TABLES
         _assert_admin_schema(test_database_engine)
         with test_database_engine.connect() as connection:
             assert (
@@ -133,17 +134,22 @@ def test_upgrade_downgrade_and_second_upgrade_preserve_stage_one_through_ten(
     assert _public_tables(test_database_url) == EXPECTED_HEAD_TABLES
 
 
-def test_admin_model_matches_migration_and_alembic_has_no_drift(
+def test_historical_admin_schema_and_current_metadata_have_no_drift(
     test_database_url: URL,
     test_database_engine: Engine,
 ) -> None:
-    """Compare AdminUser metadata with PostgreSQL and run drift detection."""
-    _assert_admin_schema(test_database_engine)
+    """Retain 0006 coverage while current metadata matches the users table."""
+    try:
+        _downgrade(test_database_url, "0006_create_admin_user_model")
+        _assert_admin_schema(test_database_engine)
+    finally:
+        _upgrade(test_database_url, "head")
+
     columns = {
         column["name"]: column
-        for column in inspect(test_database_engine).get_columns("admin_users")
+        for column in inspect(test_database_engine).get_columns("users")
     }
-    model_columns = metadata.tables["admin_users"].columns
+    model_columns = metadata.tables["users"].columns
     assert set(columns) == set(model_columns.keys())
     for column_name, model_column in model_columns.items():
         assert columns[column_name]["nullable"] is model_column.nullable

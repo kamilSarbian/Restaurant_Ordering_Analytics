@@ -5,12 +5,13 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from sqlalchemy import Boolean, DateTime, String, Text, inspect, select
+from sqlalchemy import Boolean, DateTime, Enum, String, Text, inspect, select
 from sqlalchemy.dialects.postgresql import UUID as PostgreSQLUUID
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.auth.models import AdminUser
+from app.auth.models import AdminUser, User
+from app.auth.roles import UserRole
 
 pytestmark = pytest.mark.integration
 
@@ -21,12 +22,14 @@ EXPECTED_COLUMNS = {
     "id",
     "is_active",
     "password_hash",
+    "role",
     "updated_at",
 }
 EXPECTED_CHECKS = {
-    "ck_admin_users_email_normalized",
-    "ck_admin_users_email_not_blank",
-    "ck_admin_users_password_hash_not_blank",
+    "ck_users_email_normalized",
+    "ck_users_email_not_blank",
+    "ck_users_password_hash_not_blank",
+    "ck_users_role_allowed",
 }
 
 
@@ -34,6 +37,7 @@ def _admin(email: str = "admin@example.com", **values: object) -> AdminUser:
     defaults: dict[str, object] = {
         "email": email,
         "password_hash": SYNTHETIC_PASSWORD_HASH,
+        "role": UserRole.SUPER_ADMIN,
     }
     defaults.update(values)
     return AdminUser(**defaults)
@@ -52,16 +56,18 @@ def test_admin_table_has_exact_columns_types_defaults_and_constraints(
 ) -> None:
     """Inspect the exact PostgreSQL contract for administrator identities."""
     inspector = inspect(test_database_engine)
-    assert "admin_users" in inspector.get_table_names(schema="public")
-    columns = {
-        column["name"]: column for column in inspector.get_columns("admin_users")
-    }
+    assert "users" in inspector.get_table_names(schema="public")
+    assert "admin_users" not in inspector.get_table_names(schema="public")
+    columns = {column["name"]: column for column in inspector.get_columns("users")}
     assert set(columns) == EXPECTED_COLUMNS
     assert isinstance(columns["id"]["type"], PostgreSQLUUID)
     assert columns["id"]["default"] is None
     assert isinstance(columns["email"]["type"], String)
     assert columns["email"]["type"].length == 320
     assert isinstance(columns["password_hash"]["type"], Text)
+    assert isinstance(columns["role"]["type"], String)
+    assert columns["role"]["type"].length == 11
+    assert columns["role"]["default"] is None
     assert isinstance(columns["is_active"]["type"], Boolean)
     for column_name in ("created_at", "updated_at"):
         assert isinstance(columns[column_name]["type"], DateTime)
@@ -69,24 +75,23 @@ def test_admin_table_has_exact_columns_types_defaults_and_constraints(
         assert columns[column_name]["default"] is not None
     assert columns["is_active"]["default"] is not None
     assert all(column["nullable"] is False for column in columns.values())
-    assert inspector.get_pk_constraint("admin_users")["name"] == "pk_admin_users"
+    assert inspector.get_pk_constraint("users")["name"] == "pk_users"
     assert {
-        constraint["name"]
-        for constraint in inspector.get_unique_constraints("admin_users")
-    } == {"uq_admin_users_email"}
+        constraint["name"] for constraint in inspector.get_unique_constraints("users")
+    } == {"uq_users_email"}
     assert {
-        constraint["name"]
-        for constraint in inspector.get_check_constraints("admin_users")
+        constraint["name"] for constraint in inspector.get_check_constraints("users")
     } == EXPECTED_CHECKS
 
 
-def test_admin_model_excludes_unapproved_identity_and_credential_fields() -> None:
-    """Keep the persisted administrator model intentionally minimal."""
+def test_admin_alias_uses_the_canonical_user_model() -> None:
+    """Keep one mapped identity while legacy imports remain compatible."""
+    assert AdminUser is User
+    assert User.__tablename__ == "users"
     assert set(AdminUser.__table__.columns.keys()) == EXPECTED_COLUMNS
     assert {
         "password",
         "username",
-        "role",
         "last_login_at",
         "token_version",
         "deleted_at",
@@ -109,6 +114,17 @@ def test_admin_defaults_uuid_activity_and_aware_timestamps(
     assert admin.is_active is True
     assert admin.created_at.tzinfo is not None
     assert admin.updated_at.tzinfo is not None
+    assert admin.role is UserRole.SUPER_ADMIN
+
+
+def test_user_role_mapping_is_non_native_required_and_has_no_default() -> None:
+    """Persist an explicit constrained role without a privileged default."""
+    role_column = User.__table__.c.role
+    assert isinstance(role_column.type, Enum)
+    assert role_column.type.native_enum is False
+    assert role_column.nullable is False
+    assert role_column.default is None
+    assert role_column.server_default is None
 
 
 def test_admin_updated_at_uses_the_approved_orm_onupdate() -> None:

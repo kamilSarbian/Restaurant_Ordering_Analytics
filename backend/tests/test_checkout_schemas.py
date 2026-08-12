@@ -162,81 +162,152 @@ def test_settings_representation_does_not_reveal_stripe_secrets() -> None:
         assert raw_secret not in str(settings)
 
 
-def test_admin_auth_settings_are_optional_with_the_approved_default(
+AUTH_ENVIRONMENT_NAMES = (
+    "AUTH_JWT_SECRET",
+    "AUTH_ACCESS_TOKEN_EXPIRE_MINUTES",
+    "ADMIN_JWT_SECRET",
+    "ADMIN_ACCESS_TOKEN_EXPIRE_MINUTES",
+)
+
+
+def _clear_auth_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    for variable_name in AUTH_ENVIRONMENT_NAMES:
+        monkeypatch.delenv(variable_name, raising=False)
+
+
+def test_auth_settings_are_optional_with_the_approved_default(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Allow startup without a JWT secret and default access tokens to 30 minutes."""
-    monkeypatch.delenv("ADMIN_JWT_SECRET", raising=False)
-    monkeypatch.delenv("ADMIN_ACCESS_TOKEN_EXPIRE_MINUTES", raising=False)
+    _clear_auth_environment(monkeypatch)
     settings = Settings(_env_file=None)
-    assert settings.admin_jwt_secret is None
-    assert settings.admin_access_token_expire_minutes == 30
+    assert settings.auth_jwt_secret is None
+    assert settings.auth_access_token_expire_minutes == 30
 
 
-def test_admin_auth_settings_load_from_the_approved_environment_names(
+def test_auth_settings_load_from_canonical_environment_names(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Load the administrator JWT key and lifetime from their environment names."""
-    raw_secret = "s" * 32
-    monkeypatch.setenv("ADMIN_JWT_SECRET", raw_secret)
-    monkeypatch.setenv("ADMIN_ACCESS_TOKEN_EXPIRE_MINUTES", "45")
+    """Expose canonical effective values from canonical AUTH inputs."""
+    _clear_auth_environment(monkeypatch)
+    raw_secret = "c" * 32
+    monkeypatch.setenv("AUTH_JWT_SECRET", raw_secret)
+    monkeypatch.setenv("AUTH_ACCESS_TOKEN_EXPIRE_MINUTES", "45")
     settings = Settings(_env_file=None)
-    assert isinstance(settings.admin_jwt_secret, SecretStr)
-    assert settings.admin_jwt_secret.get_secret_value() == raw_secret
-    assert settings.admin_access_token_expire_minutes == 45
+    assert isinstance(settings.auth_jwt_secret, SecretStr)
+    assert settings.auth_jwt_secret.get_secret_value() == raw_secret
+    assert settings.auth_access_token_expire_minutes == 45
 
 
-def test_admin_jwt_secret_is_absent_from_settings_representations() -> None:
-    """Keep raw administrator signing key material out of Settings text."""
+def test_auth_settings_load_from_legacy_environment_aliases(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Resolve temporary ADMIN inputs into canonical effective properties."""
+    _clear_auth_environment(monkeypatch)
+    raw_secret = "l" * 32
+    monkeypatch.setenv("ADMIN_JWT_SECRET", raw_secret)
+    monkeypatch.setenv("ADMIN_ACCESS_TOKEN_EXPIRE_MINUTES", "44")
+    settings = Settings(_env_file=None)
+    assert settings.auth_jwt_secret is not None
+    assert settings.auth_jwt_secret.get_secret_value() == raw_secret
+    assert settings.auth_access_token_expire_minutes == 44
+
+
+def test_equal_canonical_and_legacy_auth_inputs_are_allowed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Accept duplicate transition inputs only when both effective values match."""
+    _clear_auth_environment(monkeypatch)
+    raw_secret = "e" * 32
+    monkeypatch.setenv("AUTH_JWT_SECRET", raw_secret)
+    monkeypatch.setenv("ADMIN_JWT_SECRET", raw_secret)
+    monkeypatch.setenv("AUTH_ACCESS_TOKEN_EXPIRE_MINUTES", "43")
+    monkeypatch.setenv("ADMIN_ACCESS_TOKEN_EXPIRE_MINUTES", "43")
+    settings = Settings(_env_file=None)
+    assert settings.auth_jwt_secret is not None
+    assert settings.auth_jwt_secret.get_secret_value() == raw_secret
+    assert settings.auth_access_token_expire_minutes == 43
+
+
+def test_conflicting_auth_secrets_fail_without_revealing_either_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reject unequal key aliases while hiding both synthetic inputs."""
+    _clear_auth_environment(monkeypatch)
+    canonical_secret = "c" * 32
+    legacy_secret = "l" * 32
+    monkeypatch.setenv("AUTH_JWT_SECRET", canonical_secret)
+    monkeypatch.setenv("ADMIN_JWT_SECRET", legacy_secret)
+    with pytest.raises(ValidationError) as captured:
+        Settings(_env_file=None)
+    message = str(captured.value)
+    assert "settings conflict" in message
+    assert canonical_secret not in message
+    assert legacy_secret not in message
+
+
+def test_conflicting_auth_expiry_inputs_fail_safely(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reject unequal canonical and compatibility token lifetimes."""
+    _clear_auth_environment(monkeypatch)
+    monkeypatch.setenv("AUTH_ACCESS_TOKEN_EXPIRE_MINUTES", "30")
+    monkeypatch.setenv("ADMIN_ACCESS_TOKEN_EXPIRE_MINUTES", "31")
+    with pytest.raises(ValidationError, match="lifetime settings conflict"):
+        Settings(_env_file=None)
+
+
+def test_auth_jwt_secret_is_absent_from_settings_representations() -> None:
+    """Keep raw generic signing key material out of Settings text."""
     raw_secret = "representation-safe-synthetic-key"
-    settings = Settings(_env_file=None, admin_jwt_secret=raw_secret)
+    settings = Settings(_env_file=None, auth_jwt_secret=raw_secret)
     assert raw_secret not in repr(settings)
     assert raw_secret not in str(settings)
 
 
 @pytest.mark.parametrize("raw_secret", ["", " " * 32, "s" * 31])
-def test_admin_jwt_secret_rejects_blank_or_short_values(raw_secret: str) -> None:
+def test_auth_jwt_secret_rejects_blank_or_short_values(raw_secret: str) -> None:
     """Reject blank key material and values shorter than 32 UTF-8 bytes."""
     with pytest.raises(ValidationError):
-        Settings(_env_file=None, admin_jwt_secret=raw_secret)
+        Settings(_env_file=None, auth_jwt_secret=raw_secret)
 
 
-def test_admin_jwt_secret_accepts_exactly_thirty_two_bytes_unchanged() -> None:
+def test_auth_jwt_secret_accepts_exactly_thirty_two_bytes_unchanged() -> None:
     """Accept the exact byte boundary without trimming the configured value."""
     raw_secret = " " + "s" * 31
-    settings = Settings(_env_file=None, admin_jwt_secret=raw_secret)
-    assert settings.admin_jwt_secret is not None
-    assert settings.admin_jwt_secret.get_secret_value() == raw_secret
+    settings = Settings(_env_file=None, auth_jwt_secret=raw_secret)
+    assert settings.auth_jwt_secret is not None
+    assert settings.auth_jwt_secret.get_secret_value() == raw_secret
 
 
-def test_admin_jwt_secret_uses_utf8_byte_length() -> None:
+def test_auth_jwt_secret_uses_utf8_byte_length() -> None:
     """Measure multi-byte key material by UTF-8 bytes instead of code points."""
     accepted_secret = "\N{LOCK}" * 8
     rejected_secret = "\N{LOCK}" * 7
-    settings = Settings(_env_file=None, admin_jwt_secret=accepted_secret)
-    assert settings.admin_jwt_secret is not None
-    assert settings.admin_jwt_secret.get_secret_value() == accepted_secret
+    settings = Settings(_env_file=None, auth_jwt_secret=accepted_secret)
+    assert settings.auth_jwt_secret is not None
+    assert settings.auth_jwt_secret.get_secret_value() == accepted_secret
     with pytest.raises(ValidationError):
-        Settings(_env_file=None, admin_jwt_secret=rejected_secret)
+        Settings(_env_file=None, auth_jwt_secret=rejected_secret)
 
 
 @pytest.mark.parametrize("minutes", [1, 60])
-def test_admin_access_token_ttl_accepts_boundaries(minutes: int) -> None:
-    """Accept both approved administrator access-token lifetime boundaries."""
+def test_auth_access_token_ttl_accepts_boundaries(minutes: int) -> None:
+    """Accept both approved generic access-token lifetime boundaries."""
     settings = Settings(
         _env_file=None,
-        admin_access_token_expire_minutes=minutes,
+        auth_access_token_expire_minutes=minutes,
     )
-    assert settings.admin_access_token_expire_minutes == minutes
+    assert settings.auth_access_token_expire_minutes == minutes
 
 
 @pytest.mark.parametrize("minutes", [0, 61])
-def test_admin_access_token_ttl_rejects_out_of_range_values(minutes: int) -> None:
-    """Reject administrator access-token lifetimes outside 1 through 60 minutes."""
+def test_auth_access_token_ttl_rejects_out_of_range_values(minutes: int) -> None:
+    """Reject generic access-token lifetimes outside 1 through 60 minutes."""
     with pytest.raises(ValidationError):
         Settings(
             _env_file=None,
-            admin_access_token_expire_minutes=minutes,
+            auth_access_token_expire_minutes=minutes,
         )
 
 
@@ -247,7 +318,7 @@ def test_app_construction_does_not_require_a_webhook_secret() -> None:
     settings = Settings(_env_file=None)
     application = create_app(settings=settings)
     assert settings.stripe_webhook_secret is None
-    assert settings.admin_jwt_secret is None
+    assert settings.auth_jwt_secret is None
     assert application.title == settings.app_name
 
 

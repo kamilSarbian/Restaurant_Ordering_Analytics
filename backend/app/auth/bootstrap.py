@@ -8,24 +8,27 @@ import sys
 from collections.abc import Callable, Sequence
 
 from pydantic import PostgresDsn, ValidationError
+from sqlalchemy import select, text
 from sqlalchemy.engine import URL, Engine, make_url
 from sqlalchemy.exc import ArgumentError, IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.auth.models import AdminUser
+from app.auth.models import User
 from app.auth.passwords import (
     AdminPasswordPolicyError,
     hash_password,
     validate_bootstrap_password,
 )
+from app.auth.roles import UserRole
 from app.auth.schemas import AdminPrincipal, normalize_admin_email
 from app.core.config import Settings
 from app.database.session import create_database_engine, create_session_factory
 
-ADMIN_EMAIL_UNIQUE_CONSTRAINT = "uq_admin_users_email"
+ADMIN_EMAIL_UNIQUE_CONSTRAINT = "uq_users_email"
 ADMIN_DATABASE_NAME = "postgres"
 TEST_DATABASE_NAME = "restaurant_ordering_analytics_test"
 REQUIRED_DATABASE_DRIVER = "postgresql+psycopg"
+SUPER_ADMIN_BOOTSTRAP_LOCK_KEY = 593_216_404_001
 
 PasswordPrompt = Callable[[str], str]
 
@@ -44,7 +47,7 @@ def create_admin(
     email: str,
     password: str,
 ) -> AdminPrincipal:
-    """Create one active administrator in a short database transaction.
+    """Create the first active super-administrator in a serialized transaction.
 
     Args:
         session: Database session used for the single insert transaction.
@@ -72,9 +75,21 @@ def create_admin(
     password_hash = hash_password(validated_password)
     try:
         with session.begin():
-            admin = AdminUser(
+            session.execute(
+                text("SELECT pg_advisory_xact_lock(:lock_key)"),
+                {"lock_key": SUPER_ADMIN_BOOTSTRAP_LOCK_KEY},
+            )
+            existing_super_admin = session.scalar(
+                select(User.id).where(User.role == UserRole.SUPER_ADMIN).limit(1)
+            )
+            if existing_super_admin is not None:
+                raise AdminBootstrapConflictError(
+                    "Administrator identity already exists"
+                )
+            admin = User(
                 email=normalized_email,
                 password_hash=password_hash,
+                role=UserRole.SUPER_ADMIN,
                 is_active=True,
             )
             session.add(admin)

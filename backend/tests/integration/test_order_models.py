@@ -141,7 +141,6 @@ def test_schema_has_exact_constraints_and_restricted_foreign_keys(
     """Verify the named schema contract produced by migration 0003."""
     inspector = inspect(test_database_engine)
     assert set(inspector.get_table_names(schema="public")) == {
-        "admin_users",
         "alembic_version",
         "categories",
         "menu_items",
@@ -151,6 +150,7 @@ def test_schema_has_exact_constraints_and_restricted_foreign_keys(
         "payments",
         "restaurant_tables",
         "stripe_events",
+        "users",
     }
     for table_name, expected in EXPECTED_CHECKS.items():
         assert {

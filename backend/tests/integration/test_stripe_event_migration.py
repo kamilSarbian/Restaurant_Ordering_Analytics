@@ -27,7 +27,7 @@ EXPECTED_0004_TABLES = {
     "restaurant_tables",
 }
 EXPECTED_0005_TABLES = EXPECTED_0004_TABLES | {"stripe_events"}
-EXPECTED_HEAD_TABLES = EXPECTED_0005_TABLES | {"admin_users"}
+EXPECTED_HEAD_TABLES = EXPECTED_0005_TABLES | {"users"}
 EXPECTED_COLUMNS = [
     "id",
     "stripe_event_id",

@@ -97,3 +97,21 @@ def get_client_bucket_key(request: Request) -> str:
     if request.client is None:
         return UNKNOWN_CLIENT_BUCKET
     return request.client.host
+
+
+def get_auth_login_rate_limiter(request: Request) -> FixedWindowRateLimiter:
+    """Return the one app-scoped limiter shared by both login route aliases.
+
+    Args:
+        request: Current request containing application authentication state.
+
+    Returns:
+        The canonical login limiter used by unified and legacy login routes.
+
+    Raises:
+        RuntimeError: If the application has no configured login limiter.
+    """
+    limiter = getattr(request.app.state, "user_login_rate_limiter", None)
+    if not isinstance(limiter, FixedWindowRateLimiter):
+        raise RuntimeError("Authentication login rate limiter is not configured")
+    return limiter

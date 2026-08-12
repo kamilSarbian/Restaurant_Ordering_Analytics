@@ -1,4 +1,4 @@
-"""Persistent administrator identity model."""
+"""Persistent registered user identity model."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     DateTime,
+    Enum,
     String,
     Text,
     UniqueConstraint,
@@ -18,19 +19,30 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.auth.roles import UserRole
 from app.database.base import Base
 
 
-class AdminUser(Base):
-    """Represent one persisted administrator identity."""
+class User(Base):
+    """Represent one persisted registered user identity."""
 
-    __tablename__ = "admin_users"
+    __tablename__ = "users"
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False
     )
     email: Mapped[str] = mapped_column(String(320), nullable=False)
     password_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    role: Mapped[UserRole] = mapped_column(
+        Enum(
+            UserRole,
+            native_enum=False,
+            create_constraint=False,
+            length=11,
+            values_callable=lambda role_type: [role.value for role in role_type],
+        ),
+        nullable=False,
+    )
     is_active: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default=text("true"), nullable=False
     )
@@ -57,5 +69,16 @@ class AdminUser(Base):
             "btrim(password_hash) <> ''",
             name="password_hash_not_blank",
         ),
-        UniqueConstraint("email", name="uq_admin_users_email"),
+        CheckConstraint(
+            "role IN ('customer', 'admin', 'super_admin')",
+            name="role_allowed",
+        ),
+        UniqueConstraint("email", name="uq_users_email"),
     )
+
+
+# Transitional import compatibility for Stage 16D while legacy administrator
+# authentication modules move to the canonical User naming.
+AdminUser = User
+
+__all__ = ["AdminUser", "User"]

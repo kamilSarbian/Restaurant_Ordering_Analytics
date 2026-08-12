@@ -16,7 +16,6 @@ from tests.integration.conftest import (
 )
 
 EXPECTED_HEAD_TABLES = {
-    "admin_users",
     "alembic_version",
     "categories",
     "menu_items",
@@ -26,6 +25,7 @@ EXPECTED_HEAD_TABLES = {
     "payments",
     "restaurant_tables",
     "stripe_events",
+    "users",
 }
 EXPECTED_0002_TABLES = {
     "alembic_version",

@@ -16,20 +16,21 @@
 - **Stage 13:** completed
 - **Stage 14:** completed
 - **Stage 15:** completed
-- **Current stage:** Stage 16 — Administrator Frontend B1 through B6
-  implemented and acceptance-verified; independent review and commit pending
+- **Current stage:** Stage 16D PRE-COMMIT READY; D1 through D5 and C1 are
+  complete, with independent review and commit pending
 - **Backend:** FastAPI, database foundation, menu models, local seed data,
   public menu, transient quoting, persistent order creation, and secure public
   order status, Payment persistence, Stripe Checkout, and verified Stripe
-  webhook processing, administrator authentication, and administrator order
-  and menu operational APIs, administrator analytics, and administrator CSV
-  reports completed
+  webhook processing, unified User authentication and role authorization,
+  administrator order and menu operational APIs, administrator analytics,
+  administrator CSV reports, and super-admin User governance completed
 - **Frontend:** guest menu through protected fulfilment-status polling completed
   and acceptance-verified; administrator authentication, orders, menu,
   analytics, and exports implemented and acceptance-verified
-- **Database:** PostgreSQL, Alembic, menu, order, Payment, StripeEvent, and
-  AdminUser models, migration `0006_create_admin_user_model`, and deterministic
-  menu seed completed; the development AdminUser count is one
+- **Database:** PostgreSQL, Alembic, menu, order, Payment, StripeEvent, and User
+  models and deterministic menu seed completed; repository head is migration
+  `0007_unify_user_auth_roles`, while the development database deliberately
+  remains at 0006 with one historical administrator row
 - **Seed data:** completed and verified
 - **Public menu API:** list, availability filter, item details, and 404 contract
   completed and verified
@@ -53,15 +54,20 @@
   verified
 - **Provider-authoritative Payment transitions:** completed and verified
 - **Webhook/Checkout Phase 3 race:** completed and verified
-- **AdminUser persistence:** completed and verified
+- **Unified User persistence and constrained roles:** completed and verified;
+  `AdminUser` remains a temporary Python import alias only
 - **Argon2id password hashing:** completed and verified through pwdlib
-- **Administrator JWT:** completed and verified with fixed HS256 contracts
-- **Administrator login and `/auth/me`:** completed and verified
-- **Reusable AdminBearer dependency:** completed and verified
-- **Administrator login limiter:** completed and verified at 5 attempts per 60
-  seconds for each direct peer
-- **Administrator bootstrap CLI:** completed and verified; no development
-  administrator was created by migration or automated tests
+- **Unified authentication:** canonical register/login/me, strict HS256 token
+  families, legacy administrator aliases, and database-authoritative active and
+  role checks completed and verified
+- **Role authorization:** reusable current-user, admin, and super-admin
+  dependencies plus super-admin-only User list and ordinary role transition API
+  completed and verified
+- **Authentication limiters:** shared canonical/administrator login limiter and
+  separate registration limiter completed and verified
+- **Super-admin bootstrap CLI:** explicit interactive Argon2id bootstrap with a
+  PostgreSQL advisory lock completed and verified; no development identity was
+  created by migration or automated tests
 - **Administrator order API:** list, filters, pagination, detail, safe Payment
   summaries, and immutable snapshots completed and verified
 - **Administrator order transitions:** exact fulfilment graph, payment-aware
@@ -78,7 +84,7 @@
   payments; deterministic UTF-8-SIG, BOM, CSV dialect, filename, query,
   time-source, formula-safety, and exposure contracts completed and verified;
   one report SELECT per route and no migration required
-- **Application tests:** 1379 backend health, database, migration, model,
+- **Application tests:** 1522 backend health, database, migration, model,
   constraint, seed, schema, public API, quoting, order creation, payment,
   security, rate-limit, rollback, and concurrency tests plus 485 frontend tests
   completed before the Stage 16C documentation gate
@@ -86,10 +92,18 @@
   status mutations, B4 menu, B5 analytics, B6A Blob transport, and B6 exports
   are implemented in the current uncommitted scope; automated acceptance and
   user-performed manual responsive QA are complete
-- **Unified accounts direction:** D-061 and D-062 accepted and documented;
-  unified User persistence, public registration, customer accounts, role APIs,
-  order ownership, landing-page migration, and shared frontend auth are planned
-  and not implemented
+- **Stage 16D backend:** D1 through D5 implement unified User persistence,
+  migration 0007, public registration/login/me, compatibility auth aliases,
+  database-backed RBAC, secure super-admin bootstrap, role management, and
+  canonical AUTH configuration
+- **Stage 16D-1:** complete
+- **Stage 16D-2:** complete
+- **Stage 16D-3:** complete
+- **Stage 16D-4:** complete
+- **Stage 16D-5:** complete
+- **Remaining account direction:** order ownership, customer own-order APIs,
+  landing-page migration, shared frontend auth, and `/admin/users` UI remain
+  planned for Stages 16E and 16F
 - **Deployment:** not started
 
 ## Known limitations
@@ -98,11 +112,13 @@
   ordering and payment flows, secure public status, authenticated administrator
   order and menu operations, administrator analytics, and three protected CSV
   exports. The guest customer frontend is completed and verified.
-- Administrator authentication has no refresh, logout, revocation, password
+- Unified authentication has no refresh, logout, revocation, password
   reset/change, or MFA. Its limiter is per process and resets on restart.
-- Migration `0006` creates no administrator. Manual setup requires an operator
-  to configure a local JWT secret and run the interactive bootstrap command;
-  neither action is part of tests.
+- Repository migration 0007 is implemented and verified, but the development
+  database deliberately remains at 0006. Before local unified-auth runtime use,
+  an operator must configure a local AUTH secret and perform the development
+  upgrade to 0007 in a separately approved migration step. Bootstrap may then
+  be required if no super-admin exists; none of these actions is part of C1.
 - RestaurantTable provisioning and administration have not started, so Stage 8
   only provides the persistence and validation foundation.
 - Order creation has no idempotency key; a network retry can create a duplicate
@@ -123,15 +139,32 @@
   injected adapters or synthetic local signatures and perform no Stripe calls.
 - The seed is restricted to the exact local development database and is not a
   production bootstrap process.
-- Customer accounts, unified User persistence, role management, and order
-  ownership are not implemented. The administrator frontend B1 through B6 is
-  implemented and acceptance-verified; independent review remains pending.
+- Unified User persistence, customer registration/authentication, and role
+  management are implemented. Order ownership, own-order history, unified
+  account frontend, and `/admin/users` UI are not implemented. The
+  administrator frontend B1 through B6 is acceptance-verified.
   Full-system containerisation, continuous integration, and deployment have not
   started.
 
 ## Last verification
 
-Stage 16C-1 documentation and automated acceptance audit on 2026-08-12:
+Stage 16D-C1 documentation and pre-commit validation on 2026-08-12:
+
+- Stage 16D slices D1 through D5: implemented in 38 physical paths and 55
+  cumulative slice-counted paths before C1
+- C1 documentation scope: exactly six source-of-truth files; Stage 16D physical
+  scope becomes 44 paths and cumulative slice count becomes 61
+- Unified User migration, public register/login/me, administrator compatibility,
+  database-authoritative admin/super-admin RBAC, secure bootstrap, User list and
+  role mutation, and AUTH configuration transition: implemented
+- Backend full suite: 1522 passed; Ruff, Black, isort, Alembic head, migration
+  round-trip, database safety, repository scope, and security checks: PASS
+- Repository and Alembic head: `0007_unify_user_auth_roles`; development DB:
+  deliberately remains at `0006_create_admin_user_model`
+- Stage 16E, 16F, and 16G have not started; Stage 17 has not started
+
+Historical Stage 16C-1 documentation and automated acceptance audit on
+2026-08-12:
 
 - Stage 16B-1 through B6 administrator frontend implementation: complete
 - Dedicated admin auth/session, order reads and explicit mutations, menu
@@ -141,16 +174,14 @@ Stage 16C-1 documentation and automated acceptance audit on 2026-08-12:
 - User-performed manual administrator responsive QA at 375x812, 768x1024, and
   1280x800, covering login, AdminShell/navigation, orders, order detail/actions,
   menu, analytics, exports, and keyboard/focus behavior: PASS
-- Accepted target records anonymous guest ordering, unified User roles
+- At the Stage 16C boundary, the accepted target recorded anonymous guest ordering, unified User roles
   `customer`/`admin`/`super_admin`, database-authoritative role checks, secure
   super-admin bootstrap, nullable Order ownership, own-order history, landing
   and unified-auth routes, and isolated frontend transports: documented only
-- Current runtime remains the separate AdminUser backend plus anonymous guest
-  ordering; no User model, registration, ownership migration, account route, or
-  role-management route is implemented
-- Current Stage 16 cumulative scope: exactly 50 unique paths, including the six
-  existing documentation paths
-- Stage 16D, 16E, 16F, and 16G have not started; Stage 17 has not started
+- At that historical boundary, runtime remained the separate AdminUser backend
+  plus anonymous guest ordering; Stage 16D had not started
+- Stage 16C cumulative scope was exactly 50 unique paths, including six
+  documentation paths
 
 Stage 15 completed and verified on 2026-08-12:
 

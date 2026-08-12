@@ -17,8 +17,8 @@ application, not an enterprise-class system.
 The goal is to build a secure web application that:
 
 - allows an anonymous guest to place a dine-in or takeaway order;
-- plans an optional registered customer account without making registration a
-  purchase requirement;
+- provides optional registered customer authentication without making
+  registration a purchase requirement, while own-order history remains planned;
 - always prices the order on the backend;
 - supports test payments through Stripe Checkout;
 - allows staff to manage the menu and order fulfilment;
@@ -55,21 +55,27 @@ administrator can:
 6. view the analytics dashboard;
 7. export CSV reports.
 
-### 3.3. Planned Registered Identities
+### 3.3. Registered Identities
 
-The accepted future identity direction introduces one unified `User` for every
-registered account. A registered normal account is a `customer`, never a
-guest. The three mutually exclusive roles will be `customer`, `admin`, and
-`super_admin`. Public registration will always create `customer` and cannot
-select or create a privileged role. A `super_admin` may manage promotion and
-demotion between `customer` and `admin`; an ordinary `admin` cannot grant
-`super_admin`.
+Stage 16D implements one unified `User` for every registered identity. A normal
+registered account is a `customer`, never a guest. The three mutually exclusive
+roles are `customer`, `admin`, and `super_admin`. Public registration always
+creates `customer` and cannot select or create a privileged role. A
+`super_admin` may manage promotion and demotion between `customer` and `admin`;
+an ordinary `admin` cannot use the role-management API, and the ordinary API
+cannot assign or modify `super_admin`.
 
-The current separate AdminUser authentication remains implemented until the
-approved migration work. That migration is planned to preserve the existing
-administrator as the initial `super_admin`. None of the unified User model,
-public registration, customer account, role management, or ownership behavior
-is implemented by this architecture addendum.
+An anonymous `guest` remains neither a User nor a role, and guest ordering is
+unchanged. `AdminUser` remains only as a temporary Python import alias for the
+same mapped User during compatibility work. Order ownership, customer order
+history, and the unified account frontend remain planned for Stages 16E and
+16F.
+
+Migration `0007_unify_user_auth_roles` implements the rename from `admin_users`
+to `users`, the constrained role, safe zero/one-row upgrade, atomic multi-row
+failure, and guarded downgrade. Repository head is 0007. The development
+database deliberately remains at 0006 until a separately approved migration
+operation; Stage 16D-C1 does not mutate it.
 
 ## 4. Main Flows
 
@@ -155,7 +161,7 @@ is implemented by this architecture addendum.
 13. Automated Checkout and webhook tests use fake adapters or local signatures,
     make no real provider request, and require no real Stripe secret.
 
-### 4.4. Administrator Authentication
+### 4.4. Historical Stage 11 Administrator Authentication
 
 1. Administrators use a separate persisted `AdminUser` identity; customers do
    not receive accounts and there is no general User model or public
@@ -177,6 +183,37 @@ is implemented by this architecture addendum.
 6. Public customer routes remain public, and the provider-facing Stripe webhook
    remains hidden from OpenAPI. Stage 12 reuses the existing `require_admin`
    dependency for every operational order and menu endpoint.
+
+### 4.4A. Current Unified Authentication and Role Authorization
+
+1. `POST /api/v1/auth/register` creates only an active `customer`; role,
+   activation, and unknown fields are rejected. `POST /api/v1/auth/login`
+   authenticates any active role, and `GET /api/v1/auth/me` returns the current
+   id, email, role, and active state.
+2. Production login routes issue only strict `user_access` JWTs. The temporary
+   strict `admin_access` family remains validation-only compatibility; the two
+   families retain distinct audiences and neither contains role authority.
+3. `get_current_user` accepts canonical tokens for any active User.
+   `require_admin` accepts either strict family and permits current `admin` or
+   `super_admin`; `require_super_admin` permits only current `super_admin`.
+   Missing or inactive identities return 401, while an authenticated
+   insufficient role returns 403.
+4. The existing administrator frontend continues to use
+   `/api/v1/admin/auth/login` and `/api/v1/admin/auth/me`. The login alias uses
+   unified credentials, rejects customers with a generic 401, and issues
+   `user_access`. Both login aliases share one limiter; registration uses a
+   separate limiter.
+5. `GET /api/v1/admin/users` and
+   `PATCH /api/v1/admin/users/{user_id}/role` are super-admin-only. The PATCH
+   endpoint uses a row lock and permits only `customer <-> admin`; it cannot
+   assign or modify `super_admin`.
+6. The first `super_admin` is created through the interactive bootstrap. It
+   uses `getpass`, Argon2id, and a transaction advisory lock; any active or
+   inactive existing super-admin blocks another, while customer/admin rows do
+   not block the first.
+7. Canonical configuration uses `AUTH_JWT_SECRET` and
+   `AUTH_ACCESS_TOKEN_EXPIRE_MINUTES`. Temporary `ADMIN_*` inputs remain
+   compatible; conflicting dual values fail safely.
 
 ### 4.5. Administrator Operations and Order Fulfilment
 
@@ -310,13 +347,13 @@ or implement finer RBAC beyond the current single administrator privilege.
 Automated acceptance and user-performed manual responsive acceptance at the
 required mobile, tablet, and desktop viewports are complete and verified.
 
-### 4.8. Planned Landing, Accounts, and Order Ownership
+### 4.8. Unified Authentication and Planned Landing and Order Ownership
 
-After administrator-frontend acceptance, the planned landing route
-will offer Order as guest, Log in, and Create account. Order as guest will lead
-directly to the public menu and preserve the complete current no-login flow.
-Unified account routes are planned at `POST /api/v1/auth/register`,
-`POST /api/v1/auth/login`, and `GET /api/v1/auth/me`.
+The backend implements `POST /api/v1/auth/register`,
+`POST /api/v1/auth/login`, and `GET /api/v1/auth/me`. The planned Stage 16F
+landing route will offer Order as guest, Log in, and Create account. Order as
+guest will lead directly to the public menu and preserve the complete current
+no-login flow.
 
 A future nullable `Order.customer_user_id` will link a newly created Order to
 the current registered User when valid optional Bearer authentication is
@@ -328,6 +365,9 @@ The planned account API and UI will list and display only Orders selected
 server-side for the current User. Historical anonymous Orders will not be
 claimed retroactively.
 
+Stage 16G integrated finalization and Stage 17 full-system Docker remain not
+started and require their own approvals.
+
 ## 5. MVP Scope
 
 The MVP includes:
@@ -336,7 +376,7 @@ The MVP includes:
 - a frontend cart;
 - backend order quoting;
 - guest dine-in and takeaway orders;
-- planned registered customer accounts with own-order history;
+- registered customer authentication, with own-order history still planned;
 - table handling;
 - Stripe Checkout in test mode;
 - verified and idempotent Stripe webhooks;
@@ -462,18 +502,22 @@ discounts. Dine-in orders additionally preserve `table_number_snapshot`.
 
 ### 7.5. Security and Privacy
 
-- Administrators use a separate persisted identity with normalized lowercase
-  email and pwdlib Argon2id password hashing; there is no customer account,
-  general User authentication, or public administrator registration.
-- Administrator bootstrap is explicit and interactive. Alembic, application
-  startup, Docker Compose, and the menu seed create zero administrators.
+- Registered identities use one User record with normalized lowercase email,
+  pwdlib Argon2id password hashing, active state, and one constrained role.
+  Public registration creates only `customer`; it cannot create a privileged
+  User, and there is no public administrator registration.
+- First-super-admin bootstrap is explicit, interactive, and protected by a
+  PostgreSQL transaction advisory lock. Alembic, application startup, Docker
+  Compose, and the menu seed create zero privileged identities.
 - Login uses real or process-local dummy Argon2 verification with uniform
   credential failures to resist identity enumeration.
-- Administrator JWT Bearer access is verified by the backend, and every
-  protected request performs a current active-identity lookup in PostgreSQL.
-- The app-scoped administrator login limiter permits five attempts per 60
-  seconds for each direct peer and ignores forwarded identity headers until a
-  trusted-proxy policy exists.
+- JWT Bearer access is verified by the backend, and every protected request
+  performs a current active-identity lookup in PostgreSQL. Role changes and
+  deactivation therefore take effect immediately for existing tokens.
+- Canonical and administrator-alias login share an app-scoped limiter of five
+  attempts per 60 seconds for each direct peer; registration has a separate
+  limiter. Forwarded identity headers remain ignored until a trusted-proxy
+  policy exists.
 - Secrets exist only in environment variables.
 - Local Stage 15 development uses the same-origin Vite `/api` proxy. A
   restricted production CORS policy is deferred to deployment and is not
@@ -505,6 +549,9 @@ passed automated validation and manual responsive acceptance at the required
 mobile, tablet, and desktop viewports. Stage 16 administrator authentication,
 orders, menu, analytics, and exports are implemented and pass automated
 validation and user-performed manual administrator responsive acceptance.
+Stage 16D also implements the unified User/authentication/RBAC backend and
+super-admin role-management API. Ownership and the unified account frontend
+remain planned for Stages 16E and 16F.
 
 The project should demonstrate to a recruiter that its author can:
 

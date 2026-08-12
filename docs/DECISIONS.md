@@ -1014,9 +1014,9 @@ while preserving these financial concurrency rules.
 ## D-061 — Unified User Identity and Role Model
 
 - **Status:** accepted on 2026-08-12
-- **Decision:** every registered identity will use one minimal `User` with a
+- **Decision:** every registered identity uses one minimal `User` with a
   normalized unique email, Argon2id password hash, active flag, timestamps, and
-  exactly one role: `customer`, `admin`, or `super_admin`. The role will use a
+  exactly one role: `customer`, `admin`, or `super_admin`. The role uses a
   Python `StrEnum`, a `VARCHAR` column, and a database `CHECK`; no Role table or
   multi-role RBAC layer is justified. An anonymous `guest` is neither a User
   nor a role.
@@ -1026,7 +1026,7 @@ while preserving these financial concurrency rules.
   request. Client state and any informational token claim cannot grant access.
   `require_admin` accepts `admin` and `super_admin`; `require_super_admin`
   protects role changes.
-- **Migration and highest trust:** the planned migration evolves `admin_users`
+- **Migration and highest trust:** migration 0007 evolves `admin_users`
   into `users` while preserving identity and password data and maps the
   documented single existing administrator to the initial `super_admin`. Zero
   rows remain valid for later secure bootstrap; an unexpected multi-admin
@@ -1034,19 +1034,19 @@ while preserving these financial concurrency rules.
   cannot grant `super_admin`, the normal role workflow allows only
   `customer <-> admin`, and backend invariants preserve at least one active
   `super_admin` whenever one exists.
-- **Consequences:** current AdminUser authentication remains implemented until
-  the planned migration. Existing `/api/v1/admin/...` operational contracts are
-  retained, and role enforcement moves to database-backed unified User
-  dependencies without adding multi-role, OAuth, MFA, or profile fields.
+- **Consequences:** Stage 16D implements the migration and database-backed
+  unified User dependencies while retaining existing `/api/v1/admin/...`
+  operational contracts. `AdminUser` is a temporary Python import alias only;
+  no multi-role, OAuth, MFA, or profile fields are added.
 
 ## D-062 — Guest Ordering, Account Ownership, and Landing/Auth Direction
 
 - **Status:** accepted on 2026-08-12
 - **Decision:** anonymous guest ordering remains fully available without login
-  or registration. The planned `/` landing page offers Order as guest, Log in,
-  and Create account; the public menu moves to `/menu`. Registered identities
-  use unified `POST /api/v1/auth/register`, `POST /api/v1/auth/login`, and
-  `GET /api/v1/auth/me` routes.
+  or registration. Registered identities now use unified
+  `POST /api/v1/auth/register`, `POST /api/v1/auth/login`, and
+  `GET /api/v1/auth/me` routes. The planned Stage 16F `/` landing page offers
+  Order as guest, Log in, and Create account; the public menu moves to `/menu`.
 - **Ownership:** a planned nullable indexed `Order.customer_user_id` references
   `User.id` with `ON DELETE SET NULL`. Anonymous creation stores NULL; creation
   with a valid current User stores that User ID. Missing Authorization means
@@ -1058,10 +1058,9 @@ while preserving these financial concurrency rules.
   own-order list and detail expose no other user's Order. Historical anonymous
   Orders cannot be claimed retroactively.
 - **Consequences:** account ownership supplements rather than replaces the
-  current guest credential. The landing page, unified authentication, nullable
-  ownership, and own-order history are planned after the remaining Stage 16
-  administrator screens and before Stage 17; this decision does not implement
-  them.
+  current guest credential. Unified backend authentication is implemented;
+  nullable ownership, own-order history, and the landing/account frontend
+  remain planned before Stage 17.
 
 ## D-063 — Administrator Frontend Session and Operational Interaction Model
 
@@ -1081,8 +1080,9 @@ while preserving these financial concurrency rules.
 - **Consequences:** Stage 16 adds no administrator automatic polling, frontend
   authority over fulfilment, fabricated history or Payment data, refund flow,
   or finer RBAC. Frontend logout clears the current session because the backend
-  has no logout endpoint. The planned unified User work will replace this
-  temporary AdminUser-specific session model.
+  has no logout endpoint. Stage 16D makes the legacy login alias issue unified
+  `user_access`; Stage 16F will replace the temporary administrator-specific
+  browser session model.
 
 ## D-064 — Administrator Analytics Time Boundary and CSV Download Model
 
@@ -1101,6 +1101,55 @@ while preserving these financial concurrency rules.
   backend CSV Blob remains unparsed and unmodified. A conservative quoted ASCII
   `.csv` filename allowlist falls back by report type, and one temporary object
   URL is always revoked after the download click. No Blob is persisted.
+
+## D-065 — Unified User Authentication and Database-Authoritative Role Authorization
+
+- **Status:** accepted on 2026-08-12
+- **Decision:** canonical `register`, `login`, and `me` contracts use one User
+  identity evolved from AdminUser, with exactly one of `customer`, `admin`, or
+  `super_admin`. An anonymous guest is neither a User nor a role. Public
+  registration always creates `customer`. Canonical
+  `user_access` and temporary legacy `admin_access` tokens have strict types and
+  distinct audiences; production login routes issue only `user_access`.
+- **Authorization:** tokens identify a User but contain no role authority.
+  Every protected request reloads current `role` and `is_active` from
+  PostgreSQL. `get_current_user` accepts an active canonical User,
+  `require_admin` permits current `admin` or `super_admin`, and
+  `require_super_admin` permits only current `super_admin`. Missing, invalid,
+  inactive, or deleted identities return 401; an authenticated insufficient
+  role returns 403.
+- **Compatibility:** the existing administrator login and me routes remain
+  aliases for frontend continuity. Login rejects customers with a generic 401
+  and issues `user_access`; strict legacy `admin_access` is validation-only.
+  Both login aliases share one limiter, while registration has a separate
+  limiter.
+- **Consequences:** role changes and deactivation affect existing tokens
+  immediately. No refresh token, logout, revocation list, OAuth, MFA, password
+  reset, token role claim, or parallel identity table is introduced.
+
+## D-066 — Super-Admin Role Governance, Bootstrap, and Auth Configuration Transition
+
+- **Status:** accepted on 2026-08-12
+- **Role governance:** super-admin-only User listing exposes safe fields and
+  deterministic pagination. Role mutation locks the target row and permits only
+  `customer <-> admin`; it cannot assign, demote, or otherwise modify a
+  `super_admin`, mutate active state, or delete a User.
+- **Bootstrap:** the explicit interactive command reads the password with
+  `getpass`, applies the existing Argon2id policy, and takes a deterministic
+  PostgreSQL transaction advisory lock. Any active or inactive super-admin
+  blocks another; customer and admin rows do not. Concurrent first-bootstrap
+  attempts create exactly one super-admin.
+- **Configuration:** `AUTH_JWT_SECRET` and
+  `AUTH_ACCESS_TOKEN_EXPIRE_MINUTES` are canonical. Temporary `ADMIN_*` input
+  aliases support existing environments. Canonical-only, legacy-only, and equal
+  dual values are accepted; conflicting dual values fail safely without
+  exposing secrets.
+- **Migration:** 0007 renames `admin_users` to `users`, preserves zero or one
+  historical identity, maps exactly one to `super_admin`, and fails atomically
+  for more than one. The role is constrained, non-null, and has no server
+  default. Downgrade is guarded against customer-data loss. Repository head is
+  0007; the development database remains deliberately at 0006 until a separate
+  approved migration operation.
 
 ## History of Decisions That Required Resolution
 
