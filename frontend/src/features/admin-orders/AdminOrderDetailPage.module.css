@@ -1,0 +1,309 @@
+.page {
+    display: grid;
+    gap: var(--space-6);
+}
+
+.pageHeader {
+    display: grid;
+    gap: var(--space-4);
+}
+
+.pageHeader > div {
+    display: grid;
+    gap: var(--space-2);
+}
+
+.pageHeader h1 {
+    overflow-wrap: anywhere;
+    font-size: clamp(2rem, 7vw, 3.5rem);
+}
+
+.backLink {
+    justify-self: start;
+    font-weight: 750;
+}
+
+.secondaryButton {
+    min-height: 2.75rem;
+    width: 100%;
+    padding: var(--space-2) var(--space-4);
+    border: 1px solid var(--color-primary);
+    border-radius: var(--radius-small);
+    background: var(--color-surface);
+    color: var(--color-primary-hover);
+    cursor: pointer;
+    font-weight: 750;
+}
+
+.secondaryButton:hover:not(:disabled) {
+    background: rgb(36 97 70 / 9%);
+}
+
+.secondaryButton:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+
+.panel,
+.actionPanel,
+.statePanel {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-4);
+    padding: clamp(var(--space-5), 5vw, var(--space-8));
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-medium);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-small);
+}
+
+.panel > p,
+.actionPanel > p,
+.statePanel p {
+    color: var(--color-muted);
+}
+
+.actionButtons,
+.confirmationActions {
+    display: grid;
+    gap: var(--space-3);
+}
+
+.primaryButton,
+.destructiveButton {
+    min-height: 2.75rem;
+    width: 100%;
+    padding: var(--space-2) var(--space-4);
+    border: 1px solid var(--color-primary);
+    border-radius: var(--radius-small);
+    background: var(--color-primary);
+    color: var(--color-surface);
+    cursor: pointer;
+    font-weight: 800;
+}
+
+.primaryButton:hover:not(:disabled) {
+    background: var(--color-primary-hover);
+}
+
+.destructiveButton {
+    border-color: var(--color-accent);
+    background: var(--color-accent);
+}
+
+.destructiveButton:hover:not(:disabled) {
+    background: var(--color-accent-strong);
+}
+
+.primaryButton:disabled,
+.destructiveButton:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+
+.confirmationPanel {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-4);
+    padding: var(--space-4);
+    border: 2px solid var(--color-accent);
+    border-radius: var(--radius-small);
+    background: var(--color-background);
+}
+
+.confirmationPanel h3,
+.confirmationPanel p,
+.mutationNotice,
+.refreshGate,
+.updatingStatus,
+.refreshingStatus {
+    overflow-wrap: anywhere;
+}
+
+.mutationNotice,
+.refreshGate,
+.updatingStatus,
+.refreshingStatus {
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-small);
+}
+
+.mutationNotice,
+.refreshGate {
+    border: 1px solid var(--color-border);
+    background: var(--color-background);
+}
+
+.success {
+    border-color: var(--color-primary);
+    color: var(--color-primary-hover);
+}
+
+.warning,
+.error {
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+}
+
+.updatingStatus,
+.refreshingStatus {
+    background: rgb(36 97 70 / 9%);
+    color: var(--color-primary-hover);
+    font-weight: 750;
+}
+
+.detailContent {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-6);
+}
+
+.detailContentStale {
+    padding: var(--space-2);
+    outline: 2px dashed var(--color-accent);
+    outline-offset: var(--space-1);
+    border-radius: var(--radius-medium);
+}
+
+.summaryGrid,
+.itemDetails,
+.paymentDetails {
+    display: grid;
+    gap: var(--space-4);
+}
+
+.summaryGrid > div,
+.itemDetails > div,
+.paymentDetails > div {
+    display: grid;
+    gap: var(--space-1);
+}
+
+.summaryGrid dt,
+.itemDetails dt,
+.paymentDetails dt,
+.totals dt {
+    color: var(--color-muted);
+    font-size: 0.9rem;
+    font-weight: 750;
+}
+
+.summaryGrid dd,
+.itemDetails dd,
+.paymentDetails dd {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.status {
+    display: inline-flex;
+    padding: var(--space-1) var(--space-2);
+    border: 1px solid var(--color-border);
+    border-radius: 999px;
+    background: var(--color-background);
+    font-size: 0.9rem;
+    font-weight: 800;
+}
+
+.status[data-status='accepted'],
+.status[data-status='ready'],
+.status[data-status='completed'] {
+    border-color: var(--color-primary);
+    color: var(--color-primary-hover);
+}
+
+.status[data-status='cancelled'] {
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+}
+
+.itemList,
+.paymentList,
+.timeline {
+    display: grid;
+    gap: var(--space-4);
+    padding: 0;
+    list-style: none;
+}
+
+.itemCard,
+.paymentList > li,
+.timeline > li {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-4);
+    padding: var(--space-4);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-small);
+    background: var(--color-background);
+}
+
+.itemCategory {
+    color: var(--color-muted);
+    font-size: 0.9rem;
+}
+
+.totals {
+    display: grid;
+    gap: var(--space-3);
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--color-border);
+}
+
+.totals > div {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-4);
+}
+
+.totals > div:last-child {
+    color: var(--color-primary-hover);
+    font-size: 1.15rem;
+    font-weight: 850;
+}
+
+.timeline > li {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.timeline time {
+    color: var(--color-muted);
+}
+
+@media (min-width: 48rem) {
+    .secondaryButton,
+    .primaryButton,
+    .destructiveButton {
+        width: auto;
+    }
+
+    .actionButtons,
+    .confirmationActions {
+        display: flex;
+        flex-wrap: wrap;
+    }
+
+    .pageHeader {
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: end;
+    }
+
+    .summaryGrid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .itemCard {
+        grid-template-columns: minmax(0, 1fr) minmax(20rem, 1fr);
+        align-items: start;
+    }
+
+    .itemDetails,
+    .paymentDetails {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .timeline > li {
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+    }
+}

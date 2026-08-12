@@ -1011,6 +1011,97 @@ while preserving these financial concurrency rules.
   Payment transitions. Responsive manual acceptance at the approved mobile,
   tablet, and desktop viewports remains a completion gate for Stage 15.
 
+## D-061 — Unified User Identity and Role Model
+
+- **Status:** accepted on 2026-08-12
+- **Decision:** every registered identity will use one minimal `User` with a
+  normalized unique email, Argon2id password hash, active flag, timestamps, and
+  exactly one role: `customer`, `admin`, or `super_admin`. The role will use a
+  Python `StrEnum`, a `VARCHAR` column, and a database `CHECK`; no Role table or
+  multi-role RBAC layer is justified. An anonymous `guest` is neither a User
+  nor a role.
+- **Registration and authority:** public registration always creates
+  `customer` and rejects any role field. JWT identifies the User, while the
+  current database role and active state are authoritative on every protected
+  request. Client state and any informational token claim cannot grant access.
+  `require_admin` accepts `admin` and `super_admin`; `require_super_admin`
+  protects role changes.
+- **Migration and highest trust:** the planned migration evolves `admin_users`
+  into `users` while preserving identity and password data and maps the
+  documented single existing administrator to the initial `super_admin`. Zero
+  rows remain valid for later secure bootstrap; an unexpected multi-admin
+  migration state fails safely. Public registration and ordinary administrators
+  cannot grant `super_admin`, the normal role workflow allows only
+  `customer <-> admin`, and backend invariants preserve at least one active
+  `super_admin` whenever one exists.
+- **Consequences:** current AdminUser authentication remains implemented until
+  the planned migration. Existing `/api/v1/admin/...` operational contracts are
+  retained, and role enforcement moves to database-backed unified User
+  dependencies without adding multi-role, OAuth, MFA, or profile fields.
+
+## D-062 — Guest Ordering, Account Ownership, and Landing/Auth Direction
+
+- **Status:** accepted on 2026-08-12
+- **Decision:** anonymous guest ordering remains fully available without login
+  or registration. The planned `/` landing page offers Order as guest, Log in,
+  and Create account; the public menu moves to `/menu`. Registered identities
+  use unified `POST /api/v1/auth/register`, `POST /api/v1/auth/login`, and
+  `GET /api/v1/auth/me` routes.
+- **Ownership:** a planned nullable indexed `Order.customer_user_id` references
+  `User.id` with `ON DELETE SET NULL`. Anonymous creation stores NULL; creation
+  with a valid current User stores that User ID. Missing Authorization means
+  guest creation, but an invalid supplied Authorization value returns 401 and
+  never silently downgrades to guest.
+- **Access and privacy:** every Order continues to receive its independent
+  order-access token for Checkout and public status. The owner ID is not public,
+  customer account queries filter by the current User on the server, and the
+  own-order list and detail expose no other user's Order. Historical anonymous
+  Orders cannot be claimed retroactively.
+- **Consequences:** account ownership supplements rather than replaces the
+  current guest credential. The landing page, unified authentication, nullable
+  ownership, and own-order history are planned after the remaining Stage 16
+  administrator screens and before Stage 17; this decision does not implement
+  them.
+
+## D-063 — Administrator Frontend Session and Operational Interaction Model
+
+- **Status:** accepted on 2026-08-12
+- **Decision:** the current administrator client uses a dedicated AdminShell and
+  protected `/admin/...` route tree. Its opaque access token is held in memory
+  and in the versioned current-tab `restaurant-ordering:admin-auth:v1`
+  `sessionStorage` record, and protected rendering requires a successful
+  `/api/v1/admin/auth/me` validation. The shared transport may attach Bearer
+  only to canonical administrator API paths; there is no global interceptor.
+- **Operational interaction:** orders use list/detail reads and explicit status
+  actions derived from the current backend state. Each mutation requires inline
+  confirmation, sends one PATCH, performs no optimistic update, and refetches
+  authoritative detail. An ambiguous result or failed post-mutation refetch
+  blocks another action until Refresh. Menu administration similarly uses only
+  GET, POST, and changed-only PATCH, never DELETE or optimistic mutation.
+- **Consequences:** Stage 16 adds no administrator automatic polling, frontend
+  authority over fulfilment, fabricated history or Payment data, refund flow,
+  or finer RBAC. Frontend logout clears the current session because the backend
+  has no logout endpoint. The planned unified User work will replace this
+  temporary AdminUser-specific session model.
+
+## D-064 — Administrator Analytics Time Boundary and CSV Download Model
+
+- **Status:** accepted on 2026-08-12
+- **Decision:** administrator reporting uses date-only Europe/Oslo controls that
+  convert to explicit aware ISO instants and a half-open `[start, end)` backend
+  range. The inclusive UI end date becomes the next Oslo midnight. The default
+  covers the last seven Oslo calendar days including today, and the helper is
+  DST-tested without depending on the host local time zone.
+- **Analytics interaction:** four requests run in parallel under one generation
+  with abort and stale-response protection. Sections can fail independently,
+  there is no polling or automatic retry, and currencies remain separate with
+  no FX. Stage 16 makes no time-series, cost, margin, or profit claim.
+- **CSV interaction:** authenticated exports use the administrator Blob
+  transport that shares the JSON transport's path and Bearer boundary. The
+  backend CSV Blob remains unparsed and unmodified. A conservative quoted ASCII
+  `.csv` filename allowlist falls back by report type, and one temporary object
+  URL is always revoked after the download click. No Blob is persisted.
+
 ## History of Decisions That Required Resolution
 
 ### O-002: Boundary Between Order Creation and Stripe Checkout Session

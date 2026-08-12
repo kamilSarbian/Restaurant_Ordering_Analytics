@@ -298,6 +298,7 @@
 
 ## 16. Administrator Frontend
 
+- **Status:** in progress.
 - **Goal:** provide staff with a simple operational panel and dashboard.
 - **Outcome:** sign-in, protected routes, order list and detail, status changes,
   menu management, charts, and CSV downloads.
@@ -306,6 +307,90 @@
   errors are clear, and key actions require deliberate confirmation.
 - **Test:** routing and view tests, session expiration, API errors, a build, and
   manual mobile and desktop verification.
+
+### 16B-1 — Admin Authentication and Protected Shell
+
+- **Status:** implemented on 2026-08-12.
+- **Outcome:** dedicated administrator login, versioned current-tab session,
+  `/me` validation, route guard, and responsive AdminShell.
+
+### 16B-2 — Admin Order Reads
+
+- **Status:** implemented on 2026-08-12.
+- **Outcome:** filtered paginated order list and safe snapshot, history, and
+  Payment-summary detail views.
+
+### 16B-3 — Admin Order Status Mutations
+
+- **Status:** implemented on 2026-08-12.
+- **Outcome:** explicit confirmed backend-authoritative fulfilment actions with
+  refetch and ambiguity refresh gates.
+
+### 16B-3A — Architecture Sources-of-Truth Addendum
+
+- **Status:** completed on 2026-08-12.
+- **Outcome:** D-061 and D-062 record the accepted unified User, exact roles,
+  anonymous guest boundary, landing/auth direction, nullable Order ownership,
+  own-order history, and super-admin role-management plan. This is documentation
+  only; current AdminUser and guest-ordering behavior remains implemented.
+
+### 16B-4 — Admin Menu
+
+- **Status:** implemented on 2026-08-12.
+- **Outcome:** responsive category and menu-item management using the existing
+  administrator operational API and deliberate mutation confirmation.
+
+### 16B-5 — Admin Analytics
+
+- **Status:** implemented on 2026-08-12.
+- **Outcome:** responsive views for the four protected analytics contracts and
+  their six established metrics without changing backend definitions.
+
+### 16B-6 — Admin CSV Exports
+
+- **Status:** implemented on 2026-08-12, including the shared Blob transport.
+- **Outcome:** deliberate downloads for the three existing protected CSV
+  reports with clear range, filter, loading, and failure states.
+
+### 16C — Stage 16 Administrator Frontend Acceptance and Review
+
+- **Status:** C1 documentation and automated pre-commit audit complete;
+  user-performed manual responsive QA passed at all required viewports, so the
+  administrator frontend acceptance gate is satisfied and independent review
+  is next.
+- **Outcome:** full frontend regression, responsive and accessibility QA,
+  documentation audit, independent review, and the final Stage 16 commit gate
+  for the administrator screens.
+
+### 16D — Unified User, Authentication, and Role Authorization Backend
+
+- **Status:** not started.
+- **Outcome:** evolve AdminUser into the unified User model, add the constrained
+  role, unified register/login/me contracts, database-backed `require_admin`
+  and `require_super_admin`, secure super-admin bootstrap, minimum role API,
+  and compatibility for existing administrator auth consumers.
+
+### 16E — Order Ownership and Customer Account API
+
+- **Status:** not started.
+- **Outcome:** nullable Order ownership, exact optional-auth semantics for Order
+  creation, and current-user own-order list/detail while preserving the complete
+  anonymous guest flow and independent Order access token.
+
+### 16F — Landing, Unified Authentication Frontend, Customer Account, and Super-Admin User Management
+
+- **Status:** not started.
+- **Outcome:** the concise landing page, public menu at `/menu`, unified
+  `/login` and `/register`, shared AuthContext, `/account` and own-order UI,
+  `/admin/users`, migration of the administrator frontend to unified auth, and
+  a transitional `/admin/login` redirect.
+
+### 16G — Integrated Security, Regression, Documentation, and Final Review
+
+- **Status:** not started.
+- **Outcome:** full backend/frontend regression, privilege-escalation and
+  cross-user privacy coverage, manual responsive QA, current documentation, and
+  independent review before Stage 17.
 
 ## 17. Full-System Docker
 
@@ -371,9 +456,14 @@
 
 ## Next Recommended Stage
 
-Stage 1 through Stage 15 have been completed and verified. Stage 15 preserves
-the original goal to deliver a responsive flow from menu to order status and
-passed both automated validation and the mandatory responsive manual scenario.
+Stage 1 through Stage 15 are complete and verified. Stage 16B-1 through B6 and
+the documentation-only B3A architecture addendum are implemented. Automated C1
+acceptance and user-performed manual administrator responsive QA pass;
+independent review remains pending. Unified accounts remain planned and are not
+current runtime behavior.
 
-The next recommended stage is **Stage 16 — Administrator Frontend**. Stage 16
-has not started and requires separate user approval.
+The immediate gate is **Stage 16C independent review and commit**. The next
+planned implementation stage after administrator-frontend acceptance is
+**Stage 16D — Unified User,
+Authentication, and Role Authorization Backend**. Stage 17 remains blocked on
+completion of Stage 16C through Stage 16G and requires separate approval.

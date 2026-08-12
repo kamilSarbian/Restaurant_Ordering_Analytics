@@ -1,0 +1,123 @@
+.page,
+.heading,
+.filters,
+.card,
+.currencyField,
+.orderFilters,
+.orderFilters label {
+    display: grid;
+}
+
+.page {
+    gap: var(--space-6);
+}
+
+.heading {
+    gap: var(--space-2);
+}
+
+.heading p,
+.card p,
+.hint {
+    color: var(--color-muted);
+}
+
+.filters,
+.card {
+    min-width: 0;
+    gap: var(--space-4);
+    padding: clamp(var(--space-4), 4vw, var(--space-6));
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-medium);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-small);
+}
+
+.currencyField,
+.orderFilters,
+.orderFilters label {
+    gap: var(--space-2);
+}
+
+.currencyField {
+    max-width: 24rem;
+    font-weight: 750;
+}
+
+.currencyField input,
+.orderFilters select {
+    width: 100%;
+    min-height: 2.75rem;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-small);
+    background: var(--color-surface);
+    color: var(--color-text);
+}
+
+.hint {
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+
+.cards {
+    display: grid;
+    gap: var(--space-4);
+}
+
+.card {
+    align-content: start;
+    overflow-wrap: anywhere;
+}
+
+.card button {
+    width: 100%;
+    min-height: 2.75rem;
+    padding: var(--space-3) var(--space-4);
+    border: 0;
+    border-radius: var(--radius-small);
+    background: var(--color-primary);
+    color: var(--color-surface);
+    cursor: pointer;
+    font-weight: 800;
+}
+
+.card button:disabled {
+    cursor: wait;
+    opacity: 0.7;
+}
+
+.notice,
+.error {
+    overflow-wrap: anywhere;
+    font-weight: 700;
+}
+
+.notice {
+    color: var(--color-primary-hover);
+}
+
+.error {
+    color: var(--color-accent);
+}
+
+@media (min-width: 48rem) {
+    .filters {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .filters h2,
+    .filters fieldset {
+        grid-column: 1 / -1;
+    }
+
+    .cards {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (min-width: 80rem) {
+    .cards {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}

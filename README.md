@@ -16,10 +16,43 @@ Local development uses PostgreSQL 17, synchronous SQLAlchemy 2, Psycopg 3,
 Alembic, and an explicit demonstration menu seed.
 
 Stage 13 administrator analytics and the three Stage 14 administrator CSV
-exports are complete. The guest-only React customer frontend now covers menu
-browsing through secure fulfilment-status polling. Customer accounts and an
-administrator frontend are not implemented. Full-system containerisation, CI,
-and deployment have not started.
+exports are complete. The guest-only React customer frontend covers menu
+browsing through secure fulfilment-status polling. The Stage 16 administrator
+frontend implements authentication, protected routing, order operations, menu
+management, analytics, and CSV downloads. Its automated acceptance gates and
+user-performed manual responsive QA at the required viewports pass.
+Customer accounts are not implemented. Full-system containerisation, CI, and
+deployment have not started.
+
+## Planned unified accounts and landing direction
+
+The accepted post-Stage-16-admin-screen direction is planned work, not current
+behavior. It will be completed before Stage 17. An anonymous `guest` will remain
+able to browse, order, pay, and check one order without an account. A registered
+normal account will be a `customer`; public registration will always create
+that role. An `admin` will retain the operational restaurant permissions, while
+a securely bootstrapped `super_admin` will additionally manage promotion and
+demotion between `customer` and `admin`. Ordinary administrators will not be
+able to grant `super_admin`.
+
+The planned browser route target is separate from the currently implemented
+route list documented under Customer frontend:
+
+- `/` for the concise restaurant landing page with Order as guest, Log in, and
+  Create account actions;
+- `/menu` for the public menu used by guests and registered users;
+- `/cart` for the existing cart and order flow;
+- `/login` and `/register` for unified account authentication;
+- `/account` and `/account/orders/:publicOrderNumber` for the authenticated
+  customer account and its own-order history;
+- the existing `/orders/:publicOrderNumber/...` Checkout, return, and protected
+  status routes;
+- `/admin/...` for operational administration;
+- `/admin/users` for `super_admin` role management only.
+
+The target keeps an independent order-access token for every Order, including
+an Order linked to a registered customer. Registration will never be required
+for guest ordering.
 
 ## Business problem
 
@@ -81,8 +114,9 @@ without introducing infrastructure that is unnecessary for a single venue.
   email-validator, Docker Compose, pytest, Ruff, Black, isort, React,
   TypeScript, Vite, React Router, CSS Modules, native `fetch`, `sessionStorage`,
   Vitest, and React Testing Library.
-- Planned: the administrator frontend, full-system containers, GitHub Actions,
-  and deployment.
+- Planned: independent review of the implemented administrator frontend,
+  unified accounts and role authorization, the landing and account frontend,
+  full-system containers, GitHub Actions, and deployment.
 
 ## Repository structure
 
@@ -423,6 +457,116 @@ apostrophes are not doubled, and NUL characters are removed from exported text.
 This focused formula-injection safeguard is not a complete spreadsheet security
 model. It runs only after database aggregation and changes neither persisted
 values nor grouping identities.
+
+## Administrator frontend
+
+Stage 16 implements the current administrator interface under the dedicated
+`/admin` route tree:
+
+- `/admin/login`;
+- `/admin`;
+- `/admin/orders`;
+- `/admin/orders/:publicOrderNumber`;
+- `/admin/menu`;
+- `/admin/analytics`;
+- `/admin/exports`;
+- `/admin/*` for the protected administrator-local not-found screen.
+
+`/admin/users` is not implemented. Unified authentication, customer accounts,
+the landing page, and role management remain the separate planned work described
+above.
+
+### Administrator session
+
+Sign-in calls the administrator login endpoint, keeps the opaque access token in
+the versioned `restaurant-ordering:admin-auth:v1` `sessionStorage` record, and
+then requires `/api/v1/admin/auth/me` validation before protected UI renders. If
+browser storage is unavailable, the successful current-tab login can continue
+from memory. The browser never uses `localStorage` for this session and never
+places the token in a URL, rendered DOM, or log.
+
+HTTP 401 clears the session. Login HTTP 429 honors the server `Retry-After`
+cooldown, while a temporary `/me` network or HTTP 503 failure preserves the
+stored token and blocks protected content behind an explicit validation retry.
+There is no backend logout endpoint; Logout clears only the frontend session.
+Administrator Bearer credentials are attached only to canonical
+`/api/v1/admin/...` requests.
+
+### Administrator orders
+
+The orders list supports `status` and `order_type` filters, offset pagination,
+and manual Refresh. Detail renders immutable item snapshots, ordered status
+history, and bounded Payment summaries without provider event data, Checkout
+URLs, Session IDs, idempotency keys, or guest credentials.
+
+The UI offers only the backend transition graph:
+
+```text
+created -> accepted | cancelled
+accepted -> preparing
+preparing -> ready
+ready -> completed
+```
+
+`completed` and `cancelled` are terminal. Each action requires inline
+confirmation. The client sends one PATCH, never applies an optimistic status or
+fabricated history entry, and refetches authoritative detail after success. A
+successful PATCH followed by a failed GET is reported separately. Network,
+timeout, uncertain 5xx, and unresolved conflict outcomes require a successful
+manual Refresh before another mutation attempt.
+
+### Administrator menu
+
+Categories and items use only the existing authenticated GET, POST, and PATCH
+routes; there is no DELETE. List views use offset pagination and manual Refresh.
+Forms support independent active and available item flags, category reassignment
+including inactive categories returned by the backend, integer minor-unit price
+and optional cost values, `[A-Z]{3}` currency, one allergen per line, and
+clearing optional description, image, or cost fields.
+
+PATCH sends changed fields only. The UI does not update optimistically, and an
+ambiguous mutation result must be resolved by Refresh before resubmission.
+Changes affect future orders only. Historical order snapshots and analytics do
+not change.
+
+### Administrator analytics
+
+The dashboard calls the protected overview, products, categories, and
+order-types endpoints. Date-only inputs use `Europe/Oslo`; the client converts
+the inclusive selected end date to the next local midnight and sends explicit
+aware ISO values for the half-open `[start, end)` backend range. The default is
+the last seven Oslo calendar days including today. Currency is optional and a
+shared breakdown limit is sent only to products and categories.
+
+The UI presents collected revenue, distinct succeeded paid orders, AOV,
+historical product and category quantity/value, and dine-in versus takeaway
+count/revenue. Currencies remain separate and no FX conversion occurs. It makes
+no cost, margin, profit, or time-series claim. Four requests run in parallel;
+each section retains an independent loading, result, and partial-failure state,
+with explicit Apply and Refresh actions and no polling or automatic retry.
+
+### Administrator CSV downloads
+
+The exports screen deliberately requests exactly `orders.csv`,
+`product-sales.csv`, or `payments.csv` through the authenticated administrator
+Blob transport. It never navigates directly to a protected URL. Orders accept
+the common Oslo date/currency filters plus status and order type; the other two
+accept only the common filters. Orders use the `Order.created_at` range, while
+product-sales and payments use the earliest qualified successful-Payment time.
+
+The shared JSON/Blob transport keeps Bearer credentials inside the administrator
+namespace and gives Blob downloads a 30-second timeout. Successful responses
+must have a compatible `text/csv` media type. CSV bytes remain backend-owned:
+the browser does not parse, decode, inspect, or reserialize them, and a valid
+header-only CSV still downloads. A conservative ASCII `.csv` allowlist handles
+the quoted `Content-Disposition` filename with fixed report-specific fallbacks.
+Each temporary object URL and link is removed after one click, including failure
+cleanup; no Blob or object URL is persisted.
+
+The administrator UI has automated responsive and accessibility coverage and
+mobile-first CSS for login, navigation, orders, detail actions, menu, analytics,
+and exports. User-performed manual acceptance passed at 375x812, 768x1024, and
+1280x800, covering every administrator screen plus keyboard and focus behavior.
 
 ## Menu data foundation
 
@@ -861,12 +1005,14 @@ manual; it is not required for automated validation or a commit.
 
 ## Customer frontend
 
-Stage 15 provides a guest-only customer application in `frontend/`. It uses
+Stage 15 established the guest-only customer application in `frontend/`. It uses
 React, TypeScript, Vite, React Router, CSS Modules, native `fetch`,
-`sessionStorage`, Vitest, and React Testing Library. It has no customer account,
-sign-in, profile, or administrator interface.
+`sessionStorage`, Vitest, and React Testing Library. That Stage 15 scope has no
+customer account, sign-in, profile, or administrator interface. Stage 16 has
+since added the separate administrator frontend described above without
+changing the completed guest flow.
 
-The implemented routes are exactly:
+The Stage 15 route baseline at its completion was exactly:
 
 - `/` for the public menu and client-side category/availability filters;
 - `/cart` for the cart, server quote, and guest order form;

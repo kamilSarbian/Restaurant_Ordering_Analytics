@@ -1,0 +1,749 @@
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { createMemoryRouter, RouterProvider } from 'react-router-dom';
+import { afterEach, vi } from 'vitest';
+
+import { adminRoutes } from '../../routes/adminRoutes';
+import { installFetchStub, type FetchStep } from '../../test/fetchStub';
+import { ADMIN_AUTH_STORAGE_KEY } from '../admin-auth/adminAuthStorage';
+import {
+  fetchAdminOrderDetail,
+  type OrderStatus,
+  updateAdminOrderStatus,
+} from './adminOrdersApi';
+
+const SYNTHETIC_TOKEN = 'test-admin-token';
+const PUBLIC_ORDER_NUMBER = 'ROA-23456789ABCD';
+const ORDER_ID = '00000000-0000-4000-8000-000000000001';
+const ITEM_ID = '00000000-0000-4000-8000-000000000002';
+const MENU_ITEM_ID = '00000000-0000-4000-8000-000000000003';
+const PAYMENT_ID = '00000000-0000-4000-8000-000000000004';
+const ME_RESPONSE = { email: 'admin@example.test', is_active: true };
+const DETAIL_RESPONSE = {
+  order_id: ORDER_ID,
+  public_order_number: PUBLIC_ORDER_NUMBER,
+  status: 'accepted',
+  order_type: 'dine_in',
+  table_number: 7,
+  currency: 'NOK',
+  subtotal_amount: 25_000,
+  total_amount: 25_000,
+  created_at: '2026-08-12T10:00:00+00:00',
+  updated_at: '2026-08-12T10:05:00+00:00',
+  items: [
+    {
+      id: ITEM_ID,
+      menu_item_id: MENU_ITEM_ID,
+      position: 0,
+      category_name: 'Historical mains',
+      name: 'Historical seasonal bowl',
+      quantity: 2,
+      unit_price_amount: 12_500,
+      unit_cost_amount: 7_500,
+      tax_rate_bps: 2_500,
+      discount_amount: 0,
+      line_total_amount: 25_000,
+    },
+  ],
+  status_history: [
+    {
+      sequence: 0,
+      previous_status: null,
+      new_status: 'created',
+      changed_at: '2026-08-12T10:00:00+00:00',
+    },
+    {
+      sequence: 1,
+      previous_status: 'created',
+      new_status: 'accepted',
+      changed_at: '2026-08-12T10:05:00+00:00',
+    },
+  ],
+  payments: [
+    {
+      id: PAYMENT_ID,
+      status: 'succeeded',
+      amount: 25_000,
+      currency: 'NOK',
+      created_at: '2026-08-12T10:01:00+00:00',
+      updated_at: '2026-08-12T10:04:00+00:00',
+      checkout_expires_at: '2026-08-12T10:31:00+00:00',
+    },
+  ],
+};
+
+const STATUS_PATHS: Record<OrderStatus, OrderStatus[]> = {
+  accepted: ['created', 'accepted'],
+  cancelled: ['created', 'cancelled'],
+  completed: ['created', 'accepted', 'preparing', 'ready', 'completed'],
+  created: ['created'],
+  preparing: ['created', 'accepted', 'preparing'],
+  ready: ['created', 'accepted', 'preparing', 'ready'],
+};
+
+function detailResponse(status: OrderStatus) {
+  const path = STATUS_PATHS[status];
+  return {
+    ...DETAIL_RESPONSE,
+    status,
+    status_history: path.map((newStatus, sequence) => ({
+      sequence,
+      previous_status: sequence === 0 ? null : path[sequence - 1],
+      new_status: newStatus,
+      changed_at: `2026-08-12T10:0${sequence}:00+00:00`,
+    })),
+  };
+}
+
+function statusUpdateResponse(previousStatus: OrderStatus, targetStatus: OrderStatus) {
+  return {
+    public_order_number: PUBLIC_ORDER_NUMBER,
+    status: targetStatus,
+    updated_at: '2026-08-12T10:10:00+00:00',
+    history: {
+      sequence: STATUS_PATHS[previousStatus].length,
+      previous_status: previousStatus,
+      new_status: targetStatus,
+      changed_at: '2026-08-12T10:10:00+00:00',
+    },
+  };
+}
+
+function storeToken(): void {
+  sessionStorage.setItem(
+    ADMIN_AUTH_STORAGE_KEY,
+    JSON.stringify({ accessToken: SYNTHETIC_TOKEN, version: 1 }),
+  );
+}
+
+function renderDetail(): ReturnType<typeof createMemoryRouter> {
+  storeToken();
+  const router = createMemoryRouter([adminRoutes], {
+    initialEntries: [`/admin/orders/${PUBLIC_ORDER_NUMBER}`],
+  });
+  render(<RouterProvider router={router} />);
+  return router;
+}
+
+afterEach(() => {
+  sessionStorage.clear();
+  localStorage.clear();
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
+
+describe('administrator read-only order detail', () => {
+  it('uses the exact authenticated GET and renders snapshots, totals, history, and safe payments', async () => {
+    const stub = installFetchStub({ json: ME_RESPONSE }, { json: DETAIL_RESPONSE });
+
+    renderDetail();
+
+    expect(
+      await screen.findByRole('heading', {
+        level: 1,
+        name: `Order ${PUBLIC_ORDER_NUMBER}`,
+      }),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { name: 'Order items' }),
+    ).toBeInTheDocument();
+    expect(stub.calls).toHaveLength(2);
+    expect(stub.calls[1]?.url).toBe(`/api/v1/admin/orders/${PUBLIC_ORDER_NUMBER}`);
+    expect(stub.calls[1]?.method).toBe('GET');
+    expect(stub.calls[1]?.body).toBeNull();
+    expect(stub.calls[1]?.headers.get('Authorization')).toBe(
+      `Bearer ${SYNTHETIC_TOKEN}`,
+    );
+    expect(screen.getByText('Historical mains')).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { level: 3, name: 'Historical seasonal bowl' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Dine in')).toBeInTheDocument();
+    expect(screen.getByText('Succeeded')).toBeInTheDocument();
+    expect(screen.getByText('Checkout expires')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Status history' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Back to Orders' })).toHaveAttribute(
+      'href',
+      '/admin/orders',
+    );
+    expect(screen.queryByText(ORDER_ID)).not.toBeInTheDocument();
+    expect(screen.queryByText(ITEM_ID)).not.toBeInTheDocument();
+    expect(screen.queryByText(MENU_ITEM_ID)).not.toBeInTheDocument();
+    expect(screen.queryByText(PAYMENT_ID)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/stripe|idempotency|checkout url/i),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start preparing' })).toBeEnabled();
+    expect(
+      screen.queryByRole('button', { name: 'Accept order' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Cancel order' }),
+    ).not.toBeInTheDocument();
+    expect(stub.calls.some((call) => call.method === 'PATCH')).toBe(false);
+  });
+
+  it('shows a polite loading state while detail remains pending', async () => {
+    installFetchStub(
+      { json: ME_RESPONSE },
+      { responsePromise: new Promise<Response>(() => undefined) },
+    );
+
+    renderDetail();
+
+    expect(
+      await screen.findByRole('heading', { name: 'Loading order' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveAttribute('aria-live', 'polite');
+  });
+
+  it('renders the exact empty-payments state without inferring payment failure', async () => {
+    installFetchStub(
+      { json: ME_RESPONSE },
+      { json: { ...DETAIL_RESPONSE, payments: [] } },
+    );
+
+    renderDetail();
+
+    expect(await screen.findByText('No payment records.')).toBeInTheDocument();
+    expect(
+      screen.queryByText(/failed payment|payment failed/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it('manually refreshes the same detail exactly once', async () => {
+    const updatedDetail = {
+      ...DETAIL_RESPONSE,
+      status: 'preparing',
+      updated_at: '2026-08-12T10:10:00+00:00',
+    };
+    const stub = installFetchStub(
+      { json: ME_RESPONSE },
+      { json: DETAIL_RESPONSE },
+      { json: updatedDetail },
+    );
+    const user = userEvent.setup();
+
+    renderDetail();
+    await screen.findByRole('heading', { name: 'Order items' });
+    await user.click(screen.getByRole('button', { name: 'Refresh' }));
+
+    expect(await screen.findByText('Preparing')).toBeInTheDocument();
+    expect(stub.calls).toHaveLength(3);
+    expect(stub.calls[2]?.url).toBe(`/api/v1/admin/orders/${PUBLIC_ORDER_NUMBER}`);
+  });
+
+  it('shows the safe not-found state for a detail 404', async () => {
+    installFetchStub({ json: ME_RESPONSE }, { status: 404 });
+
+    renderDetail();
+
+    expect(
+      await screen.findByRole('heading', { name: 'Order not found' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/No order is available/i)).toBeInTheDocument();
+  });
+
+  it.each<[string, FetchStep, string]>([
+    ['network', { error: new TypeError('offline') }, 'could not be reached'],
+    ['service', { status: 503 }, 'temporarily unavailable'],
+    ['server', { status: 500 }, 'temporarily unavailable'],
+  ])('shows a safe retryable %s error', async (_kind, step, message) => {
+    installFetchStub({ json: ME_RESPONSE }, step);
+
+    renderDetail();
+
+    expect(
+      await screen.findByRole('heading', { name: 'Unable to load order' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(new RegExp(message, 'i'))).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+  });
+
+  it('maps a detail timeout to a safe connectivity state', async () => {
+    vi.useFakeTimers();
+    installFetchStub({ json: ME_RESPONSE }, { waitForAbort: true });
+
+    renderDetail();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.getByRole('heading', { name: 'Loading order' })).toBeInTheDocument();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+
+    expect(
+      screen.getByRole('heading', { name: 'Unable to load order' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/could not be reached/i)).toBeInTheDocument();
+  });
+
+  it.each([
+    { ...DETAIL_RESPONSE, unexpected: true },
+    {
+      ...DETAIL_RESPONSE,
+      status_history: [{ ...DETAIL_RESPONSE.status_history[0], sequence: -1 }],
+    },
+    { ...DETAIL_RESPONSE, items: [{ ...DETAIL_RESPONSE.items[0], id: 'not-a-uuid' }] },
+    {
+      ...DETAIL_RESPONSE,
+      payments: [
+        {
+          ...DETAIL_RESPONSE.payments[0],
+          stripe_checkout_session_id: 'cs_forbidden',
+        },
+      ],
+    },
+    { ...DETAIL_RESPONSE, public_order_number: 'ROA-BCDEFGHJKLMN' },
+  ])('rejects malformed or expanded successful detail', async (response) => {
+    installFetchStub({ json: response });
+
+    await expect(
+      fetchAdminOrderDetail(SYNTHETIC_TOKEN, PUBLIC_ORDER_NUMBER),
+    ).rejects.toMatchObject({ kind: 'invalid-response' });
+  });
+
+  it('expires the shared session after a detail 401', async () => {
+    const stub = installFetchStub({ json: ME_RESPONSE }, { status: 401 });
+    const router = renderDetail();
+
+    expect(
+      await screen.findByRole('heading', { name: 'Administrator sign-in' }),
+    ).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/admin/login');
+    expect(sessionStorage.getItem(ADMIN_AUTH_STORAGE_KEY)).toBeNull();
+    expect(stub.calls).toHaveLength(2);
+    expect(stub.calls.some((call) => call.method === 'PATCH')).toBe(false);
+  });
+});
+
+describe('administrator order status mutations', () => {
+  const allActionLabels = [
+    'Accept order',
+    'Cancel order',
+    'Start preparing',
+    'Mark ready',
+    'Complete order',
+  ];
+
+  it.each<[OrderStatus, string[]]>([
+    ['created', ['Accept order', 'Cancel order']],
+    ['accepted', ['Start preparing']],
+    ['preparing', ['Mark ready']],
+    ['ready', ['Complete order']],
+    ['completed', []],
+    ['cancelled', []],
+  ])('shows only valid actions for %s', async (status, expectedActions) => {
+    installFetchStub({ json: ME_RESPONSE }, { json: detailResponse(status) });
+
+    renderDetail();
+
+    expect(
+      await screen.findByRole('heading', { name: 'Order actions' }),
+    ).toBeInTheDocument();
+    for (const label of allActionLabels) {
+      const action = screen.queryByRole('button', { name: label });
+      if (expectedActions.includes(label)) {
+        expect(action).toBeEnabled();
+      } else {
+        expect(action).not.toBeInTheDocument();
+      }
+    }
+    if (expectedActions.length === 0) {
+      expect(
+        screen.getByText('No further status actions are available.'),
+      ).toBeInTheDocument();
+    } else {
+      expect(
+        screen.queryByText('No further status actions are available.'),
+      ).not.toBeInTheDocument();
+    }
+  });
+
+  it('requires inline confirmation, replaces it safely, and cancels without PATCH', async () => {
+    const stub = installFetchStub(
+      { json: ME_RESPONSE },
+      { json: detailResponse('created') },
+    );
+    const user = userEvent.setup();
+
+    renderDetail();
+    const acceptButton = await screen.findByRole('button', { name: 'Accept order' });
+    await user.click(acceptButton);
+
+    expect(screen.getByRole('heading', { name: 'Accept this order?' })).toHaveFocus();
+    expect(screen.getByText(PUBLIC_ORDER_NUMBER)).toBeInTheDocument();
+    expect(stub.calls).toHaveLength(2);
+
+    const cancelButton = screen.getByRole('button', { name: 'Cancel order' });
+    await user.click(cancelButton);
+    expect(
+      screen.getByRole('heading', {
+        name: 'Cancel this order? This action cannot be undone in the current workflow.',
+      }),
+    ).toHaveFocus();
+    expect(screen.getByText(/cannot be undone/i)).toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { name: 'Accept this order?' }),
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Keep current status' }));
+    expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument();
+    await waitFor(() => expect(cancelButton).toHaveFocus());
+    expect(stub.calls).toHaveLength(2);
+    expect(stub.calls.some((call) => call.method === 'PATCH')).toBe(false);
+  });
+
+  it('sends the exact PATCH once and renders only the authoritative refetch', async () => {
+    const refreshedDetail = detailResponse('preparing');
+    const stub = installFetchStub(
+      { json: ME_RESPONSE },
+      { json: detailResponse('accepted') },
+      { json: statusUpdateResponse('accepted', 'preparing') },
+      { json: refreshedDetail },
+    );
+    const user = userEvent.setup();
+
+    renderDetail();
+    await user.click(await screen.findByRole('button', { name: 'Start preparing' }));
+    expect(stub.calls).toHaveLength(2);
+    await user.click(screen.getByRole('button', { name: 'Confirm' }));
+
+    expect(await screen.findByText('Order status updated.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Mark ready' })).toBeEnabled();
+    expect(stub.calls).toHaveLength(4);
+    expect(stub.calls[2]?.url).toBe(
+      `/api/v1/admin/orders/${PUBLIC_ORDER_NUMBER}/status`,
+    );
+    expect(stub.calls[2]?.method).toBe('PATCH');
+    expect(stub.calls[2]?.body).toBe(JSON.stringify({ status: 'preparing' }));
+    expect(stub.calls[2]?.headers.get('Authorization')).toBe(
+      `Bearer ${SYNTHETIC_TOKEN}`,
+    );
+    expect(stub.calls[3]?.method).toBe('GET');
+    expect(stub.calls[3]?.url).toBe(`/api/v1/admin/orders/${PUBLIC_ORDER_NUMBER}`);
+    expect(stub.calls.filter((call) => call.method === 'PATCH')).toHaveLength(1);
+
+    const historySection = screen
+      .getByRole('heading', { name: 'Status history' })
+      .closest('section');
+    expect(historySection).not.toBeNull();
+    expect(
+      within(historySection as HTMLElement).getByText('Preparing'),
+    ).toBeInTheDocument();
+    expect(
+      historySection?.querySelector('time[datetime="2026-08-12T10:02:00+00:00"]'),
+    ).not.toBeNull();
+    expect(
+      historySection?.querySelector('time[datetime="2026-08-12T10:10:00+00:00"]'),
+    ).toBeNull();
+  });
+
+  it('does not update optimistically and blocks repeated Confirm clicks', async () => {
+    let resolvePatch: ((response: Response) => void) | undefined;
+    const pendingPatch = new Promise<Response>((resolve) => {
+      resolvePatch = resolve;
+    });
+    const stub = installFetchStub(
+      { json: ME_RESPONSE },
+      { json: detailResponse('accepted') },
+      { responsePromise: pendingPatch },
+      { json: detailResponse('preparing') },
+    );
+    const user = userEvent.setup();
+
+    renderDetail();
+    await user.click(await screen.findByRole('button', { name: 'Start preparing' }));
+    const confirmButton = screen.getByRole('button', { name: 'Confirm' });
+    await user.click(confirmButton);
+
+    expect(confirmButton).toBeDisabled();
+    await user.click(confirmButton);
+    expect(stub.calls.filter((call) => call.method === 'PATCH')).toHaveLength(1);
+    expect(screen.getByText('Updating order status…')).toBeInTheDocument();
+    const summarySection = screen
+      .getByRole('heading', { name: 'Order summary' })
+      .closest('section');
+    expect(summarySection).not.toBeNull();
+    expect(
+      within(summarySection as HTMLElement).getByText('Accepted'),
+    ).toBeInTheDocument();
+    expect(
+      within(summarySection as HTMLElement).queryByText('Preparing'),
+    ).not.toBeInTheDocument();
+
+    resolvePatch?.(
+      new Response(JSON.stringify(statusUpdateResponse('accepted', 'preparing')), {
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    expect(await screen.findByText('Order status updated.')).toBeInTheDocument();
+  });
+
+  it.each([
+    { ...statusUpdateResponse('accepted', 'preparing'), unexpected: true },
+    { ...statusUpdateResponse('accepted', 'preparing'), status: 'ready' },
+    {
+      ...statusUpdateResponse('accepted', 'preparing'),
+      history: {
+        ...statusUpdateResponse('accepted', 'preparing').history,
+        new_status: 'ready',
+      },
+    },
+  ])('rejects a malformed successful PATCH response', async (response) => {
+    installFetchStub({ json: response });
+
+    await expect(
+      updateAdminOrderStatus(SYNTHETIC_TOKEN, PUBLIC_ORDER_NUMBER, 'preparing'),
+    ).rejects.toMatchObject({ kind: 'invalid-response' });
+  });
+
+  it('keeps stale detail gated when PATCH succeeds but refetch fails, then recovers on Refresh', async () => {
+    const stub = installFetchStub(
+      { json: ME_RESPONSE },
+      { json: detailResponse('accepted') },
+      { json: statusUpdateResponse('accepted', 'preparing') },
+      { error: new TypeError('offline after update') },
+      { json: detailResponse('preparing') },
+    );
+    const user = userEvent.setup();
+
+    renderDetail();
+    await user.click(await screen.findByRole('button', { name: 'Start preparing' }));
+    await user.click(screen.getByRole('button', { name: 'Confirm' }));
+
+    expect(
+      await screen.findByText(/status update was accepted by the server/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/status update failed/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start preparing' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Refresh' })).toBeEnabled();
+    const summarySection = screen
+      .getByRole('heading', { name: 'Order summary' })
+      .closest('section');
+    expect(
+      within(summarySection as HTMLElement).getByText('Accepted'),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Refresh' }));
+    expect(await screen.findByRole('button', { name: 'Mark ready' })).toBeEnabled();
+    expect(screen.queryByText(/actions are disabled until/i)).not.toBeInTheDocument();
+    expect(stub.calls.filter((call) => call.method === 'PATCH')).toHaveLength(1);
+    expect(stub.calls).toHaveLength(5);
+  });
+
+  it.each<[string, FetchStep]>([
+    ['network', { error: new TypeError('offline') }],
+    ['service unavailable', { status: 503 }],
+    ['server failure', { status: 500 }],
+    [
+      'malformed success',
+      {
+        json: {
+          ...statusUpdateResponse('accepted', 'preparing'),
+          unexpected: true,
+        },
+      },
+    ],
+  ])(
+    'gates an ambiguous %s outcome until a successful Refresh',
+    async (_kind, step) => {
+      const stub = installFetchStub(
+        { json: ME_RESPONSE },
+        { json: detailResponse('accepted') },
+        step,
+        { json: detailResponse('accepted') },
+      );
+      const user = userEvent.setup();
+
+      renderDetail();
+      await user.click(await screen.findByRole('button', { name: 'Start preparing' }));
+      await user.click(screen.getByRole('button', { name: 'Confirm' }));
+
+      expect(
+        await screen.findByText(
+          /could not confirm whether the status update was applied/i,
+        ),
+      ).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Start preparing' })).toBeDisabled();
+      expect(stub.calls).toHaveLength(3);
+      expect(stub.calls.filter((call) => call.method === 'PATCH')).toHaveLength(1);
+
+      await user.click(screen.getByRole('button', { name: 'Refresh' }));
+      expect(
+        await screen.findByRole('button', { name: 'Start preparing' }),
+      ).toBeEnabled();
+      expect(stub.calls).toHaveLength(4);
+      expect(stub.calls.filter((call) => call.method === 'PATCH')).toHaveLength(1);
+    },
+  );
+
+  it('treats a PATCH timeout as ambiguous without automatic retry', async () => {
+    vi.useFakeTimers();
+    const stub = installFetchStub(
+      { json: ME_RESPONSE },
+      { json: detailResponse('accepted') },
+      { waitForAbort: true },
+      { json: detailResponse('accepted') },
+    );
+    renderDetail();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Start preparing' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+
+    expect(
+      screen.getByText(/could not confirm whether the status update was applied/i),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start preparing' })).toBeDisabled();
+    expect(stub.calls.filter((call) => call.method === 'PATCH')).toHaveLength(1);
+
+    vi.useRealTimers();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Refresh' }));
+    expect(
+      await screen.findByRole('button', { name: 'Start preparing' }),
+    ).toBeEnabled();
+  });
+
+  it.each([
+    ['Accept order', 'Order is not paid'],
+    ['Cancel order', 'Active payment attempt exists'],
+    ['Cancel order', 'Order cannot be cancelled'],
+  ])(
+    'handles the payment-sensitive %s 409 without trusting payment summaries',
+    async (label, rawDetail) => {
+      const createdDetail = detailResponse('created');
+      const paymentIndependentDetail = {
+        ...createdDetail,
+        payments:
+          rawDetail === 'Order is not paid'
+            ? []
+            : rawDetail === 'Active payment attempt exists'
+              ? [{ ...createdDetail.payments[0], status: 'pending' }]
+              : createdDetail.payments,
+      };
+      const stub = installFetchStub(
+        { json: ME_RESPONSE },
+        { json: paymentIndependentDetail },
+        { json: { detail: rawDetail }, status: 409 },
+        { json: detailResponse('created') },
+      );
+      const user = userEvent.setup();
+
+      renderDetail();
+      await user.click(await screen.findByRole('button', { name: label }));
+      await user.click(screen.getByRole('button', { name: 'Confirm' }));
+
+      expect(
+        await screen.findByText(/latest order details have been loaded/i),
+      ).toBeInTheDocument();
+      expect(screen.queryByText(rawDetail)).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: label })).toBeEnabled();
+      expect(stub.calls).toHaveLength(4);
+      expect(stub.calls.filter((call) => call.method === 'PATCH')).toHaveLength(1);
+    },
+  );
+
+  it('shows the safe not-found state after a mutation 404', async () => {
+    const stub = installFetchStub(
+      { json: ME_RESPONSE },
+      { json: detailResponse('accepted') },
+      { json: { detail: 'Order not found' }, status: 404 },
+    );
+    const user = userEvent.setup();
+
+    renderDetail();
+    await user.click(await screen.findByRole('button', { name: 'Start preparing' }));
+    await user.click(screen.getByRole('button', { name: 'Confirm' }));
+
+    expect(
+      await screen.findByRole('heading', { name: 'Order not found' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { name: 'Order actions' }),
+    ).not.toBeInTheDocument();
+    expect(stub.calls.filter((call) => call.method === 'PATCH')).toHaveLength(1);
+  });
+
+  it('expires the shared session after a mutation 401', async () => {
+    const stub = installFetchStub(
+      { json: ME_RESPONSE },
+      { json: detailResponse('accepted') },
+      { status: 401 },
+    );
+    const user = userEvent.setup();
+    const router = renderDetail();
+
+    await user.click(await screen.findByRole('button', { name: 'Start preparing' }));
+    await user.click(screen.getByRole('button', { name: 'Confirm' }));
+
+    expect(
+      await screen.findByRole('heading', { name: 'Administrator sign-in' }),
+    ).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/admin/login');
+    expect(sessionStorage.getItem(ADMIN_AUTH_STORAGE_KEY)).toBeNull();
+    expect(stub.calls.filter((call) => call.method === 'PATCH')).toHaveLength(1);
+  });
+
+  it('expires the shared session when the post-PATCH detail refetch returns 401', async () => {
+    const stub = installFetchStub(
+      { json: ME_RESPONSE },
+      { json: detailResponse('accepted') },
+      { json: statusUpdateResponse('accepted', 'preparing') },
+      { status: 401 },
+    );
+    const user = userEvent.setup();
+    const router = renderDetail();
+
+    await user.click(await screen.findByRole('button', { name: 'Start preparing' }));
+    await user.click(screen.getByRole('button', { name: 'Confirm' }));
+
+    expect(
+      await screen.findByRole('heading', { name: 'Administrator sign-in' }),
+    ).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/admin/login');
+    expect(sessionStorage.getItem(ADMIN_AUTH_STORAGE_KEY)).toBeNull();
+    expect(stub.calls).toHaveLength(4);
+    expect(stub.calls.filter((call) => call.method === 'PATCH')).toHaveLength(1);
+  });
+
+  it('shows a safe definitive 422 without raw detail or automatic retry', async () => {
+    const stub = installFetchStub(
+      { json: ME_RESPONSE },
+      { json: detailResponse('accepted') },
+      { json: { detail: 'raw validation internals' }, status: 422 },
+    );
+    const user = userEvent.setup();
+
+    renderDetail();
+    await user.click(await screen.findByRole('button', { name: 'Start preparing' }));
+    await user.click(screen.getByRole('button', { name: 'Confirm' }));
+
+    expect(
+      await screen.findByText(/status update request was not valid/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('raw validation internals')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start preparing' })).toBeEnabled();
+    expect(stub.calls).toHaveLength(3);
+    expect(stub.calls.filter((call) => call.method === 'PATCH')).toHaveLength(1);
+  });
+});

@@ -8,9 +8,11 @@ import CheckoutPage from '../features/checkout/CheckoutPage';
 import CheckoutCancelledPage from '../features/checkout/CheckoutCancelledPage';
 import PaymentReturnPage from '../features/checkout/PaymentReturnPage';
 import OrderStatusPage from '../features/order-status/OrderStatusPage';
+import { adminRoutes } from './adminRoutes';
 import NotFoundPage from './NotFoundPage';
 
 export const routes: RouteObject[] = [
+  adminRoutes,
   {
     path: '/',
     element: (

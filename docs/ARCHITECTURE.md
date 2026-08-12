@@ -26,12 +26,12 @@ job interview.
 - TypeScript;
 - Vite;
 - React Router;
-- React Context for the Stage 15 cart;
+- React Context for the cart and administrator session;
 - CSS Modules and shared CSS design tokens;
 - native `fetch`, `sessionStorage`, Vitest, and React Testing Library.
 
-Zustand and Recharts remain possible Stage 16 administrator-frontend choices;
-Stage 15 does not require them.
+The implemented administrator frontend also uses React Context, native HTML/CSS,
+and feature-local rendering; Zustand and Recharts were not required.
 
 ### Integrations and Infrastructure
 
@@ -67,18 +67,18 @@ details where doing so improves testability.
 
 ## 4. Main Backend Modules
 
-| Module | Responsibility |
-| --- | --- |
-| `core` | configuration, security, shared errors, and cross-cutting concerns |
-| `database` | engine, sessions, model base, and migration integration |
-| `auth` | administrator persistence, bootstrap, sign-in, JWT, and authorization |
-| `categories` | categories and their order in the menu |
-| `menu` | menu items, prices, allergens, activity, and availability |
-| `restaurant_tables` | tables and dine-in order validation |
-| `orders` | quoting, orders, snapshots, public access, `order_status`, and its history |
-| `payments` | `Payment` attempts, Stripe sessions, `payment_status`, webhook verification, and idempotency |
-| `analytics` | KPI definitions and dashboard aggregations |
-| `reports` | filtered CSV exports |
+| Module              | Responsibility                                                                               |
+| ------------------- | -------------------------------------------------------------------------------------------- |
+| `core`              | configuration, security, shared errors, and cross-cutting concerns                           |
+| `database`          | engine, sessions, model base, and migration integration                                      |
+| `auth`              | administrator persistence, bootstrap, sign-in, JWT, and authorization                        |
+| `categories`        | categories and their order in the menu                                                       |
+| `menu`              | menu items, prices, allergens, activity, and availability                                    |
+| `restaurant_tables` | tables and dine-in order validation                                                          |
+| `orders`            | quoting, orders, snapshots, public access, `order_status`, and its history                   |
+| `payments`          | `Payment` attempts, Stripe sessions, `payment_status`, webhook verification, and idempotency |
+| `analytics`         | KPI definitions and dashboard aggregations                                                   |
+| `reports`           | filtered CSV exports                                                                         |
 
 ## 5. Flow Between Components
 
@@ -740,14 +740,80 @@ Stage 12 changes no SQLAlchemy model and requires no migration after
 StripeEvent diagnostics, a generic audit log, and analytics remain outside this
 operational API.
 
-### 5.18. Implemented Customer Frontend Runtime
+### 5.18. Implemented Administrator Frontend Runtime
 
-The Stage 15 application is a guest-only React and TypeScript client. Its
+The administrator frontend is grouped around explicit trust and feature
+boundaries:
+
+```text
+frontend/src/
+|-- api/adminApi.ts
+|-- components/admin/
+|-- features/admin-auth/
+|-- features/admin-orders/
+|-- features/admin-menu/
+|-- features/admin-analytics/
+|-- features/admin-exports/
+`-- routes/adminRoutes.tsx
+```
+
+`adminApi.ts` owns one canonical `/api/v1/admin/...` validator, Bearer-header
+creation, timeout/abort classification, and shared execution for JSON and Blob
+responses. Feature modules use native `fetch` only through this transport and
+strict feature-local parsers or request builders. There is no global Bearer
+interceptor, and customer/public transports cannot receive the administrator
+credential.
+
+`AdminAuthContext` keeps the current opaque token in memory and uses the exact
+versioned `restaurant-ordering:admin-auth:v1` `sessionStorage` record containing
+only `version` and `accessToken`. A storage failure leaves a newly authenticated
+current-tab session usable in memory. `AdminRouteGuard` requires successful
+`/api/v1/admin/auth/me` validation before rendering `AdminShell`; a 401 clears
+the session, while a network or 503 validation failure preserves it behind an
+explicit retry state. The app never uses `localStorage`, and the token is never
+placed in a URL, DOM node, or log. Frontend logout clears this state because the
+current backend has no logout endpoint. The planned unified-auth implementation
+will replace this current session model.
+
+Order list/detail views remain read-only except for explicit detail actions
+derived from the current status. Mutation requires inline confirmation and
+allows one PATCH in flight. The client performs no optimistic update and creates
+no history or Payment representation. Success is followed by authoritative GET
+refetch. PATCH success followed by GET failure is distinguished from a failed
+PATCH; network, timeout, uncertain server failure, and unresolved 409 outcomes
+activate a refresh gate before another action.
+
+Menu administration uses GET/POST/PATCH only. PATCH bodies contain changed
+fields only, and no optimistic mutation is applied. An ambiguous result requires
+Refresh before resubmission. Money fields remain integer minor units, inactive
+categories returned by the backend remain operationally selectable for item
+reassignment, and catalog changes never rewrite historical OrderItem snapshots.
+
+The shared reporting date helper accepts only date values, computes
+Europe/Oslo local midnight with an explicit offset, and converts the selected
+inclusive end date to the next local midnight for an aware half-open
+`[start, end)` query. It is DST-tested and independent of the host local time
+zone; `datetime-local` is not used. Analytics starts four requests in parallel
+under one generation AbortController, ignores stale generations, preserves
+section-level partial results, and performs no polling or automatic retry.
+Currency groups remain isolated and are never combined or converted.
+
+CSV exports use GET-only `adminRequestBlob`, sharing the JSON transport's path
+and Bearer boundary with a 30-second timeout. The export layer validates a
+case-insensitive `text/csv` media type but leaves Blob bytes unparsed. The
+download helper accepts only a short quoted ASCII `.csv` filename or uses a
+fixed report fallback, clicks one temporary link, and always removes the link
+and revokes the object URL. No Blob or object URL is persisted.
+
+### 5.19. Implemented Customer Frontend Runtime
+
+Stage 15 established a guest-only React and TypeScript client. Its
 feature directories are `menu`, `cart`, `checkout`, and `order-status`.
 `src/api` owns transport and strict runtime response validation,
 `src/components` owns genuinely shared shell and notice components,
-`src/routes` owns the exact public route table, and `src/styles` owns global
-tokens and base rules. No administrator route or customer-account state exists.
+`src/routes` owns the public route table, and `src/styles` owns global tokens
+and base rules. Stage 16 has since added the implemented administrator frontend
+described above. No customer-account state exists.
 
 The browser is not a pricing or lifecycle authority. It sends item identifiers,
 quantities, order type, and an optional dine-in table number; FastAPI supplies
@@ -792,6 +858,72 @@ During local development the network path is `Browser -> Vite :5173 -> /api
 proxy -> FastAPI 127.0.0.1:8000`. The default `VITE_API_BASE_URL` is empty, so
 requests remain same-origin through the Vite proxy and no local CORS middleware
 is required. Cross-origin production policy is deferred to deployment.
+
+### 5.20. Planned Unified Identity, Authorization, and Account Boundary
+
+This subsection records the accepted target after administrator-frontend
+acceptance. It is not an implementation claim. The target replaces
+the permanent AdminUser/customer split with one minimal registered identity:
+
+```text
+User
+- id: UUID
+- email: normalized unique email
+- password_hash: Argon2id hash
+- role: customer | admin | super_admin
+- is_active: boolean
+- created_at: aware UTC timestamp
+- updated_at: aware UTC timestamp
+```
+
+`role` will be a Python `StrEnum` represented by a `VARCHAR` column and a
+database `CHECK` constraint. It is one mutually exclusive role, so no Role
+table, role join table, or multi-role RBAC layer is planned. An anonymous
+`guest` is neither a User nor a role. Public registration creates only
+`customer`; no request field can select `admin` or `super_admin`.
+
+JWT access tokens will identify a User. The database remains authoritative for
+the current role and `is_active` on every protected request; a token role claim,
+if ever present, cannot authorize an operation. The planned dependencies are:
+
+- `get_current_user` for any active registered identity;
+- `require_admin` for `admin` or `super_admin` operational access;
+- `require_super_admin` for role management;
+- no Bearer requirement for anonymous guest ordering.
+
+The planned browser transport preserves explicit trust boundaries:
+
+- `publicApi` sends no Bearer token;
+- `authenticatedApi` may send Bearer only to an explicit account-route
+  allowlist and to optional authenticated Order creation;
+- `adminApi` may send Bearer only to `/api/v1/admin/...`;
+- no global interceptor may attach the account token to arbitrary requests.
+
+Guest Checkout and public status continue to use `X-Order-Access-Token`. The
+planned account token will not replace this per-Order credential.
+
+The ownership extension is a nullable indexed
+`Order.customer_user_id -> User.id` foreign key with `ON DELETE SET NULL`.
+Anonymous Orders store NULL; an Order created with a valid current User stores
+that User ID. Public responses never expose the owner ID, and account queries
+filter by the current User on the server. Every Order still gets an independent
+order-access token, and no flow will claim an earlier anonymous Order
+retroactively.
+
+The planned data migration renames and evolves `admin_users` into `users`,
+preserving UUID, normalized email, password hash, active state, and timestamps.
+It adds the constrained role column and maps the documented single existing
+administrator to `super_admin`. Zero existing rows are valid and allow a later
+secure bootstrap. If the migration finds more than one AdminUser while assuming
+one main administrator, it must fail safely instead of assigning highest trust
+arbitrarily. No schema or data migration is executed by this addendum.
+
+Public registration always creates `customer`, and ordinary administrators
+cannot assign `super_admin`. The normal role API and UI will allow only
+`customer <-> admin`; assigning `super_admin` is outside the ordinary MVP
+workflow. Any backend operation capable of demoting or deactivating a
+`super_admin` must transactionally preserve at least one active
+`super_admin`.
 
 ## 6. Architecture Diagram
 
@@ -863,7 +995,7 @@ Files such as `models.py`, `schemas.py`, `router.py`, and `service.py` are
 allowed within a module, but they are created only when the module actually
 needs the relevant responsibility.
 
-## 8. Implemented Customer Frontend Structure
+## 8. Implemented Stage 15 Customer Frontend Structure
 
 ```text
 frontend/
@@ -887,8 +1019,11 @@ frontend/
 ```
 
 Code is grouped primarily by feature. Shared components are placed in
-`components` only when they are genuinely shared. Administrator order, menu,
-and analytics features remain Stage 16 work and are not present here.
+`components` only when they are genuinely shared. The tree above records the
+Stage 15 baseline. Stage 16 has since added the complete administrator auth,
+shell, orders, menu, analytics, and exports implementation described in Section
+5.18; user-performed manual responsive acceptance passed at the required
+mobile, tablet, and desktop viewports.
 
 ## 9. Trust Boundaries and Data Integrity
 
@@ -929,6 +1064,14 @@ list and detail, fulfilment status changes, category and menu-item management,
 four protected analytics endpoints for the six basic KPIs, and exactly three
 protected CSV exports for orders, full product sales, and qualified succeeded
 payments.
+
+The accepted future account scope plans `POST /api/v1/auth/register`,
+`POST /api/v1/auth/login`, and `GET /api/v1/auth/me`. It also plans own-order
+list and detail under `/api/v1/account/orders`, plus a minimum super-admin-only
+`GET /api/v1/admin/users` and
+`PATCH /api/v1/admin/users/{user_id}/role`. Existing operational
+`/api/v1/admin/...` contracts remain stable while their authorization dependency
+moves from AdminUser-specific authentication to the unified role checks.
 
 Exact contracts, response codes, and the access policy will be defined in the
 stages that implement the relevant features. The context document is not yet a

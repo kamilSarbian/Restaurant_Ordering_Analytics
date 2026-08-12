@@ -16,17 +16,17 @@
 - **Stage 13:** completed
 - **Stage 14:** completed
 - **Stage 15:** completed
-- **Current stage:** waiting for approval to start Stage 16 — Administrator Frontend
+- **Current stage:** Stage 16 — Administrator Frontend B1 through B6
+  implemented and acceptance-verified; independent review and commit pending
 - **Backend:** FastAPI, database foundation, menu models, local seed data,
   public menu, transient quoting, persistent order creation, and secure public
   order status, Payment persistence, Stripe Checkout, and verified Stripe
   webhook processing, administrator authentication, and administrator order
   and menu operational APIs, administrator analytics, and administrator CSV
   reports completed
-- **Frontend:** guest menu, client filters, session cart, server quote, guest
-  order creation, idempotent Checkout, neutral Stripe returns, and protected
-  fulfilment-status polling completed and verified through automated validation
-  and manual responsive acceptance
+- **Frontend:** guest menu through protected fulfilment-status polling completed
+  and acceptance-verified; administrator authentication, orders, menu,
+  analytics, and exports implemented and acceptance-verified
 - **Database:** PostgreSQL, Alembic, menu, order, Payment, StripeEvent, and
   AdminUser models, migration `0006_create_admin_user_model`, and deterministic
   menu seed completed; the development AdminUser count is one
@@ -78,9 +78,18 @@
   payments; deterministic UTF-8-SIG, BOM, CSV dialect, filename, query,
   time-source, formula-safety, and exposure contracts completed and verified;
   one report SELECT per route and no migration required
-- **Application tests:** 1379 backend health, database, migration, model, constraint,
-  seed, schema, public API, quoting, order creation, payment, security,
-  rate-limit, rollback, and concurrency tests plus 263 frontend tests completed
+- **Application tests:** 1379 backend health, database, migration, model,
+  constraint, seed, schema, public API, quoting, order creation, payment,
+  security, rate-limit, rollback, and concurrency tests plus 485 frontend tests
+  completed before the Stage 16C documentation gate
+- **Stage 16 frontend:** B1 authentication/session/guard, B2 order reads, B3
+  status mutations, B4 menu, B5 analytics, B6A Blob transport, and B6 exports
+  are implemented in the current uncommitted scope; automated acceptance and
+  user-performed manual responsive QA are complete
+- **Unified accounts direction:** D-061 and D-062 accepted and documented;
+  unified User persistence, public registration, customer accounts, role APIs,
+  order ownership, landing-page migration, and shared frontend auth are planned
+  and not implemented
 - **Deployment:** not started
 
 ## Known limitations
@@ -114,11 +123,34 @@
   injected adapters or synthetic local signatures and perform no Stripe calls.
 - The seed is restricted to the exact local development database and is not a
   production bootstrap process.
-- Customer accounts and the administrator frontend are not implemented.
+- Customer accounts, unified User persistence, role management, and order
+  ownership are not implemented. The administrator frontend B1 through B6 is
+  implemented and acceptance-verified; independent review remains pending.
   Full-system containerisation, continuous integration, and deployment have not
   started.
 
 ## Last verification
+
+Stage 16C-1 documentation and automated acceptance audit on 2026-08-12:
+
+- Stage 16B-1 through B6 administrator frontend implementation: complete
+- Dedicated admin auth/session, order reads and explicit mutations, menu
+  management, analytics, and three secure CSV downloads: implemented
+- Frontend full suite: 485 passed; ESLint, Prettier check, TypeScript/Vite build,
+  and both npm audits: PASS before documentation-only C1 updates
+- User-performed manual administrator responsive QA at 375x812, 768x1024, and
+  1280x800, covering login, AdminShell/navigation, orders, order detail/actions,
+  menu, analytics, exports, and keyboard/focus behavior: PASS
+- Accepted target records anonymous guest ordering, unified User roles
+  `customer`/`admin`/`super_admin`, database-authoritative role checks, secure
+  super-admin bootstrap, nullable Order ownership, own-order history, landing
+  and unified-auth routes, and isolated frontend transports: documented only
+- Current runtime remains the separate AdminUser backend plus anonymous guest
+  ordering; no User model, registration, ownership migration, account route, or
+  role-management route is implemented
+- Current Stage 16 cumulative scope: exactly 50 unique paths, including the six
+  existing documentation paths
+- Stage 16D, 16E, 16F, and 16G have not started; Stage 17 has not started
 
 Stage 15 completed and verified on 2026-08-12:
 
@@ -155,7 +187,8 @@ Stage 15 completed and verified on 2026-08-12:
 - Keyboard navigation, visible focus, usable controls and touch targets, no
   payment-success claim on return pages, and no color-only status semantics:
   PASS
-- Stage 16 Administrator Frontend: not started
+- Stage 16 Administrator Frontend was not started at the Stage 15 verification
+  boundary; the current Stage 16 progress is recorded above
 
 Stage 14 verified on 2026-08-11:
 
@@ -280,7 +313,6 @@ Stage 10 verified on 2026-08-08:
   races complete without deadlocks: PASS
 - No public payment summary, cancellation endpoint, real Stripe request, seed,
   or demonstration financial data: PASS
-
 
 Stage 9 verified on 2026-08-07:
 

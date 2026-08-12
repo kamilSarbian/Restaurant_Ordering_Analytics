@@ -16,7 +16,9 @@ application, not an enterprise-class system.
 
 The goal is to build a secure web application that:
 
-- allows a customer to place a guest dine-in or takeaway order;
+- allows an anonymous guest to place a dine-in or takeaway order;
+- plans an optional registered customer account without making registration a
+  purchase requirement;
 - always prices the order on the backend;
 - supports test payments through Stripe Checkout;
 - allows staff to manage the menu and order fulfilment;
@@ -26,9 +28,10 @@ The goal is to build a secure web application that:
 
 ## 3. Users
 
-### 3.1. Restaurant Customer
+### 3.1. Anonymous Restaurant Guest
 
-The customer does not need to create an account. The customer can:
+The implemented guest is anonymous and does not need to create an account. The
+guest can:
 
 1. browse and filter the menu by category;
 2. view a product's description, price, image, allergens, and availability;
@@ -51,6 +54,22 @@ administrator can:
 5. hide products without destroying sales history;
 6. view the analytics dashboard;
 7. export CSV reports.
+
+### 3.3. Planned Registered Identities
+
+The accepted future identity direction introduces one unified `User` for every
+registered account. A registered normal account is a `customer`, never a
+guest. The three mutually exclusive roles will be `customer`, `admin`, and
+`super_admin`. Public registration will always create `customer` and cannot
+select or create a privileged role. A `super_admin` may manage promotion and
+demotion between `customer` and `admin`; an ordinary `admin` cannot grant
+`super_admin`.
+
+The current separate AdminUser authentication remains implemented until the
+approved migration work. That migration is planned to preserve the existing
+administrator as the initial `super_admin`. None of the unified User model,
+public registration, customer account, role management, or ownership behavior
+is implemented by this architecture addendum.
 
 ## 4. Main Flows
 
@@ -187,7 +206,7 @@ administrator can:
 9. Every allowed status change and its history row are committed atomically
    under the shared Order lock.
 10. The customer may read a minimal status view by providing the
-   `public_order_number` and the `X-Order-Access-Token` header.
+    `public_order_number` and the `X-Order-Access-Token` header.
 11. Stage 12 adds no RestaurantTable administration, refund processing, actor
     attribution, generic audit log, or analytics. Analytics are introduced
     separately in Stage 13.
@@ -267,6 +286,48 @@ account, PII collection, administrator frontend, backend schema, model, route,
 or migration. Its implementation, automated checks, and mandatory manual
 responsive acceptance are complete and verified.
 
+### 4.7A. Administrator Frontend
+
+Stage 16B implements a dedicated administrator route tree with sign-in,
+current-session token storage, `/me` validation, a protected route guard, and a
+shared AdminShell. The implemented screens cover order list/detail and explicit
+status actions, category and item administration, the four analytics views, and
+the three CSV downloads. Administrator requests use a dedicated path-isolated
+Bearer transport; public and guest APIs never receive that credential.
+
+Order status mutation is backend-authoritative, requires inline confirmation,
+does not update optimistically, and refetches detail after success. Ambiguous
+mutation outcomes block another action until Refresh establishes current state.
+Menu mutation uses GET, POST, and changed-only PATCH without DELETE; active and
+available remain independent and historical snapshots remain unchanged.
+
+Analytics uses date-only Europe/Oslo controls converted to aware half-open
+backend ranges, keeps currencies separate, and issues four parallel requests
+with section-level partial failure. Exports preserve backend CSV bytes through
+the shared Blob transport and conservative filename/download handling. The
+administrator frontend does not poll, perform refunds, delete menu resources,
+or implement finer RBAC beyond the current single administrator privilege.
+Automated acceptance and user-performed manual responsive acceptance at the
+required mobile, tablet, and desktop viewports are complete and verified.
+
+### 4.8. Planned Landing, Accounts, and Order Ownership
+
+After administrator-frontend acceptance, the planned landing route
+will offer Order as guest, Log in, and Create account. Order as guest will lead
+directly to the public menu and preserve the complete current no-login flow.
+Unified account routes are planned at `POST /api/v1/auth/register`,
+`POST /api/v1/auth/login`, and `GET /api/v1/auth/me`.
+
+A future nullable `Order.customer_user_id` will link a newly created Order to
+the current registered User when valid optional Bearer authentication is
+supplied. Anonymous Orders will retain NULL ownership. A missing Authorization
+header will mean anonymous guest creation, while an invalid supplied header
+will return 401 instead of silently downgrading to a guest. Every Order will
+still receive its independent order-access token for Checkout and public status.
+The planned account API and UI will list and display only Orders selected
+server-side for the current User. Historical anonymous Orders will not be
+claimed retroactively.
+
 ## 5. MVP Scope
 
 The MVP includes:
@@ -275,6 +336,7 @@ The MVP includes:
 - a frontend cart;
 - backend order quoting;
 - guest dine-in and takeaway orders;
+- planned registered customer accounts with own-order history;
 - table handling;
 - Stripe Checkout in test mode;
 - verified and idempotent Stripe webhooks;
@@ -291,7 +353,7 @@ The MVP includes:
 
 The following remain outside the MVP:
 
-- customer accounts and a loyalty program;
+- a loyalty program and extended customer profiles;
 - a mobile application;
 - table reservations and a delivery system;
 - advanced inventory management;
@@ -440,8 +502,9 @@ discounts. Dine-in orders additionally preserve `table_number_snapshot`.
 
 Stages 11 through 15 are complete and verified. The Stage 15 customer frontend
 passed automated validation and manual responsive acceptance at the required
-mobile, tablet, and desktop viewports. Stage 16 — Administrator Frontend is the
-next exact stage and has not started.
+mobile, tablet, and desktop viewports. Stage 16 administrator authentication,
+orders, menu, analytics, and exports are implemented and pass automated
+validation and user-performed manual administrator responsive acceptance.
 
 The project should demonstrate to a recruiter that its author can:
 

@@ -1,0 +1,109 @@
+.screen {
+    display: grid;
+    min-height: 100vh;
+    place-items: center;
+    padding: var(--space-4);
+    background:
+        radial-gradient(circle at top, rgb(36 97 70 / 14%), transparent 28rem),
+        var(--color-background);
+}
+
+.panel {
+    display: grid;
+    width: min(100%, 30rem);
+    gap: var(--space-5);
+    padding: clamp(var(--space-6), 6vw, var(--space-10));
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-medium);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-small);
+}
+
+.panel h1 {
+    font-size: clamp(2.15rem, 10vw, 3.75rem);
+}
+
+.intro {
+    color: var(--color-muted);
+}
+
+.form {
+    display: grid;
+    gap: var(--space-4);
+}
+
+.field {
+    display: grid;
+    gap: var(--space-2);
+}
+
+.field label {
+    color: var(--color-primary-hover);
+    font-weight: 800;
+}
+
+.field input {
+    width: 100%;
+    min-height: 2.75rem;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-small);
+    background: #fff;
+    color: var(--color-text);
+}
+
+.field input[aria-invalid='true'] {
+    border-color: var(--color-accent-strong);
+}
+
+.fieldError,
+.errorNotice {
+    color: var(--color-accent-strong);
+}
+
+.statusNotice {
+    color: var(--color-muted);
+}
+
+.submitButton,
+.secondaryButton {
+    min-height: 2.75rem;
+    padding: var(--space-2) var(--space-5);
+    border-radius: var(--radius-small);
+    cursor: pointer;
+    font-weight: 800;
+}
+
+.submitButton {
+    width: 100%;
+    border: 1px solid var(--color-primary);
+    background: var(--color-primary);
+    color: var(--color-surface);
+}
+
+.submitButton:hover:not(:disabled) {
+    background: var(--color-primary-hover);
+}
+
+.submitButton:disabled {
+    cursor: not-allowed;
+    opacity: 0.65;
+}
+
+.secondaryButton {
+    border: 1px solid var(--color-primary);
+    background: transparent;
+    color: var(--color-primary-hover);
+}
+
+.actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+}
+
+@media (min-width: 48rem) {
+    .screen {
+        padding: var(--space-8);
+    }
+}

@@ -87,13 +87,42 @@ describe('customer frontend routing foundation', () => {
     ).toBeInTheDocument();
   });
 
-  it('does not expose an administrator interface or route', () => {
+  it('exposes the public administrator login without changing the customer shell', async () => {
+    renderRoute('/admin/login');
+
+    expect(
+      await screen.findByRole('heading', {
+        level: 1,
+        name: 'Administrator sign-in',
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('link', { name: 'Restaurant ordering home' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('guards the administrator root and does not render protected content', async () => {
     renderRoute('/admin');
 
     expect(
-      screen.getByRole('heading', { level: 1, name: 'Page not found' }),
+      await screen.findByRole('heading', {
+        level: 1,
+        name: 'Administrator sign-in',
+      }),
     ).toBeInTheDocument();
-    expect(screen.queryByText(/administrator dashboard/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('Administrator workspace')).not.toBeInTheDocument();
+  });
+
+  it('keeps administrator controls out of the customer AppShell', async () => {
+    renderRoute('/');
+
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Our menu' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Log out' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('navigation', { name: 'Administrator navigation' }),
+    ).not.toBeInTheDocument();
   });
 
   it('provides appropriate live-region semantics for reusable notices', () => {
