@@ -19,6 +19,7 @@ from app.database.session import create_database_engine, create_session_factory
 from app.menu.admin_router import router as admin_menu_router
 from app.menu.router import router as menu_router
 from app.menu.schemas import PublicMenuResponse
+from app.orders.account_router import router as account_orders_router
 from app.orders.admin_router import router as admin_orders_router
 from app.orders.router import router as orders_router
 from app.payments.checkout import utc_now
@@ -162,6 +163,7 @@ def create_app(
     application.include_router(health_router)
     application.include_router(menu_router)
     application.include_router(orders_router)
+    application.include_router(account_orders_router)
     application.include_router(admin_orders_router)
     application.include_router(admin_menu_router)
     application.include_router(admin_users_router)

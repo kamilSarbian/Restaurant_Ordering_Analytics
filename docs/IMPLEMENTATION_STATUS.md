@@ -16,12 +16,14 @@
 - **Stage 13:** completed
 - **Stage 14:** completed
 - **Stage 15:** completed
-- **Current stage:** Stage 16D PRE-COMMIT READY; D1 through D5 and C1 are
+- **Current stage:** Stage 16E PRE-COMMIT READY; E1 through E5, FIX1, and C1 are
   complete, with independent review and commit pending
 - **Backend:** FastAPI, database foundation, menu models, local seed data,
   public menu, transient quoting, persistent order creation, and secure public
   order status, Payment persistence, Stripe Checkout, and verified Stripe
   webhook processing, unified User authentication and role authorization,
+  nullable Order ownership, mixed guest/authenticated Order access, strict
+  personal account Order reads,
   administrator order and menu operational APIs, administrator analytics,
   administrator CSV reports, and super-admin User governance completed
 - **Frontend:** guest menu through protected fulfilment-status polling completed
@@ -29,7 +31,7 @@
   analytics, and exports implemented and acceptance-verified
 - **Database:** PostgreSQL, Alembic, menu, order, Payment, StripeEvent, and User
   models and deterministic menu seed completed; repository head is migration
-  `0007_unify_user_auth_roles`, while the development database deliberately
+  `0008_add_order_ownership`, while the development database deliberately
   remains at 0006 with one historical administrator row
 - **Seed data:** completed and verified
 - **Public menu API:** list, availability filter, item details, and 404 contract
@@ -37,13 +39,14 @@
 - **Menu write API:** administrator category and item list, create, partial
   update, activity, availability, and reassignment completed and verified
 - **Order quoting:** completed and verified
-- **Order creation:** completed and verified
-- **Public order status:** completed and verified
+- **Order creation:** guest or optional canonical User ownership completed and
+  verified; every Order retains an independent guest capability
+- **Public order status:** owner-or-capability access completed and verified
 - **RestaurantTable foundation:** completed; provisioning and administration
   workflow not started
 - **Payment persistence:** completed and verified
-- **Stripe Checkout:** completed and verified using the official SDK boundary
-  and fake-provider automated tests
+- **Stripe Checkout:** owner-or-capability access completed and verified using
+  the official SDK boundary and fake-provider automated tests
 - **Checkout idempotency:** completed and verified
 - **D-016 Payment-aware cancellation verification:** completed at the domain
   and integration level
@@ -84,15 +87,15 @@
   payments; deterministic UTF-8-SIG, BOM, CSV dialect, filename, query,
   time-source, formula-safety, and exposure contracts completed and verified;
   one report SELECT per route and no migration required
-- **Application tests:** 1522 backend health, database, migration, model,
+- **Application tests:** 1584 backend health, database, migration, model,
   constraint, seed, schema, public API, quoting, order creation, payment,
   security, rate-limit, rollback, and concurrency tests plus 485 frontend tests
-  completed before the Stage 16C documentation gate
+  completed at the Stage 16E-C1 documentation gate
 - **Stage 16 frontend:** B1 authentication/session/guard, B2 order reads, B3
   status mutations, B4 menu, B5 analytics, B6A Blob transport, and B6 exports
-  are implemented in the current uncommitted scope; automated acceptance and
-  user-performed manual responsive QA are complete
-- **Stage 16D backend:** D1 through D5 implement unified User persistence,
+  are committed; automated acceptance and user-performed manual responsive QA
+  are complete
+- **Stage 16D backend:** committed; D1 through D5 implement unified User persistence,
   migration 0007, public registration/login/me, compatibility auth aliases,
   database-backed RBAC, secure super-admin bootstrap, role management, and
   canonical AUTH configuration
@@ -101,9 +104,17 @@
 - **Stage 16D-3:** complete
 - **Stage 16D-4:** complete
 - **Stage 16D-5:** complete
-- **Remaining account direction:** order ownership, customer own-order APIs,
-  landing-page migration, shared frontend auth, and `/admin/users` UI remain
-  planned for Stages 16E and 16F
+- **Stage 16E-1:** complete — nullable Order ownership and migration 0008
+- **Stage 16E-2:** complete — optional canonical authentication on creation
+- **Stage 16E-3:** complete — owner-or-capability status and Checkout
+- **Stage 16E-4:** complete — strict read-only personal account Order API
+- **Stage 16E-5:** complete — security and concurrency hardening
+- **Stage 16E-5-FIX1:** complete — deterministic Date-only frontend tests;
+  production frontend source unchanged
+- **Stage 16E-C1:** complete; documentation and pre-commit validation passed
+- **Remaining frontend direction:** landing-page migration, shared customer
+  authentication/account UX, authenticated ordering UX, and `/admin/users` UI
+  remain planned for Stage 16F
 - **Deployment:** not started
 
 ## Known limitations
@@ -114,11 +125,12 @@
   exports. The guest customer frontend is completed and verified.
 - Unified authentication has no refresh, logout, revocation, password
   reset/change, or MFA. Its limiter is per process and resets on restart.
-- Repository migration 0007 is implemented and verified, but the development
-  database deliberately remains at 0006. Before local unified-auth runtime use,
-  an operator must configure a local AUTH secret and perform the development
-  upgrade to 0007 in a separately approved migration step. Bootstrap may then
-  be required if no super-admin exists; none of these actions is part of C1.
+- Repository migration 0008 is implemented and verified, but the development
+  database deliberately remains at 0006. Before local unified-auth, ownership,
+  or account runtime use, an operator must configure a local AUTH secret and
+  perform the separately approved `0006 -> 0007 -> 0008` development migration.
+  Bootstrap may then be required if no super-admin exists; none of these actions
+  is part of C1.
 - RestaurantTable provisioning and administration have not started, so Stage 8
   only provides the persistence and validation foundation.
 - Order creation has no idempotency key; a network retry can create a duplicate
@@ -139,14 +151,34 @@
   injected adapters or synthetic local signatures and perform no Stripe calls.
 - The seed is restricted to the exact local development database and is not a
   production bootstrap process.
-- Unified User persistence, customer registration/authentication, and role
-  management are implemented. Order ownership, own-order history, unified
-  account frontend, and `/admin/users` UI are not implemented. The
+- Unified User persistence, customer registration/authentication, role
+  management, Order ownership, and read-only own-order API are implemented.
+  Unified account frontend and `/admin/users` UI are not implemented. The
   administrator frontend B1 through B6 is acceptance-verified.
   Full-system containerisation, continuous integration, and deployment have not
   started.
 
 ## Last verification
+
+Stage 16E-C1 documentation and pre-commit validation on 2026-08-13:
+
+- Stage 16E slices E1 through E5 plus FIX1: implemented in exactly 30 physical
+  paths and 34 cumulative slice-counted paths before C1
+- C1 documentation scope: exactly six source-of-truth files; Stage 16E physical
+  scope becomes 36 paths and cumulative slice count becomes 40
+- Nullable Order ownership, mixed guest/canonical creation, owner-or-capability
+  status and Checkout, strict personal account reads, privacy boundaries, and
+  security/concurrency hardening: implemented
+- Backend full suite: 1584 passed with one accepted Starlette deprecation
+  warning; Ruff, Black, isort, Alembic single head, migration round-trip,
+  no-drift, OpenAPI, scope, and security checks: PASS
+- Frontend full suite: 485 passed; ESLint, Prettier check, TypeScript/Vite build,
+  production audit, and full audit: PASS. Stage 16E changed only two test files
+  to freeze Date deterministically; production frontend source is unchanged
+- Repository and Alembic head: `0008_add_order_ownership`; development DB:
+  deliberately remains at `0006_create_admin_user_model` pending a separately
+  approved `0006 -> 0007 -> 0008` operation
+- Stage 16E-C2 has not started; Stages 16F, 16G, and 17 have not started
 
 Stage 16D-C1 documentation and pre-commit validation on 2026-08-12:
 

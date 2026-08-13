@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Generator
 from datetime import UTC, datetime, timedelta
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import jwt
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import delete, event, select
+from sqlalchemy import delete, event, func, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -33,15 +33,21 @@ from app.auth.tokens import (
     TOKEN_TYPE,
     AdminTokenService,
 )
+from app.categories.models import Category
 from app.core.config import Settings
 from app.core.rate_limit import FixedWindowRateLimiter
 from app.database.session import create_session_factory
 from app.main import create_app
+from app.menu.models import MenuItem
+from app.orders.models import Order, OrderItem, OrderStatusHistory
+from app.payments.models import Payment
+from app.payments.stripe_checkout import CheckoutSessionResult, StripeCheckoutRequest
 
 pytestmark = pytest.mark.integration
 
 LOGIN_PATH = "/api/v1/admin/auth/login"
 ME_PATH = "/api/v1/admin/auth/me"
+CREATE_ORDER_PATH = "/api/v1/orders"
 ADMIN_EMAIL = "admin@example.com"
 SYNTHETIC_PASSWORD = "synthetic-admin-login-password"
 WRONG_SYNTHETIC_PASSWORD = "wrong-synthetic-password"
@@ -77,6 +83,25 @@ class CountingUserTokenService(UserTokenService):
         """Count and create one real synthetic access token."""
         self.create_calls += 1
         return super().create_access_token(admin_id)
+
+
+class BoundaryStripeClient:
+    """Record synthetic Checkout calls for the auth-family boundary test."""
+
+    def __init__(self) -> None:
+        self.requests: list[StripeCheckoutRequest] = []
+
+    def create_checkout_session(
+        self,
+        request: StripeCheckoutRequest,
+    ) -> CheckoutSessionResult:
+        """Return one deterministic synthetic Checkout Session."""
+        self.requests.append(request)
+        return CheckoutSessionResult(
+            session_id="cs_admin_auth_boundary",
+            checkout_url="https://checkout.example.test/session/admin-auth-boundary",
+            expires_at=FIXED_NOW + timedelta(hours=1),
+        )
 
 
 @pytest.fixture(autouse=True)
@@ -817,6 +842,124 @@ def test_admin_role_uses_legacy_login_alias_and_canonical_token_on_admin_routes(
     assert client.get("/api/v1/admin/orders", headers=headers).status_code == 200
 
 
+def test_legacy_login_canonical_token_owns_order_but_admin_access_is_rejected(
+    client: TestClient,
+    admin_session_factory: sessionmaker[Session],
+    token_service: AdminTokenService,
+    test_database_engine: Engine,
+) -> None:
+    """Keep legacy login canonical while isolating legacy tokens from ownership."""
+    admin_id = _store_admin(admin_session_factory, role=UserRole.ADMIN)
+    category = Category(name=f"Admin ownership {uuid4().hex}")
+    item = MenuItem(
+        category=category,
+        name="Admin ownership item",
+        price_amount=1500,
+        cost_amount=500,
+        currency="NOK",
+        is_active=True,
+        is_available=True,
+    )
+    with admin_session_factory.begin() as session:
+        session.add_all([category, item])
+        session.flush()
+        category_id = category.id
+        item_id = item.id
+
+    try:
+        login = client.post(LOGIN_PATH, json=_login_payload())
+        assert login.status_code == 200
+        canonical_token = login.json()["access_token"]
+        claims = jwt.decode(canonical_token, options={"verify_signature": False})
+        assert claims["type"] == USER_TOKEN_TYPE
+
+        created = client.post(
+            CREATE_ORDER_PATH,
+            json={
+                "order_type": "takeaway",
+                "items": [{"menu_item_id": str(item_id), "quantity": 1}],
+            },
+            headers=_authorization(canonical_token),
+        )
+        assert created.status_code == 201
+        assert "customer_user_id" not in created.json()
+        with admin_session_factory() as session:
+            order = session.scalars(select(Order)).one()
+            assert order.customer_user_id == admin_id
+
+        public_number = created.json()["public_order_number"]
+        guest_capability = created.json()["order_access_token"]
+        owner_status = client.get(
+            f"/api/v1/orders/{public_number}",
+            headers=_authorization(canonical_token),
+        )
+        assert owner_status.status_code == 200
+
+        stripe_client = BoundaryStripeClient()
+        client.app.state.stripe_checkout_client = stripe_client
+        client.app.state.stripe_success_url = (
+            "https://restaurant.example.test/orders/{public_order_number}/success"
+        )
+        client.app.state.stripe_cancel_url = (
+            "https://restaurant.example.test/orders/{public_order_number}/cancel"
+        )
+        client.app.state.checkout_now_provider = lambda: FIXED_NOW
+        owner_checkout = client.post(
+            f"/api/v1/orders/{public_number}/checkout-session",
+            headers={
+                **_authorization(canonical_token),
+                "Idempotency-Key": str(uuid4()),
+            },
+        )
+        assert owner_checkout.status_code == 201
+        assert len(stripe_client.requests) == 1
+
+        legacy_token = token_service.create_access_token(admin_id)
+        capability_headers = {
+            **_authorization(legacy_token),
+            "X-Order-Access-Token": guest_capability,
+        }
+        legacy_status = client.get(
+            f"/api/v1/orders/{public_number}",
+            headers=capability_headers,
+        )
+        legacy_checkout = client.post(
+            f"/api/v1/orders/{public_number}/checkout-session",
+            headers={
+                **capability_headers,
+                "Idempotency-Key": str(uuid4()),
+            },
+        )
+        for response in (legacy_status, legacy_checkout):
+            assert response.status_code == 401
+            assert response.json() == {"detail": "Invalid authentication credentials"}
+            assert response.headers["WWW-Authenticate"] == "Bearer"
+        assert len(stripe_client.requests) == 1
+
+        rejected = client.post(
+            CREATE_ORDER_PATH,
+            json={
+                "order_type": "takeaway",
+                "items": [{"menu_item_id": str(item_id), "quantity": 1}],
+            },
+            headers=_authorization(legacy_token),
+        )
+        assert rejected.status_code == 401
+        assert rejected.json() == {"detail": "Invalid authentication credentials"}
+        assert rejected.headers["WWW-Authenticate"] == "Bearer"
+        with admin_session_factory() as session:
+            assert session.scalar(select(func.count()).select_from(Order)) == 1
+            assert session.scalar(select(func.count()).select_from(Payment)) == 1
+    finally:
+        with test_database_engine.begin() as connection:
+            connection.execute(delete(Payment))
+            connection.execute(delete(OrderStatusHistory))
+            connection.execute(delete(OrderItem))
+            connection.execute(delete(Order))
+            connection.execute(delete(MenuItem).where(MenuItem.id == item_id))
+            connection.execute(delete(Category).where(Category.id == category_id))
+
+
 def test_customer_credentials_on_legacy_login_match_invalid_credentials(
     client: TestClient,
     admin_session_factory: sessionmaker[Session],
@@ -1007,10 +1150,21 @@ def test_openapi_documents_exact_admin_auth_contract_and_keeps_public_routes_ope
         document["paths"]["/health"]["get"],
         document["paths"]["/api/v1/menu"]["get"],
         document["paths"]["/api/v1/orders/quote"]["post"],
-        document["paths"]["/api/v1/orders"]["post"],
+    ]
+    assert all("security" not in operation for operation in public_operations)
+    owner_aware_operations = [
+        document["paths"][CREATE_ORDER_PATH]["post"],
         document["paths"]["/api/v1/orders/{public_order_number}"]["get"],
         document["paths"]["/api/v1/orders/{public_order_number}/checkout-session"][
             "post"
         ],
     ]
-    assert all("security" not in operation for operation in public_operations)
+    assert all(
+        operation["security"] == [{"UserBearer": []}, {}]
+        for operation in owner_aware_operations
+    )
+    assert all(
+        "AdminBearer" not in requirement
+        for operation in owner_aware_operations
+        for requirement in operation["security"]
+    )

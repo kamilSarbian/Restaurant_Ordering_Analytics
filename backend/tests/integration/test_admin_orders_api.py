@@ -184,6 +184,20 @@ def _store_admin(
         return admin.id
 
 
+def _store_customer(session_factory: sessionmaker[Session]) -> tuple[UUID, str]:
+    email = f"owned-order-{uuid.uuid4().hex}@example.com"
+    with session_factory.begin() as session:
+        customer = AdminUser(
+            email=email,
+            password_hash="synthetic-owned-order-password-hash",
+            role=UserRole.CUSTOMER,
+            is_active=True,
+        )
+        session.add(customer)
+        session.flush()
+        return customer.id, email
+
+
 def _store_list_order(
     session_factory: sessionmaker[Session],
     *,
@@ -191,6 +205,7 @@ def _store_list_order(
     order_type: OrderType = OrderType.TAKEAWAY,
     created_at: datetime = FIXED_NOW,
     total_amount: int = 1000,
+    customer_user_id: UUID | None = None,
 ) -> tuple[UUID, str]:
     with session_factory.begin() as session:
         table = None
@@ -201,6 +216,7 @@ def _store_list_order(
         order = Order(
             public_order_number=generate_public_order_number(),
             order_access_token_hash=uuid.uuid4().hex + uuid.uuid4().hex,
+            customer_user_id=customer_user_id,
             order_type=order_type.value,
             table_id=table.id if table is not None else None,
             table_number_snapshot=table.number if table is not None else None,
@@ -218,6 +234,8 @@ def _store_list_order(
 
 def _store_detail_order(
     session_factory: sessionmaker[Session],
+    *,
+    customer_user_id: UUID | None = None,
 ) -> StoredDetail:
     with session_factory.begin() as session:
         category = Category(name="Current Admin Category")
@@ -240,6 +258,7 @@ def _store_detail_order(
         order = Order(
             public_order_number=generate_public_order_number(),
             order_access_token_hash=uuid.uuid4().hex + uuid.uuid4().hex,
+            customer_user_id=customer_user_id,
             order_type=OrderType.DINE_IN.value,
             table_id=table.id,
             table_number_snapshot=7,
@@ -382,12 +401,14 @@ def _store_transition_order(
     *,
     current_status: OrderStatus = OrderStatus.CREATED,
     payment_statuses: tuple[PaymentStatus, ...] = (),
+    customer_user_id: UUID | None = None,
 ) -> StoredTransition:
     base_time = FIXED_NOW - timedelta(days=365)
     with session_factory.begin() as session:
         order = Order(
             public_order_number=generate_public_order_number(),
             order_access_token_hash=uuid.uuid4().hex + uuid.uuid4().hex,
+            customer_user_id=customer_user_id,
             order_type=OrderType.TAKEAWAY.value,
             table_id=None,
             table_number_snapshot=None,
@@ -473,6 +494,18 @@ def _stored_transition_state(
             ).all()
         ]
         return order.status, history, payments
+
+
+def _response_keys(value: object) -> set[str]:
+    keys: set[str] = set()
+    if isinstance(value, dict):
+        keys.update(value)
+        for item in value.values():
+            keys.update(_response_keys(item))
+    elif isinstance(value, list):
+        for item in value:
+            keys.update(_response_keys(item))
+    return keys
 
 
 @pytest.mark.parametrize(
@@ -615,7 +648,11 @@ def test_order_list_is_filtered_paginated_and_deterministic(
 
 def test_order_list_exposes_exact_safe_fields(admin_client: AdminClient) -> None:
     """Exclude internal and financial-provider data from list items."""
-    order_id, _ = _store_list_order(admin_client.session_factory)
+    customer_id, customer_email = _store_customer(admin_client.session_factory)
+    order_id, _ = _store_list_order(
+        admin_client.session_factory,
+        customer_user_id=customer_id,
+    )
     response = admin_client.client.get(LIST_PATH, headers=admin_client.headers)
     assert response.status_code == 200
     item = response.json()["items"][0]
@@ -630,6 +667,21 @@ def test_order_list_exposes_exact_safe_fields(admin_client: AdminClient) -> None
         "updated_at",
     }
     assert str(order_id) not in response.text
+    assert str(customer_id) not in response.text
+    assert customer_email not in response.text
+    assert _response_keys(response.json()).isdisjoint(
+        {
+            "customer_user_id",
+            "owner_id",
+            "user_id",
+            "customer_email",
+            "email",
+            "ownership",
+            "account",
+            "guest_access_token",
+            "guest_access_token_hash",
+        }
+    )
     assert all(
         forbidden not in response.text.lower()
         for forbidden in ("payment", "stripe", "token", "authorization")
@@ -703,7 +755,11 @@ def test_admin_order_detail_returns_ordered_snapshot_history_and_payments(
     admin_client: AdminClient,
 ) -> None:
     """Return the exact detached detail contract with limited payment fields."""
-    stored = _store_detail_order(admin_client.session_factory)
+    customer_id, customer_email = _store_customer(admin_client.session_factory)
+    stored = _store_detail_order(
+        admin_client.session_factory,
+        customer_user_id=customer_id,
+    )
     response = admin_client.client.get(
         DETAIL_PATH.format(public_order_number=stored.public_order_number),
         headers=admin_client.headers,
@@ -760,6 +816,21 @@ def test_admin_order_detail_returns_ordered_snapshot_history_and_payments(
         "checkout_expires_at",
     }
     assert body["payments"][2]["checkout_expires_at"] is not None
+    assert str(customer_id) not in response.text
+    assert customer_email not in response.text
+    assert _response_keys(body).isdisjoint(
+        {
+            "customer_user_id",
+            "owner_id",
+            "user_id",
+            "customer_email",
+            "email",
+            "ownership",
+            "account",
+            "guest_access_token",
+            "guest_access_token_hash",
+        }
+    )
 
     response_text = response.text.lower()
     assert all(
@@ -970,10 +1041,12 @@ def test_each_allowed_status_transition_is_atomic_and_appends_one_history_entry(
     payment_statuses: tuple[PaymentStatus, ...],
 ) -> None:
     """Apply every graph edge with one exact durable history append."""
+    customer_id, customer_email = _store_customer(admin_client.session_factory)
     stored = _store_transition_order(
         admin_client.session_factory,
         current_status=current_status,
         payment_statuses=payment_statuses,
+        customer_user_id=customer_id,
     )
     _, before_history, before_payments = _stored_transition_state(
         admin_client.session_factory,
@@ -1006,6 +1079,21 @@ def test_each_allowed_status_transition_is_atomic_and_appends_one_history_entry(
     assert body["history"]["previous_status"] == current_status.value
     assert body["history"]["new_status"] == target_status.value
     assert datetime.fromisoformat(body["updated_at"]) > FIXED_NOW - timedelta(days=365)
+    assert str(customer_id) not in response.text
+    assert customer_email not in response.text
+    assert _response_keys(body).isdisjoint(
+        {
+            "customer_user_id",
+            "owner_id",
+            "user_id",
+            "customer_email",
+            "email",
+            "ownership",
+            "account",
+            "guest_access_token",
+            "guest_access_token_hash",
+        }
+    )
 
     stored_status, after_history, after_payments = _stored_transition_state(
         admin_client.session_factory,
@@ -1019,6 +1107,10 @@ def test_each_allowed_status_transition_is_atomic_and_appends_one_history_entry(
     assert after_history[-1].previous_status == current_status.value
     assert after_history[-1].new_status == target_status.value
     assert after_payments == before_payments
+    with admin_client.session_factory() as session:
+        order = session.get(Order, stored.order_id)
+        assert order is not None
+        assert order.customer_user_id == customer_id
 
 
 @pytest.mark.parametrize(

@@ -1,7 +1,7 @@
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
-import { afterEach, vi } from 'vitest';
+import { afterEach, beforeEach, vi } from 'vitest';
 
 import { adminRoutes } from '../../routes/adminRoutes';
 import { installFetchStub, type FetchStep } from '../../test/fetchStub';
@@ -13,6 +13,7 @@ import {
 
 const TOKEN = 'synthetic-analytics-admin-token';
 const ME = { email: 'analytics-admin@example.test', is_active: true };
+const FIXED_NOW = new Date('2026-08-12T12:00:00+02:00');
 const RANGE = {
   end: '2026-08-13T00:00:00+02:00',
   start: '2026-08-06T00:00:00+02:00',
@@ -70,6 +71,11 @@ async function waitForInitialAnalytics(): Promise<void> {
   ).toBeVisible();
   await screen.findByText('No paid orders in this period.');
 }
+
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(FIXED_NOW);
+});
 
 afterEach(() => {
   sessionStorage.clear();

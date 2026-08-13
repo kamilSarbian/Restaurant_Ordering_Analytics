@@ -9,11 +9,18 @@ from threading import Barrier, Event, Lock, local
 from uuid import UUID, uuid4
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import delete, event, select, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.auth.models import User
+from app.auth.roles import UserRole
+from app.auth.service import UserTokenService
+from app.core.config import Settings
+from app.core.rate_limit import FixedWindowRateLimiter
 from app.database.session import create_session_factory
+from app.main import create_app
 from app.orders.access import (
     generate_order_access_token,
     generate_public_order_number,
@@ -45,6 +52,8 @@ from app.payments.stripe_checkout import (
 pytestmark = pytest.mark.integration
 
 NOW = datetime(2026, 8, 7, 12, tzinfo=UTC)
+CHECKOUT_PATH = "/api/v1/orders/{public_order_number}/checkout-session"
+SYNTHETIC_SECRET = "s" * 32
 SUCCESS_TEMPLATE = "https://restaurant.example.test/{public_order_number}/ok"
 CANCEL_TEMPLATE = "https://restaurant.example.test/{public_order_number}/cancel"
 CHECKOUT_RESULT = CheckoutSessionResult(
@@ -97,10 +106,13 @@ def _clear_order_tables(engine: Engine) -> None:
         connection.execute(delete(OrderStatusHistory))
         connection.execute(delete(OrderItem))
         connection.execute(delete(Order))
+        connection.execute(delete(User))
 
 
 def _store_order(
     session_factory: sessionmaker[Session],
+    *,
+    customer_user_id: UUID | None = None,
 ) -> tuple[UUID, str, str]:
     order_id = uuid4()
     public_number = generate_public_order_number()
@@ -110,6 +122,7 @@ def _store_order(
             id=order_id,
             public_order_number=public_number,
             order_access_token_hash=hash_order_access_token(token),
+            customer_user_id=customer_user_id,
             order_type="takeaway",
             table_id=None,
             table_number_snapshot=None,
@@ -134,9 +147,10 @@ def _run_checkout(
     session_factory: sessionmaker[Session],
     *,
     public_number: str,
-    token: str,
+    token: str | None,
     request_key: UUID,
     stripe_client: CallbackStripeClient,
+    current_user_id: UUID | None = None,
 ) -> CheckoutOutcome:
     with session_factory() as session:
         return checkout_order(
@@ -147,8 +161,48 @@ def _run_checkout(
             stripe_client=stripe_client,  # type: ignore[arg-type]
             stripe_success_url_template=SUCCESS_TEMPLATE,
             stripe_cancel_url_template=CANCEL_TEMPLATE,
+            current_user_id=current_user_id,
             now_provider=lambda: NOW,
         )
+
+
+def _store_user(session_factory: sessionmaker[Session]) -> UUID:
+    with session_factory.begin() as session:
+        user = User(
+            email=f"checkout-concurrency-{uuid4().hex}@example.com",
+            password_hash="synthetic-checkout-concurrency-password-hash",
+            role=UserRole.CUSTOMER,
+            is_active=True,
+        )
+        session.add(user)
+        session.flush()
+        return user.id
+
+
+def _application(
+    session_factory: sessionmaker[Session],
+    *,
+    stripe_client: CallbackStripeClient,
+    user_token_service: UserTokenService,
+):
+    return create_app(
+        settings=Settings(
+            _env_file=None,
+            database_url=None,
+            auth_jwt_secret=None,
+            stripe_secret_key=None,
+            stripe_success_url=SUCCESS_TEMPLATE,
+            stripe_cancel_url=CANCEL_TEMPLATE,
+        ),
+        session_factory=session_factory,
+        checkout_rate_limiter=FixedWindowRateLimiter(
+            limit=10,
+            window_seconds=60,
+        ),
+        stripe_checkout_client=stripe_client,  # type: ignore[arg-type]
+        checkout_now_provider=lambda: NOW,
+        user_token_service=user_token_service,
+    )
 
 
 def _run_cancellation(
@@ -308,6 +362,219 @@ def test_same_key_concurrency_creates_one_payment_and_one_session_semantics(
     }
     assert {outcome.created for outcome in outcomes} == {True, False}
     assert len({outcome.response.checkout_url for outcome in outcomes}) == 1
+
+
+@pytest.mark.parametrize("capability_identity", ["anonymous", "non-owner"])
+def test_owned_order_same_key_owner_and_capability_callers_converge(
+    checkout_session_factory: sessionmaker[Session],
+    capability_identity: str,
+) -> None:
+    """Converge owner and independent capability traffic on one attempt."""
+    owner_id = _store_user(checkout_session_factory)
+    capability_user_id = (
+        _store_user(checkout_session_factory)
+        if capability_identity == "non-owner"
+        else None
+    )
+    order_id, public_number, token = _store_order(
+        checkout_session_factory,
+        customer_user_id=owner_id,
+    )
+    request_key = uuid4()
+    provider_barrier = Barrier(2)
+
+    def provider_callback(_request: StripeCheckoutRequest) -> CheckoutSessionResult:
+        provider_barrier.wait(timeout=10)
+        return CHECKOUT_RESULT
+
+    fake = CallbackStripeClient(provider_callback)
+
+    def owner_worker() -> CheckoutOutcome:
+        return _run_checkout(
+            checkout_session_factory,
+            public_number=public_number,
+            token=None,
+            request_key=request_key,
+            stripe_client=fake,
+            current_user_id=owner_id,
+        )
+
+    def capability_worker() -> CheckoutOutcome:
+        return _run_checkout(
+            checkout_session_factory,
+            public_number=public_number,
+            token=token,
+            request_key=request_key,
+            stripe_client=fake,
+            current_user_id=capability_user_id,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(owner_worker), executor.submit(capability_worker)]
+        outcomes = [future.result(timeout=15) for future in futures]
+
+    with checkout_session_factory() as session:
+        order = session.get(Order, order_id)
+        payments = list(session.scalars(select(Payment)).all())
+        history = list(
+            session.scalars(
+                select(OrderStatusHistory)
+                .where(OrderStatusHistory.order_id == order_id)
+                .order_by(OrderStatusHistory.sequence.asc())
+            ).all()
+        )
+    assert order is not None
+    assert order.customer_user_id == owner_id
+    assert order.status == OrderStatus.CREATED.value
+    assert [(entry.sequence, entry.new_status) for entry in history] == [
+        (0, OrderStatus.CREATED.value)
+    ]
+    assert len(payments) == 1
+    payment = payments[0]
+    assert payment.request_idempotency_key == request_key
+    assert payment.stripe_idempotency_key == build_stripe_idempotency_key(payment.id)
+    assert len(fake.requests) == 2
+    assert {request.stripe_idempotency_key for request in fake.requests} == {
+        payment.stripe_idempotency_key
+    }
+    assert {outcome.created for outcome in outcomes} == {True, False}
+    assert {outcome.response.checkout_url for outcome in outcomes} == {
+        CHECKOUT_RESULT.checkout_url
+    }
+
+
+def test_denied_identities_have_no_side_effects_during_owner_checkout(
+    checkout_session_factory: sessionmaker[Session],
+    test_database_engine: Engine,
+) -> None:
+    """Reject 404 and 401 contenders before Payment or provider side effects."""
+    owner_id = _store_user(checkout_session_factory)
+    non_owner_id = _store_user(checkout_session_factory)
+    order_id, public_number, token = _store_order(
+        checkout_session_factory,
+        customer_user_id=owner_id,
+    )
+    owner_key = uuid4()
+    non_owner_key = uuid4()
+    invalid_auth_key = uuid4()
+    provider_entered = Event()
+    release_provider = Event()
+
+    def provider_callback(_request: StripeCheckoutRequest) -> CheckoutSessionResult:
+        provider_entered.set()
+        assert release_provider.wait(timeout=10)
+        return CHECKOUT_RESULT
+
+    fake = CallbackStripeClient(provider_callback)
+    user_token_service = UserTokenService(
+        SYNTHETIC_SECRET,
+        now_provider=lambda: NOW,
+    )
+    application = _application(
+        checkout_session_factory,
+        stripe_client=fake,
+        user_token_service=user_token_service,
+    )
+
+    def owner_worker() -> CheckoutOutcome:
+        return _run_checkout(
+            checkout_session_factory,
+            public_number=public_number,
+            token=None,
+            request_key=owner_key,
+            stripe_client=fake,
+            current_user_id=owner_id,
+        )
+
+    denied_statements: list[str] = []
+
+    def capture_denied_sql(
+        _connection: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        denied_statements.append(" ".join(statement.lower().split()))
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        owner_future = executor.submit(owner_worker)
+        assert provider_entered.wait(timeout=10)
+        event.listen(
+            test_database_engine,
+            "before_cursor_execute",
+            capture_denied_sql,
+        )
+        try:
+            with TestClient(
+                application,
+                client=("198.51.100.40", 50000),
+            ) as test_client:
+                path = CHECKOUT_PATH.format(public_order_number=public_number)
+                non_owner_response = test_client.post(
+                    path,
+                    headers={
+                        "Authorization": (
+                            "Bearer "
+                            + user_token_service.create_access_token(non_owner_id)
+                        ),
+                        "Idempotency-Key": str(non_owner_key),
+                    },
+                )
+                invalid_auth_response = test_client.post(
+                    path,
+                    headers={
+                        "Authorization": "Bearer malformed-token",
+                        "X-Order-Access-Token": token,
+                        "Idempotency-Key": str(invalid_auth_key),
+                    },
+                )
+        finally:
+            event.remove(
+                test_database_engine,
+                "before_cursor_execute",
+                capture_denied_sql,
+            )
+            release_provider.set()
+        owner_outcome = owner_future.result(timeout=15)
+
+    assert owner_outcome.created is True
+    assert non_owner_response.status_code == 404
+    assert non_owner_response.json() == {"detail": "Order not found"}
+    assert invalid_auth_response.status_code == 401
+    assert invalid_auth_response.json() == {
+        "detail": "Invalid authentication credentials"
+    }
+    assert invalid_auth_response.headers["WWW-Authenticate"] == "Bearer"
+    assert not any(" from payments " in statement for statement in denied_statements)
+    assert not any(
+        statement.startswith(("insert", "update", "delete"))
+        for statement in denied_statements
+    )
+
+    with checkout_session_factory() as session:
+        order = session.get(Order, order_id)
+        payments = list(session.scalars(select(Payment)).all())
+        history = list(
+            session.scalars(
+                select(OrderStatusHistory)
+                .where(OrderStatusHistory.order_id == order_id)
+                .order_by(OrderStatusHistory.sequence.asc())
+            ).all()
+        )
+    assert order is not None
+    assert order.customer_user_id == owner_id
+    assert order.status == OrderStatus.CREATED.value
+    assert [(entry.sequence, entry.new_status) for entry in history] == [
+        (0, OrderStatus.CREATED.value)
+    ]
+    assert len(payments) == 1
+    assert payments[0].request_idempotency_key == owner_key
+    assert {payments[0].request_idempotency_key}.isdisjoint(
+        {non_owner_key, invalid_auth_key}
+    )
+    assert len(fake.requests) == 1
 
 
 def test_different_key_concurrency_creates_one_attempt_and_one_provider_call(

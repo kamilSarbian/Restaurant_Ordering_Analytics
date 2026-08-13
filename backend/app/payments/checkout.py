@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.orders.access import OrderNotFoundError, verify_order_access_token
+from app.orders.access import OrderNotFoundError, can_access_order
 from app.orders.models import Order
 from app.orders.statuses import OrderStatus
 from app.payments.models import Payment
@@ -88,6 +88,7 @@ def checkout_order(
     stripe_client: StripeCheckoutClient | None,
     stripe_success_url_template: str | None,
     stripe_cancel_url_template: str | None,
+    current_user_id: UUID | None = None,
     now_provider: Callable[[], datetime] = utc_now,
 ) -> CheckoutOutcome:
     """Create, replay, or recover one idempotent hosted checkout operation.
@@ -100,13 +101,14 @@ def checkout_order(
         stripe_client: App-scoped Stripe adapter, when configured.
         stripe_success_url_template: Server-owned success redirect template.
         stripe_cancel_url_template: Server-owned cancellation redirect template.
+        current_user_id: Canonical current User identifier, when authenticated.
         now_provider: Injectable timezone-aware clock.
 
     Returns:
         Public checkout response and whether this call created the Payment row.
 
     Raises:
-        OrderNotFoundError: If public guest authentication fails.
+        OrderNotFoundError: If neither ownership nor guest capability grants access.
         OrderNotPayableError: If the order status forbids checkout.
         ActivePaymentAttemptError: If another pending attempt exists.
         OrderAlreadyPaidError: If a succeeded attempt exists.
@@ -116,9 +118,6 @@ def checkout_order(
         PaymentSessionReconciliationRequiredError: If persisted state is unsafe.
         PaymentServiceUnavailableError: If provider configuration is unavailable.
     """
-    if access_token is None:
-        raise OrderNotFoundError
-
     now = _as_utc(now_provider())
     immediate_outcome: CheckoutOutcome | None = None
     provider_work: _ProviderWork | None = None
@@ -129,9 +128,11 @@ def checkout_order(
             .where(Order.public_order_number == public_order_number)
             .with_for_update()
         )
-        if order is None or not verify_order_access_token(
-            access_token,
-            order.order_access_token_hash,
+        if order is None or not can_access_order(
+            order_customer_user_id=order.customer_user_id,
+            current_user_id=current_user_id,
+            access_token=access_token,
+            expected_access_token_hash=order.order_access_token_hash,
         ):
             raise OrderNotFoundError
         if order.status != OrderStatus.CREATED.value:

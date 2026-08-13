@@ -35,14 +35,15 @@ user_bearer = HTTPBearer(
     bearerFormat="JWT user_access",
     description="Canonical registered-user access token",
 )
+UserBearerCredentials = Annotated[
+    HTTPAuthorizationCredentials | None,
+    Security(user_bearer),
+]
 
 
 def get_current_user(
     request: Request,
-    credentials: Annotated[
-        HTTPAuthorizationCredentials | None,
-        Security(user_bearer),
-    ],
+    credentials: UserBearerCredentials,
 ) -> User:
     """Authenticate and reload one active canonical User from PostgreSQL.
 
@@ -93,6 +94,34 @@ def get_current_user(
             return user
     except SQLAlchemyError:
         raise _service_unavailable_error() from None
+
+
+def get_optional_current_user(
+    request: Request,
+    credentials: UserBearerCredentials,
+) -> User | None:
+    """Return no identity only when Authorization is completely absent.
+
+    Args:
+        request: Current request containing headers and authentication state.
+        credentials: Credentials parsed by the canonical UserBearer scheme.
+
+    Returns:
+        The current active User, or None for a request without Authorization.
+
+    Raises:
+        HTTPException: With the strict canonical 401 or safe 503 contract when
+            an Authorization header is present.
+    """
+    if request.headers.get("Authorization") is None:
+        return None
+    if (
+        credentials is None
+        or credentials.scheme.lower() != "bearer"
+        or not credentials.credentials.strip()
+    ):
+        raise _invalid_authentication_error()
+    return get_current_user(request, credentials)
 
 
 def require_admin(

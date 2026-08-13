@@ -17,6 +17,7 @@ from app.main import app, create_app
 from app.menu.models import MenuItem
 from app.seed.data import CATEGORY_SEEDS, MENU_ITEM_SEEDS
 from app.seed.runner import SeedConflictError, SeedResult, seed_menu_data
+from tests.integration.conftest import HEAD_REVISION
 
 pytestmark = pytest.mark.integration
 
@@ -150,7 +151,7 @@ def test_migration_leaves_business_tables_empty_at_current_head(
         revision = connection.execute(
             text("SELECT version_num FROM alembic_version")
         ).scalar_one()
-    assert revision == "0007_unify_user_auth_roles"
+    assert revision == HEAD_REVISION
     assert _counts(seed_session_factory) == (0, 0)
     assert _non_seed_counts(test_database_engine) == (0, 0, 0, 0, 0, 0, 0)
 

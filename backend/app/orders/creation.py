@@ -1,4 +1,4 @@
-"""Transactional creation of durable guest order aggregates."""
+"""Transactional creation of durable public order aggregates."""
 
 from __future__ import annotations
 
@@ -162,12 +162,15 @@ def _is_known_creation_collision(error: IntegrityError) -> bool:
 def create_order(
     session: Session,
     request: OrderCreateRequest,
+    *,
+    customer_user_id: UUID | None = None,
 ) -> OrderCreateResponse:
     """Create and commit one server-authoritative order aggregate.
 
     Args:
         session: Fresh request-scoped session without an active transaction.
-        request: Validated guest order data containing identifiers and quantities.
+        request: Validated public order data containing identifiers and quantities.
+        customer_user_id: Trusted current User identity, or None for a guest.
 
     Returns:
         A detached public response containing the one-time raw guest token.
@@ -194,6 +197,7 @@ def create_order(
             order = Order(
                 public_order_number=public_order_number,
                 order_access_token_hash=hash_order_access_token(raw_access_token),
+                customer_user_id=customer_user_id,
                 order_type=request.order_type.value,
                 table_id=table_id,
                 table_number_snapshot=table_number_snapshot,

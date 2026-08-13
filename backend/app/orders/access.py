@@ -1,10 +1,13 @@
-"""Guest order identifiers, access tokens, and public status retrieval."""
+"""Public order identifiers, access rules, and status retrieval."""
 
 import hashlib
 import hmac
 import secrets
+from collections.abc import Sequence
+from uuid import UUID
 
 from sqlalchemy import select
+from sqlalchemy.engine import RowMapping
 from sqlalchemy.orm import Session
 
 from app.orders.models import Order, OrderItem
@@ -71,69 +74,50 @@ def verify_order_access_token(token: str, expected_hash: str) -> bool:
     return hmac.compare_digest(actual_hash, expected_hash)
 
 
-def get_order_status(
-    session: Session,
-    public_order_number: str,
+def can_access_order(
+    *,
+    order_customer_user_id: UUID | None,
+    current_user_id: UUID | None,
     access_token: str | None,
-) -> OrderStatusResponse:
-    """Retrieve an authenticated public order snapshot without mutation.
+    expected_access_token_hash: str,
+) -> bool:
+    """Authorize an order owner or a caller presenting its guest capability.
 
     Args:
-        session: Open database session used for explicit read-only queries.
-        public_order_number: Unvalidated path value presented by the guest.
-        access_token: Optional raw token from the guest access header.
+        order_customer_user_id: Persisted trusted owner identifier, when any.
+        current_user_id: Canonical current User identifier, when authenticated.
+        access_token: Optional raw guest capability supplied by the caller.
+        expected_access_token_hash: Persisted trusted guest capability hash.
 
     Returns:
-        A detached response containing only approved public snapshot fields.
-
-    Raises:
-        OrderNotFoundError: If the number or token cannot authenticate the order.
+        True when the caller owns the order or presents its valid capability.
     """
-    if access_token is None:
-        raise OrderNotFoundError
-
-    order_row = (
-        session.execute(
-            select(
-                Order.id,
-                Order.public_order_number,
-                Order.order_access_token_hash,
-                Order.status,
-                Order.order_type,
-                Order.table_number_snapshot,
-                Order.currency,
-                Order.subtotal_amount,
-                Order.total_amount,
-                Order.created_at,
-                Order.updated_at,
-            ).where(Order.public_order_number == public_order_number)
-        )
-        .mappings()
-        .one_or_none()
-    )
-
-    if order_row is None or not verify_order_access_token(
+    is_owner = current_user_id is not None and order_customer_user_id == current_user_id
+    has_valid_capability = access_token is not None and verify_order_access_token(
         access_token,
-        order_row["order_access_token_hash"],
-    ):
-        raise OrderNotFoundError
-
-    item_rows = (
-        session.execute(
-            select(
-                OrderItem.menu_item_id,
-                OrderItem.name_snapshot,
-                OrderItem.quantity,
-                OrderItem.unit_price_amount,
-                OrderItem.line_total_amount,
-            )
-            .where(OrderItem.order_id == order_row["id"])
-            .order_by(OrderItem.position.asc())
-        )
-        .mappings()
-        .all()
+        expected_access_token_hash,
     )
+    return is_owner or has_valid_capability
 
+
+def build_order_status_response(
+    *,
+    order_row: RowMapping,
+    item_rows: Sequence[RowMapping],
+) -> OrderStatusResponse:
+    """Build the shared customer-safe response from authorized snapshots.
+
+    Args:
+        order_row: Already-authorized projected Order values.
+        item_rows: Ordered projected OrderItem values for that Order.
+
+    Returns:
+        The existing strict customer-safe order status response.
+
+    Notes:
+        The caller owns authorization and query scoping. This function performs
+        no authentication, authorization, database access, or token validation.
+    """
     items = [
         OrderCreateItemResponse(
             menu_item_id=item["menu_item_id"],
@@ -156,3 +140,72 @@ def get_order_status(
         created_at=order_row["created_at"],
         updated_at=order_row["updated_at"],
     )
+
+
+def get_order_status(
+    session: Session,
+    public_order_number: str,
+    access_token: str | None,
+    *,
+    current_user_id: UUID | None = None,
+) -> OrderStatusResponse:
+    """Retrieve an authenticated public order snapshot without mutation.
+
+    Args:
+        session: Open database session used for explicit read-only queries.
+        public_order_number: Unvalidated path value presented by the caller.
+        access_token: Optional raw token from the guest capability header.
+        current_user_id: Canonical current User identifier, when authenticated.
+
+    Returns:
+        A detached response containing only approved public snapshot fields.
+
+    Raises:
+        OrderNotFoundError: If the number or token cannot authenticate the order.
+    """
+    order_row = (
+        session.execute(
+            select(
+                Order.id,
+                Order.public_order_number,
+                Order.order_access_token_hash,
+                Order.customer_user_id,
+                Order.status,
+                Order.order_type,
+                Order.table_number_snapshot,
+                Order.currency,
+                Order.subtotal_amount,
+                Order.total_amount,
+                Order.created_at,
+                Order.updated_at,
+            ).where(Order.public_order_number == public_order_number)
+        )
+        .mappings()
+        .one_or_none()
+    )
+
+    if order_row is None or not can_access_order(
+        order_customer_user_id=order_row["customer_user_id"],
+        current_user_id=current_user_id,
+        access_token=access_token,
+        expected_access_token_hash=order_row["order_access_token_hash"],
+    ):
+        raise OrderNotFoundError
+
+    item_rows = (
+        session.execute(
+            select(
+                OrderItem.menu_item_id,
+                OrderItem.name_snapshot,
+                OrderItem.quantity,
+                OrderItem.unit_price_amount,
+                OrderItem.line_total_amount,
+            )
+            .where(OrderItem.order_id == order_row["id"])
+            .order_by(OrderItem.position.asc())
+        )
+        .mappings()
+        .all()
+    )
+
+    return build_order_status_response(order_row=order_row, item_rows=item_rows)

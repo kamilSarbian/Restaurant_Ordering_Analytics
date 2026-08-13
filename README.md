@@ -22,12 +22,14 @@ frontend implements authentication, protected routing, order operations, menu
 management, analytics, and CSV downloads. Its automated acceptance gates and
 user-performed manual responsive QA at the required viewports pass.
 The backend now provides unified registered identities, public customer
-registration and sign-in, database-authoritative role checks, and
-super-administrator role management. Order ownership, customer order history,
-and the unified account frontend are not implemented. Full-system
-containerisation, CI, and deployment have not started.
+registration and sign-in, database-authoritative role checks,
+super-administrator role management, optional registered-user Order ownership,
+and a read-only personal Order-history API. The existing guest customer and
+administrator frontends remain compatible, but customer login, registration,
+and account screens are not yet implemented. Full-system containerisation, CI,
+and deployment have not started.
 
-## Unified identity backend and planned account direction
+## Unified identity, Order ownership, and account backend
 
 Stage 16D implements one `User` backend for all registered identities with the
 mutually exclusive roles `customer`, `admin`, and `super_admin`. An anonymous
@@ -56,8 +58,35 @@ login alias delegates to unified User authentication, accepts only current
 compatibility during the transition. Operational administrator routes allow a
 current `admin` or `super_admin`; a customer receives 403.
 
-The planned Stage 16F browser route target remains separate from the currently
-implemented route list documented under Customer frontend:
+Stage 16E extends this identity backend with nullable Order ownership while
+preserving the anonymous capability flow. `Order.customer_user_id` is a
+nullable UUID foreign key to `users.id`, uses `ON DELETE SET NULL`, and has no
+Python or server default. Migration `0008_add_order_ownership`, whose parent is
+`0007_unify_user_auth_roles`, adds the column and the non-unique
+`ix_orders_customer_user_created_at_id` index on
+`(customer_user_id, created_at, id)`. Historical Orders remain unowned; there
+is no fake guest User, guest role, ownership backfill, or retroactive claim.
+
+The implemented account routes are read-only and accept strict canonical
+`user_access` only:
+
+- `GET /api/v1/account/orders`;
+- `GET /api/v1/account/orders/{public_order_number}`.
+
+Every active role uses personal scope only. The list filters its page and total
+by owner in SQL, defaults to `limit=50` and `offset=0`, accepts limits from 1
+through 100, and orders by `created_at DESC, id DESC`. Its exact item fields are
+`public_order_number`, `status`, `order_type`, `total_amount`, `currency`,
+`created_at`, and `updated_at`. Detail also applies the owner predicate in SQL
+and returns the existing safe `OrderStatusResponse`. Another User's Order, an
+unowned Order, and an unknown number all return the same 404. A guest capability
+cannot bypass account ownership, administrator roles receive no global account
+bypass, and account responses expose no ownership identity, PII, Payment, or
+Stripe data. No account mutation endpoint exists.
+
+The planned Stage 16F browser route target remains separate from these current
+backend routes and from the implemented route list documented under Customer
+frontend:
 
 - `/` for the concise restaurant landing page with Order as guest, Log in, and
   Create account actions;
@@ -72,9 +101,8 @@ implemented route list documented under Customer frontend:
 - `/admin/users` for the frontend over the already implemented
   super-administrator backend API.
 
-The target keeps an independent order-access token for every Order, including
-an Order linked to a registered customer. Registration will never be required
-for guest ordering.
+Every Order already keeps an independent guest capability, including an Order
+linked to a registered User. Registration is not required for guest ordering.
 
 ## Business problem
 
@@ -103,10 +131,12 @@ without introducing infrastructure that is unnecessary for a single venue.
   with migration `0003_create_order_models`.
 - Transactional `POST /api/v1/orders` creation with durable snapshots,
   server-authoritative menu revalidation, shared row locks, and rollback.
-- Guest order access using a public number and one-time token whose SHA-256
-  hash is the only token value stored in PostgreSQL.
-- Authenticated public order status retrieval without exposing internal IDs or
-  token hashes.
+- Nullable registered-User Order ownership through migration 0008, with
+  anonymous guest Orders preserved and deterministic personal-history queries.
+- Owner-or-capability public Order status and Checkout access without exposing
+  ownership, internal IDs, or token hashes.
+- Strict canonical read-only personal Order list and detail endpoints with
+  owner predicates enforced in SQL.
 - Durable `Order 1:N Payment` attempts with database-enforced integrity,
   idempotent hosted Stripe Checkout creation, and fake-provider tests.
 - Durable StripeEvent receipts, raw-body signature verification, transactional
@@ -137,9 +167,9 @@ without introducing infrastructure that is unnecessary for a single venue.
   email-validator, Docker Compose, pytest, Ruff, Black, isort, React,
   TypeScript, Vite, React Router, CSS Modules, native `fetch`, `sessionStorage`,
   Vitest, and React Testing Library.
-- Planned: order ownership and own-order APIs, the landing and unified account
-  frontend, integrated Stage 16 finalization, full-system containers, GitHub
-  Actions, and deployment.
+- Planned: the landing and unified account frontend, authenticated customer
+  ordering UX, administrator User-management UI, integrated Stage 16
+  finalization, full-system containers, GitHub Actions, and deployment.
 
 ## Repository structure
 
@@ -158,7 +188,7 @@ without introducing infrastructure that is unnecessary for a single venue.
 │   ├── alembic.ini
 │   └── pyproject.toml
 ├── docs/
-├── frontend/      # Guest customer React application
+├── frontend/      # Guest customer and administrator React application
 ├── compose.yaml
 ├── AGENTS.md
 └── README.md
@@ -248,12 +278,17 @@ and timestamps; more than one makes the migration fail atomically. Its
 downgrade is guarded so registered customer rows cannot be deleted. None of these
 migrations runs the seed or administrator bootstrap.
 
-Repository code and Alembic have head `0007_unify_user_auth_roles`. The current
-local development database in this workflow deliberately remains at
-`0006_create_admin_user_model`. Before running the unified-auth backend against
-that database, the development upgrade to 0007 must be performed as a separate,
-explicitly approved migration step after warning about the manual database
-intervention. C1 does not perform that upgrade.
+Stage 16E adds `0008_add_order_ownership`, a schema-only child of 0007. It adds
+nullable `orders.customer_user_id`, its `users.id` foreign key with
+`ON DELETE SET NULL`, and the composite personal-history index without changing
+historical rows.
+
+Repository code and Alembic have head `0008_add_order_ownership`. The current
+local development database in this controlled workflow deliberately remains at
+`0006_create_admin_user_model`. Before local runtime use of the Stage 16D/16E
+unified-auth, ownership, and account features, an operator must separately
+approve and apply the additive `0006 -> 0007 -> 0008` migration path. It is not
+automatic, C1 does not perform it, and no destructive reset is recommended.
 
 ## Unified authentication and administrator compatibility
 
@@ -270,7 +305,8 @@ accepts password input from 1 through 128 code points because existing valid
 credentials must remain usable. Passwords and hashes must never be logged.
 
 The only first-super-admin creation boundary is the explicit interactive
-command, run from `backend` after migration 0007 has been explicitly applied:
+command, run from `backend` after the required migrations have been explicitly
+applied:
 
 ```powershell
 & .\.venv\Scripts\python.exe -m app.auth.bootstrap --email <email>
@@ -871,8 +907,8 @@ available at `/openapi.json`. From `backend`, run the Stage 7 tests with:
 
 ## Stage 8 order creation
 
-`POST /api/v1/orders` creates either a `takeaway` or `dine_in` guest order and
-returns HTTP 201 with a `Location` header. Requests contain 1–50 unique menu
+`POST /api/v1/orders` creates either a `takeaway` or `dine_in` Order and returns
+HTTP 201 with a `Location` header. Requests contain 1–50 unique menu
 item identifiers, quantities from 1–99, the order type, and a table number only
 for dine-in orders. Clients never submit prices. Creation revalidates current
 menu activity, availability, names, prices, costs, category names, and currency
@@ -889,12 +925,26 @@ Category rows using `FOR SHARE` in deterministic order. A validation or insert
 failure rolls back the complete aggregate. Concurrent read-locking creations
 may proceed, while conflicting source updates wait until creation finishes.
 
-Each successful response contains a presentational `public_order_number` and a
-one-time `order_access_token`. The raw token is returned only by creation; the
-database stores only its SHA-256 hash. Public status is retrieved through
-`GET /api/v1/orders/{public_order_number}` with the
-`X-Order-Access-Token` header. Unknown numbers and missing or incorrect tokens
-all return the same HTTP 404 response.
+Without `Authorization`, creation follows the guest path and stores NULL
+ownership. With a valid canonical `user_access`, it assigns the current active
+User in the initial aggregate transaction; `customer`, `admin`, and
+`super_admin` can all create personally owned Orders. The request schema has no
+client-supplied owner field and the response does not expose ownership. A
+present invalid, malformed, inactive, missing-User, or legacy `admin_access`
+Bearer is rejected with HTTP 401 when authentication is resolved and is never
+downgraded to guest creation.
+
+Every successful response still contains a presentational
+`public_order_number` and one-time `order_access_token`, whether the Order is
+owned or anonymous. The raw capability is returned only by creation; the
+database stores only its SHA-256 hash. Public status through
+`GET /api/v1/orders/{public_order_number}` allows either the matching canonical
+owner or a caller presenting the valid `X-Order-Access-Token`. An owner needs no
+guest token, while the capability remains independently valid for an anonymous
+or authenticated non-owner caller. A non-owner without it receives the same
+HTTP 404 as an unknown Order; there is no public ownership 403. A present
+invalid Bearer returns 401 before capability fallback when authentication is
+resolved, and legacy `admin_access` is rejected by this canonical flow.
 
 Order creation is limited to 10 attempts per 60 seconds for each direct
 `request.client.host`. A rejected request returns HTTP 429 with `Retry-After`
@@ -959,9 +1009,12 @@ X-Order-Access-Token: ORDER_ACCESS_TOKEN
 Idempotency-Key: 00000000-0000-4000-8000-000000000000
 ```
 
-The endpoint has no request body. It authenticates the guest with the public
-order number and access token, then uses only the durable `Order.total_amount`
-and `Order.currency`. Stripe receives one hosted Checkout line item in
+The endpoint has no request body. It permits the matching canonical owner or a
+caller with the independent guest capability, then uses only the durable
+`Order.total_amount` and `Order.currency`. Its authentication boundary matches
+public status: a present invalid Bearer never falls back to a valid capability,
+and a non-owner without the capability receives 404 rather than an ownership
+403. Stripe receives one hosted Checkout line item in
 `mode=payment`. A new attempt returns HTTP 201; replay of the same completed
 operation returns HTTP 200. The public response contains only the public order
 number, Payment attempt status, sensitive hosted Checkout URL, and expiration
@@ -978,20 +1031,25 @@ conservative 23-hour cutoff, or when stored provider data conflicts, the
 attempt remains `pending` and requires reconciliation; the application does
 not auto-expire it from the local clock.
 
-Checkout uses two short database transactions. Each locks `Order` before
-related `Payment` rows in deterministic order. The first transaction validates
-state and persists or identifies the attempt, the Stripe call runs with no
-database transaction or lock held, and the second transaction rechecks state
-before storing the result. A different key conflicts with an active pending
-attempt, while concurrent same-key requests converge on the same Payment and
-Stripe key.
+Checkout preserves the D-016/D-017 state machine and short `Order -> Payment`
+locking protocol. After request/idempotency validation and rate limiting, an
+optional canonical identity is resolved. The first transaction locks the
+Order, applies owner-or-capability access before querying or mutating Payment,
+then persists or identifies the attempt. Denied access therefore creates no
+Payment, provider call, or persisted idempotency effect. The Stripe call runs
+with no database transaction or lock held, and short post-provider transactions
+again lock `Order -> Payment` before storing or reconciling the result. A
+different key conflicts with an active pending attempt, while concurrent
+same-key requests converge on the same Payment and Stripe key.
 
 The app-scoped checkout limiter allows 10 attempts per 60 seconds for each
 direct peer host and returns HTTP 429 with `Retry-After` before any SQL when
 denied. The endpoint uses these stable error responses:
 
-- HTTP 404: `{"detail":"Order not found"}` for unknown orders or guest access
-  failures;
+- HTTP 401: `{"detail":"Invalid authentication credentials"}` for present
+  invalid canonical authentication;
+- HTTP 404: `{"detail":"Order not found"}` for unknown orders or denied
+  owner-or-capability access;
 - HTTP 409: `{"detail":"Order is not payable"}`,
   `{"detail":"Active payment attempt exists"}`,
   `{"detail":"Order is already paid"}`, or
@@ -1000,7 +1058,8 @@ denied. The endpoint uses these stable error responses:
 - HTTP 429: `{"detail":"Too many checkout requests"}`;
 - HTTP 502: `{"detail":"Payment provider unavailable"}` for definitive
   provider rejection;
-- HTTP 503: `{"detail":"Payment service unavailable"}`,
+- HTTP 503: `{"detail":"Authentication service unavailable"}`,
+  `{"detail":"Payment service unavailable"}`,
   `{"detail":"Payment session outcome is unknown"}`, or
   `{"detail":"Payment session requires reconciliation"}`.
 
@@ -1069,7 +1128,12 @@ React, TypeScript, Vite, React Router, CSS Modules, native `fetch`,
 `sessionStorage`, Vitest, and React Testing Library. That Stage 15 scope has no
 customer account, sign-in, profile, or administrator interface. Stage 16 has
 since added the separate administrator frontend described above without
-changing the completed guest flow.
+changing the completed guest flow. Stage 16E changes the backend and two
+date-sensitive frontend test fixtures only: production frontend source remains
+unchanged and compatible with guest ordering. It does not yet expose customer
+login, registration, authenticated ordering, an account page, or new
+administrator User-management UI. Those landing, unified-auth, account, and
+admin-User browser changes remain planned for Stage 16F.
 
 The Stage 15 route baseline at its completion was exactly:
 
@@ -1239,6 +1303,8 @@ Available endpoints:
 - User registration: `POST http://127.0.0.1:8000/api/v1/auth/register`
 - User login: `POST http://127.0.0.1:8000/api/v1/auth/login`
 - Current User: `GET http://127.0.0.1:8000/api/v1/auth/me`
+- Personal Order history: `GET http://127.0.0.1:8000/api/v1/account/orders`
+- Personal Order detail: `GET http://127.0.0.1:8000/api/v1/account/orders/{public_order_number}`
 - Administrator user list: `GET http://127.0.0.1:8000/api/v1/admin/users`
 - Administrator role change: `PATCH http://127.0.0.1:8000/api/v1/admin/users/{user_id}/role`
 - Public order status: `GET http://127.0.0.1:8000/api/v1/orders/{public_order_number}`

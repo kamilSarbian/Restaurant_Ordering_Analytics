@@ -298,7 +298,8 @@
 
 ## 16. Administrator Frontend
 
-- **Status:** in progress.
+- **Status:** in progress; administrator frontend, unified auth backend, and
+  Order ownership/account API are complete, while Stages 16F and 16G remain.
 - **Goal:** provide staff with a simple operational panel and dashboard.
 - **Outcome:** sign-in, protected routes, order list and detail, status changes,
   menu management, charts, and CSV downloads.
@@ -355,33 +356,43 @@
 
 ### 16C — Stage 16 Administrator Frontend Acceptance and Review
 
-- **Status:** C1 documentation and automated pre-commit audit complete;
-  user-performed manual responsive QA passed at all required viewports, so the
-  administrator frontend acceptance gate is satisfied and independent review
-  is next.
+- **Status:** completed and committed on 2026-08-12; user-performed manual
+  responsive QA passed at all required viewports.
 - **Outcome:** full frontend regression, responsive and accessibility QA,
   documentation audit, independent review, and the final Stage 16 commit gate
   for the administrator screens.
 
 ### 16D — Unified User, Authentication, and Role Authorization Backend
 
-- **Status:** PRE-COMMIT READY; D1 through D5 and C1 are complete, with
-  independent review and commit pending.
+- **Status:** completed and committed on 2026-08-12.
 - **Outcome:** AdminUser is evolved into the unified User model with constrained
   role; canonical register/login/me, database-backed current-user/admin/
   super-admin authorization, secure first-super-admin bootstrap, minimum role
   API, auth configuration transition, and existing administrator consumer
   compatibility are implemented.
-- **Migration boundary:** repository and Alembic head are 0007. The development
-  database deliberately remains at 0006 and requires a separately approved
-  migration operation before local unified-auth runtime use.
+- **Migration boundary:** this stage established migration 0007. Repository and
+  Alembic head are now 0008 after Stage 16E. The development database
+  deliberately remains at 0006 and requires a separately approved
+  `0006 -> 0007 -> 0008` operation before local unified-auth and ownership
+  runtime use.
 
 ### 16E — Order Ownership and Customer Account API
 
-- **Status:** not started.
-- **Outcome:** nullable Order ownership, exact optional-auth semantics for Order
-  creation, and current-user own-order list/detail while preserving the complete
-  anonymous guest flow and independent Order access token.
+- **Status:** PRE-COMMIT READY; E1 through E5, FIX1, and C1 are complete, with
+  independent review and commit pending.
+- **Outcome:** nullable Order ownership through migration 0008, exact optional
+  canonical-auth semantics for creation, owner-or-capability public status and
+  Checkout, current-User own-order list/detail, privacy-safe DTOs, and
+  concurrency/security hardening while preserving anonymous guest ordering and
+  the independent Order capability.
+- **Completed slices:** E1 ownership model/migration, E2 optional-auth creation,
+  E3 owner-or-capability status/Checkout, E4 account reads, E5 hardening,
+  E5-FIX1 deterministic frontend Date tests, and C1 documentation/full
+  pre-commit validation.
+- **Frontend boundary:** production customer and administrator frontend source
+  is unchanged by Stage 16E. Landing, unified customer auth/account UI,
+  authenticated ordering UX, and administrator User-management UI remain
+  Stage 16F work.
 
 ### 16F — Landing, Unified Authentication Frontend, Customer Account, and Super-Admin User Management
 
@@ -400,6 +411,7 @@
 
 ## 17. Full-System Docker
 
+- **Status:** not started.
 - **Goal:** provide repeatable local startup of the entire system.
 - **Outcome:** extension of the minimal Compose configuration from Stage 3 with
   backend and frontend images, health checks, volumes, and documented
@@ -463,13 +475,15 @@
 ## Next Recommended Stage
 
 Stage 1 through Stage 15 and the Stage 16 administrator frontend are complete
-and verified. Stage 16D D1 through D5 implement the unified User,
-authentication, database-authoritative role authorization, super-admin
-governance, bootstrap, and configuration transition. Its C1 documentation and
-pre-commit validation gate is complete.
+and verified. Stage 16D unified User/authentication/RBAC is committed. Stage 16E
+implements nullable Order ownership, mixed guest/authenticated creation,
+owner-or-capability status and Checkout, and strict personal account Order
+reads; its C1 documentation and full pre-commit validation gate is complete.
 
-The immediate gate is **Stage 16D independent review and commit**. After that
-separate gate, the next planned implementation stage is **Stage 16E — Order
-Ownership and Customer Account API**. Stages 16E, 16F, and 16G have not started.
-Stage 17 has not started and remains blocked on completion of Stage 16G with
-separate approval.
+The immediate gate is **Stage 16E-C2 independent review and final commit**.
+After that separate gate, the next planned implementation stage is **Stage 16F
+— Landing, Unified Authentication Frontend, Customer Account, and Super-Admin
+User Management**. Stage 16G and Stage 17 have not started and require separate
+approval. Before local runtime use of Stage 16D/16E functionality, the
+development database's deliberate 0006 state requires a separately approved
+`0006 -> 0007 -> 0008` operational migration; C1 does not perform it.

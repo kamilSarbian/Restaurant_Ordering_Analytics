@@ -1151,6 +1151,60 @@ while preserving these financial concurrency rules.
   0007; the development database remains deliberately at 0006 until a separate
   approved migration operation.
 
+## D-067 — Order Ownership and Mixed Guest/Authenticated Access
+
+- **Status:** accepted on 2026-08-13
+- **Decision:** `orders.customer_user_id` is a nullable UUID foreign key to
+  `users.id` with `ON DELETE SET NULL`, no Python or server default, no backfill,
+  and no ORM ownership relationship. An anonymous guest remains neither a User
+  nor a role. Historical Orders remain unowned, and no flow retroactively claims
+  them.
+- **Creation boundary:** an absent Authorization header creates an unowned
+  guest Order. A valid canonical `user_access` assigns the current active User
+  in the initial Order aggregate transaction, with no follow-up ownership
+  update. All active roles may own personal Orders. A present invalid,
+  malformed, legacy `admin_access`, inactive, or missing-User credential is not
+  downgraded to guest access.
+- **Independent capability:** every Order, including an owned Order, retains the
+  one-time raw guest capability whose hash is persisted. Public status and
+  Checkout authorize a matching non-NULL owner or a valid capability. A
+  canonical non-owner without the capability receives the same 404 as an
+  unknown Order; public routes do not use 403 to disclose ownership. Invalid
+  present canonical authentication fails before capability fallback, and roles
+  grant no public bypass.
+- **Persistence:** migration `0008_add_order_ownership`, child of
+  `0007_unify_user_auth_roles`, adds the nullable foreign key and non-unique
+  `(customer_user_id, created_at, id)` index. User deletion may null ownership
+  while preserving Order history; no User-delete API is introduced.
+- **Qualification:** this decision creates the sole ownership-FK exception to
+  D-041's Order retention rule and adds canonical ownership as an alternative
+  to the capability-only clauses in D-046 and O-003. Their capability secrecy,
+  minimal response, idempotency, retention, and financial lock rules remain
+  unchanged. It also implements the backend ownership portion that D-062
+  recorded as planned; D-062's landing and customer-account frontend remains
+  future Stage 16F work. D-066's repository-head statement records the 0007
+  state when that decision was accepted; the current head is 0008.
+
+## D-068 — Customer Account Order History and Privacy Boundary
+
+- **Status:** accepted on 2026-08-13
+- **Decision:** the account API is read-only and accepts strict canonical
+  `user_access` only. `customer`, `admin`, and `super_admin` all use personal
+  account scope; administrator roles have no global account-history bypass.
+- **SQL privacy:** list SELECT, list COUNT, and detail lookup are scoped by the
+  current User in SQL. Detail combines `public_order_number` and
+  `customer_user_id` in one predicate. Another User's Order, an unowned Order,
+  and an unknown Order return the same 404. A guest capability cannot bypass
+  account ownership.
+- **Safe contracts:** list uses a dedicated seven-field summary DTO. Detail
+  reuses the shared safe `OrderStatusResponse` serializer after authorization;
+  that builder performs serialization only. Neither contract exposes owner
+  identity, PII, a guest capability or hash, Payment, or Stripe data.
+- **Pagination:** list defaults to `limit=50` and `offset=0`, accepts limits from
+  1 through 100, reports an owner-scoped total, and orders deterministically by
+  `created_at DESC, id DESC`. No account mutation, ownership claim, or owner
+  reassignment route is added.
+
 ## History of Decisions That Required Resolution
 
 ### O-002: Boundary Between Order Creation and Stripe Checkout Session

@@ -95,7 +95,7 @@ def _insert_user(engine: Engine, *, role: str, email: str) -> None:
 
 
 def test_revision_is_the_single_child_of_admin_user_migration() -> None:
-    """Keep the unified migration on one linear Alembic branch."""
+    """Keep 0007 below the current single-head ownership migration."""
     from alembic.script import ScriptDirectory
 
     script = ScriptDirectory.from_config(_alembic_config())
@@ -103,7 +103,8 @@ def test_revision_is_the_single_child_of_admin_user_migration() -> None:
     assert revision is not None
     assert revision.revision == REVISION_0007
     assert revision.down_revision == REVISION_0006
-    assert script.get_current_head() == REVISION_0007 == HEAD_REVISION
+    assert script.get_current_head() == HEAD_REVISION
+    assert HEAD_REVISION == "0008_add_order_ownership"
 
 
 def test_zero_row_upgrade_creates_empty_constrained_users_table(

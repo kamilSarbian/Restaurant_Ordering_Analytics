@@ -5,14 +5,21 @@ from __future__ import annotations
 import re
 from collections.abc import Generator
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
+import jwt
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import delete, event, select
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.auth.models import User
+from app.auth.roles import UserRole
+from app.auth.service import USER_AUDIENCE, USER_TOKEN_TYPE, UserTokenService
+from app.auth.tokens import ALGORITHM, ISSUER, AdminTokenService
 from app.categories.models import Category
 from app.core.config import Settings
 from app.database.session import create_session_factory
@@ -32,6 +39,10 @@ pytestmark = pytest.mark.integration
 
 STATUS_PATH = "/api/v1/orders/{public_order_number}"
 QUOTE_PATH = "/api/v1/orders/quote"
+SYNTHETIC_SECRET = "s" * 32
+OTHER_SYNTHETIC_SECRET = "o" * 32
+FIXED_NOW = datetime(2026, 8, 13, 12, tzinfo=UTC)
+ISSUED_AT = int(FIXED_NOW.timestamp())
 
 
 @dataclass(frozen=True)
@@ -55,6 +66,7 @@ def empty_order_status_tables(
         connection.execute(delete(OrderStatusHistory))
         connection.execute(delete(OrderItem))
         connection.execute(delete(Order))
+        connection.execute(delete(User))
         connection.execute(delete(RestaurantTable))
         connection.execute(delete(MenuItem))
         connection.execute(delete(Category))
@@ -65,6 +77,7 @@ def empty_order_status_tables(
             connection.execute(delete(OrderStatusHistory))
             connection.execute(delete(OrderItem))
             connection.execute(delete(Order))
+            connection.execute(delete(User))
             connection.execute(delete(RestaurantTable))
             connection.execute(delete(MenuItem))
             connection.execute(delete(Category))
@@ -83,18 +96,38 @@ def client(
     status_session_factory: sessionmaker[Session],
 ) -> Generator[TestClient, None, None]:
     """Run the app with the isolated test session factory."""
-    application = create_app(
-        settings=Settings(database_url=None),
-        session_factory=status_session_factory,
-    )
+    application = _application(status_session_factory)
     with TestClient(application) as test_client:
         yield test_client
+
+
+@pytest.fixture
+def user_token_service() -> UserTokenService:
+    """Create deterministic canonical signing for status access tests."""
+    return UserTokenService(SYNTHETIC_SECRET, now_provider=lambda: FIXED_NOW)
+
+
+def _application(
+    session_factory: sessionmaker[Session],
+    *,
+    user_token_service: UserTokenService | None = None,
+):
+    return create_app(
+        settings=Settings(
+            _env_file=None,
+            database_url=None,
+            auth_jwt_secret=None,
+        ),
+        session_factory=session_factory,
+        user_token_service=user_token_service,
+    )
 
 
 def _store_order(
     session_factory: sessionmaker[Session],
     *,
     dine_in: bool = False,
+    customer_user_id: UUID | None = None,
 ) -> StoredOrder:
     public_order_number = generate_public_order_number()
     raw_access_token = generate_order_access_token()
@@ -122,6 +155,7 @@ def _store_order(
         order = Order(
             public_order_number=public_order_number,
             order_access_token_hash=hash_order_access_token(raw_access_token),
+            customer_user_id=customer_user_id,
             order_type="dine_in" if dine_in else "takeaway",
             table_id=table.id if table is not None else None,
             table_number_snapshot=table.number if table is not None else None,
@@ -187,6 +221,45 @@ def _headers(stored: StoredOrder) -> dict[str, str]:
     return {"X-Order-Access-Token": stored.raw_access_token}
 
 
+def _store_user(
+    session_factory: sessionmaker[Session],
+    *,
+    is_active: bool = True,
+) -> UUID:
+    with session_factory.begin() as session:
+        user = User(
+            email=f"status-owner-{uuid4().hex}@example.com",
+            password_hash="synthetic-status-owner-password-hash",
+            role=UserRole.CUSTOMER,
+            is_active=is_active,
+        )
+        session.add(user)
+        session.flush()
+        return user.id
+
+
+def _authorization(token: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {token}"}
+
+
+def _signed_canonical_token(
+    user_id: UUID,
+    *,
+    secret: str = SYNTHETIC_SECRET,
+    **overrides: object,
+) -> str:
+    claims: dict[str, object] = {
+        "sub": str(user_id),
+        "type": USER_TOKEN_TYPE,
+        "iat": ISSUED_AT,
+        "exp": ISSUED_AT + 1800,
+        "iss": ISSUER,
+        "aud": USER_AUDIENCE,
+    }
+    claims.update(overrides)
+    return jwt.encode(claims, secret, algorithm=ALGORITHM)
+
+
 def test_status_get_returns_exact_public_snapshot(
     client: TestClient,
     status_session_factory: sessionmaker[Session],
@@ -228,6 +301,11 @@ def test_status_get_returns_exact_public_snapshot(
         for forbidden in (
             "order_access_token",
             "token_hash",
+            "customer_user_id",
+            "owner_id",
+            "user_id",
+            "email",
+            "role",
             "cost",
             "tax",
             "discount",
@@ -270,6 +348,179 @@ def test_status_get_hides_all_access_failures(
     )
     assert response.status_code == 404
     assert response.json() == {"detail": "Order not found"}
+
+
+def test_status_owner_or_capability_access_matrix(
+    status_session_factory: sessionmaker[Session],
+    user_token_service: UserTokenService,
+) -> None:
+    """Allow the owner or capability while hiding every other access failure."""
+    owner_id = _store_user(status_session_factory)
+    other_id = _store_user(status_session_factory)
+    owned = _store_order(status_session_factory, customer_user_id=owner_id)
+    unowned = _store_order(status_session_factory)
+    owner_auth = _authorization(user_token_service.create_access_token(owner_id))
+    other_auth = _authorization(user_token_service.create_access_token(other_id))
+    application = _application(
+        status_session_factory,
+        user_token_service=user_token_service,
+    )
+    cases = [
+        (owned, owner_auth, None, 200),
+        (owned, owner_auth, "wrong-token", 200),
+        (owned, owner_auth, owned.raw_access_token, 200),
+        (owned, other_auth, owned.raw_access_token, 200),
+        (owned, other_auth, None, 404),
+        (owned, other_auth, "wrong-token", 404),
+        (unowned, other_auth, unowned.raw_access_token, 200),
+        (unowned, other_auth, None, 404),
+        (unowned, other_auth, "wrong-token", 404),
+    ]
+
+    with TestClient(application) as test_client:
+        for stored, authorization, capability, expected_status in cases:
+            headers = dict(authorization)
+            if capability is not None:
+                headers["X-Order-Access-Token"] = capability
+            response = test_client.get(_status_url(stored), headers=headers)
+            assert response.status_code == expected_status
+            if expected_status == 200:
+                assert response.json()["public_order_number"] == (
+                    stored.public_order_number
+                )
+                assert {
+                    "customer_user_id",
+                    "owner_id",
+                    "user_id",
+                    "email",
+                    "role",
+                }.isdisjoint(response.json())
+            else:
+                assert response.json() == {"detail": "Order not found"}
+
+        unknown = test_client.get(
+            STATUS_PATH.format(public_order_number="ROA-ZZZZZZZZZZZZ"),
+            headers=owner_auth,
+        )
+    assert unknown.status_code == 404
+    assert unknown.json() == {"detail": "Order not found"}
+
+
+def test_invalid_present_authorization_never_falls_back_to_valid_capability(
+    status_session_factory: sessionmaker[Session],
+    user_token_service: UserTokenService,
+) -> None:
+    """Reject every unusable token family before evaluating guest capability."""
+    user_id = _store_user(status_session_factory)
+    stored = _store_order(status_session_factory, customer_user_id=user_id)
+    legacy_service = AdminTokenService(
+        SYNTHETIC_SECRET,
+        now_provider=lambda: FIXED_NOW,
+    )
+    authorization_values = [
+        "",
+        "Bearer",
+        "Basic credentials",
+        "Custom credentials",
+        "Bearer not-a-jwt",
+        f"Bearer {_signed_canonical_token(user_id, exp=ISSUED_AT)}",
+        f"Bearer {_signed_canonical_token(user_id, secret=OTHER_SYNTHETIC_SECRET)}",
+        f"Bearer {_signed_canonical_token(user_id, iss='wrong-issuer')}",
+        f"Bearer {_signed_canonical_token(user_id, aud='wrong-audience')}",
+        f"Bearer {_signed_canonical_token(user_id, type='admin_access')}",
+        f"Bearer {legacy_service.create_access_token(user_id)}",
+    ]
+    application = _application(
+        status_session_factory,
+        user_token_service=user_token_service,
+    )
+
+    with TestClient(application) as test_client:
+        for authorization in authorization_values:
+            response = test_client.get(
+                _status_url(stored),
+                headers={
+                    "Authorization": authorization,
+                    "X-Order-Access-Token": stored.raw_access_token,
+                },
+            )
+            assert response.status_code == 401
+            assert response.json() == {"detail": "Invalid authentication credentials"}
+            assert response.headers["WWW-Authenticate"] == "Bearer"
+
+
+def test_inactive_and_missing_users_never_fall_back_to_valid_capability(
+    status_session_factory: sessionmaker[Session],
+    user_token_service: UserTokenService,
+) -> None:
+    """Require the supplied canonical identity to remain active and present."""
+    inactive_id = _store_user(status_session_factory, is_active=False)
+    stored = _store_order(status_session_factory)
+    application = _application(
+        status_session_factory,
+        user_token_service=user_token_service,
+    )
+
+    with TestClient(application) as test_client:
+        for user_id in (inactive_id, uuid4()):
+            response = test_client.get(
+                _status_url(stored),
+                headers={
+                    **_authorization(user_token_service.create_access_token(user_id)),
+                    "X-Order-Access-Token": stored.raw_access_token,
+                },
+            )
+            assert response.status_code == 401
+            assert response.json() == {"detail": "Invalid authentication credentials"}
+            assert response.headers["WWW-Authenticate"] == "Bearer"
+
+
+@pytest.mark.parametrize("failure_kind", ["missing_service", "database"])
+def test_status_authentication_failures_are_safe_503_before_capability(
+    status_session_factory: sessionmaker[Session],
+    test_database_engine: Engine,
+    user_token_service: UserTokenService,
+    failure_kind: str,
+) -> None:
+    """Map authentication infrastructure failures safely without guest fallback."""
+    user_id = _store_user(status_session_factory)
+    stored = _store_order(status_session_factory)
+    application = _application(
+        status_session_factory,
+        user_token_service=(
+            None if failure_kind == "missing_service" else user_token_service
+        ),
+    )
+
+    def fail_auth_query(*_: object) -> None:
+        raise OperationalError(
+            "synthetic authentication query",
+            {},
+            RuntimeError("synthetic authentication failure"),
+        )
+
+    if failure_kind == "database":
+        event.listen(test_database_engine, "before_cursor_execute", fail_auth_query)
+    try:
+        with TestClient(application) as test_client:
+            response = test_client.get(
+                _status_url(stored),
+                headers={
+                    **_authorization(user_token_service.create_access_token(user_id)),
+                    "X-Order-Access-Token": stored.raw_access_token,
+                },
+            )
+    finally:
+        if failure_kind == "database":
+            event.remove(
+                test_database_engine,
+                "before_cursor_execute",
+                fail_auth_query,
+            )
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Authentication service unavailable"}
+    assert "synthetic" not in response.text.lower()
 
 
 def test_setup_stores_only_sha256_token_hash(
@@ -468,16 +719,16 @@ def test_get_quote_remains_405_and_post_quote_still_works(
     assert response.status_code == 200
 
 
-def test_openapi_documents_status_without_an_order_security_requirement(
+def test_openapi_documents_optional_owner_or_capability_status_access(
     client: TestClient,
 ) -> None:
-    """Expose guest status without weakening its access or data boundary."""
+    """Expose exact optional UserBearer semantics and the safe status schema."""
     document = client.get("/openapi.json").json()
     assert set(document["paths"][QUOTE_PATH]) == {"post"}
     assert "/api/v1/orders/{public_order_number}" in document["paths"]
     operation = document["paths"]["/api/v1/orders/{public_order_number}"]["get"]
     assert operation["tags"] == ["orders"]
-    assert {"200", "404", "422"} <= set(operation["responses"])
+    assert {"200", "401", "404", "422", "503"} <= set(operation["responses"])
     assert operation["responses"]["200"]["content"]["application/json"]["schema"][
         "$ref"
     ].endswith("/OrderStatusResponse")
@@ -488,7 +739,8 @@ def test_openapi_documents_status_without_an_order_security_requirement(
     )
     assert header["in"] == "header"
     assert header["required"] is False
-    assert "security" not in operation
+    assert operation["security"] == [{"UserBearer": []}, {}]
+    assert {"AdminBearer": []} not in operation["security"]
     assert "post" in document["paths"]["/api/v1/orders"]
     properties = document["components"]["schemas"]["OrderStatusResponse"]["properties"]
     assert set(properties) == {
@@ -507,6 +759,11 @@ def test_openapi_documents_status_without_an_order_security_requirement(
         "id",
         "order_access_token",
         "order_access_token_hash",
+        "customer_user_id",
+        "owner_id",
+        "user_id",
+        "email",
+        "role",
         "payment_summary",
         "cost",
         "tax",

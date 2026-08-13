@@ -1,10 +1,11 @@
-"""HTTP routes for public order quotes and guest status access."""
+"""HTTP routes for public order quotes, creation, and status access."""
 
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from sqlalchemy.orm import Session
 
+from app.auth.dependencies import UserBearerCredentials, get_optional_current_user
 from app.core.rate_limit import get_client_bucket_key
 from app.database.dependencies import get_db_session
 from app.orders import creation, quoting
@@ -27,21 +28,25 @@ DatabaseSession = Annotated[Session, Depends(get_db_session)]
     status_code=status.HTTP_201_CREATED,
     summary="Create an order",
     responses={
+        401: {"description": "Invalid canonical authentication credentials"},
         404: {"description": "Menu item not found"},
         409: {
             "description": "Unavailable item, mixed currencies, or creation conflict"
         },
         422: {"description": "Invalid request or restaurant table"},
         429: {"description": "Order creation rate limit exceeded"},
+        503: {"description": "Authentication service unavailable"},
     },
+    openapi_extra={"security": [{}]},
 )
 def create_order_endpoint(
     payload: OrderCreateRequest,
     request: Request,
     response: Response,
     session: DatabaseSession,
+    credentials: UserBearerCredentials,
 ) -> OrderCreateResponse:
-    """Create one rate-limited, transactionally persisted guest order."""
+    """Create one rate-limited guest or registered-user order."""
     limiter = request.app.state.order_creation_rate_limiter
     rate_limit = limiter.check(get_client_bucket_key(request))
     if not rate_limit.allowed:
@@ -51,8 +56,14 @@ def create_order_endpoint(
             headers={"Retry-After": str(rate_limit.retry_after_seconds)},
         )
 
+    current_user = get_optional_current_user(request, credentials)
+
     try:
-        created_order = creation.create_order(session, payload)
+        created_order = creation.create_order(
+            session,
+            payload,
+            customer_user_id=(None if current_user is None else current_user.id),
+        )
     except creation.InvalidTableError as error:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -156,26 +167,38 @@ def reject_quote_get() -> None:
     response_model=OrderStatusResponse,
     summary="Get public order status",
     description=(
-        "Return a stored public order snapshot when the guest access token is valid."
+        "Return a stored public order snapshot to its owner or a caller with the "
+        "valid guest capability."
     ),
     responses={
+        401: {"description": "Invalid canonical authentication credentials"},
         404: {
             "description": "Order not found",
             "content": {"application/json": {"example": {"detail": "Order not found"}}},
-        }
+        },
+        503: {"description": "Authentication service unavailable"},
     },
+    openapi_extra={"security": [{}]},
 )
 def get_order_status_endpoint(
     public_order_number: str,
+    request: Request,
     session: DatabaseSession,
+    credentials: UserBearerCredentials,
     access_token: Annotated[
         str | None,
         Header(alias="X-Order-Access-Token"),
     ] = None,
 ) -> OrderStatusResponse:
-    """Return an authenticated guest order snapshot."""
+    """Return an order snapshot to its owner or a capability holder."""
+    current_user = get_optional_current_user(request, credentials)
     try:
-        return get_order_status(session, public_order_number, access_token)
+        return get_order_status(
+            session,
+            public_order_number,
+            access_token,
+            current_user_id=(None if current_user is None else current_user.id),
+        )
     except OrderNotFoundError as error:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

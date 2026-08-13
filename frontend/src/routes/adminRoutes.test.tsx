@@ -5,13 +5,14 @@ import {
   RouterProvider,
   type InitialEntry,
 } from 'react-router-dom';
-import { afterEach, vi } from 'vitest';
+import { afterEach, beforeEach, vi } from 'vitest';
 
 import { installFetchStub } from '../test/fetchStub';
 import { adminRoutes } from './adminRoutes';
 import { ADMIN_AUTH_STORAGE_KEY } from '../features/admin-auth/adminAuthStorage';
 
 const SYNTHETIC_TOKEN = 'test-admin-token';
+const FIXED_NOW = new Date('2026-08-12T12:00:00+02:00');
 const LOGIN_RESPONSE = {
   access_token: SYNTHETIC_TOKEN,
   expires_in: 1_800,
@@ -73,6 +74,11 @@ async function signIn(): Promise<void> {
   await user.type(screen.getByLabelText('Password'), 'synthetic password');
   await user.click(screen.getByRole('button', { name: 'Sign in' }));
 }
+
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(FIXED_NOW);
+});
 
 afterEach(() => {
   sessionStorage.clear();

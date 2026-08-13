@@ -5,6 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from sqlalchemy.orm import Session
 
+from app.auth.dependencies import UserBearerCredentials, get_optional_current_user
 from app.core.rate_limit import get_client_bucket_key
 from app.database.dependencies import get_db_session
 from app.orders.access import OrderNotFoundError
@@ -29,19 +30,26 @@ DatabaseSession = Annotated[Session, Depends(get_db_session)]
             "model": CheckoutSessionResponse,
             "description": "Existing idempotent checkout session",
         },
+        401: {"description": "Invalid canonical authentication credentials"},
         404: {"description": "Order not found"},
         409: {"description": "Order or payment state conflict"},
         422: {"description": "Invalid Idempotency-Key"},
         429: {"description": "Checkout rate limit exceeded"},
         502: {"description": "Payment provider unavailable"},
-        503: {"description": "Payment service or session state unavailable"},
+        503: {
+            "description": (
+                "Authentication, payment service, or session state unavailable"
+            )
+        },
     },
+    openapi_extra={"security": [{}]},
 )
 def create_checkout_session_endpoint(
     public_order_number: str,
     request: Request,
     response: Response,
     session: DatabaseSession,
+    credentials: UserBearerCredentials,
     access_token: Annotated[
         str | None,
         Header(alias="X-Order-Access-Token"),
@@ -69,6 +77,8 @@ def create_checkout_session_endpoint(
             headers={"Retry-After": str(rate_limit.retry_after_seconds)},
         )
 
+    current_user = get_optional_current_user(request, credentials)
+
     try:
         outcome = checkout.checkout_order(
             session,
@@ -78,6 +88,7 @@ def create_checkout_session_endpoint(
             stripe_client=request.app.state.stripe_checkout_client,
             stripe_success_url_template=request.app.state.stripe_success_url,
             stripe_cancel_url_template=request.app.state.stripe_cancel_url,
+            current_user_id=(None if current_user is None else current_user.id),
             now_provider=request.app.state.checkout_now_provider,
         )
     except OrderNotFoundError as error:

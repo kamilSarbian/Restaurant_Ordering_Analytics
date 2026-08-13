@@ -6,13 +6,24 @@ from collections.abc import Callable, Generator
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
+import jwt
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import delete, event, select
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.auth.models import User
+from app.auth.roles import UserRole
+from app.auth.service import (
+    USER_AUDIENCE,
+    USER_TOKEN_TYPE,
+    UserTokenClaims,
+    UserTokenService,
+)
+from app.auth.tokens import ALGORITHM, ISSUER, AdminTokenService
 from app.core.config import Settings
 from app.core.rate_limit import FixedWindowRateLimiter
 from app.database.session import create_session_factory
@@ -41,6 +52,9 @@ SUCCESS_TEMPLATE = "https://restaurant.example.test/orders/{public_order_number}
 CANCEL_TEMPLATE = "https://restaurant.example.test/orders/{public_order_number}/cancel"
 CHECKOUT_URL = "https://checkout.example.test/session/example"
 CHECKOUT_PATH = "/api/v1/orders/{public_order_number}/checkout-session"
+SYNTHETIC_SECRET = "s" * 32
+OTHER_SYNTHETIC_SECRET = "o" * 32
+ISSUED_AT = int(NOW.timestamp())
 
 
 class FakeClock:
@@ -89,6 +103,19 @@ class FakeStripeClient:
         return self.result
 
 
+class CountingUserTokenService(UserTokenService):
+    """Count strict canonical decodes for limiter-ordering assertions."""
+
+    def __init__(self) -> None:
+        super().__init__(SYNTHETIC_SECRET, now_provider=lambda: NOW)
+        self.decode_calls = 0
+
+    def decode_access_token(self, token: str) -> UserTokenClaims:
+        """Count and strictly decode one canonical access token."""
+        self.decode_calls += 1
+        return super().decode_access_token(token)
+
+
 @pytest.fixture(autouse=True)
 def empty_order_tables(test_database_engine: Engine) -> Generator[None, None, None]:
     """Keep checkout tests isolated within the approved test database."""
@@ -105,12 +132,19 @@ def api_session_factory(test_database_engine: Engine) -> sessionmaker[Session]:
     return create_session_factory(test_database_engine)
 
 
+@pytest.fixture
+def user_token_service() -> UserTokenService:
+    """Create deterministic canonical signing for checkout access tests."""
+    return UserTokenService(SYNTHETIC_SECRET, now_provider=lambda: NOW)
+
+
 def _clear_order_tables(engine: Engine) -> None:
     with engine.begin() as connection:
         connection.execute(delete(Payment))
         connection.execute(delete(OrderStatusHistory))
         connection.execute(delete(OrderItem))
         connection.execute(delete(Order))
+        connection.execute(delete(User))
 
 
 def _store_order(
@@ -119,6 +153,7 @@ def _store_order(
     status: OrderStatus = OrderStatus.CREATED,
     total_amount: int = 53700,
     currency: str = "NOK",
+    customer_user_id: UUID | None = None,
 ) -> tuple[UUID, str, str]:
     token = generate_order_access_token()
     order_id = uuid4()
@@ -127,6 +162,7 @@ def _store_order(
         id=order_id,
         public_order_number=public_order_number,
         order_access_token_hash=hash_order_access_token(token),
+        customer_user_id=customer_user_id,
         order_type="takeaway",
         table_id=None,
         table_number_snapshot=None,
@@ -176,10 +212,12 @@ def _application(
     stripe_client: FakeStripeClient | None,
     limiter: FixedWindowRateLimiter | None = None,
     configured_urls: bool = True,
+    user_token_service: UserTokenService | None = None,
 ) -> FastAPI:
     settings = Settings(
         _env_file=None,
         database_url=None,
+        auth_jwt_secret=None,
         stripe_secret_key=None,
         stripe_success_url=SUCCESS_TEMPLATE if configured_urls else None,
         stripe_cancel_url=CANCEL_TEMPLATE if configured_urls else None,
@@ -190,15 +228,23 @@ def _application(
         checkout_rate_limiter=limiter,
         stripe_checkout_client=stripe_client,  # type: ignore[arg-type]
         checkout_now_provider=lambda: NOW,
+        user_token_service=user_token_service,
     )
 
 
-def _headers(token: str | None, request_key: UUID | str | None) -> dict[str, str]:
+def _headers(
+    token: str | None,
+    request_key: UUID | str | None,
+    *,
+    authorization: str | None = None,
+) -> dict[str, str]:
     headers: dict[str, str] = {}
     if token is not None:
         headers["X-Order-Access-Token"] = token
     if request_key is not None:
         headers["Idempotency-Key"] = str(request_key)
+    if authorization is not None:
+        headers["Authorization"] = authorization
     return headers
 
 
@@ -207,11 +253,52 @@ def _post(
     public_order_number: str,
     token: str | None,
     request_key: UUID | str | None,
+    *,
+    authorization: str | None = None,
 ):
     return client.post(
         CHECKOUT_PATH.format(public_order_number=public_order_number),
-        headers=_headers(token, request_key),
+        headers=_headers(token, request_key, authorization=authorization),
     )
+
+
+def _store_user(
+    session_factory: sessionmaker[Session],
+    *,
+    is_active: bool = True,
+) -> UUID:
+    with session_factory.begin() as session:
+        user = User(
+            email=f"checkout-owner-{uuid4().hex}@example.com",
+            password_hash="synthetic-checkout-owner-password-hash",
+            role=UserRole.CUSTOMER,
+            is_active=is_active,
+        )
+        session.add(user)
+        session.flush()
+        return user.id
+
+
+def _bearer(token: str) -> str:
+    return f"Bearer {token}"
+
+
+def _signed_canonical_token(
+    user_id: UUID,
+    *,
+    secret: str = SYNTHETIC_SECRET,
+    **overrides: object,
+) -> str:
+    claims: dict[str, object] = {
+        "sub": str(user_id),
+        "type": USER_TOKEN_TYPE,
+        "iat": ISSUED_AT,
+        "exp": ISSUED_AT + 1800,
+        "iss": ISSUER,
+        "aud": USER_AUDIENCE,
+    }
+    claims.update(overrides)
+    return jwt.encode(claims, secret, algorithm=ALGORITHM)
 
 
 def test_new_checkout_uses_durable_money_and_persists_one_pending_attempt(
@@ -287,6 +374,315 @@ def test_guest_access_failures_share_one_public_404(
     assert response.status_code == 404
     assert response.json() == {"detail": "Order not found"}
     assert fake.requests == []
+    with api_session_factory() as session:
+        assert session.scalar(select(Payment)) is None
+
+
+def test_checkout_owner_or_capability_success_matrix(
+    api_session_factory: sessionmaker[Session],
+    user_token_service: UserTokenService,
+) -> None:
+    """Create or replay checkout for an owner or valid capability holder."""
+    owner_id = _store_user(api_session_factory)
+    other_id = _store_user(api_session_factory)
+    _, owned_number, owned_token = _store_order(
+        api_session_factory,
+        customer_user_id=owner_id,
+    )
+    _, unowned_number, unowned_token = _store_order(api_session_factory)
+    owner_auth = _bearer(user_token_service.create_access_token(owner_id))
+    other_auth = _bearer(user_token_service.create_access_token(other_id))
+    owned_key = uuid4()
+    unowned_key = uuid4()
+    fake = FakeStripeClient()
+    application = _application(
+        api_session_factory,
+        stripe_client=fake,
+        user_token_service=user_token_service,
+    )
+
+    with TestClient(application) as client:
+        responses = [
+            _post(
+                client,
+                owned_number,
+                None,
+                owned_key,
+                authorization=owner_auth,
+            ),
+            _post(
+                client,
+                owned_number,
+                "wrong-token",
+                owned_key,
+                authorization=owner_auth,
+            ),
+            _post(
+                client,
+                owned_number,
+                owned_token,
+                owned_key,
+                authorization=owner_auth,
+            ),
+            _post(
+                client,
+                owned_number,
+                owned_token,
+                owned_key,
+                authorization=other_auth,
+            ),
+        ]
+        fake.result = CheckoutSessionResult(
+            session_id="cs_fake_unowned",
+            checkout_url="https://checkout.example.test/session/unowned",
+            expires_at=NOW + timedelta(hours=1),
+        )
+        responses.append(
+            _post(
+                client,
+                unowned_number,
+                unowned_token,
+                unowned_key,
+                authorization=other_auth,
+            )
+        )
+
+    assert [response.status_code for response in responses] == [201, 200, 200, 200, 201]
+    assert all(response.status_code != 403 for response in responses)
+    assert [response.json()["public_order_number"] for response in responses] == [
+        owned_number,
+        owned_number,
+        owned_number,
+        owned_number,
+        unowned_number,
+    ]
+    assert len(fake.requests) == 2
+    with api_session_factory() as session:
+        assert len(session.scalars(select(Payment)).all()) == 2
+
+
+def test_checkout_non_owner_without_capability_is_hidden_before_payment(
+    api_session_factory: sessionmaker[Session],
+    user_token_service: UserTokenService,
+) -> None:
+    """Return only 404 and perform no financial work for denied identities."""
+    owner_id = _store_user(api_session_factory)
+    other_id = _store_user(api_session_factory)
+    _, owned_number, _ = _store_order(
+        api_session_factory,
+        customer_user_id=owner_id,
+    )
+    _, unowned_number, _ = _store_order(api_session_factory)
+    other_auth = _bearer(user_token_service.create_access_token(other_id))
+    fake = FakeStripeClient()
+    application = _application(
+        api_session_factory,
+        stripe_client=fake,
+        user_token_service=user_token_service,
+    )
+    cases = [
+        (owned_number, None),
+        (owned_number, "wrong-token"),
+        (unowned_number, None),
+        (unowned_number, "wrong-token"),
+        (generate_public_order_number(), None),
+    ]
+
+    with TestClient(application) as client:
+        responses = [
+            _post(
+                client,
+                public_number,
+                capability,
+                uuid4(),
+                authorization=other_auth,
+            )
+            for public_number, capability in cases
+        ]
+
+    assert all(response.status_code == 404 for response in responses)
+    assert all(response.status_code != 403 for response in responses)
+    assert all(
+        response.json() == {"detail": "Order not found"} for response in responses
+    )
+    assert fake.requests == []
+    with api_session_factory() as session:
+        assert session.scalar(select(Payment)) is None
+
+
+def test_unusable_authorization_never_falls_back_to_checkout_capability(
+    api_session_factory: sessionmaker[Session],
+    user_token_service: UserTokenService,
+) -> None:
+    """Reject empty, incomplete, Basic, and unstructured Authorization values."""
+    _, public_number, token = _store_order(api_session_factory)
+    fake = FakeStripeClient()
+    application = _application(
+        api_session_factory,
+        stripe_client=fake,
+        user_token_service=user_token_service,
+    )
+
+    with TestClient(application) as client:
+        responses = [
+            _post(
+                client,
+                public_number,
+                token,
+                uuid4(),
+                authorization=value,
+            )
+            for value in ("", "Bearer", "Basic credentials", "Custom credentials")
+        ]
+
+    assert all(response.status_code == 401 for response in responses)
+    assert all(
+        response.json() == {"detail": "Invalid authentication credentials"}
+        for response in responses
+    )
+    assert all(
+        response.headers["WWW-Authenticate"] == "Bearer" for response in responses
+    )
+    assert fake.requests == []
+    with api_session_factory() as session:
+        assert session.scalar(select(Payment)) is None
+
+
+def test_invalid_or_legacy_token_never_falls_back_to_checkout_capability(
+    api_session_factory: sessionmaker[Session],
+    user_token_service: UserTokenService,
+) -> None:
+    """Reject strict canonical failures and the legacy token family first."""
+    user_id = _store_user(api_session_factory)
+    _, public_number, token = _store_order(api_session_factory)
+    legacy_service = AdminTokenService(
+        SYNTHETIC_SECRET,
+        now_provider=lambda: NOW,
+    )
+    tokens = [
+        "not-a-jwt",
+        _signed_canonical_token(user_id, exp=ISSUED_AT),
+        _signed_canonical_token(user_id, secret=OTHER_SYNTHETIC_SECRET),
+        _signed_canonical_token(user_id, iss="wrong-issuer"),
+        _signed_canonical_token(user_id, aud="wrong-audience"),
+        _signed_canonical_token(user_id, type="admin_access"),
+        legacy_service.create_access_token(user_id),
+    ]
+    fake = FakeStripeClient()
+    application = _application(
+        api_session_factory,
+        stripe_client=fake,
+        user_token_service=user_token_service,
+    )
+
+    with TestClient(application) as client:
+        responses = [
+            _post(
+                client,
+                public_number,
+                token,
+                uuid4(),
+                authorization=_bearer(candidate),
+            )
+            for candidate in tokens
+        ]
+
+    assert all(response.status_code == 401 for response in responses)
+    assert all(
+        response.json() == {"detail": "Invalid authentication credentials"}
+        for response in responses
+    )
+    assert all(
+        response.headers["WWW-Authenticate"] == "Bearer" for response in responses
+    )
+    assert fake.requests == []
+    with api_session_factory() as session:
+        assert session.scalar(select(Payment)) is None
+
+
+def test_inactive_and_missing_users_never_fall_back_to_checkout_capability(
+    api_session_factory: sessionmaker[Session],
+    user_token_service: UserTokenService,
+) -> None:
+    """Reject a supplied canonical identity that is inactive or missing."""
+    inactive_id = _store_user(api_session_factory, is_active=False)
+    _, public_number, token = _store_order(api_session_factory)
+    fake = FakeStripeClient()
+    application = _application(
+        api_session_factory,
+        stripe_client=fake,
+        user_token_service=user_token_service,
+    )
+
+    with TestClient(application) as client:
+        responses = [
+            _post(
+                client,
+                public_number,
+                token,
+                uuid4(),
+                authorization=_bearer(user_token_service.create_access_token(user_id)),
+            )
+            for user_id in (inactive_id, uuid4())
+        ]
+
+    assert all(response.status_code == 401 for response in responses)
+    assert fake.requests == []
+    with api_session_factory() as session:
+        assert session.scalar(select(Payment)) is None
+
+
+@pytest.mark.parametrize("failure_kind", ["missing_service", "database"])
+def test_checkout_authentication_failures_are_safe_before_financial_work(
+    api_session_factory: sessionmaker[Session],
+    test_database_engine: Engine,
+    user_token_service: UserTokenService,
+    failure_kind: str,
+) -> None:
+    """Return safe 503 without Payment or provider work on auth failure."""
+    user_id = _store_user(api_session_factory)
+    _, public_number, token = _store_order(api_session_factory)
+    fake = FakeStripeClient()
+    application = _application(
+        api_session_factory,
+        stripe_client=fake,
+        user_token_service=(
+            None if failure_kind == "missing_service" else user_token_service
+        ),
+    )
+
+    def fail_auth_query(*_: object) -> None:
+        raise OperationalError(
+            "synthetic authentication query",
+            {},
+            RuntimeError("synthetic authentication failure"),
+        )
+
+    if failure_kind == "database":
+        event.listen(test_database_engine, "before_cursor_execute", fail_auth_query)
+    try:
+        with TestClient(application) as client:
+            response = _post(
+                client,
+                public_number,
+                token,
+                uuid4(),
+                authorization=_bearer(user_token_service.create_access_token(user_id)),
+            )
+    finally:
+        if failure_kind == "database":
+            event.remove(
+                test_database_engine,
+                "before_cursor_execute",
+                fail_auth_query,
+            )
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Authentication service unavailable"}
+    assert "synthetic" not in response.text.lower()
+    assert fake.requests == []
+    with api_session_factory() as session:
+        assert session.scalar(select(Payment)) is None
 
 
 @pytest.mark.parametrize(
@@ -323,7 +719,13 @@ def test_invalid_idempotency_key_precedes_sql_and_stripe(
         with TestClient(
             _application(api_session_factory, stripe_client=fake)
         ) as client:
-            response = _post(client, public_number, token, request_key)
+            response = _post(
+                client,
+                public_number,
+                token,
+                request_key,
+                authorization="Basic credentials",
+            )
     finally:
         event.remove(test_database_engine, "before_cursor_execute", capture_statement)
 
@@ -663,10 +1065,12 @@ def test_checkout_rate_limit_denial_runs_zero_sql_and_zero_stripe(
     fake = FakeStripeClient()
     clock = FakeClock()
     limiter = FixedWindowRateLimiter(clock=clock)
+    counting_token_service = CountingUserTokenService()
     application = _application(
         api_session_factory,
         stripe_client=fake,
         limiter=limiter,
+        user_token_service=counting_token_service,
     )
     path = CHECKOUT_PATH.format(public_order_number=public_number)
 
@@ -688,7 +1092,17 @@ def test_checkout_rate_limit_denial_runs_zero_sql_and_zero_stripe(
 
         event.listen(test_database_engine, "before_cursor_execute", capture_statement)
         try:
-            denied = client.post(
+            denied_with_auth = client.post(
+                path,
+                headers={
+                    **_headers(token, request_key),
+                    "Authorization": _bearer(
+                        counting_token_service.create_access_token(uuid4())
+                    ),
+                    "X-Forwarded-For": "second-client",
+                },
+            )
+            denied_guest = client.post(
                 path,
                 headers={
                     **_headers(token, request_key),
@@ -709,11 +1123,19 @@ def test_checkout_rate_limit_denial_runs_zero_sql_and_zero_stripe(
 
     assert responses[0].status_code == 201
     assert all(response.status_code == 200 for response in responses[1:])
-    assert denied.status_code == 429
-    assert denied.json() == {"detail": "Too many checkout requests"}
-    assert int(denied.headers["Retry-After"]) > 0
+    assert denied_with_auth.status_code == denied_guest.status_code == 429
+    assert (
+        denied_with_auth.json()
+        == denied_guest.json()
+        == {"detail": "Too many checkout requests"}
+    )
+    assert int(denied_with_auth.headers["Retry-After"]) > 0
+    assert int(denied_guest.headers["Retry-After"]) > 0
     assert statements == []
+    assert counting_token_service.decode_calls == 0
     assert len(fake.requests) == 1
+    with api_session_factory() as session:
+        assert len(session.scalars(select(Payment)).all()) == 1
     assert reset_response.status_code == 200
     assert independent.status_code == 200
 
@@ -738,9 +1160,19 @@ def test_openapi_documents_the_complete_checkout_transport_contract(
     assert {"public_order_number", "X-Order-Access-Token", "Idempotency-Key"} <= (
         parameters
     )
-    assert {"200", "201", "404", "409", "422", "429", "502", "503"} <= set(
-        operation["responses"]
-    )
+    assert {
+        "200",
+        "201",
+        "401",
+        "404",
+        "409",
+        "422",
+        "429",
+        "502",
+        "503",
+    } <= set(operation["responses"])
+    assert operation["security"] == [{"UserBearer": []}, {}]
+    assert {"AdminBearer": []} not in operation["security"]
     assert response_schema["$ref"].endswith("/CheckoutSessionResponse")
     schema_text = str(document["components"]["schemas"]["CheckoutSessionResponse"])
     assert all(

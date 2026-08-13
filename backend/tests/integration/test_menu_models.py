@@ -47,6 +47,7 @@ EXPECTED_INDEXES = {
     "ix_categories_name_normalized_unique",
     "ix_menu_items_active_category_display_order",
     "ix_menu_items_category_name_normalized_unique",
+    "ix_orders_customer_user_created_at_id",
     "ix_payments_order_created_at_id",
     "ix_payments_order_pending_unique",
     "ix_payments_order_succeeded_unique",

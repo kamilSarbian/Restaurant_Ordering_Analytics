@@ -130,7 +130,7 @@ class OrderCreateItemRequest(BaseModel):
 
 
 class OrderCreateRequest(BaseModel):
-    """Describe an untrusted guest request to create one order."""
+    """Describe an untrusted public request to create one order."""
 
     model_config = ConfigDict(extra="forbid")
 

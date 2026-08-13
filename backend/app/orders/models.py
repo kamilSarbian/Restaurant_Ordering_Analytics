@@ -10,6 +10,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     UniqueConstraint,
@@ -37,6 +38,11 @@ class Order(Base):
     )
     order_access_token_hash: Mapped[str] = mapped_column(
         String(64), unique=True, nullable=False
+    )
+    customer_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
     )
     order_type: Mapped[str] = mapped_column(String(16), nullable=False)
     table_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -78,6 +84,12 @@ class Order(Base):
     )
 
     __table_args__ = (
+        Index(
+            "ix_orders_customer_user_created_at_id",
+            "customer_user_id",
+            "created_at",
+            "id",
+        ),
         CheckConstraint(
             "status IN ('created', 'accepted', 'preparing', 'ready', "
             "'completed', 'cancelled')",

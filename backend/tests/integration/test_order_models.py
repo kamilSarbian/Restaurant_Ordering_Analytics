@@ -7,6 +7,7 @@ import uuid
 
 import pytest
 from sqlalchemy import BigInteger, inspect, select
+from sqlalchemy.dialects.postgresql import UUID as PostgreSQLUUID
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import DataError, IntegrityError
 from sqlalchemy.orm import Session
@@ -135,7 +136,7 @@ def _assert_database_error(session: Session, model: object) -> None:
     assert session.execute(select(1)).scalar_one() == 1
 
 
-def test_schema_has_exact_constraints_and_restricted_foreign_keys(
+def test_schema_has_exact_constraints_and_foreign_key_policies(
     test_database_engine: Engine,
 ) -> None:
     """Verify the named schema contract produced by migration 0003."""
@@ -186,7 +187,10 @@ def test_schema_has_exact_constraints_and_restricted_foreign_keys(
         } == expected
 
     expected_foreign_keys = {
-        "orders": {"fk_orders_table_id_restaurant_tables"},
+        "orders": {
+            "fk_orders_customer_user_id_users",
+            "fk_orders_table_id_restaurant_tables",
+        },
         "order_items": {
             "fk_order_items_menu_item_id_menu_items",
             "fk_order_items_order_id_orders",
@@ -196,9 +200,56 @@ def test_schema_has_exact_constraints_and_restricted_foreign_keys(
     for table_name, expected in expected_foreign_keys.items():
         foreign_keys = inspector.get_foreign_keys(table_name)
         assert {foreign_key["name"] for foreign_key in foreign_keys} == expected
-        assert {foreign_key["options"]["ondelete"] for foreign_key in foreign_keys} == {
-            "RESTRICT"
-        }
+        if table_name != "orders":
+            assert {
+                foreign_key["options"]["ondelete"] for foreign_key in foreign_keys
+            } == {"RESTRICT"}
+
+    order_foreign_keys = {
+        foreign_key["name"]: foreign_key
+        for foreign_key in inspector.get_foreign_keys("orders")
+    }
+    assert (
+        order_foreign_keys["fk_orders_table_id_restaurant_tables"]["options"][
+            "ondelete"
+        ]
+        == "RESTRICT"
+    )
+    ownership_foreign_key = order_foreign_keys["fk_orders_customer_user_id_users"]
+    assert ownership_foreign_key["constrained_columns"] == ["customer_user_id"]
+    assert ownership_foreign_key["referred_table"] == "users"
+    assert ownership_foreign_key["referred_columns"] == ["id"]
+    assert ownership_foreign_key["options"]["ondelete"] == "SET NULL"
+
+
+def test_order_ownership_column_and_index_match_the_persistence_contract(
+    test_database_engine: Engine,
+) -> None:
+    """Keep optional ownership scalar, unowned default, and history index exact."""
+    inspector = inspect(test_database_engine)
+    columns = {column["name"]: column for column in inspector.get_columns("orders")}
+    ownership_column = columns["customer_user_id"]
+    assert isinstance(ownership_column["type"], PostgreSQLUUID)
+    assert ownership_column["nullable"] is True
+    assert ownership_column["default"] is None
+
+    model_column = Order.__table__.columns["customer_user_id"]
+    assert model_column.default is None
+    assert model_column.server_default is None
+
+    indexes = {
+        index["name"]: index
+        for index in inspector.get_indexes("orders")
+        if index["name"].startswith("ix_")
+    }
+    assert set(indexes) == {"ix_orders_customer_user_created_at_id"}
+    ownership_index = indexes["ix_orders_customer_user_created_at_id"]
+    assert ownership_index["column_names"] == [
+        "customer_user_id",
+        "created_at",
+        "id",
+    ]
+    assert ownership_index["unique"] is False
 
 
 def test_schema_uses_bigint_and_has_no_unapproved_order_item_fields(
@@ -256,6 +307,7 @@ def test_takeaway_order_defaults_uuid_status_timestamps_and_bigint(
     db_session.flush()
     assert isinstance(order.id, uuid.UUID)
     assert order.status == OrderStatus.CREATED.value
+    assert order.customer_user_id is None
     assert order.table_id is None
     assert order.table_number_snapshot is None
     assert order.subtotal_amount == amount
@@ -669,6 +721,11 @@ def test_relationships_are_ordered_and_have_no_delete_cascade(
     assert stored is not None
     assert [item.position for item in stored.items] == [0, 1, 2]
     assert [entry.sequence for entry in stored.status_history] == [0, 1, 2]
+    assert set(Order.__mapper__.relationships.keys()) == {
+        "items",
+        "payments",
+        "status_history",
+    }
     assert Order.items.property.passive_deletes == "all"
     assert Order.status_history.property.passive_deletes == "all"
     assert "delete" not in Order.items.property.cascade

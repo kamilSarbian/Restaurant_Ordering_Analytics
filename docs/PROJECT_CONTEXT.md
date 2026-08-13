@@ -17,8 +17,8 @@ application, not an enterprise-class system.
 The goal is to build a secure web application that:
 
 - allows an anonymous guest to place a dine-in or takeaway order;
-- provides optional registered customer authentication without making
-  registration a purchase requirement, while own-order history remains planned;
+- provides optional registered customer authentication and personal Order
+  history without making registration a purchase requirement;
 - always prices the order on the backend;
 - supports test payments through Stripe Checkout;
 - allows staff to manage the menu and order fulfilment;
@@ -67,15 +67,19 @@ cannot assign or modify `super_admin`.
 
 An anonymous `guest` remains neither a User nor a role, and guest ordering is
 unchanged. `AdminUser` remains only as a temporary Python import alias for the
-same mapped User during compatibility work. Order ownership, customer order
-history, and the unified account frontend remain planned for Stages 16E and
-16F.
+same mapped User during compatibility work. Stage 16E links new Orders to a
+canonical active User when valid optional authentication is supplied and
+provides read-only personal Order history. The unified customer account
+frontend remains planned for Stage 16F.
 
 Migration `0007_unify_user_auth_roles` implements the rename from `admin_users`
 to `users`, the constrained role, safe zero/one-row upgrade, atomic multi-row
-failure, and guarded downgrade. Repository head is 0007. The development
-database deliberately remains at 0006 until a separately approved migration
-operation; Stage 16D-C1 does not mutate it.
+failure, and guarded downgrade. Its child `0008_add_order_ownership` adds the
+nullable Order owner foreign key and personal-history index without a backfill.
+Repository head is `0008_add_order_ownership`. The development database
+deliberately remains at `0006_create_admin_user_model` until a separately
+approved `0006 -> 0007 -> 0008` migration operation; Stage 16E-C1 does not
+mutate it.
 
 ## 4. Main Flows
 
@@ -109,25 +113,31 @@ operation; Stage 16D-C1 does not mutate it.
 6. The durable aggregate has a private internal UUID and a separate
    `public_order_number`. Dine-in orders preserve a table-number snapshot, and
    later menu or table changes cannot alter the historical order.
-7. Creation returns a one-time raw `order_access_token`; PostgreSQL stores only
-   its SHA-256 hash. Public status requires the number and the
-   `X-Order-Access-Token` header.
-8. Every valid creation POST creates a distinct Order. Stage 8 has no
+7. Creation without Authorization stores NULL ownership. Valid canonical
+   `user_access` assigns the current active User in the same aggregate
+   transaction; an invalid present Bearer is never downgraded to guest.
+8. Creation returns a one-time raw `order_access_token` for every Order;
+   PostgreSQL stores only its SHA-256 hash. Public status permits the matching
+   owner or a caller presenting the valid independent capability.
+9. Every valid creation POST creates a distinct Order. Stage 8 has no
    `Idempotency-Key` or request fingerprint, so a network retry may create a
    duplicate order.
-9. The in-memory, app-scoped creation limiter permits 10 attempts per 60
+10. The in-memory, app-scoped creation limiter permits 10 attempts per 60
    seconds for each direct client host and returns HTTP 429 with `Retry-After`
    before any SQL when the limit is exceeded.
-10. Order creation still creates neither a `Payment` record nor a Stripe
+11. Order creation still creates neither a `Payment` record nor a Stripe
     session. The separate Stage 9 Checkout flow owns that boundary.
 
 ### 4.3. Stripe Payment
 
-1. The customer calls the implemented Stage 9 Checkout endpoint with the
-   `public_order_number`, the `X-Order-Access-Token` header, and the
-   required canonical UUIDv4 `Idempotency-Key` header.
-2. The backend authenticates guest access, locks `Order` before its related
-   `Payment` rows, and uses only the amount and currency stored on `Order`.
+1. The customer calls the implemented Checkout endpoint with the
+   `public_order_number`, required canonical UUIDv4 `Idempotency-Key`, and
+   either canonical owner authentication or the independent
+   `X-Order-Access-Token` capability.
+2. After idempotency validation, rate limiting, and optional canonical User
+   resolution, the backend locks `Order`, authorizes owner or capability, then
+   locks related `Payment` rows. It uses only the amount and currency stored on
+   Order. Denied access reaches no Payment or provider work.
 3. When allowed, it persists a new `Payment(status=pending)` in a short
    transaction. Each Payment is one durable attempt, not an aggregate Order
    status.
@@ -242,8 +252,9 @@ operation; Stage 16D-C1 does not mutate it.
    doing so would require a refund process.
 9. Every allowed status change and its history row are committed atomically
    under the shared Order lock.
-10. The customer may read a minimal status view by providing the
-    `public_order_number` and the `X-Order-Access-Token` header.
+10. The customer may read a minimal status view using the
+    `public_order_number` and either matching canonical ownership or the valid
+    `X-Order-Access-Token` capability.
 11. Stage 12 adds no RestaurantTable administration, refund processing, actor
     attribution, generic audit log, or analytics. Analytics are introduced
     separately in Stage 13.
@@ -347,7 +358,7 @@ or implement finer RBAC beyond the current single administrator privilege.
 Automated acceptance and user-performed manual responsive acceptance at the
 required mobile, tablet, and desktop viewports are complete and verified.
 
-### 4.8. Unified Authentication and Planned Landing and Order Ownership
+### 4.8. Unified Authentication, Order Ownership, and Account Reads
 
 The backend implements `POST /api/v1/auth/register`,
 `POST /api/v1/auth/login`, and `GET /api/v1/auth/me`. The planned Stage 16F
@@ -355,15 +366,30 @@ landing route will offer Order as guest, Log in, and Create account. Order as
 guest will lead directly to the public menu and preserve the complete current
 no-login flow.
 
-A future nullable `Order.customer_user_id` will link a newly created Order to
-the current registered User when valid optional Bearer authentication is
-supplied. Anonymous Orders will retain NULL ownership. A missing Authorization
-header will mean anonymous guest creation, while an invalid supplied header
-will return 401 instead of silently downgrading to a guest. Every Order will
-still receive its independent order-access token for Checkout and public status.
-The planned account API and UI will list and display only Orders selected
-server-side for the current User. Historical anonymous Orders will not be
-claimed retroactively.
+Stage 16E implements nullable `Order.customer_user_id`. A newly created Order
+is linked to the current registered User when valid optional canonical Bearer
+authentication is supplied; an absent Authorization header means anonymous
+guest creation. Invalid, malformed, legacy, inactive, or missing-User
+authentication returns 401 instead of silently downgrading to guest. Every
+active `customer`, `admin`, or `super_admin` may create only its own owned
+Order. Every Order still receives its independent capability for Checkout and
+public status,
+so the matching owner or a valid capability holder may use those public routes.
+An authenticated non-owner without the capability receives the same 404 as an
+unknown Order, not an ownership-revealing 403.
+
+The implemented `GET /api/v1/account/orders` and
+`GET /api/v1/account/orders/{public_order_number}` routes require strict
+canonical authentication. Every active role sees only personally owned Orders.
+List, count, and detail predicates are owner-scoped in SQL; another User's,
+unowned, and unknown detail all return one 404. A guest capability does not
+bypass this boundary. Dedicated safe list fields and the shared public status
+serializer expose no owner, PII, Payment, or Stripe data, and there is no
+account mutation or retroactive ownership claim.
+
+Stage 16E changes no production frontend source. Landing, customer login and
+registration UX, authenticated ordering, account screens, and administrator
+User-management UI remain planned for Stage 16F.
 
 Stage 16G integrated finalization and Stage 17 full-system Docker remain not
 started and require their own approvals.
@@ -376,7 +402,7 @@ The MVP includes:
 - a frontend cart;
 - backend order quoting;
 - guest dine-in and takeaway orders;
-- registered customer authentication, with own-order history still planned;
+- registered customer authentication and read-only personal Order history;
 - table handling;
 - Stripe Checkout in test mode;
 - verified and idempotent Stripe webhooks;
@@ -524,19 +550,23 @@ discounts. Dine-in orders additionally preserve `table_number_snapshot`.
   currently active in FastAPI.
 - Sign-in, order creation, and Stripe session creation are rate-limited.
 - Logs do not contain passwords, tokens, keys, or card data.
-- The public order view reveals only necessary information and requires the
-  `public_order_number` and the `X-Order-Access-Token` header.
+- The public order view reveals only necessary information and permits either
+  the matching canonical owner or a caller with the independent Order
+  capability. Invalid present authentication cannot fall back to capability
+  access, and public denials use 404 rather than an ownership-revealing 403.
 - `order_access_token` has at least 256 bits of randomness, is returned in raw
   form only during order creation, and only its SHA-256 hash exists in the
   database. Token comparison must be secure.
 - The public status response contains only the public number,
-  `order_status`, order type, optional table-number snapshot, currency,
+  `status`, order type, optional table-number snapshot, currency,
   historical public item lines, subtotal, total, `created_at`, and `updated_at`.
   Stage 10 deliberately adds no `payment_summary`; any future exposure requires
   a separately approved public contract.
-- Public status does not expose an email address, internal UUIDs, Stripe
-  identifiers, or administrator data. An invalid number and an invalid token
-  return the same generic error.
+- Public status does not expose an email address, owner identity, internal
+  UUIDs, Stripe identifiers, or administrator data. Account list and detail
+  are filtered by current User in SQL and expose no capability, Payment, or
+  Stripe data. Unknown, unowned, and cross-user account details share the same
+  generic 404.
 - Order creation is rate-limited per direct peer host by an app-scoped,
   per-process fixed window. Forwarded headers are not trusted without a future
   trusted-proxy configuration.
@@ -550,8 +580,10 @@ mobile, tablet, and desktop viewports. Stage 16 administrator authentication,
 orders, menu, analytics, and exports are implemented and pass automated
 validation and user-performed manual administrator responsive acceptance.
 Stage 16D also implements the unified User/authentication/RBAC backend and
-super-admin role-management API. Ownership and the unified account frontend
-remain planned for Stages 16E and 16F.
+super-admin role-management API. Stage 16E implements Order ownership, mixed
+guest/authenticated creation and public access, and the read-only personal
+account API. The unified customer account and administrator User-management
+frontend remains planned for Stage 16F.
 
 The project should demonstrate to a recruiter that its author can:
 

@@ -97,12 +97,14 @@ order and snapshots without creating a `Payment` and without communicating with
 Stripe. The response contains the `public_order_number` and, once, the raw
 `order_access_token`.
 
-A separate Checkout endpoint requires the `public_order_number`, the
-`X-Order-Access-Token` header, and the `Idempotency-Key` header. It creates a
+A separate Checkout endpoint requires the `public_order_number` and
+`Idempotency-Key`, and authorizes either the matching canonical owner or the
+independent `X-Order-Access-Token` capability. It creates a
 `Payment(status=pending)` for the amount stored on `Order`, then creates a
 Stripe session. The same order and key pair cannot create another attempt or
-session. Stage 9 implements this Checkout boundary. Stage 10 implements the
-separate verified webhook boundary and provider-confirmed terminal transitions.
+session. Stage 9 implements this Checkout boundary, Stage 10 implements the
+verified webhook boundary, and Stage 16E adds owner-or-capability access without
+changing the financial state machine.
 
 The Stripe call does not occur inside a database transaction. A short
 transaction first locks `Order`, checks `Payment`, and stores the new attempt
@@ -227,10 +229,14 @@ attempt `failed`, while an ambiguous result stays `pending`.
 returned only when the order is created. The database stores only its SHA-256
 hash, and verification compares the calculated hash in constant time.
 
-Public status retrieval requires the number and the `X-Order-Access-Token`
-header. An invalid number, missing token, and invalid token produce the same
-generic error. The Stage 8 response contains only the public number,
-`order_status`, order type, optional table-number snapshot, currency, public
+Public status retrieval requires the number and authorizes either a current
+canonical User whose ID matches the persisted owner or a caller presenting the
+valid `X-Order-Access-Token`. The capability stays independently valid for an
+owned Order. An unknown number or denied owner/capability check produces the
+same generic 404, never an ownership-revealing public 403. A present invalid
+Bearer returns 401 before capability fallback. The response contains only the
+public number,
+`status`, order type, optional table-number snapshot, currency, public
 historical item lines, totals, and creation and update timestamps. Stage 9 does
 not add `payment_summary` even though Payment persistence now exists.
 
@@ -328,16 +334,18 @@ measurement-driven rather than an unverified enterprise-scale claim.
 erDiagram
     CATEGORIES ||--o{ MENU_ITEMS : contains
     RESTAURANT_TABLES o|--o{ ORDERS : serves
+    USERS o|--o{ ORDERS : optionally_owns
     ORDERS ||--|{ ORDER_ITEMS : contains
     MENU_ITEMS ||--o{ ORDER_ITEMS : snapshots
     ORDERS ||--|{ ORDER_STATUS_HISTORY : records
     ORDERS ||--o{ PAYMENTS : attempts
     PAYMENTS o|--o{ STRIPE_EVENTS : correlates
 
-    ADMIN_USERS {
+    USERS {
         uuid id PK
         varchar email UK
         text password_hash
+        varchar role
         boolean is_active
         timestamptz created_at
         timestamptz updated_at
@@ -382,6 +390,7 @@ erDiagram
         uuid id PK
         varchar public_order_number UK
         varchar order_access_token_hash UK
+        uuid customer_user_id FK
         varchar order_type
         uuid table_id FK
         int table_number_snapshot
@@ -460,9 +469,22 @@ item may remain visible while unavailable.
 Stage 8 adds RestaurantTable, Order, OrderItem, and OrderStatusHistory. A
 takeaway order has no table relationship or table snapshot. A dine-in order
 references one RestaurantTable and stores its number independently as a
-historical snapshot. All order foreign keys use `ON DELETE RESTRICT`, and ORM
-relationships use no delete or delete-orphan cascade. Physical deletion is not
-the normal order lifecycle.
+historical snapshot. Table and Order-aggregate foreign keys use
+`ON DELETE RESTRICT`, and ORM aggregate relationships use no delete or
+delete-orphan cascade. Stage 16E's ownership foreign key is the deliberate
+exception: nullable `orders.customer_user_id` references `users.id` with
+`ON DELETE SET NULL`, so a future User deletion can preserve the complete Order
+history. No User-delete API currently exists, and there is intentionally no
+User-to-Order ORM ownership relationship.
+
+Migration `0008_add_order_ownership`, whose parent is
+`0007_unify_user_auth_roles`, adds ownership with no default, data rewrite, or
+backfill. Historical Orders remain NULL and there is no fake guest User, guest
+role, or retroactive claim. The one non-unique
+`ix_orders_customer_user_created_at_id` index covers
+`(customer_user_id, created_at, id)`. It supports owner filtering and backward
+index traversal for deterministic `created_at DESC, id DESC` account history;
+there is no redundant `customer_user_id`-only index.
 
 OrderItem deliberately denormalizes category name, item name, quantity, unit
 price, nullable unit cost, tax-rate placeholder, discount placeholder, and line
@@ -585,12 +607,23 @@ table SELECT followed by the menu/category SELECT. Shared locks permit
 concurrent independent creations while blocking conflicting source updates or
 deletes until the creation transaction ends.
 
-The creation response contains the one-time raw guest token and a
-presentational public number. Only the SHA-256 token hash is persisted. Public
-status reads the Order and item snapshots through explicit column-level
-queries, verifies the token with constant-time comparison, executes no writes,
-and exposes no internal Order UUID, OrderItem ID, cost, token hash, Payment, or
-Stripe field.
+Optional canonical authentication is resolved after the creation limiter. An
+absent Authorization header enters the guest path without requiring the auth
+service or a User query. A valid `user_access` reloads the current active User;
+any present malformed, invalid, legacy, inactive, or missing-User credential
+returns 401 rather than falling back to guest. Auth configuration or User-query
+failure returns a safe 503.
+
+The trusted `customer_user_id` or NULL is written in the initial Order
+constructor inside the same aggregate transaction, not through a follow-up
+UPDATE. The public request cannot supply an owner, and current public/account
+routes cannot mutate or claim ownership. The creation response contains the
+one-time raw guest capability and a presentational public number for every
+Order; only the SHA-256 capability hash is persisted. Public status reads the
+Order and item snapshots through explicit column-level queries, applies the
+role-independent owner-or-constant-time-capability decision before reading
+items, executes no writes, and exposes no owner, internal Order UUID,
+OrderItem ID, cost, token hash, Payment, or Stripe field.
 
 The app-scoped fixed-window limiter allows 10 creation attempts per 60 seconds
 for each direct `request.client.host`. It is thread-safe, per process, resets on
@@ -615,24 +648,29 @@ key, and automated tests inject a narrow fake client that performs no network
 request.
 
 `POST /api/v1/orders/{public_order_number}/checkout-session` has no request
-body. It requires `X-Order-Access-Token` and a canonical lowercase hyphenated
-UUIDv4 `Idempotency-Key`. The server owns amount and currency and creates one
+body. It requires a canonical lowercase hyphenated UUIDv4 `Idempotency-Key` and
+authorizes the matching canonical owner or a valid independent
+`X-Order-Access-Token`. The server owns amount and currency and creates one
 hosted `mode=payment` line item. Safe metadata contains only internal Order and
 Payment identifiers and the public order number; it contains no guest token.
 Redirect templates accept an absolute HTTP(S) URL with at most the approved
 `{public_order_number}` placeholder.
 
-Phase 1 starts a short transaction, authenticates and locks Order, rejects a
-non-`created` fulfilment state, then locks related Payments ordered by creation
-time and UUID. It either returns a stored future session, selects the same-key
-pending attempt for provider replay, or creates one pending attempt from the
-durable Order total. The Stripe call occurs only after commit, with no database
-transaction or row lock. Phase 3 again locks `Order -> Payment`, rechecks
-invariants, and stores an identical provider result without overwriting
-conflicting state.
+The exact transport and financial ordering is request/idempotency validation,
+rate limiting, optional canonical User resolution, a short transaction,
+`Order SELECT ... FOR UPDATE`, owner-or-capability authorization, and only then
+the existing Payment query/lock/mutation. User resolution uses a separate short
+session and takes no User lock, so it introduces no `User -> Order` lock edge.
+Denied access performs no Payment query or mutation, provider call, or persisted
+idempotency work. Phase 1 then rejects a non-`created` fulfilment state or
+returns, selects, or creates the durable attempt. The Stripe call occurs only
+after commit, with no database transaction or row lock. Short post-provider
+transactions again lock `Order -> Payment`, recheck invariants, and store or
+reconcile the result without overwriting conflicting state.
 
 The endpoint returns 201 for a newly persisted attempt and 200 for an
-idempotent replay. Stable errors cover guest 404, state 409, invalid-key 422,
+idempotent replay. Stable errors cover authentication 401, access 404, state
+409, invalid-key 422,
 rate-limit 429 with `Retry-After`, definitive-provider 502, and local,
 ambiguous, or reconciliation 503 outcomes. The independent app-scoped checkout
 limiter permits 10 attempts per 60 seconds per direct peer host before any SQL.
@@ -876,7 +914,7 @@ proxy -> FastAPI 127.0.0.1:8000`. The default `VITE_API_BASE_URL` is empty, so
 requests remain same-origin through the Vite proxy and no local CORS middleware
 is required. Cross-origin production policy is deferred to deployment.
 
-### 5.20. Unified Identity and Planned Account Ownership Boundary
+### 5.20. Unified Identity, Order Ownership, and Account Privacy Boundary
 
 Stage 16D implements one minimal registered identity:
 
@@ -908,7 +946,17 @@ and `is_active` on every protected request. Implemented dependencies are:
 - no Bearer requirement for anonymous guest ordering.
 
 An invalid, missing, inactive, or deleted identity returns 401; a valid identity
-with insufficient role returns 403.
+with insufficient role returns 403 on role-protected administrator routes.
+Stage 16E public Order routes instead use optional canonical authentication:
+
+- a completely absent Authorization header selects the guest path before auth
+  service or User database lookup;
+- a present valid canonical `user_access` resolves the current active User;
+- a present malformed, invalid, legacy `admin_access`, inactive, or missing-User
+  credential returns 401 with no silent guest fallback;
+- auth configuration or User lookup failure returns a safe 503;
+- creation and Checkout run their existing rate limiters before optional User
+  resolution.
 
 The planned Stage 16F browser transport preserves explicit trust boundaries:
 
@@ -918,16 +966,23 @@ The planned Stage 16F browser transport preserves explicit trust boundaries:
 - `adminApi` may send Bearer only to `/api/v1/admin/...`;
 - no global interceptor may attach the account token to arbitrary requests.
 
-Guest Checkout and public status continue to use `X-Order-Access-Token`. The
-account token will not replace this per-Order credential.
+Guest Checkout and public status continue to use `X-Order-Access-Token`; a
+canonical account token does not replace this per-Order capability. Ownership
+and capability are independent. Public status and Checkout permit access only
+when `current_user_id` matches the non-NULL persisted `customer_user_id` or the
+guest capability verifies in constant time. An owner can omit or mistype the
+capability; an anonymous or authenticated non-owner can still use a valid
+capability. A non-owner without it receives the same 404 as an unknown Order,
+never an ownership-revealing public 403. There is no role-based public bypass.
 
-The ownership extension is a nullable indexed
-`Order.customer_user_id -> User.id` foreign key with `ON DELETE SET NULL`.
-Anonymous Orders store NULL; an Order created with a valid current User stores
-that User ID. Public responses never expose the owner ID, and account queries
-filter by the current User on the server. Every Order still gets an independent
-order-access token, and no flow will claim an earlier anonymous Order
-retroactively.
+The ownership extension is nullable
+`Order.customer_user_id -> User.id` with `ON DELETE SET NULL`, no default,
+backfill, or ORM relationship. Anonymous Orders store NULL; creation writes a
+trusted current User ID, when any, in the initial aggregate transaction. Every
+Order still gets an independent raw-once capability whose hash is persisted.
+No client field, public response, or current route can set, mutate, or
+retroactively claim ownership. A future User deletion may null ownership while
+preserving the Order; no User-delete API currently exists.
 
 Migration `0007_unify_user_auth_roles` renames and evolves `admin_users` into
 `users`, preserving UUID, normalized email, password hash, active state, and
@@ -937,17 +992,40 @@ than one makes the migration fail atomically. Downgrade is guarded against
 discarding customer data. Migration validation uses only the disposable exact
 test database on the project PostgreSQL listener at 5433; it does not mutate the
 development database or host PostgreSQL at 5432.
-Repository and Alembic head are 0007, while the local development database
-deliberately remains at 0006 until a separately approved migration operation.
+Migration `0008_add_order_ownership` is the schema-only child of 0007 and adds
+the nullable foreign key plus the composite owner-history index. Repository and
+Alembic head are 0008, while the local development database deliberately
+remains at 0006 until a separately approved `0006 -> 0007 -> 0008` migration
+operation.
 
 Public registration always creates `customer`. The super-admin-only list API
 returns safe User fields and deterministic pagination. Its role PATCH locks the
 target row and allows only `customer <-> admin`; it cannot assign or modify a
 `super_admin`, mutate active state, or delete a User. The `/admin/users`
-frontend is not implemented. Order ownership, account order history, and the
-shared authentication frontend remain planned for Stages 16E and 16F.
+frontend is not implemented. Order ownership and account Order-history API are
+implemented in Stage 16E; the shared authentication, account, and administrator
+User-management frontend remains planned for Stage 16F.
 Because every protected request reloads the User, a successful role change
 affects authorization immediately even when the client reuses the same token.
+
+The account boundary exposes exactly two strict canonical read-only routes:
+`GET /api/v1/account/orders` and
+`GET /api/v1/account/orders/{public_order_number}`. Every active role has
+personal scope only. Both the count and page SELECT apply the current User owner
+predicate; the page orders by `created_at DESC, id DESC` with default
+`limit=50`, maximum 100, and default `offset=0`. Detail combines
+`public_order_number` and `customer_user_id` in the same SQL predicate rather
+than fetching broadly and filtering in Python. Cross-user, unowned, and unknown
+details share one 404, and a guest capability is irrelevant to account
+authorization.
+
+The account list uses a dedicated seven-field safe DTO. Account detail reuses
+the same query-free `OrderStatusResponse` builder as public status after the
+caller has already authorized and projected the row. The builder serializes
+only approved snapshots; it performs no authentication, authorization, or
+database work and exposes no owner, PII, capability, Payment, or Stripe data.
+Existing administrator Order DTOs remain unchanged and likewise do not expose
+ownership.
 
 ## 6. Architecture Diagram
 
@@ -1065,7 +1143,8 @@ mobile, tablet, and desktop viewports.
 - Partial unique indexes limit `Payment` attempts with status `pending` and
   `succeeded` to one each per `Order`.
 - UUIDs are internal primary keys; public access to order status requires the
-  `public_order_number` and a token whose raw value is not stored.
+  `public_order_number` and either matching canonical ownership or a capability
+  whose raw value is not stored.
 - Customer state uses current-session storage only. No guest credential or
   Checkout URL is placed in a URL, persistent local storage, rendered DOM, or
   application log.
@@ -1076,12 +1155,14 @@ mobile, tablet, and desktop viewports.
 The public scope includes a health check, categories, menu, quoting, order
 creation, Checkout Session creation, restricted status retrieval, and the
 implemented provider-facing Stripe webhook. `POST /api/v1/orders` does not
-create a payment. The implemented
-`POST /api/v1/orders/{public_order_number}/checkout-session` endpoint requires
-order access through `X-Order-Access-Token` and requires `Idempotency-Key`;
-the path parameter is the returned public number, not an internal UUID. Status
-retrieval uses the same access token. `POST /api/v1/stripe/webhook` requires a
-valid Stripe signature and is intentionally absent from OpenAPI.
+create a payment. Order creation, public status, and Checkout advertise
+`UserBearer OR anonymous`; an absent Bearer uses the guest path, while a valid
+canonical User may own or access its Order. Status and Checkout also accept the
+independent `X-Order-Access-Token`. Checkout still requires `Idempotency-Key`;
+the path parameter is the returned public number, not an internal UUID.
+`POST /api/v1/orders/quote` has no security requirement.
+`POST /api/v1/stripe/webhook` requires a valid Stripe signature and is
+intentionally absent from OpenAPI.
 
 The implemented unified identity scope includes `POST /api/v1/auth/register`,
 `POST /api/v1/auth/login`, and `GET /api/v1/auth/me`. Administrator login and me
@@ -1092,9 +1173,11 @@ CSV exports, and super-admin-only `GET /api/v1/admin/users` and
 `PATCH /api/v1/admin/users/{user_id}/role`. Existing operational contracts now
 use database-backed unified User role checks.
 
-Own-order list and detail under `/api/v1/account/orders` remain planned for
-Stage 16E. Their exact contracts and ownership policy will be frozen in that
-approved stage.
+The account scope contains exactly strict-UserBearer
+`GET /api/v1/account/orders` and
+`GET /api/v1/account/orders/{public_order_number}`. It has no anonymous or
+AdminBearer alternative, ownership claim, mutation, or guest-capability bypass.
+No other Stage 16E route is introduced.
 
 Exact contracts, response codes, and the access policy will be defined in the
 stages that implement the relevant features. The context document is not yet a

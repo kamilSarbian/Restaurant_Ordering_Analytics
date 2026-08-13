@@ -4,14 +4,26 @@ from __future__ import annotations
 
 from collections.abc import Generator
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
+import jwt
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import delete, event, func, select, update
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.auth.models import User
+from app.auth.roles import UserRole
+from app.auth.service import (
+    USER_AUDIENCE,
+    USER_TOKEN_TYPE,
+    UserTokenClaims,
+    UserTokenService,
+)
+from app.auth.tokens import ALGORITHM, ISSUER, AdminTokenService
 from app.categories.models import Category
 from app.core.config import Settings
 from app.core.rate_limit import FixedWindowRateLimiter
@@ -30,6 +42,10 @@ CREATE_PATH = "/api/v1/orders"
 QUOTE_PATH = "/api/v1/orders/quote"
 BURGER_ID = UUID("9933957b-7f5d-47d8-84c3-ba8ad21b2d8c")
 SPRITZ_ID = UUID("c496b9cc-268c-4549-9e36-e8225e57561f")
+SYNTHETIC_SECRET = "c" * 32
+OTHER_SYNTHETIC_SECRET = "o" * 32
+FIXED_NOW = datetime(2026, 8, 13, 12, tzinfo=UTC)
+ISSUED_AT = int(FIXED_NOW.timestamp())
 
 
 @dataclass(frozen=True)
@@ -54,6 +70,19 @@ class FakeClock:
         self.value += seconds
 
 
+class CountingUserTokenService(UserTokenService):
+    """Count canonical decodes while preserving strict token validation."""
+
+    def __init__(self) -> None:
+        super().__init__(SYNTHETIC_SECRET, now_provider=lambda: FIXED_NOW)
+        self.decode_calls = 0
+
+    def decode_access_token(self, token: str) -> UserTokenClaims:
+        """Count and strictly decode one canonical access token."""
+        self.decode_calls += 1
+        return super().decode_access_token(token)
+
+
 @pytest.fixture(autouse=True)
 def empty_creation_tables(
     test_database_engine: Engine,
@@ -75,6 +104,12 @@ def creation_session_factory(
 
 
 @pytest.fixture
+def user_token_service() -> UserTokenService:
+    """Create deterministic canonical signing for ownership tests."""
+    return UserTokenService(SYNTHETIC_SECRET, now_provider=lambda: FIXED_NOW)
+
+
+@pytest.fixture
 def menu_records(creation_session_factory: sessionmaker[Session]) -> MenuRecords:
     """Store the approved burger and spritz records in the test database."""
     return _store_menu(creation_session_factory)
@@ -84,13 +119,28 @@ def menu_records(creation_session_factory: sessionmaker[Session]) -> MenuRecords
 def client(
     creation_session_factory: sessionmaker[Session],
 ) -> Generator[TestClient, None, None]:
-    """Run an app with isolated sessions and a fresh creation limiter."""
-    application = create_app(
-        settings=Settings(database_url=None),
-        session_factory=creation_session_factory,
-    )
+    """Run a guest-compatible app without authentication configuration."""
+    application = _application(creation_session_factory)
     with TestClient(application) as test_client:
         yield test_client
+
+
+def _application(
+    session_factory: sessionmaker[Session],
+    *,
+    user_token_service: UserTokenService | None = None,
+    limiter: FixedWindowRateLimiter | None = None,
+):
+    return create_app(
+        settings=Settings(
+            _env_file=None,
+            database_url=None,
+            auth_jwt_secret=None,
+        ),
+        session_factory=session_factory,
+        user_token_service=user_token_service,
+        order_creation_rate_limiter=limiter,
+    )
 
 
 def _clear_tables(engine: Engine) -> None:
@@ -98,6 +148,7 @@ def _clear_tables(engine: Engine) -> None:
         connection.execute(delete(OrderStatusHistory))
         connection.execute(delete(OrderItem))
         connection.execute(delete(Order))
+        connection.execute(delete(User))
         connection.execute(delete(RestaurantTable))
         connection.execute(delete(MenuItem))
         connection.execute(delete(Category))
@@ -138,6 +189,46 @@ def _store_menu(session_factory: sessionmaker[Session]) -> MenuRecords:
     return records
 
 
+def _store_user(
+    session_factory: sessionmaker[Session],
+    *,
+    role: UserRole = UserRole.CUSTOMER,
+    is_active: bool = True,
+) -> UUID:
+    with session_factory.begin() as session:
+        user = User(
+            email=f"ownership-{role.value}-{uuid4().hex}@example.com",
+            password_hash="synthetic-order-ownership-password-hash",
+            role=role,
+            is_active=is_active,
+        )
+        session.add(user)
+        session.flush()
+        return user.id
+
+
+def _authorization(token: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {token}"}
+
+
+def _signed_canonical_token(
+    user_id: UUID,
+    *,
+    secret: str = SYNTHETIC_SECRET,
+    **overrides: object,
+) -> str:
+    claims: dict[str, object] = {
+        "sub": str(user_id),
+        "type": USER_TOKEN_TYPE,
+        "iat": ISSUED_AT,
+        "exp": ISSUED_AT + 1800,
+        "iss": ISSUER,
+        "aud": USER_AUDIENCE,
+    }
+    claims.update(overrides)
+    return jwt.encode(claims, secret, algorithm=ALGORITHM)
+
+
 def _takeaway_payload(
     records: MenuRecords,
     *,
@@ -171,6 +262,17 @@ def test_successful_takeaway_persists_exact_snapshot_and_status_access(
 
     assert response.status_code == 201
     payload = response.json()
+    assert set(payload) == {
+        "public_order_number",
+        "order_access_token",
+        "status",
+        "order_type",
+        "table_number",
+        "currency",
+        "items",
+        "subtotal_amount",
+        "total_amount",
+    }
     assert payload["currency"] == "NOK"
     assert payload["status"] == "created"
     assert payload["order_type"] == "takeaway"
@@ -188,6 +290,7 @@ def test_successful_takeaway_persists_exact_snapshot_and_status_access(
         items = session.scalars(select(OrderItem).order_by(OrderItem.position)).all()
         history = session.scalars(select(OrderStatusHistory)).one()
         assert order.status == "created"
+        assert order.customer_user_id is None
         assert order.currency == "NOK"
         assert order.subtotal_amount == order.total_amount == 53700
         assert order.table_id is None
@@ -222,6 +325,237 @@ def test_successful_takeaway_persists_exact_snapshot_and_status_access(
     assert "order_access_token" not in status_payload
     assert "order_access_token_hash" not in status_payload
     assert "id" not in status_payload
+
+
+def test_guest_creation_skips_unconfigured_authentication_and_user_lookup(
+    test_database_engine: Engine,
+    creation_session_factory: sessionmaker[Session],
+    menu_records: MenuRecords,
+) -> None:
+    """Keep missing Authorization independent from auth configuration and User SQL."""
+    application = _application(creation_session_factory)
+    assert application.state.user_token_service is None
+    statements: list[str] = []
+
+    def capture_statement(*args: object) -> None:
+        statements.append(str(args[2]))
+
+    event.listen(test_database_engine, "before_cursor_execute", capture_statement)
+    try:
+        with TestClient(application) as test_client:
+            response = test_client.post(
+                CREATE_PATH,
+                json=_takeaway_payload(menu_records),
+            )
+    finally:
+        event.remove(test_database_engine, "before_cursor_execute", capture_statement)
+
+    assert response.status_code == 201
+    assert not any("FROM users" in statement for statement in statements)
+    with creation_session_factory() as session:
+        assert session.scalars(select(Order)).one().customer_user_id is None
+
+
+@pytest.mark.parametrize(
+    "role",
+    [UserRole.CUSTOMER, UserRole.ADMIN, UserRole.SUPER_ADMIN],
+)
+def test_every_active_canonical_role_creates_a_personally_owned_order(
+    creation_session_factory: sessionmaker[Session],
+    menu_records: MenuRecords,
+    user_token_service: UserTokenService,
+    role: UserRole,
+) -> None:
+    """Assign ownership by authenticated identity without changing public output."""
+    user_id = _store_user(creation_session_factory, role=role)
+    application = _application(
+        creation_session_factory,
+        user_token_service=user_token_service,
+    )
+    with TestClient(application) as test_client:
+        response = test_client.post(
+            CREATE_PATH,
+            json=_takeaway_payload(menu_records),
+            headers=_authorization(user_token_service.create_access_token(user_id)),
+        )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert set(body) == {
+        "public_order_number",
+        "order_access_token",
+        "status",
+        "order_type",
+        "table_number",
+        "currency",
+        "items",
+        "subtotal_amount",
+        "total_amount",
+    }
+    assert body["order_access_token"]
+    assert "customer_user_id" not in body
+    with creation_session_factory() as session:
+        order = session.scalars(select(Order)).one()
+        assert order.customer_user_id == user_id
+        assert order.order_access_token_hash == hash_order_access_token(
+            body["order_access_token"]
+        )
+        assert order.order_access_token_hash != body["order_access_token"]
+
+
+def test_order_request_rejects_every_ownership_identity_field(
+    client: TestClient,
+    creation_session_factory: sessionmaker[Session],
+    menu_records: MenuRecords,
+) -> None:
+    """Prevent clients from injecting identity, role, or ownership data."""
+    forbidden_values: dict[str, object] = {
+        "customer_user_id": str(uuid4()),
+        "user_id": str(uuid4()),
+        "owner_id": str(uuid4()),
+        "role": "super_admin",
+        "email": "attacker@example.com",
+    }
+    for field, value in forbidden_values.items():
+        payload = _takeaway_payload(menu_records)
+        payload[field] = value
+        response = client.post(CREATE_PATH, json=payload)
+        assert response.status_code == 422
+    assert _aggregate_counts(creation_session_factory) == (0, 0, 0)
+
+
+def test_present_unusable_authorization_never_falls_back_to_guest(
+    client: TestClient,
+    creation_session_factory: sessionmaker[Session],
+    menu_records: MenuRecords,
+) -> None:
+    """Reject empty, incomplete, Basic, and unstructured Authorization headers."""
+    authorization_values = ["", "Bearer", "Basic synthetic", "synthetic"]
+    for value in authorization_values:
+        response = client.post(
+            CREATE_PATH,
+            json=_takeaway_payload(menu_records),
+            headers={"Authorization": value},
+        )
+        assert response.status_code == 401
+        assert response.json() == {"detail": "Invalid authentication credentials"}
+        assert response.headers["WWW-Authenticate"] == "Bearer"
+    assert _aggregate_counts(creation_session_factory) == (0, 0, 0)
+
+
+def test_invalid_canonical_and_legacy_tokens_create_no_order(
+    creation_session_factory: sessionmaker[Session],
+    menu_records: MenuRecords,
+    user_token_service: UserTokenService,
+) -> None:
+    """Reject malformed, expired, isolated-family, and forged Bearer tokens."""
+    user_id = _store_user(creation_session_factory)
+    legacy_service = AdminTokenService(
+        SYNTHETIC_SECRET,
+        now_provider=lambda: FIXED_NOW,
+    )
+    invalid_tokens = [
+        "not-a-jwt",
+        _signed_canonical_token(
+            user_id,
+            iat=ISSUED_AT - 600,
+            exp=ISSUED_AT - 300,
+        ),
+        _signed_canonical_token(user_id, aud="wrong-audience"),
+        _signed_canonical_token(user_id, type="admin_access"),
+        _signed_canonical_token(user_id, secret=OTHER_SYNTHETIC_SECRET),
+        legacy_service.create_access_token(user_id),
+    ]
+    application = _application(
+        creation_session_factory,
+        user_token_service=user_token_service,
+    )
+    with TestClient(application) as test_client:
+        for token in invalid_tokens:
+            response = test_client.post(
+                CREATE_PATH,
+                json=_takeaway_payload(menu_records),
+                headers=_authorization(token),
+            )
+            assert response.status_code == 401
+            assert response.json() == {"detail": "Invalid authentication credentials"}
+            assert response.headers["WWW-Authenticate"] == "Bearer"
+    assert _aggregate_counts(creation_session_factory) == (0, 0, 0)
+
+
+def test_inactive_and_missing_canonical_users_create_no_order(
+    creation_session_factory: sessionmaker[Session],
+    menu_records: MenuRecords,
+    user_token_service: UserTokenService,
+) -> None:
+    """Require each valid canonical subject to be a current active User."""
+    inactive_id = _store_user(creation_session_factory, is_active=False)
+    application = _application(
+        creation_session_factory,
+        user_token_service=user_token_service,
+    )
+    tokens = [
+        user_token_service.create_access_token(inactive_id),
+        user_token_service.create_access_token(uuid4()),
+    ]
+    with TestClient(application) as test_client:
+        for token in tokens:
+            response = test_client.post(
+                CREATE_PATH,
+                json=_takeaway_payload(menu_records),
+                headers=_authorization(token),
+            )
+            assert response.status_code == 401
+            assert response.headers["WWW-Authenticate"] == "Bearer"
+    assert _aggregate_counts(creation_session_factory) == (0, 0, 0)
+
+
+def test_present_bearer_maps_missing_auth_service_to_safe_503(
+    client: TestClient,
+    creation_session_factory: sessionmaker[Session],
+    menu_records: MenuRecords,
+) -> None:
+    """Fail safely when a supplied Bearer requires unavailable auth config."""
+    response = client.post(
+        CREATE_PATH,
+        json=_takeaway_payload(menu_records),
+        headers=_authorization("synthetic-token"),
+    )
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Authentication service unavailable"}
+    assert _aggregate_counts(creation_session_factory) == (0, 0, 0)
+
+
+def test_present_bearer_maps_user_database_failure_to_safe_503(
+    test_database_engine: Engine,
+    creation_session_factory: sessionmaker[Session],
+    menu_records: MenuRecords,
+    user_token_service: UserTokenService,
+) -> None:
+    """Hide database details and stop before domain creation on auth SQL failure."""
+    application = _application(
+        creation_session_factory,
+        user_token_service=user_token_service,
+    )
+
+    def fail_statement(*_: object, **__: object) -> None:
+        raise OperationalError("synthetic statement", {}, RuntimeError("synthetic"))
+
+    event.listen(test_database_engine, "before_cursor_execute", fail_statement)
+    try:
+        with TestClient(application) as test_client:
+            response = test_client.post(
+                CREATE_PATH,
+                json=_takeaway_payload(menu_records),
+                headers=_authorization(user_token_service.create_access_token(uuid4())),
+            )
+    finally:
+        event.remove(test_database_engine, "before_cursor_execute", fail_statement)
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Authentication service unavailable"}
+    assert "synthetic" not in response.text
+    assert _aggregate_counts(creation_session_factory) == (0, 0, 0)
 
 
 def test_successful_dine_in_uses_table_and_preserves_snapshots(
@@ -667,10 +1001,11 @@ def test_rate_limit_uses_ten_per_minute_zero_sql_on_denial_and_resets(
 ) -> None:
     clock = FakeClock()
     limiter = FixedWindowRateLimiter(limit=10, window_seconds=60, clock=clock)
-    application = create_app(
-        settings=Settings(database_url=None),
-        session_factory=creation_session_factory,
-        order_creation_rate_limiter=limiter,
+    counting_token_service = CountingUserTokenService()
+    application = _application(
+        creation_session_factory,
+        user_token_service=counting_token_service,
+        limiter=limiter,
     )
     with TestClient(application, client=("198.51.100.10", 50000)) as test_client:
         for _ in range(10):
@@ -688,13 +1023,26 @@ def test_rate_limit_uses_ten_per_minute_zero_sql_on_denial_and_resets(
 
         event.listen(test_database_engine, "before_cursor_execute", capture_sql)
         try:
-            denied = test_client.post(CREATE_PATH, json=_takeaway_payload(menu_records))
+            denied_with_auth = test_client.post(
+                CREATE_PATH,
+                json=_takeaway_payload(menu_records),
+                headers=_authorization(
+                    counting_token_service.create_access_token(uuid4())
+                ),
+            )
+            denied_guest = test_client.post(
+                CREATE_PATH,
+                json=_takeaway_payload(menu_records),
+            )
         finally:
             event.remove(test_database_engine, "before_cursor_execute", capture_sql)
-        assert denied.status_code == 429
-        assert denied.json() == {"detail": "Too many order creation requests"}
-        assert int(denied.headers["retry-after"]) > 0
+        for denied in (denied_with_auth, denied_guest):
+            assert denied.status_code == 429
+            assert denied.json() == {"detail": "Too many order creation requests"}
+            assert int(denied.headers["retry-after"]) > 0
         assert statements == []
+        assert counting_token_service.decode_calls == 0
+        assert _aggregate_counts(creation_session_factory) == (10, 20, 10)
 
         clock.advance(61)
         assert (
@@ -744,16 +1092,42 @@ def test_openapi_documents_creation_without_payment_or_internal_fields(
     operation = document["paths"][CREATE_PATH]["post"]
     assert operation["tags"] == ["orders"]
     assert operation["summary"] == "Create an order"
+    assert operation["security"] == [{"UserBearer": []}, {}]
     assert operation["requestBody"]["content"]["application/json"]["schema"][
         "$ref"
     ].endswith("/OrderCreateRequest")
     assert operation["responses"]["201"]["content"]["application/json"]["schema"][
         "$ref"
     ].endswith("/OrderCreateResponse")
-    assert {"201", "404", "409", "422", "429"} <= set(operation["responses"])
+    assert {"201", "401", "404", "409", "422", "429", "503"} <= set(
+        operation["responses"]
+    )
     assert "get" in document["paths"]["/api/v1/orders/{public_order_number}"]
     assert "post" in document["paths"][QUOTE_PATH]
     assert "get" not in document["paths"][QUOTE_PATH]
+    assert "security" not in document["paths"][QUOTE_PATH]["post"]
+    assert document["paths"]["/api/v1/orders/{public_order_number}"]["get"][
+        "security"
+    ] == [{"UserBearer": []}, {}]
+    assert document["paths"]["/api/v1/orders/{public_order_number}/checkout-session"][
+        "post"
+    ]["security"] == [{"UserBearer": []}, {}]
+    assert document["components"]["securitySchemes"]["UserBearer"] == {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Canonical registered-user access token",
+        "bearerFormat": "JWT user_access",
+    }
+    assert "AdminBearer" not in operation["security"][0]
+    request_schema = document["components"]["schemas"]["OrderCreateRequest"]
+    assert request_schema["description"] == (
+        "Describe an untrusted public request to create one order."
+    )
+    assert set(request_schema["properties"]) == {
+        "order_type",
+        "table_number",
+        "items",
+    }
     response_schema = str(document["components"]["schemas"]["OrderCreateResponse"])
     assert all(
         value not in response_schema
@@ -765,5 +1139,8 @@ def test_openapi_documents_creation_without_payment_or_internal_fields(
             "payment_summary",
             "Payment",
             "Stripe",
+            "customer_user_id",
+            "owner_id",
+            "user_id",
         )
     )
