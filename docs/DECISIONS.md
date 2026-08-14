@@ -1205,6 +1205,93 @@ while preserving these financial concurrency rules.
   `created_at DESC, id DESC`. No account mutation, ownership claim, or owner
   reassignment route is added.
 
+## D-069 — Unified Frontend Authentication and Session Transition
+
+- **Status:** accepted on 2026-08-14
+- **Decision:** one shared frontend `AuthContext` owns authentication for
+  `customer`, `admin`, and `super_admin`. It uses the canonical `user_access`
+  token only, treats the token as opaque, and obtains current identity, role,
+  and active state from database-authoritative `GET /api/v1/auth/me`; the
+  browser never parses JWT role authority.
+- **Session transition:** the canonical current-tab record is
+  `restaurant-ordering:auth:v1` in `sessionStorage`, with an in-memory fallback
+  when storage is unavailable and no `localStorage`. The former
+  `restaurant-ordering:admin-auth:v1` record is accepted only as a one-time
+  migration candidate and is removed after validation or rejection; it is not
+  a parallel live session silo.
+- **Routing:** `/login` is the unified sign-in route, `/register` is public, and
+  `/admin/login` is a compatibility redirect. Successful authentication
+  defaults to `/account`. A same-origin, role-aware `next` allowlist permits
+  account destinations for every authenticated role, operational administrator
+  destinations for `admin` and `super_admin`, and `/admin/users` only for
+  `super_admin`; auth loops and unsafe destinations are rejected. Tokens are
+  never placed in route state or URLs.
+- **Race and authorization safety:** the context has explicit
+  `checking-session`, `authenticated`, `unauthenticated`, and
+  `temporarily-unavailable` states. Abort and generation guards prevent stale
+  completions from replacing current state. An HTTP 401 clears a session only
+  when the request captured the still-current token and generation. An
+  administrator HTTP 403 refreshes `/auth/me` so current database role drives
+  the safe fallback.
+- **Qualification:** this decision supersedes D-063's temporary
+  administrator-specific browser-session clauses and the Stage 16F future tense
+  in D-062 and D-067. D-063's operational mutation rules and the backend auth
+  compatibility aliases remain unchanged. D-066's development-database-at-0006
+  statement records its acceptance-time state; approved Stage 16F local-QA
+  preparation later upgraded that database through 0008 while preserving the
+  historical administrator as `super_admin`.
+
+## D-070 — Customer Account and Authenticated Ordering Frontend
+
+- **Status:** accepted on 2026-08-14
+- **Decision:** `/` is the restaurant landing page and `/menu` is the public
+  menu. Anonymous ordering remains fully supported. Menu and quote requests
+  carry no authentication; guest creation carries no Bearer; authenticated
+  creation carries the current canonical Bearer so the backend can assign
+  ownership.
+- **Mixed access:** every Order still receives its independent capability.
+  Guest status uses the capability, and guest Checkout uses the capability plus
+  its UUIDv4 idempotency key. Authenticated status and Checkout use Bearer plus
+  the capability when available, while the matching owner works without the
+  capability. A checking or temporarily unavailable session never silently
+  downgrades to guest, and an authenticated failure is never retried
+  anonymously.
+- **Account:** `/account` and `/account/orders/:publicOrderNumber` provide
+  paginated history and detail for the current User. Every authenticated role
+  has personal scope only. Account requests use strict canonical Bearer and no
+  guest-capability authority. Cross-user, unowned, and unknown detail share the
+  same 404, and the shared safe Order summary exposes no owner identity, PII,
+  Payment, Stripe, cost, or margin data.
+- **Consequences:** authenticated creation links only new Orders; historical
+  guest Orders are not claimed retroactively. The independent capability is
+  retained for newly owned Orders, and the post-authentication default remains
+  `/account`. This implements the landing, mixed-ordering, and account frontend
+  recorded as future in D-062 and D-067 and renders D-068's API privacy boundary
+  without changing their backend ownership, capability, or privacy invariants.
+
+## D-071 — Super-Admin User Management Frontend
+
+- **Status:** accepted on 2026-08-14
+- **Decision:** `/admin/users` is guarded for the current `super_admin` and uses
+  the backend's database-authoritative safe list and role-transition contracts.
+  The UI offers only `customer -> admin` and `admin -> customer`. Every
+  `super_admin` row is read-only, and the client cannot assign, demote, or
+  otherwise mutate `super_admin`.
+- **Mutation protocol:** each change requires explicit confirmation, sends one
+  PATCH, performs no optimistic update, and obtains authoritative state through
+  list refetch. A network, timeout, uncertain server result, or failed
+  post-mutation refetch establishes a reconciliation gate that disables further
+  role actions until a successful refresh.
+- **Authorization changes:** current-token 401 handling uses D-069's generation
+  safety. A 403 refreshes canonical `/auth/me` before routing according to the
+  current role. A customer falls back to `/account`; an ordinary administrator
+  denied `/admin/users` falls back to `/admin`.
+- **Consequences:** the frontend provides no User deletion, password reset,
+  active-state mutation, super-admin assignment, or super-admin demotion. This
+  extends D-066's backend governance into the browser and supersedes only the
+  earlier statement that the `/admin/users` frontend was not implemented; all
+  backend bootstrap and last-super-admin protections remain authoritative.
+
 ## History of Decisions That Required Resolution
 
 ### O-002: Boundary Between Order Creation and Stripe Checkout Session

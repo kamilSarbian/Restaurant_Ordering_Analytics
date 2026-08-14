@@ -25,6 +25,13 @@ export interface OrderStatusPollingResult {
   retryNow: () => void;
 }
 
+export interface OrderStatusPollingOptions {
+  accessToken?: string;
+  enabled: boolean;
+  guestAccessToken?: string;
+  onUnauthorized?: () => void;
+}
+
 interface PollingState {
   data: OrderStatusResponse | null;
   error: OrderStatusPollingError | null;
@@ -81,19 +88,19 @@ function environmentIsAvailable(): boolean {
   return !document.hidden && navigator.onLine;
 }
 
-/** Poll one protected order snapshot without overlapping or background requests. */
+/** Poll one mixed-auth order snapshot without overlapping or background requests. */
 export function useOrderStatusPolling(
   publicOrderNumber: string,
-  token: string | null,
-  enabled: boolean,
+  { accessToken, enabled, guestAccessToken, onUnauthorized }: OrderStatusPollingOptions,
 ): OrderStatusPollingResult {
+  const hasCredential = accessToken !== undefined || guestAccessToken !== undefined;
   const [state, setState] = useState<PollingState>({
     data: null,
     error: null,
-    isLoading: enabled && token !== null,
-    isPaused: enabled && token !== null && !environmentIsAvailable(),
+    isLoading: enabled && hasCredential,
+    isPaused: enabled && hasCredential && !environmentIsAvailable(),
     isRefreshing: false,
-    isStopped: !enabled || token === null,
+    isStopped: !enabled || !hasCredential,
   });
   const requestRef = useRef<() => void>(() => undefined);
 
@@ -102,7 +109,7 @@ export function useOrderStatusPolling(
   useEffect(() => {
     let active = true;
     let inFlight = false;
-    let stopped = !enabled || token === null;
+    let stopped = !enabled || !hasCredential;
     let suspended = !environmentIsAvailable();
     let consecutiveFailures = 0;
     let latestData: OrderStatusResponse | null = null;
@@ -130,7 +137,7 @@ export function useOrderStatusPolling(
     };
 
     requestStatus = (): void => {
-      if (!active || stopped || suspended || inFlight || token === null || !enabled) {
+      if (!active || stopped || suspended || inFlight || !hasCredential || !enabled) {
         return;
       }
       clearTimer();
@@ -144,7 +151,11 @@ export function useOrderStatusPolling(
         isStopped: false,
       }));
 
-      void fetchOrderStatus(publicOrderNumber, token, controller.signal)
+      void fetchOrderStatus(publicOrderNumber, {
+        ...(accessToken === undefined ? {} : { accessToken }),
+        ...(guestAccessToken === undefined ? {} : { guestAccessToken }),
+        signal: controller.signal,
+      })
         .then((response) => {
           if (!active) {
             return;
@@ -166,6 +177,29 @@ export function useOrderStatusPolling(
         })
         .catch((error: unknown) => {
           if (!active || controller?.signal.aborted === true) {
+            return;
+          }
+          if (
+            accessToken !== undefined &&
+            error instanceof ApiRequestError &&
+            error.kind === 'http' &&
+            error.status === 401
+          ) {
+            stopped = true;
+            setState({
+              data: latestData,
+              error: {
+                kind: 'access',
+                message:
+                  'Your session expired. Sign in before checking this order again.',
+                retryable: false,
+              },
+              isLoading: false,
+              isPaused: suspended,
+              isRefreshing: false,
+              isStopped: true,
+            });
+            onUnauthorized?.();
             return;
           }
           const pollingError = classifyPollingError(error);
@@ -195,7 +229,7 @@ export function useOrderStatusPolling(
 
     requestRef.current = () => {
       clearTimer();
-      if (!active || suspended || inFlight || token === null || !enabled) {
+      if (!active || suspended || inFlight || !hasCredential || !enabled) {
         return;
       }
       stopped = false;
@@ -216,7 +250,7 @@ export function useOrderStatusPolling(
       }
     };
 
-    if (enabled && token !== null) {
+    if (enabled && hasCredential) {
       document.addEventListener('visibilitychange', handleEnvironmentChange);
       window.addEventListener('online', handleEnvironmentChange);
       window.addEventListener('offline', handleEnvironmentChange);
@@ -229,12 +263,12 @@ export function useOrderStatusPolling(
       setState({
         data: null,
         error: null,
-        isLoading: enabled && token !== null && !suspended,
-        isPaused: enabled && token !== null && suspended,
+        isLoading: enabled && hasCredential && !suspended,
+        isPaused: enabled && hasCredential && suspended,
         isRefreshing: false,
         isStopped: stopped,
       });
-      if (enabled && token !== null && !suspended) {
+      if (enabled && hasCredential && !suspended) {
         requestStatus();
       }
     });
@@ -248,7 +282,14 @@ export function useOrderStatusPolling(
       window.removeEventListener('online', handleEnvironmentChange);
       window.removeEventListener('offline', handleEnvironmentChange);
     };
-  }, [enabled, publicOrderNumber, token]);
+  }, [
+    accessToken,
+    enabled,
+    guestAccessToken,
+    hasCredential,
+    onUnauthorized,
+    publicOrderNumber,
+  ]);
 
   return { ...state, retryNow };
 }

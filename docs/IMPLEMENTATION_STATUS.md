@@ -16,8 +16,9 @@
 - **Stage 13:** completed
 - **Stage 14:** completed
 - **Stage 15:** completed
-- **Current stage:** Stage 16E PRE-COMMIT READY; E1 through E5, FIX1, and C1 are
-  complete, with independent review and commit pending
+- **Current stage:** Stage 16F PRE-COMMIT READY; F1 through F6, FIX1, FIX2,
+  ENV1, developer/user manual browser QA, and C1 documentation and cumulative
+  validation are complete, with C2 still pending
 - **Backend:** FastAPI, database foundation, menu models, local seed data,
   public menu, transient quoting, persistent order creation, and secure public
   order status, Payment persistence, Stripe Checkout, and verified Stripe
@@ -26,13 +27,14 @@
   personal account Order reads,
   administrator order and menu operational APIs, administrator analytics,
   administrator CSV reports, and super-admin User governance completed
-- **Frontend:** guest menu through protected fulfilment-status polling completed
-  and acceptance-verified; administrator authentication, orders, menu,
-  analytics, and exports implemented and acceptance-verified
+- **Frontend:** landing and public menu routes, unified authentication and
+  registration, mixed guest/authenticated ordering, personal account Order
+  history and detail, super-admin User governance, and the existing
+  administrator operational interface are implemented and acceptance-verified
 - **Database:** PostgreSQL, Alembic, menu, order, Payment, StripeEvent, and User
-  models and deterministic menu seed completed; repository head is migration
-  `0008_add_order_ownership`, while the development database deliberately
-  remains at 0006 with one historical administrator row
+  models and deterministic menu seed completed; repository and development
+  database are both at `0008_add_order_ownership`. The controlled ENV1 upgrade
+  preserved the historical administrator as an active `super_admin`
 - **Seed data:** completed and verified
 - **Public menu API:** list, availability filter, item details, and 404 contract
   completed and verified
@@ -87,14 +89,15 @@
   payments; deterministic UTF-8-SIG, BOM, CSV dialect, filename, query,
   time-source, formula-safety, and exposure contracts completed and verified;
   one report SELECT per route and no migration required
-- **Application tests:** 1584 backend health, database, migration, model,
-  constraint, seed, schema, public API, quoting, order creation, payment,
-  security, rate-limit, rollback, and concurrency tests plus 485 frontend tests
-  completed at the Stage 16E-C1 documentation gate
-- **Stage 16 frontend:** B1 authentication/session/guard, B2 order reads, B3
-  status mutations, B4 menu, B5 analytics, B6A Blob transport, and B6 exports
-  are committed; automated acceptance and user-performed manual responsive QA
-  are complete
+- **Application tests:** the Stage 16F-C1 backend rerun passed 1584 health,
+  database, migration, model, constraint, seed, schema, public API, quoting,
+  order creation, payment, security, rate-limit, rollback, and concurrency
+  tests. The Stage 16F-C1 frontend rerun passed 890 tests in 31 files
+- **Stage 16 frontend:** the committed B1 through B6 operational administrator
+  interface remains complete. Stage 16F F1 through F6 plus FIX1 and FIX2 add
+  the landing route, shared auth, registration, authenticated ordering,
+  personal account, and super-admin User-management UI; automated acceptance
+  and developer/user manual responsive QA are complete
 - **Stage 16D backend:** committed; D1 through D5 implement unified User persistence,
   migration 0007, public registration/login/me, compatibility auth aliases,
   database-backed RBAC, secure super-admin bootstrap, role management, and
@@ -112,25 +115,50 @@
 - **Stage 16E-5-FIX1:** complete — deterministic Date-only frontend tests;
   production frontend source unchanged
 - **Stage 16E-C1:** complete; documentation and pre-commit validation passed
-- **Remaining frontend direction:** landing-page migration, shared customer
-  authentication/account UX, authenticated ordering UX, and `/admin/users` UI
-  remain planned for Stage 16F
+- **Stage 16E-C2:** complete; Stage 16E was independently reviewed and committed
+  on 2026-08-13
+- **Stage 16F-1:** complete — shared canonical AuthContext, session transition,
+  and administrator frontend auth migration
+- **Stage 16F-2:** complete — landing page, `/menu`, unified login/register
+  routes, and deterministic navigation
+- **Stage 16F-3:** complete — authenticated Order creation, status, and Checkout
+  without silent guest downgrade
+- **Stage 16F-4:** complete — personal account list/detail and shared safe Order
+  status presentation
+- **Stage 16F-5:** complete — super-admin-only User list and ordinary role
+  governance UI with authoritative reconciliation
+- **Stage 16F-6:** complete — cumulative security, accessibility, responsive,
+  and acceptance hardening
+- **Stage 16F-6-FIX1:** complete — long authenticated Landing and Admin Users
+  confirmation emails wrap safely
+- **Stage 16F-6-FIX2:** complete — Login and Register provide a deterministic
+  secondary `← Back to home` link
+- **Stage 16F-6-ENV1:** complete — the development database was backed up
+  outside the repository and upgraded through 0007 to 0008 while preserving the
+  historical active `super_admin`
+- **Stage 16F manual QA:** complete — the automated browser environment was
+  unavailable, and the developer/user completed the required local-browser QA,
+  including the final FIX2 recheck
+- **Stage 16F-C1:** complete — documentation and cumulative pre-commit
+  validation passed; C2 is next
+- **Remaining Stage 16 direction:** Stage 16G has not started and requires
+  separate approval after the Stage 16F commit
 - **Deployment:** not started
 
 ## Known limitations
 
-- The backend exposes health, public menu and quote endpoints, persistent guest
-  ordering and payment flows, secure public status, authenticated administrator
-  order and menu operations, administrator analytics, and three protected CSV
-  exports. The guest customer frontend is completed and verified.
+- The backend exposes health, public menu and quote endpoints, mixed guest or
+  authenticated ordering and payment flows, secure public status and personal
+  account reads, authenticated administrator operations and reports, and
+  super-admin User governance. The unified customer and administrator frontend
+  is completed and acceptance-verified.
 - Unified authentication has no refresh, logout, revocation, password
   reset/change, or MFA. Its limiter is per process and resets on restart.
-- Repository migration 0008 is implemented and verified, but the development
-  database deliberately remains at 0006. Before local unified-auth, ownership,
-  or account runtime use, an operator must configure a local AUTH secret and
-  perform the separately approved `0006 -> 0007 -> 0008` development migration.
-  Bootstrap may then be required if no super-admin exists; none of these actions
-  is part of C1.
+- Repository migration 0008 is implemented and verified. During Stage 16F ENV1,
+  the development database was backed up outside the repository and upgraded
+  through the approved `0006 -> 0007 -> 0008` path. The historical
+  administrator remains an active `super_admin`; the Compose mapping remains
+  `5433:5432`, and the host PostgreSQL service on port 5432 was not modified.
 - RestaurantTable provisioning and administration have not started, so Stage 8
   only provides the persistence and validation foundation.
 - Order creation has no idempotency key; a network retry can create a duplicate
@@ -152,13 +180,41 @@
 - The seed is restricted to the exact local development database and is not a
   production bootstrap process.
 - Unified User persistence, customer registration/authentication, role
-  management, Order ownership, and read-only own-order API are implemented.
-  Unified account frontend and `/admin/users` UI are not implemented. The
-  administrator frontend B1 through B6 is acceptance-verified.
-  Full-system containerisation, continuous integration, and deployment have not
-  started.
+  management, Order ownership, read-only own-order API and frontend, and
+  `/admin/users` UI are implemented. Refresh tokens, password recovery, MFA,
+  refunds, full-system containerisation, continuous integration, and deployment
+  have not started.
 
 ## Last verification
+
+Stage 16F-C1 documentation and cumulative pre-commit validation completed on
+2026-08-14:
+
+- Stage 16F slices F1 through F6 plus FIX1, FIX2, and ENV1: complete in exactly
+  74 physical paths and 119 cumulative slice-counted paths before C1
+- C1 documentation scope: exactly six source-of-truth files; final Stage 16F
+  scope is exactly 80 physical paths and 125 cumulative slice-counted paths
+- Landing and `/menu`, unified authentication and registration, shared session
+  handling, mixed guest/authenticated ordering, personal account Order reads,
+  and super-admin User governance: implemented
+- Frontend C1 targeted suite: 780 passed in 25 files. Full suite: 890 passed in
+  31 files. ESLint, Prettier check, TypeScript/Vite build, and both npm audits
+  passed; the accepted approximately 502 kB chunk warning remains
+- Backend C1 targeted suite: 273 passed. Full suite: 1584 passed with the single
+  accepted Starlette TestClient/httpx deprecation warning. Ruff, Black check,
+  and isort check passed; no backend source changed
+- Alembic exposes the single `0008_add_order_ownership` head. The isolated
+  round-trip and no-drift suite passed 8 tests
+- Repository, Alembic, and development database head:
+  `0008_add_order_ownership`. ENV1 backed up the development database outside
+  the repository, upgraded it through 0007 to 0008, preserved the historical
+  administrator as an active `super_admin`, and did not modify host PostgreSQL
+  on port 5432
+- The automated browser environment was unavailable. Developer/user manual
+  local-browser QA, including the final FIX2 recheck, passed and is the accepted
+  manual evidence; no manual QA blocker remains
+- Git whitespace validation passed. Stage 16F-C2 has not started; Stage 16G and
+  Stage 17 have not started
 
 Stage 16E-C1 documentation and pre-commit validation on 2026-08-13:
 

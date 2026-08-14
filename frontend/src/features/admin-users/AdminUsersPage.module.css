@@ -1,0 +1,290 @@
+.page {
+    display: grid;
+    width: 100%;
+    min-width: 0;
+    gap: var(--space-6);
+}
+
+.pageHeader,
+.pageHeader > div {
+    display: grid;
+    gap: var(--space-3);
+}
+
+.pageHeader h1 {
+    font-size: clamp(2.25rem, 8vw, 4rem);
+}
+
+.pageHeader p:not(:first-child) {
+    max-width: 68ch;
+    color: var(--color-muted);
+}
+
+.statePanel,
+.confirmationPanel {
+    display: grid;
+    gap: var(--space-3);
+    padding: clamp(var(--space-5), 5vw, var(--space-8));
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-medium);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-small);
+}
+
+.statePanel p,
+.confirmationPanel p {
+    max-width: 68ch;
+    color: var(--color-muted);
+}
+
+.confirmationPanel p {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.notice,
+.reconciliationGate {
+    display: grid;
+    gap: var(--space-2);
+    padding: var(--space-4);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-small);
+    background: var(--color-surface);
+}
+
+.success {
+    border-color: var(--color-primary);
+}
+
+.warning,
+.reconciliationGate {
+    border-color: var(--color-accent);
+}
+
+.error {
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+}
+
+.primaryButton,
+.secondaryButton,
+.actionButton {
+    display: inline-flex;
+    min-height: 2.75rem;
+    width: 100%;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-2) var(--space-4);
+    border: 1px solid var(--color-primary);
+    border-radius: var(--radius-small);
+    cursor: pointer;
+    font: inherit;
+    font-weight: 750;
+}
+
+.primaryButton {
+    background: var(--color-primary);
+    color: var(--color-surface);
+}
+
+.secondaryButton,
+.actionButton {
+    background: var(--color-surface);
+    color: var(--color-primary-hover);
+}
+
+.primaryButton:hover:not(:disabled) {
+    background: var(--color-primary-hover);
+}
+
+.secondaryButton:hover:not(:disabled),
+.actionButton:hover:not(:disabled) {
+    background: rgb(36 97 70 / 9%);
+}
+
+.primaryButton:disabled,
+.secondaryButton:disabled,
+.actionButton:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+
+.confirmationActions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+}
+
+.results {
+    min-width: 0;
+}
+
+.resultHeader {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: var(--space-2) var(--space-4);
+    margin-bottom: var(--space-3);
+}
+
+.resultSummary,
+.refreshing {
+    color: var(--color-muted);
+}
+
+.tableWrapper {
+    display: none;
+    overflow-x: auto;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-medium);
+    background: var(--color-surface);
+}
+
+.table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+}
+
+.table caption {
+    padding: var(--space-4);
+    color: var(--color-muted);
+    font-weight: 750;
+    text-align: left;
+}
+
+.table th,
+.table td {
+    padding: var(--space-3) var(--space-4);
+    border-top: 1px solid var(--color-border);
+    vertical-align: middle;
+}
+
+.table thead th {
+    background: rgb(169 185 170 / 18%);
+    color: var(--color-primary-hover);
+    font-size: 0.9rem;
+    white-space: nowrap;
+}
+
+.table tbody th {
+    max-width: 20rem;
+    overflow-wrap: anywhere;
+    font-weight: 750;
+}
+
+.table time {
+    white-space: nowrap;
+}
+
+.cards {
+    display: grid;
+    gap: var(--space-4);
+    padding: 0;
+    list-style: none;
+}
+
+.card {
+    min-width: 0;
+    padding: var(--space-5);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-medium);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-small);
+}
+
+.card article,
+.cardDetails {
+    display: grid;
+    gap: var(--space-4);
+}
+
+.card h2 {
+    overflow-wrap: anywhere;
+    font-size: 1.15rem;
+}
+
+.cardDetails > div {
+    display: grid;
+    grid-template-columns: minmax(7rem, 0.6fr) minmax(0, 1fr);
+    gap: var(--space-3);
+}
+
+.cardDetails dt {
+    color: var(--color-muted);
+    font-weight: 750;
+}
+
+.cardDetails dd {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.cardAction {
+    display: flex;
+    justify-content: flex-start;
+}
+
+.roleBadge,
+.activityBadge,
+.readOnly {
+    display: inline-flex;
+    align-items: center;
+    padding: var(--space-1) var(--space-2);
+    border: 1px solid var(--color-border);
+    border-radius: 999px;
+    background: var(--color-background);
+    color: var(--color-text);
+    font-size: 0.9rem;
+    font-weight: 800;
+    white-space: nowrap;
+}
+
+.roleBadge[data-role='admin'],
+.roleBadge[data-role='super_admin'],
+.activityBadge[data-active='true'] {
+    border-color: var(--color-primary);
+    color: var(--color-primary-hover);
+}
+
+.activityBadge[data-active='false'] {
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+}
+
+.readOnly {
+    color: var(--color-muted);
+}
+
+.pagination {
+    display: grid;
+    align-items: center;
+    gap: var(--space-3);
+    text-align: center;
+}
+
+@media (min-width: 48rem) {
+    .pageHeader {
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: end;
+    }
+
+    .primaryButton,
+    .secondaryButton,
+    .actionButton {
+        width: fit-content;
+    }
+
+    .cards {
+        display: none;
+    }
+
+    .tableWrapper {
+        display: block;
+    }
+
+    .pagination {
+        grid-template-columns: auto auto auto;
+        justify-content: end;
+    }
+}

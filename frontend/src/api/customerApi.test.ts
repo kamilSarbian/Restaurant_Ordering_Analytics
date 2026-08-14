@@ -100,12 +100,28 @@ const VALID_ORDER = {
 };
 
 const CHECKOUT_KEY = '00000000-0000-4000-8000-000000000004';
+const CANONICAL_ACCESS_TOKEN = 'canonical-customer-access-token';
 const VALID_CHECKOUT = {
   checkout_url: 'https://checkout.example.test/session/hosted',
   expires_at: '2026-08-11T15:30:00Z',
   payment_status: 'pending',
   public_order_number: VALID_ORDER.public_order_number,
 };
+
+function guestCheckoutOptions(signal?: AbortSignal) {
+  return {
+    guestAccessToken: VALID_ORDER.order_access_token,
+    idempotencyKey: CHECKOUT_KEY,
+    signal,
+  };
+}
+
+function guestStatusOptions(signal?: AbortSignal) {
+  return {
+    guestAccessToken: VALID_ORDER.order_access_token,
+    signal,
+  };
+}
 
 const VALID_ORDER_STATUS = {
   created_at: '2026-08-11T15:00:00Z',
@@ -139,6 +155,8 @@ describe('quoteOrder', () => {
       url: '/api/v1/orders/quote',
     });
     expect(stub.calls[0]?.headers.get('Content-Type')).toBe('application/json');
+    expect(stub.calls[0]?.headers.has('Authorization')).toBe(false);
+    expect(stub.calls[0]?.headers.has('X-Order-Access-Token')).toBe(false);
     expect(JSON.parse(stub.calls[0]?.body ?? '')).toEqual({ items: QUOTE_ITEMS });
   });
 
@@ -258,6 +276,49 @@ describe('createOrder', () => {
     });
   });
 
+  it('attaches only the explicit canonical Bearer for authenticated creation', async () => {
+    const stub = installFetchStub({ json: VALID_ORDER, status: 201 });
+
+    await createOrder(
+      { items: QUOTE_ITEMS, order_type: 'takeaway' },
+      { accessToken: CANONICAL_ACCESS_TOKEN },
+    );
+
+    expect(stub.calls[0]?.headers.get('Authorization')).toBe(
+      `Bearer ${CANONICAL_ACCESS_TOKEN}`,
+    );
+    expect(stub.calls[0]?.headers.has('X-Order-Access-Token')).toBe(false);
+    expect(stub.calls[0]?.url).toBe('/api/v1/orders');
+    expect(stub.calls[0]?.url).not.toContain(CANONICAL_ACCESS_TOKEN);
+  });
+
+  it.each(['', '   ', 'token with whitespace'])(
+    'rejects invalid explicit create Bearer %# before fetch',
+    async (accessToken) => {
+      const stub = installFetchStub();
+
+      await expect(
+        createOrder({ items: QUOTE_ITEMS, order_type: 'takeaway' }, { accessToken }),
+      ).rejects.toMatchObject({ kind: 'invalid-response' });
+      expect(stub.calls).toHaveLength(0);
+    },
+  );
+
+  it('keeps a create 401 typed and never retries as a guest', async () => {
+    const stub = installFetchStub({ status: 401 });
+
+    await expect(
+      createOrder(
+        { items: QUOTE_ITEMS, order_type: 'takeaway' },
+        { accessToken: CANONICAL_ACCESS_TOKEN },
+      ),
+    ).rejects.toMatchObject({ kind: 'http', status: 401 });
+    expect(stub.calls).toHaveLength(1);
+    expect(stub.calls[0]?.headers.get('Authorization')).toBe(
+      `Bearer ${CANONICAL_ACCESS_TOKEN}`,
+    );
+  });
+
   it('sends only identifiers and quantities without prices, totals, currency, or PII', async () => {
     const stub = installFetchStub({ json: VALID_ORDER, status: 201 });
 
@@ -326,7 +387,7 @@ describe('createOrder', () => {
     const controller = new AbortController();
     const request = createOrder(
       { items: QUOTE_ITEMS, order_type: 'takeaway' },
-      controller.signal,
+      { signal: controller.signal },
     );
 
     controller.abort();
@@ -353,8 +414,7 @@ describe('createCheckoutSession', () => {
 
     await createCheckoutSession(
       VALID_ORDER.public_order_number,
-      VALID_ORDER.order_access_token,
-      CHECKOUT_KEY,
+      guestCheckoutOptions(),
     );
 
     expect(stub.calls).toHaveLength(1);
@@ -373,17 +433,93 @@ describe('createCheckoutSession', () => {
     expect(stub.calls[0]?.headers.get('Idempotency-Key')).toBe(CHECKOUT_KEY);
     expect(stub.calls[0]?.headers.has('Authorization')).toBe(false);
     expect(stub.calls[0]?.headers.has('Content-Type')).toBe(false);
+    expect(stub.calls.map((call) => call.url)).not.toContain(
+      VALID_CHECKOUT.checkout_url,
+    );
+  });
+
+  it('supports authenticated owner checkout without a guest capability', async () => {
+    const stub = installFetchStub({ json: VALID_CHECKOUT, status: 201 });
+
+    await createCheckoutSession(VALID_ORDER.public_order_number, {
+      accessToken: CANONICAL_ACCESS_TOKEN,
+      idempotencyKey: CHECKOUT_KEY,
+    });
+
+    expect(stub.calls[0]?.headers.get('Authorization')).toBe(
+      `Bearer ${CANONICAL_ACCESS_TOKEN}`,
+    );
+    expect(stub.calls[0]?.headers.has('X-Order-Access-Token')).toBe(false);
+    expect(stub.calls[0]?.headers.get('Idempotency-Key')).toBe(CHECKOUT_KEY);
+    expect(stub.calls[0]?.url).not.toContain(CANONICAL_ACCESS_TOKEN);
+  });
+
+  it('sends Bearer, capability, and idempotency together when supplied', async () => {
+    const stub = installFetchStub({ json: VALID_CHECKOUT, status: 200 });
+
+    await createCheckoutSession(VALID_ORDER.public_order_number, {
+      accessToken: CANONICAL_ACCESS_TOKEN,
+      guestAccessToken: VALID_ORDER.order_access_token,
+      idempotencyKey: CHECKOUT_KEY,
+    });
+
+    expect([...stub.calls[0]!.headers.keys()].sort()).toEqual([
+      'authorization',
+      'idempotency-key',
+      'x-order-access-token',
+    ]);
+    expect(stub.calls[0]?.headers.get('Authorization')).toBe(
+      `Bearer ${CANONICAL_ACCESS_TOKEN}`,
+    );
+    expect(stub.calls[0]?.headers.get('X-Order-Access-Token')).toBe(
+      VALID_ORDER.order_access_token,
+    );
+  });
+
+  it('rejects checkout without either supported credential before fetch', async () => {
+    const stub = installFetchStub();
+
+    await expect(
+      createCheckoutSession(VALID_ORDER.public_order_number, {
+        idempotencyKey: CHECKOUT_KEY,
+      }),
+    ).rejects.toMatchObject({ kind: 'invalid-response' });
+    expect(stub.calls).toHaveLength(0);
+  });
+
+  it.each([
+    ['Bearer', { accessToken: 'bad token', idempotencyKey: CHECKOUT_KEY }],
+    ['capability', { guestAccessToken: '   ', idempotencyKey: CHECKOUT_KEY }],
+  ])('rejects invalid checkout %s before fetch', async (_label, options) => {
+    const stub = installFetchStub();
+
+    await expect(
+      createCheckoutSession(VALID_ORDER.public_order_number, options),
+    ).rejects.toMatchObject({ kind: 'invalid-response' });
+    expect(stub.calls).toHaveLength(0);
+  });
+
+  it('keeps a 401 typed and never retries without Bearer', async () => {
+    const stub = installFetchStub({ status: 401 });
+
+    await expect(
+      createCheckoutSession(VALID_ORDER.public_order_number, {
+        accessToken: CANONICAL_ACCESS_TOKEN,
+        guestAccessToken: VALID_ORDER.order_access_token,
+        idempotencyKey: CHECKOUT_KEY,
+      }),
+    ).rejects.toMatchObject({ kind: 'http', status: 401 });
+    expect(stub.calls).toHaveLength(1);
+    expect(stub.calls[0]?.headers.get('Authorization')).toBe(
+      `Bearer ${CANONICAL_ACCESS_TOKEN}`,
+    );
   });
 
   it.each([200, 201])('accepts a valid %s checkout response', async (status) => {
     installFetchStub({ json: VALID_CHECKOUT, status });
 
     await expect(
-      createCheckoutSession(
-        VALID_ORDER.public_order_number,
-        VALID_ORDER.order_access_token,
-        CHECKOUT_KEY,
-      ),
+      createCheckoutSession(VALID_ORDER.public_order_number, guestCheckoutOptions()),
     ).resolves.toEqual(VALID_CHECKOUT);
   });
 
@@ -400,11 +536,7 @@ describe('createCheckoutSession', () => {
     installFetchStub({ json: response, status: 201 });
 
     await expect(
-      createCheckoutSession(
-        VALID_ORDER.public_order_number,
-        VALID_ORDER.order_access_token,
-        CHECKOUT_KEY,
-      ),
+      createCheckoutSession(VALID_ORDER.public_order_number, guestCheckoutOptions()),
     ).rejects.toMatchObject({ kind: 'invalid-response' });
   });
 
@@ -422,11 +554,7 @@ describe('createCheckoutSession', () => {
     });
 
     await expect(
-      createCheckoutSession(
-        VALID_ORDER.public_order_number,
-        VALID_ORDER.order_access_token,
-        CHECKOUT_KEY,
-      ),
+      createCheckoutSession(VALID_ORDER.public_order_number, guestCheckoutOptions()),
     ).rejects.toMatchObject({ kind: 'invalid-response' });
   });
 
@@ -439,11 +567,7 @@ describe('createCheckoutSession', () => {
     installFetchStub({ json: response, status: 200 });
 
     await expect(
-      createCheckoutSession(
-        VALID_ORDER.public_order_number,
-        VALID_ORDER.order_access_token,
-        CHECKOUT_KEY,
-      ),
+      createCheckoutSession(VALID_ORDER.public_order_number, guestCheckoutOptions()),
     ).resolves.toEqual(response);
   });
 
@@ -454,8 +578,7 @@ describe('createCheckoutSession', () => {
 
       const request = createCheckoutSession(
         VALID_ORDER.public_order_number,
-        VALID_ORDER.order_access_token,
-        CHECKOUT_KEY,
+        guestCheckoutOptions(),
       );
       await expect(request).rejects.toMatchObject({ kind: 'http', status });
       await expect(request).rejects.not.toThrow('private context');
@@ -467,8 +590,7 @@ describe('createCheckoutSession', () => {
 
     const error = await createCheckoutSession(
       VALID_ORDER.public_order_number,
-      VALID_ORDER.order_access_token,
-      CHECKOUT_KEY,
+      guestCheckoutOptions(),
     ).catch((reason: unknown) => reason);
 
     expect(error).toBeInstanceOf(CheckoutRequestError);
@@ -482,8 +604,7 @@ describe('createCheckoutSession', () => {
 
       const error = await createCheckoutSession(
         VALID_ORDER.public_order_number,
-        VALID_ORDER.order_access_token,
-        CHECKOUT_KEY,
+        guestCheckoutOptions(),
       ).catch((reason: unknown) => reason);
 
       expect(error).toMatchObject({ retryAfterSeconds: null, status: 429 });
@@ -494,11 +615,7 @@ describe('createCheckoutSession', () => {
     const stub = installFetchStub({ error: new TypeError('connection lost') });
 
     await expect(
-      createCheckoutSession(
-        VALID_ORDER.public_order_number,
-        VALID_ORDER.order_access_token,
-        CHECKOUT_KEY,
-      ),
+      createCheckoutSession(VALID_ORDER.public_order_number, guestCheckoutOptions()),
     ).rejects.toMatchObject({ kind: 'network' });
     expect(stub.calls).toHaveLength(1);
   });
@@ -508,9 +625,7 @@ describe('createCheckoutSession', () => {
     const controller = new AbortController();
     const request = createCheckoutSession(
       VALID_ORDER.public_order_number,
-      VALID_ORDER.order_access_token,
-      CHECKOUT_KEY,
-      controller.signal,
+      guestCheckoutOptions(controller.signal),
     );
 
     controller.abort();
@@ -523,8 +638,7 @@ describe('createCheckoutSession', () => {
     const stub = installFetchStub({ waitForAbort: true });
     const request = createCheckoutSession(
       VALID_ORDER.public_order_number,
-      VALID_ORDER.order_access_token,
-      CHECKOUT_KEY,
+      guestCheckoutOptions(),
     );
     const rejection = expect(request).rejects.toMatchObject({ kind: 'timeout' });
 
@@ -545,6 +659,8 @@ describe('fetchMenu', () => {
     expect(stub.calls).toHaveLength(1);
     expect(stub.calls[0]).toMatchObject({ method: 'GET', url: '/api/v1/menu' });
     expect(stub.calls[0]?.url).not.toContain('available_only');
+    expect(stub.calls[0]?.headers.has('Authorization')).toBe(false);
+    expect(stub.calls[0]?.headers.has('X-Order-Access-Token')).toBe(false);
   });
 
   it('normalizes a trailing slash on an explicit public base URL', async () => {
@@ -639,10 +755,7 @@ describe('fetchOrderStatus', () => {
   it('uses the exact protected GET endpoint with only the guest token header', async () => {
     const stub = installFetchStub({ json: VALID_ORDER_STATUS });
 
-    await fetchOrderStatus(
-      VALID_ORDER.public_order_number,
-      VALID_ORDER.order_access_token,
-    );
+    await fetchOrderStatus(VALID_ORDER.public_order_number, guestStatusOptions());
 
     expect(stub.calls).toHaveLength(1);
     expect(stub.calls[0]).toMatchObject({
@@ -658,6 +771,75 @@ describe('fetchOrderStatus', () => {
     expect(stub.calls[0]?.headers.has('Idempotency-Key')).toBe(false);
   });
 
+  it('supports authenticated owner status with Bearer only', async () => {
+    const stub = installFetchStub({ json: VALID_ORDER_STATUS });
+
+    await fetchOrderStatus(VALID_ORDER.public_order_number, {
+      accessToken: CANONICAL_ACCESS_TOKEN,
+    });
+
+    expect([...stub.calls[0]!.headers.keys()]).toEqual(['authorization']);
+    expect(stub.calls[0]?.headers.get('Authorization')).toBe(
+      `Bearer ${CANONICAL_ACCESS_TOKEN}`,
+    );
+    expect(stub.calls[0]?.url).not.toContain(CANONICAL_ACCESS_TOKEN);
+  });
+
+  it('forwards Bearer and guest capability together', async () => {
+    const stub = installFetchStub({ json: VALID_ORDER_STATUS });
+
+    await fetchOrderStatus(VALID_ORDER.public_order_number, {
+      accessToken: CANONICAL_ACCESS_TOKEN,
+      guestAccessToken: VALID_ORDER.order_access_token,
+    });
+
+    expect([...stub.calls[0]!.headers.keys()].sort()).toEqual([
+      'authorization',
+      'x-order-access-token',
+    ]);
+    expect(stub.calls[0]?.headers.get('Authorization')).toBe(
+      `Bearer ${CANONICAL_ACCESS_TOKEN}`,
+    );
+    expect(stub.calls[0]?.headers.get('X-Order-Access-Token')).toBe(
+      VALID_ORDER.order_access_token,
+    );
+  });
+
+  it('allows the mixed route call shape with neither credential', async () => {
+    const stub = installFetchStub({ json: VALID_ORDER_STATUS });
+
+    await fetchOrderStatus(VALID_ORDER.public_order_number, {});
+
+    expect([...stub.calls[0]!.headers.keys()]).toEqual([]);
+  });
+
+  it.each([
+    ['Bearer', { accessToken: '' }],
+    ['capability', { guestAccessToken: 'token with whitespace' }],
+  ])('rejects invalid status %s before fetch', async (_label, options) => {
+    const stub = installFetchStub();
+
+    await expect(
+      fetchOrderStatus(VALID_ORDER.public_order_number, options),
+    ).rejects.toMatchObject({ kind: 'invalid-response' });
+    expect(stub.calls).toHaveLength(0);
+  });
+
+  it('keeps a status 401 typed and never retries anonymously', async () => {
+    const stub = installFetchStub({ status: 401 });
+
+    await expect(
+      fetchOrderStatus(VALID_ORDER.public_order_number, {
+        accessToken: CANONICAL_ACCESS_TOKEN,
+        guestAccessToken: VALID_ORDER.order_access_token,
+      }),
+    ).rejects.toMatchObject({ kind: 'http', status: 401 });
+    expect(stub.calls).toHaveLength(1);
+    expect(stub.calls[0]?.headers.get('Authorization')).toBe(
+      `Bearer ${CANONICAL_ACCESS_TOKEN}`,
+    );
+  });
+
   it.each(['created', 'accepted', 'preparing', 'ready', 'completed', 'cancelled'])(
     'accepts fulfilment status %s',
     async (status) => {
@@ -665,10 +847,7 @@ describe('fetchOrderStatus', () => {
       installFetchStub({ json: response });
 
       await expect(
-        fetchOrderStatus(
-          VALID_ORDER.public_order_number,
-          VALID_ORDER.order_access_token,
-        ),
+        fetchOrderStatus(VALID_ORDER.public_order_number, guestStatusOptions()),
       ).resolves.toEqual(response);
     },
   );
@@ -697,7 +876,7 @@ describe('fetchOrderStatus', () => {
     installFetchStub({ json: response });
 
     await expect(
-      fetchOrderStatus(VALID_ORDER.public_order_number, VALID_ORDER.order_access_token),
+      fetchOrderStatus(VALID_ORDER.public_order_number, guestStatusOptions()),
     ).rejects.toMatchObject({ kind: 'invalid-response' });
   });
 
@@ -710,7 +889,7 @@ describe('fetchOrderStatus', () => {
     installFetchStub({ json: response });
 
     await expect(
-      fetchOrderStatus(VALID_ORDER.public_order_number, VALID_ORDER.order_access_token),
+      fetchOrderStatus(VALID_ORDER.public_order_number, guestStatusOptions()),
     ).resolves.toEqual(response);
   });
 
@@ -719,7 +898,7 @@ describe('fetchOrderStatus', () => {
 
     const request = fetchOrderStatus(
       VALID_ORDER.public_order_number,
-      VALID_ORDER.order_access_token,
+      guestStatusOptions(),
     );
     await expect(request).rejects.toMatchObject({ kind: 'http', status: 404 });
     await expect(request).rejects.not.toThrow('Order not found');
@@ -729,7 +908,7 @@ describe('fetchOrderStatus', () => {
     installFetchStub({ error: new TypeError('offline details') });
 
     await expect(
-      fetchOrderStatus(VALID_ORDER.public_order_number, VALID_ORDER.order_access_token),
+      fetchOrderStatus(VALID_ORDER.public_order_number, guestStatusOptions()),
     ).rejects.toMatchObject({ kind: 'network' });
   });
 
@@ -738,8 +917,7 @@ describe('fetchOrderStatus', () => {
     const controller = new AbortController();
     const request = fetchOrderStatus(
       VALID_ORDER.public_order_number,
-      VALID_ORDER.order_access_token,
-      controller.signal,
+      guestStatusOptions(controller.signal),
     );
 
     controller.abort();
@@ -752,7 +930,7 @@ describe('fetchOrderStatus', () => {
     const stub = installFetchStub({ waitForAbort: true });
     const request = fetchOrderStatus(
       VALID_ORDER.public_order_number,
-      VALID_ORDER.order_access_token,
+      guestStatusOptions(),
     );
     const rejection = expect(request).rejects.toMatchObject({ kind: 'timeout' });
 

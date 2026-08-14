@@ -2,32 +2,27 @@
 
 ## Current status
 
-Stages 1 through 15 are complete and verified. Stage 15 customer-frontend
-automated validation and mandatory manual responsive QA both passed. The
-repository contains a verified FastAPI application,
-public menu and transient quote APIs, persistent guest order creation, secure
-public order status retrieval, durable payment attempts, and idempotent Stripe
-Checkout Session creation. It also provides an idempotent, signature-verified
-Stripe webhook that applies provider-authoritative Payment transitions and
-administrator authentication with Argon2id password hashes and short-lived JWT
-access tokens. Authenticated administrator operations now cover order reads,
-payment-aware fulfilment transitions, and menu category and item management.
-Local development uses PostgreSQL 17, synchronous SQLAlchemy 2, Psycopg 3,
-Alembic, and an explicit demonstration menu seed.
+Stages 1 through 15 are complete and verified. Stage 16 now provides one
+integrated React application for guests, registered customers, administrators,
+and super-administrators. Its public landing, menu, cart, unified login and
+registration, mixed-auth ordering, personal account, operational administrator,
+analytics, CSV export, and super-administrator User-governance screens are
+implemented. Automated validation passes, and the developer/user completed the
+required local-browser responsive and keyboard QA after the final Stage 16F
+fixes.
 
-Stage 13 administrator analytics and the three Stage 14 administrator CSV
-exports are complete. The guest-only React customer frontend covers menu
-browsing through secure fulfilment-status polling. The Stage 16 administrator
-frontend implements authentication, protected routing, order operations, menu
-management, analytics, and CSV downloads. Its automated acceptance gates and
-user-performed manual responsive QA at the required viewports pass.
-The backend now provides unified registered identities, public customer
-registration and sign-in, database-authoritative role checks,
-super-administrator role management, optional registered-user Order ownership,
-and a read-only personal Order-history API. The existing guest customer and
-administrator frontends remain compatible, but customer login, registration,
-and account screens are not yet implemented. Full-system containerisation, CI,
-and deployment have not started.
+Stage 16F is PRE-COMMIT READY after C1 documentation and cumulative validation;
+Stage 16F-C2 independent review and final commit are next.
+
+The FastAPI backend provides public menu and quote APIs, anonymous or owned
+Order creation, owner-or-capability status and idempotent Stripe Checkout,
+signature-verified webhook processing, unified registered identities,
+database-authoritative role checks, read-only personal Order history, and
+administrator operations. Local development uses PostgreSQL 17, synchronous
+SQLAlchemy 2, Psycopg 3, Alembic, and an explicit demonstration menu seed. Code
+and the development database are both at migration
+`0008_add_order_ownership`. Full-system containerisation, CI, and deployment
+have not started; Stage 16G and Stage 17 remain future work.
 
 ## Unified identity, Order ownership, and account backend
 
@@ -50,13 +45,14 @@ The implemented canonical backend routes are:
 
 Canonical tokens use the strict `user_access` type and user audience. They do
 not contain a role authority claim: every protected request reloads the current
-User role and `is_active` from PostgreSQL. The existing administrator frontend
-continues to use `/api/v1/admin/auth/login` and `/api/v1/admin/auth/me`. The
-login alias delegates to unified User authentication, accepts only current
-`admin` or `super_admin`, returns a generic 401 for a customer, and issues
-`user_access`. Older strict `admin_access` tokens remain validation-only
-compatibility during the transition. Operational administrator routes allow a
-current `admin` or `super_admin`; a customer receives 403.
+User role and `is_active` from PostgreSQL. The frontend uses the canonical
+`/api/v1/auth/login` and `/api/v1/auth/me` contracts for every role. The backend
+`/api/v1/admin/auth/login` and `/api/v1/admin/auth/me` aliases remain
+compatibility contracts, but current frontend source does not call them. The
+login alias accepts only a current `admin` or `super_admin` and issues
+`user_access`; older strict `admin_access` tokens remain validation-only
+compatibility. Operational administrator routes allow a current `admin` or
+`super_admin`; a customer receives 403.
 
 Stage 16E extends this identity backend with nullable Order ownership while
 preserving the anonymous capability flow. `Order.customer_user_id` is a
@@ -84,22 +80,21 @@ cannot bypass account ownership, administrator roles receive no global account
 bypass, and account responses expose no ownership identity, PII, Payment, or
 Stripe data. No account mutation endpoint exists.
 
-The planned Stage 16F browser route target remains separate from these current
-backend routes and from the implemented route list documented under Customer
-frontend:
+The implemented browser routes are:
 
-- `/` for the concise restaurant landing page with Order as guest, Log in, and
-  Create account actions;
+- `/` for the restaurant landing page;
 - `/menu` for the public menu used by guests and registered users;
 - `/cart` for the existing cart and order flow;
-- `/login` and `/register` for unified account authentication;
+- `/login` and `/register` for unified authentication;
 - `/account` and `/account/orders/:publicOrderNumber` for the authenticated
-  customer account and its own-order history;
-- the existing `/orders/:publicOrderNumber/...` Checkout, return, and protected
-  status routes;
-- `/admin/...` for operational administration;
-- `/admin/users` for the frontend over the already implemented
-  super-administrator backend API.
+  personal Order list and detail;
+- `/orders/:publicOrderNumber/checkout`, `payment-return`,
+  `checkout-cancelled`, and `status` for the customer Order flow;
+- `/admin`, `/admin/orders`, `/admin/orders/:publicOrderNumber`, `/admin/menu`,
+  `/admin/analytics`, and `/admin/exports` for operational administration;
+- `/admin/users` for super-administrator User governance;
+- `/admin/login` as a compatibility redirect to unified `/login` with a safe
+  administrator continuation.
 
 Every Order already keeps an independent guest capability, including an Order
 linked to a registered User. Registration is not required for guest ordering.
@@ -153,9 +148,9 @@ without introducing infrastructure that is unnecessary for a single venue.
   UTC filtering, Europe/Oslo presentation, and historical sales snapshots.
 - Three protected administrator CSV exports for orders, full product sales,
   and qualified succeeded payments with deterministic wire contracts.
-- A guest-only React customer interface for menu browsing, cart persistence,
-  server quoting, order creation, idempotent Checkout, neutral return screens,
-  and secure fulfilment-status polling.
+- One React application with a landing page, unified authentication, guest and
+  authenticated ordering, personal Order history, administrator operations,
+  analytics and exports, and super-administrator User governance.
 - Isolated PostgreSQL integration tests for models, constraints, and migration
   upgrades, downgrades, seed idempotency, and data protection.
 - Ruff, Black, and isort quality configuration.
@@ -167,9 +162,8 @@ without introducing infrastructure that is unnecessary for a single venue.
   email-validator, Docker Compose, pytest, Ruff, Black, isort, React,
   TypeScript, Vite, React Router, CSS Modules, native `fetch`, `sessionStorage`,
   Vitest, and React Testing Library.
-- Planned: the landing and unified account frontend, authenticated customer
-  ordering UX, administrator User-management UI, integrated Stage 16
-  finalization, full-system containers, GitHub Actions, and deployment.
+- Planned: Stage 16G, Stage 17, full-system containers, GitHub Actions, and
+  deployment.
 
 ## Repository structure
 
@@ -188,7 +182,7 @@ without introducing infrastructure that is unnecessary for a single venue.
 │   ├── alembic.ini
 │   └── pyproject.toml
 ├── docs/
-├── frontend/      # Guest customer and administrator React application
+├── frontend/      # Unified customer, account, and administrator React application
 ├── compose.yaml
 ├── AGENTS.md
 └── README.md
@@ -283,12 +277,18 @@ nullable `orders.customer_user_id`, its `users.id` foreign key with
 `ON DELETE SET NULL`, and the composite personal-history index without changing
 historical rows.
 
-Repository code and Alembic have head `0008_add_order_ownership`. The current
-local development database in this controlled workflow deliberately remains at
-`0006_create_admin_user_model`. Before local runtime use of the Stage 16D/16E
-unified-auth, ownership, and account features, an operator must separately
-approve and apply the additive `0006 -> 0007 -> 0008` migration path. It is not
-automatic, C1 does not perform it, and no destructive reset is recommended.
+Repository code, Alembic, and the current development database are at
+`0008_add_order_ownership`. During Stage 16F manual-QA environment preparation,
+the development database was backed up outside the repository and upgraded
+additively through `0006_create_admin_user_model` ->
+`0007_unify_user_auth_roles` -> `0008_add_order_ownership`. The historical
+administrator was preserved as an
+active `super_admin`; `users` exists, `admin_users` no longer exists, and the
+Order ownership foreign key and index were verified. The Docker project
+database remains published on host port 5433, while the host PostgreSQL service
+on port 5432 was left untouched. Never run a downgrade against the development
+database or expose backup contents, credentials, or database URLs in project
+documentation.
 
 ## Unified authentication and administrator compatibility
 
@@ -361,13 +361,41 @@ An operator must configure an ignored local authentication secret and run the
 interactive bootstrap when migration 0007 produces no initial super-admin.
 These are manual operational setup steps, not automated test requirements.
 
+### Canonical frontend session and navigation
+
+One application-wide `AuthContext` owns the browser session for customers,
+administrators, and super-administrators. Its explicit phases are
+`checking-session`, `authenticated`, `unauthenticated`, and
+`temporarily-unavailable`. The opaque canonical `user_access` token is stored in
+the versioned `restaurant-ordering:auth:v1` `sessionStorage` record, with a
+current-tab memory fallback when storage is unavailable. The app never uses
+`localStorage`. The old `restaurant-ordering:admin-auth:v1` record is read only
+as a one-time migration candidate and is cleared after validation or rejection.
+
+Every restored, logged-in, registered, or role-refreshed session calls
+`GET /api/v1/auth/me`. That database-authoritative response supplies `role` and
+`is_active`; the frontend treats the JWT as opaque and never decodes it for
+authorization. Request generations and AbortController cleanup prevent stale
+validation from replacing a newer session. Protected requests capture the
+current token and session generation, so a 401 invalidates only that exact
+session. Administrator 403 handling refreshes `/api/v1/auth/me` and lets the
+role guards apply current database state.
+
+`/login` and `/register` are the unified entry points. The default successful
+destination is `/account`. A strict role-aware `next` allowlist accepts only
+known local public, Order, account, and permitted administrator paths; it
+rejects external or protocol-relative destinations, backslashes, traversal,
+query/hash injection, unsupported paths, and authentication loops. No token or
+Order capability is placed in a URL or React Router state. `/admin/login` is a
+compatibility redirect only.
+
 ## Administrator operational API
 
 Stage 12 exposes authenticated order and menu operations under
-`/api/v1/admin`. An administrator first signs in through
-`POST /api/v1/admin/auth/login`; `GET /api/v1/admin/auth/me` returns the current
-active identity. Every operational route below requires the OpenAPI
-`AdminBearer` security scheme:
+`/api/v1/admin`. The current frontend signs in through canonical
+`POST /api/v1/auth/login` and validates through `GET /api/v1/auth/me`; the old
+administrator auth endpoints remain backend compatibility aliases only. Every
+operational route below requires the OpenAPI `AdminBearer` security scheme:
 
 - `GET /api/v1/admin/orders`
 - `GET /api/v1/admin/orders/{public_order_number}`
@@ -558,34 +586,34 @@ values nor grouping identities.
 Stage 16 implements the current administrator interface under the dedicated
 `/admin` route tree:
 
-- `/admin/login`;
+- `/admin/login`, which redirects to unified `/login?next=%2Fadmin`;
 - `/admin`;
 - `/admin/orders`;
 - `/admin/orders/:publicOrderNumber`;
 - `/admin/menu`;
 - `/admin/analytics`;
 - `/admin/exports`;
+- `/admin/users`, restricted to `super_admin`;
 - `/admin/*` for the protected administrator-local not-found screen.
 
-The `/admin/users` frontend is not implemented. Its backend list and ordinary
-role-transition routes are implemented, while the unified browser session,
-customer account UI, landing page, and ownership views remain Stage 16F work.
+The operational route guard permits `admin` and `super_admin`; a customer is
+sent to `/account`. The User-governance guard permits only `super_admin`; an
+`admin` is sent to `/admin` and a customer to `/account`. Backend authorization
+remains authoritative for every request.
 
 ### Administrator session
 
-Sign-in calls the administrator login endpoint, keeps the opaque access token in
-the versioned `restaurant-ordering:admin-auth:v1` `sessionStorage` record, and
-then requires `/api/v1/admin/auth/me` validation before protected UI renders. If
-browser storage is unavailable, the successful current-tab login can continue
-from memory. The browser never uses `localStorage` for this session and never
-places the token in a URL, rendered DOM, or log.
-
-HTTP 401 clears the session. Login HTTP 429 honors the server `Retry-After`
-cooldown, while a temporary `/me` network or HTTP 503 failure preserves the
-stored token and blocks protected content behind an explicit validation retry.
-There is no backend logout endpoint; Logout clears only the frontend session.
-Administrator Bearer credentials are attached only to canonical
-`/api/v1/admin/...` requests.
+Administrators use the shared canonical `AuthContext`, `/login`,
+`restaurant-ordering:auth:v1` session record, and `/api/v1/auth/me` validation
+described above. There is no active administrator-auth silo. A network or HTTP
+503 validation failure preserves the current session behind an explicit retry
+state; frontend Logout clears it because the backend has no logout endpoint.
+`adminApi` attaches the captured canonical Bearer only to allowlisted
+`/api/v1/admin/...` requests. Personal-account and mixed-Order transports use
+their own explicit allowlists and may use the same canonical session for any
+authenticated role. An operational 401 invalidates only the captured current
+session, while a 403 refreshes the database-authoritative User before the role
+guard chooses a safe destination.
 
 ### Administrator orders
 
@@ -658,10 +686,26 @@ the quoted `Content-Disposition` filename with fixed report-specific fallbacks.
 Each temporary object URL and link is removed after one click, including failure
 cleanup; no Blob or object URL is persisted.
 
+### Super-administrator User governance
+
+`/admin/users` lists deterministic pages of safe User fields and offers only
+the explicit inverse transitions `customer -> admin` and `admin -> customer`.
+Rows whose role is `super_admin` are read-only. The UI cannot assign or demote a
+`super_admin`, delete a User, reset a password, or change active state.
+
+Every role action requires confirmation and is serialized to one PATCH. The UI
+does not update optimistically: after success it reloads the authoritative
+current page. A network, timeout, 503, or invalid-response outcome may have
+changed server state, so the page locks role actions and pagination until an
+explicit reconciliation GET succeeds. A mutation 401 uses generation-safe
+current-session invalidation; a 403 refreshes `/api/v1/auth/me` before the role
+guard applies the customer, administrator, or super-administrator fallback.
+
 The administrator UI has automated responsive and accessibility coverage and
-mobile-first CSS for login, navigation, orders, detail actions, menu, analytics,
-and exports. User-performed manual acceptance passed at 375x812, 768x1024, and
-1280x800, covering every administrator screen plus keyboard and focus behavior.
+mobile-first CSS for navigation, orders, detail actions, menu, analytics,
+exports, and User governance. User-performed manual acceptance passed at
+375x812, 768x1024, and 1280x800, covering every administrator screen plus
+keyboard and focus behavior.
 
 ## Menu data foundation
 
@@ -1123,29 +1167,43 @@ manual; it is not required for automated validation or a commit.
 
 ## Customer frontend
 
-Stage 15 established the guest-only customer application in `frontend/`. It uses
-React, TypeScript, Vite, React Router, CSS Modules, native `fetch`,
-`sessionStorage`, Vitest, and React Testing Library. That Stage 15 scope has no
-customer account, sign-in, profile, or administrator interface. Stage 16 has
-since added the separate administrator frontend described above without
-changing the completed guest flow. Stage 16E changes the backend and two
-date-sensitive frontend test fixtures only: production frontend source remains
-unchanged and compatible with guest ordering. It does not yet expose customer
-login, registration, authenticated ordering, an account page, or new
-administrator User-management UI. Those landing, unified-auth, account, and
-admin-User browser changes remain planned for Stage 16F.
+Stage 15 established the guest ordering application in `frontend/`. Stage 16F
+evolves that tested flow into one React, TypeScript, Vite, and React Router
+application without making registration mandatory. The current public and
+account route tree is:
 
-The Stage 15 route baseline at its completion was exactly:
-
-- `/` for the public menu and client-side category/availability filters;
-- `/cart` for the cart, server quote, and guest order form;
+- `/` for the landing page;
+- `/menu` for the public menu and client-side filters;
+- `/cart` for cart, quote, and guest or authenticated Order creation;
+- `/login` and `/register` for canonical authentication;
+- `/account` and `/account/orders/:publicOrderNumber` for protected personal
+  history and detail;
 - `/orders/:publicOrderNumber/checkout` for hosted Checkout initiation;
-- `/orders/:publicOrderNumber/payment-return` for the neutral success return;
-- `/orders/:publicOrderNumber/checkout-cancelled` for the neutral cancel return;
-- `/orders/:publicOrderNumber/status` for protected fulfilment status;
-- `*` for the not-found screen.
+- `/orders/:publicOrderNumber/payment-return` and
+  `/orders/:publicOrderNumber/checkout-cancelled` for neutral Stripe returns;
+- `/orders/:publicOrderNumber/status` for owner-or-capability fulfilment status;
+- `*` for the public not-found screen.
 
-The intended guest journey is:
+For historical context, the Stage 15 baseline used `/` for the menu and had no
+landing, login, registration, or account routes. Stage 16F moves that existing
+menu to `/menu` and adds the new routes above; the cart and public Order URLs
+remain compatible.
+
+The frontend credential matrix is explicit:
+
+- menu and quote use no credential;
+- guest creation uses no Bearer token;
+- authenticated creation uses canonical Bearer authentication and persists
+  backend ownership;
+- guest status uses the independent Order capability;
+- authenticated status uses Bearer plus the capability when present, and an
+  owner remains authorized without it;
+- guest Checkout uses the capability plus `Idempotency-Key`;
+- authenticated Checkout uses Bearer, the capability when present, and
+  `Idempotency-Key`;
+- the navigation to hosted Stripe carries no application authentication header.
+
+The customer journey is:
 
 1. Load `GET /api/v1/menu` without an `available_only` query parameter.
 2. Filter the returned categories and availability locally; unavailable items
@@ -1155,23 +1213,31 @@ The intended guest journey is:
 5. Request a server-authoritative quote after a 400 ms debounce.
 6. Choose takeaway or dine-in and provide a positive table number for dine-in.
 7. Obtain a fresh quote immediately before the non-idempotent order POST.
-8. Create the guest order once and retain its one-time access token only in the
-   current browser session or transient memory.
+8. Create the Order once, anonymously or with the exact captured canonical
+   session, and retain its one-time capability only in the current browser
+   session or transient memory.
 9. Start or replay one idempotent Checkout attempt and continue in the same tab
    to the validated hosted HTTPS Checkout URL.
 10. Treat both Stripe return routes as navigation outcomes only, never as
     confirmation of payment.
-11. Read and poll the protected public Order fulfilment status.
+11. Read and poll fulfilment status with owner-or-capability authorization.
+
+Order creation, Checkout, status, and return screens wait while authentication
+is checking or temporarily unavailable; they never silently downgrade that
+state to anonymous access. A 401 from an authenticated request invalidates only
+the captured current session and is never retried anonymously.
 
 ### Browser trust and cart contract
 
 The browser stores only menu-item identifiers and quantities for the cart.
-Names, prices, availability, currency, totals, and all order or payment states
-remain server-authoritative. The versioned cart key is
-`restaurant-ordering:cart:v1`; malformed, wrong-version, duplicate, or
-out-of-range stored data is discarded. The app uses `sessionStorage`, never
-`localStorage`, and keeps usable in-memory state when browser storage is
-unavailable where the flow supports it.
+Names, prices, availability, currency, totals, roles, and all Order or Payment
+states remain server-authoritative. Current-session persistence uses
+`restaurant-ordering:auth:v1`, `restaurant-ordering:cart:v1`, per-Order
+capability records, and per-Order Checkout-attempt records. Malformed,
+wrong-version, duplicate, or out-of-range data is discarded. The app uses
+`sessionStorage`, never `localStorage`, and keeps usable in-memory state when
+browser storage is unavailable where the flow supports it. The legacy
+administrator session key is accepted only for one-time migration or cleanup.
 
 Menu images are rendered only from validated HTTP(S) URLs and fall back to a
 local placeholder when missing, unsafe, or broken. Allergen text repeats the
@@ -1187,8 +1253,11 @@ current menu data.
 Order creation has no idempotency contract. The submit guard prevents an
 ordinary duplicate click, and the client never automatically retries a network
 failure or timeout because the first request may have created an Order. An
-explicit retry remains available with a duplicate-order warning. The returned
-`order_access_token` is available only once, is stored under
+explicit retry remains available with a duplicate-order warning. An
+unauthenticated request creates an unowned Order; an authenticated request sends
+the captured canonical Bearer token so the backend writes ownership in the
+initial transaction. Both responses still return the independent
+`order_access_token` once. It is stored under
 `restaurant-ordering:order-access:v1:<PUBLIC_ORDER_NUMBER>` for the current
 session with an in-memory fallback, and is never placed in a URL, rendered in
 the DOM, or logged.
@@ -1199,9 +1268,15 @@ Checkout calls:
 
 ```text
 POST /api/v1/orders/{public_order_number}/checkout-session
-X-Order-Access-Token: ORDER_ACCESS_TOKEN
+Authorization: Bearer USER_ACCESS              # authenticated session only
+X-Order-Access-Token: ORDER_ACCESS_TOKEN        # when available; required for guest
 Idempotency-Key: CANONICAL_LOWERCASE_UUID_V4
 ```
+
+An anonymous request must provide the capability. An authenticated request
+provides Bearer and also supplies the capability when this browser has it; the
+matching owner works without the capability. A present invalid Bearer is a 401
+and never falls back to anonymous capability-only retry.
 
 The attempt key is generated with `crypto.randomUUID()` and stored under
 `restaurant-ordering:checkout-attempt:v1:<PUBLIC_ORDER_NUMBER>`. Network and
@@ -1215,16 +1290,17 @@ opened in the same tab.
 The payment-return page says only that the customer returned from Stripe and
 must check order progress. It does not claim that payment succeeded. The
 checkout-cancelled page likewise does not infer Payment state or cancel the
-Order. Both lead to the protected status screen when this browser session still
-has the guest token.
+Order. Both lead to the protected status screen when the current authenticated
+owner or this browser's capability can authorize it.
 
 ### Fulfilment status polling
 
-Status retrieval calls
-`GET /api/v1/orders/{public_order_number}` with only the
-`X-Order-Access-Token` header. The UI presents the six fulfilment states as
-`Order received`, `Accepted`, `Preparing`, `Ready`, `Completed`, and
-`Cancelled`; it does not display or infer a Payment status.
+Status retrieval calls `GET /api/v1/orders/{public_order_number}`. A guest sends
+the `X-Order-Access-Token` capability. An authenticated caller sends canonical
+Bearer and also sends the capability when available; the persisted owner works
+without it. The UI presents the six fulfilment states as `Order received`,
+`Accepted`, `Preparing`, `Ready`, `Completed`, and `Cancelled`; it does not
+display or infer a Payment status.
 
 Polling starts immediately, allows one request in flight, and schedules the
 next request only after the current one settles. Normal polling uses 8 seconds.
@@ -1235,17 +1311,36 @@ privacy-preserving HTTP 404, or an invalid response contract. AbortController
 cleanup and the current effect generation prevent stale results from replacing
 newer state. WebSockets and server-sent events are not used.
 
+### Personal account
+
+`/account` consumes `GET /api/v1/account/orders` with default `limit=50` and
+`offset=0`, displays loading, empty, error, responsive table/card, and paginated
+states, and links only to `/account/orders/:publicOrderNumber`. Detail consumes
+the matching personal endpoint and reuses the same safe
+`OrderStatusSummary` presentation as public status without starting polling.
+Customer, administrator, and super-administrator roles all receive only their
+own Orders; no administrator bypass exists.
+
+Account transport accepts strict canonical Bearer only. A guest capability has
+no account authority. Responses contain no owner ID, customer PII, Payment,
+Stripe, cost, or margin data, and unknown, unowned, or cross-user detail shares
+one generic 404. A current-session 401 uses generation-safe invalidation; a 503
+or network failure keeps the session and offers an explicit retry.
+
 ### Visual, responsive, and accessibility direction
 
 The customer UI uses a warm restaurant palette, readable type scale, prominent
 server totals, clear availability states, focus-visible controls, semantic
 headings and forms, textual status cues, and controls sized for touch. CSS
 Modules contain mobile-first responsive rules for menu grids, cart lines,
-forms, Checkout, return screens, and the order timeline. Data-driven screens
-provide applicable loading, empty, error, and success states. Automated
-component and build checks pass. Manual acceptance also passed at 375x812,
-768x1024, and 1280x800, including keyboard navigation, visible focus, touch
-targets, text wrapping, and protection against color-only status meaning.
+forms, Checkout, return screens, account pages, and the Order timeline.
+Data-driven screens provide applicable loading, empty, error, and success
+states. Automated component and build checks pass. The automated browser
+environment was unavailable, so the developer/user completed the required
+manual local-browser QA. Final verification after Stage 16F FIX2 passed at
+375x812, 768x1024, and 1280x800, including keyboard navigation, visible focus,
+touch targets, long-email wrapping, home navigation from login/registration,
+and protection against color-only status meaning. No manual QA blocker remains.
 
 ### Local frontend setup
 

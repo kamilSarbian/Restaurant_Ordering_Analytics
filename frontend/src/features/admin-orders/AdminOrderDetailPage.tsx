@@ -8,7 +8,7 @@ import {
 import { Link, useParams } from 'react-router-dom';
 
 import { AdminApiRequestError } from '../../api/adminApi';
-import { useAdminAuth } from '../admin-auth/AdminAuthContext';
+import { useAuth } from '../auth/AuthContext';
 import {
   type AdminOrderDetail,
   fetchAdminOrderDetail,
@@ -247,7 +247,12 @@ function OrderDetail({ order }: { order: AdminOrderDetail }) {
 
 export default function AdminOrderDetailPage() {
   const { publicOrderNumber } = useParams<{ publicOrderNumber: string }>();
-  const { expireSession, getAccessToken } = useAdminAuth();
+  const {
+    getAuthenticatedSession,
+    invalidateSessionIfCurrent,
+    logout,
+    refreshCurrentUser,
+  } = useAuth();
   const [detail, setDetail] = useState<AdminOrderDetail | null>(null);
   const [detailPhase, setDetailPhase] = useState<DetailPhase>('loading');
   const [isDetailLoading, setIsDetailLoading] = useState(true);
@@ -279,11 +284,12 @@ export default function AdminOrderDetailPage() {
 
   const loadOrder = useCallback(
     async (reason: DetailLoadReason = 'manual') => {
-      const accessToken = getAccessToken();
-      if (accessToken === null) {
-        expireSession();
+      const authSession = getAuthenticatedSession();
+      if (authSession === null) {
+        logout();
         return;
       }
+      const accessToken = authSession.accessToken;
       if (publicOrderNumber === undefined) {
         setIsDetailLoading(false);
         setDetailPhase('not-found');
@@ -347,8 +353,11 @@ export default function AdminOrderDetailPage() {
           return;
         }
         if (error instanceof AdminApiRequestError && error.status === 401) {
-          expireSession();
+          invalidateSessionIfCurrent(authSession);
           return;
+        }
+        if (error instanceof AdminApiRequestError && error.status === 403) {
+          await refreshCurrentUser();
         }
         if (error instanceof AdminApiRequestError && error.status === 404) {
           storeDetail(null);
@@ -396,7 +405,15 @@ export default function AdminOrderDetailPage() {
         }
       }
     },
-    [expireSession, getAccessToken, publicOrderNumber, setRefreshGate, storeDetail],
+    [
+      getAuthenticatedSession,
+      invalidateSessionIfCurrent,
+      logout,
+      publicOrderNumber,
+      refreshCurrentUser,
+      setRefreshGate,
+      storeDetail,
+    ],
   );
 
   useEffect(() => {
@@ -446,11 +463,12 @@ export default function AdminOrderDetailPage() {
       return;
     }
 
-    const accessToken = getAccessToken();
-    if (accessToken === null) {
-      expireSession();
+    const authSession = getAuthenticatedSession();
+    if (authSession === null) {
+      logout();
       return;
     }
+    const accessToken = authSession.accessToken;
     if (publicOrderNumber === undefined) {
       storeDetail(null);
       setDetailPhase('not-found');
@@ -496,8 +514,11 @@ export default function AdminOrderDetailPage() {
       }
       finishMutationRequest();
       if (error instanceof AdminApiRequestError && error.status === 401) {
-        expireSession();
+        invalidateSessionIfCurrent(authSession);
         return;
+      }
+      if (error instanceof AdminApiRequestError && error.status === 403) {
+        await refreshCurrentUser();
       }
       if (error instanceof AdminApiRequestError && error.status === 404) {
         setPendingAction(null);
@@ -538,11 +559,13 @@ export default function AdminOrderDetailPage() {
       finishMutationRequest();
     }
   }, [
-    expireSession,
-    getAccessToken,
+    getAuthenticatedSession,
+    invalidateSessionIfCurrent,
     loadOrder,
+    logout,
     pendingAction,
     publicOrderNumber,
+    refreshCurrentUser,
     setRefreshGate,
     storeDetail,
   ]);

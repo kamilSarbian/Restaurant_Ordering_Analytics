@@ -5,14 +5,21 @@ import { afterEach, beforeEach, vi } from 'vitest';
 
 import { adminRoutes } from '../../routes/adminRoutes';
 import { installFetchStub, type FetchStep } from '../../test/fetchStub';
-import { ADMIN_AUTH_STORAGE_KEY } from '../admin-auth/adminAuthStorage';
+import { AuthProvider } from '../auth/AuthContext';
+import { AUTH_STORAGE_KEY, resetAuthMemoryForTests } from '../auth/authStorage';
 import {
   addCalendarDays,
   buildAdminAwareDateRange,
 } from '../../components/admin/adminDateRange';
 
 const TOKEN = 'synthetic-analytics-admin-token';
-const ME = { email: 'analytics-admin@example.test', is_active: true };
+const ME = {
+  email: 'analytics-admin@example.test',
+  id: '00000000-0000-4000-8000-000000000901',
+  is_active: true,
+  role: 'admin',
+};
+const CUSTOMER_ME = { ...ME, role: 'customer' };
 const FIXED_NOW = new Date('2026-08-12T12:00:00+02:00');
 const RANGE = {
   end: '2026-08-13T00:00:00+02:00',
@@ -48,17 +55,29 @@ function emptyAnalyticsSteps(limit = 50): FetchStep[] {
 
 function storeToken(): void {
   sessionStorage.setItem(
-    ADMIN_AUTH_STORAGE_KEY,
+    AUTH_STORAGE_KEY,
     JSON.stringify({ accessToken: TOKEN, version: 1 }),
   );
 }
 
-function renderAnalytics(): void {
+function renderAnalytics(): ReturnType<typeof createMemoryRouter> {
   storeToken();
-  const router = createMemoryRouter([adminRoutes], {
-    initialEntries: ['/admin/analytics'],
-  });
+  const router = createMemoryRouter(
+    [
+      {
+        element: <AuthProvider />,
+        children: [
+          { path: '/', element: <h1>Customer home</h1> },
+          { path: '/account', element: <h1>Customer account</h1> },
+          { path: '/login', element: <h1>Sign in</h1> },
+          adminRoutes,
+        ],
+      },
+    ],
+    { initialEntries: ['/admin/analytics'] },
+  );
   render(<RouterProvider router={router} />);
+  return router;
 }
 
 function queryFor(url: string): URLSearchParams {
@@ -80,6 +99,7 @@ beforeEach(() => {
 afterEach(() => {
   sessionStorage.clear();
   localStorage.clear();
+  resetAuthMemoryForTests();
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
@@ -415,10 +435,30 @@ describe('administrator analytics results and resilience', () => {
       { json: orderTypes() },
     );
     renderAnalytics();
+    expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeVisible();
+    expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toBeNull();
+  });
+
+  it('refreshes the shared identity after an analytics 403 and applies the customer guard', async () => {
+    const stub = installFetchStub(
+      { json: ME },
+      { json: overview() },
+      { status: 403 },
+      { json: categories() },
+      { json: orderTypes() },
+      { json: CUSTOMER_ME },
+    );
+    const router = renderAnalytics();
+
     expect(
-      await screen.findByRole('heading', { name: 'Administrator sign-in' }),
+      await screen.findByRole('heading', { name: 'Customer account' }),
     ).toBeVisible();
-    expect(sessionStorage.getItem(ADMIN_AUTH_STORAGE_KEY)).toBeNull();
+    expect(router.state.location.pathname).toBe('/account');
+    expect(stub.calls).toHaveLength(6);
+    expect(stub.calls[stub.calls.length - 1]?.url).toBe('/api/v1/auth/me');
+    expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toBe(
+      JSON.stringify({ accessToken: TOKEN, version: 1 }),
+    );
   });
 
   it('ignores a late previous generation after newer applied results render', async () => {

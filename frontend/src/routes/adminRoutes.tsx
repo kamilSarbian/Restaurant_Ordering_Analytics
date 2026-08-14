@@ -1,26 +1,41 @@
-import type { RouteObject } from 'react-router-dom';
+import { Navigate, type RouteObject } from 'react-router-dom';
 
 import AdminShell from '../components/admin/AdminShell';
 import AdminAnalyticsPage from '../features/admin-analytics/AdminAnalyticsPage';
 import AdminExportsPage from '../features/admin-exports/AdminExportsPage';
-import { AdminAuthProvider } from '../features/admin-auth/AdminAuthContext';
-import AdminLoginPage from '../features/admin-auth/AdminLoginPage';
-import AdminRouteGuard from '../features/admin-auth/AdminRouteGuard';
 import AdminMenuPage from '../features/admin-menu/AdminMenuPage';
 import AdminOrderDetailPage from '../features/admin-orders/AdminOrderDetailPage';
 import AdminOrdersPage from '../features/admin-orders/AdminOrdersPage';
+import AdminUsersPage from '../features/admin-users/AdminUsersPage';
+import {
+  AdministratorRouteGuard,
+  SuperAdminRouteGuard,
+} from '../features/auth/RouteGuards';
 import AdminNotFoundPage from './AdminNotFoundPage';
 
 export const adminRoutes: RouteObject = {
   path: '/admin',
-  element: <AdminAuthProvider />,
   children: [
     {
       path: 'login',
-      element: <AdminLoginPage />,
+      element: <Navigate to="/login?next=%2Fadmin" replace />,
     },
     {
-      element: <AdminRouteGuard />,
+      element: <SuperAdminRouteGuard />,
+      children: [
+        {
+          element: <AdminShell />,
+          children: [
+            {
+              path: 'users',
+              element: <AdminUsersPage />,
+            },
+          ],
+        },
+      ],
+    },
+    {
+      element: <AdministratorRouteGuard />,
       children: [
         {
           element: <AdminShell />,

@@ -3,7 +3,8 @@ import userEvent from '@testing-library/user-event';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { afterEach, vi } from 'vitest';
 
-import { ADMIN_AUTH_STORAGE_KEY } from '../admin-auth/adminAuthStorage';
+import { AUTH_STORAGE_KEY, resetAuthMemoryForTests } from '../auth/authStorage';
+import { AuthProvider } from '../auth/AuthContext';
 import { adminRoutes } from '../../routes/adminRoutes';
 import { installFetchStub } from '../../test/fetchStub';
 
@@ -13,7 +14,13 @@ const INACTIVE_CATEGORY_ID = '00000000-0000-4000-8000-000000000102';
 const ITEM_ID = '00000000-0000-4000-8000-000000000201';
 const SECOND_ITEM_ID = '00000000-0000-4000-8000-000000000202';
 const UPDATED_AT = '2026-08-12T12:00:00+00:00';
-const ME = { email: 'menu-admin@example.test', is_active: true };
+const ME = {
+  email: 'menu-admin@example.test',
+  id: '00000000-0000-4000-8000-000000000903',
+  is_active: true,
+  role: 'admin',
+};
+const CUSTOMER_ME = { ...ME, role: 'customer' };
 
 function category(
   overrides: Partial<Record<string, unknown>> = {},
@@ -68,17 +75,29 @@ function itemPage(
 
 function storeToken(): void {
   sessionStorage.setItem(
-    ADMIN_AUTH_STORAGE_KEY,
+    AUTH_STORAGE_KEY,
     JSON.stringify({ accessToken: TOKEN, version: 1 }),
   );
 }
 
-function renderMenu(): void {
+function renderMenu(): ReturnType<typeof createMemoryRouter> {
   storeToken();
-  const router = createMemoryRouter([adminRoutes], {
-    initialEntries: ['/admin/menu'],
-  });
+  const router = createMemoryRouter(
+    [
+      {
+        element: <AuthProvider />,
+        children: [
+          { path: '/', element: <h1>Customer home</h1> },
+          { path: '/account', element: <h1>Customer account</h1> },
+          { path: '/login', element: <h1>Sign in</h1> },
+          adminRoutes,
+        ],
+      },
+    ],
+    { initialEntries: ['/admin/menu'] },
+  );
   render(<RouterProvider router={router} />);
+  return router;
 }
 
 async function waitForInitialMenu(): Promise<void> {
@@ -91,10 +110,68 @@ async function waitForInitialMenu(): Promise<void> {
 afterEach(() => {
   sessionStorage.clear();
   localStorage.clear();
+  resetAuthMemoryForTests();
   vi.unstubAllGlobals();
 });
 
 describe('administrator category management', () => {
+  it('refreshes canonical identity after a menu 403 and applies the customer guard', async () => {
+    const stub = installFetchStub(
+      { json: ME },
+      { json: categoryPage() },
+      { json: itemPage([]) },
+      { status: 403 },
+      { json: CUSTOMER_ME },
+    );
+    const router = renderMenu();
+    const user = userEvent.setup();
+    await screen.findByRole('heading', { name: 'No menu items yet' });
+    await user.click(screen.getByRole('button', { name: 'Add menu item' }));
+    await user.type(screen.getByLabelText('Name'), 'Forbidden item');
+    await user.type(screen.getByLabelText('Price (minor units)'), '100');
+
+    await user.click(screen.getByRole('button', { name: 'Create menu item' }));
+
+    expect(
+      await screen.findByRole('heading', { name: 'Customer account' }),
+    ).toBeVisible();
+    expect(router.state.location.pathname).toBe('/account');
+    expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toContain(TOKEN);
+    expect(stub.calls.map((call) => call.url)).toContain('/api/v1/auth/me');
+    expect(stub.calls.filter((call) => call.url === '/api/v1/auth/me')).toHaveLength(2);
+  });
+
+  it('keeps the admin page mounted when a menu 403 refresh confirms the admin role', async () => {
+    const stub = installFetchStub(
+      { json: ME },
+      { json: categoryPage() },
+      { json: itemPage() },
+      { status: 403 },
+      { json: ME },
+    );
+    renderMenu();
+    const user = userEvent.setup();
+    await waitForInitialMenu();
+    await user.click(screen.getByRole('button', { name: 'Edit Coffee' }));
+    await user.clear(screen.getByLabelText('Name'));
+    await user.type(screen.getByLabelText('Name'), 'Forbidden edit');
+
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    expect(
+      await screen.findByText(
+        'The menu item could not be saved. Review the form and try again.',
+      ),
+    ).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Menu' })).toBeVisible();
+    expect(stub.calls.filter((call) => call.url === '/api/v1/auth/me')).toHaveLength(2);
+    expect(
+      stub.calls.filter((call) =>
+        call.url.includes(`/api/v1/admin/menu/items/${ITEM_ID}`),
+      ),
+    ).toHaveLength(1);
+  });
+
   it('loads exact authenticated category and item pages and renders safe operational data', async () => {
     const stub = installFetchStub(
       { json: ME },
@@ -109,7 +186,7 @@ describe('administrator category management', () => {
     ).toBeVisible();
     await waitForInitialMenu();
     expect(stub.calls.map((call) => call.url)).toEqual([
-      '/api/v1/admin/auth/me',
+      '/api/v1/auth/me',
       '/api/v1/admin/menu/categories?limit=50&offset=0',
       '/api/v1/admin/menu/items?limit=50&offset=0',
     ]);
@@ -368,10 +445,8 @@ describe('administrator category management', () => {
     await user.type(screen.getByLabelText('Name'), 'Unauthorized');
     await user.click(screen.getByRole('button', { name: 'Create category' }));
 
-    expect(
-      await screen.findByRole('heading', { name: 'Administrator sign-in' }),
-    ).toBeVisible();
-    expect(sessionStorage.getItem(ADMIN_AUTH_STORAGE_KEY)).toBeNull();
+    expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeVisible();
+    expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toBeNull();
   });
 });
 
@@ -682,9 +757,7 @@ describe('administrator menu-item management', () => {
     await user.type(screen.getByLabelText('Price (minor units)'), '100');
     await user.click(screen.getByRole('button', { name: 'Create menu item' }));
 
-    expect(
-      await screen.findByRole('heading', { name: 'Administrator sign-in' }),
-    ).toBeVisible();
-    expect(sessionStorage.getItem(ADMIN_AUTH_STORAGE_KEY)).toBeNull();
+    expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeVisible();
+    expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toBeNull();
   });
 });

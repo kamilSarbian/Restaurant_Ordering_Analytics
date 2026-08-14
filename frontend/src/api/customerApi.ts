@@ -82,6 +82,24 @@ const AWARE_DATETIME_PATTERN = /(?:Z|[+-][0-9]{2}:[0-9]{2})$/;
 const CHECKOUT_TIMEOUT_MS = 10_000;
 const ORDER_STATUS_TIMEOUT_MS = 10_000;
 
+export interface CreateOrderOptions {
+  accessToken?: string;
+  signal?: AbortSignal;
+}
+
+export interface CheckoutSessionOptions {
+  accessToken?: string;
+  guestAccessToken?: string;
+  idempotencyKey: string;
+  signal?: AbortSignal;
+}
+
+export interface OrderStatusOptions {
+  accessToken?: string;
+  guestAccessToken?: string;
+  signal?: AbortSignal;
+}
+
 /** Carry safe checkout transport metadata needed for explicit customer retry. */
 export class CheckoutRequestError extends ApiRequestError {
   readonly retryAfterSeconds: number | null;
@@ -153,6 +171,30 @@ function hasExactKeys(value: Record<string, unknown>, expectedKeys: string[]): b
 
 function isNullableString(value: unknown): value is string | null {
   return value === null || typeof value === 'string';
+}
+
+function isCredential(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0 && !/\s/.test(value);
+}
+
+function appendOptionalCredentials(
+  headers: Headers,
+  accessToken: unknown,
+  guestAccessToken: unknown,
+  invalidCredential: () => ApiRequestError,
+): void {
+  if (accessToken !== undefined) {
+    if (!isCredential(accessToken)) {
+      throw invalidCredential();
+    }
+    headers.set('Authorization', `Bearer ${accessToken}`);
+  }
+  if (guestAccessToken !== undefined) {
+    if (!isCredential(guestAccessToken)) {
+      throw invalidCredential();
+    }
+    headers.set('X-Order-Access-Token', guestAccessToken);
+  }
 }
 
 function isDisplayOrder(value: unknown): value is number {
@@ -324,6 +366,10 @@ async function requestPostJson(
   path: string,
   payload: unknown,
   signal?: AbortSignal,
+  headers: HeadersInit = {
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+  },
 ): Promise<unknown> {
   const controller = new AbortController();
   let timeoutTriggered = false;
@@ -342,10 +388,7 @@ async function requestPostJson(
   try {
     const response = await fetch(buildApiUrl(path), {
       body: JSON.stringify(payload),
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-      },
+      headers,
       method: 'POST',
       signal: controller.signal,
     });
@@ -489,9 +532,10 @@ export function parseOrderCreateResponse(value: unknown): OrderCreateResponse {
   };
 }
 
+/** Create one guest or canonical-user order with explicit optional Bearer auth. */
 export async function createOrder(
   request: OrderCreateRequest,
-  signal?: AbortSignal,
+  options: CreateOrderOptions = {},
 ): Promise<OrderCreateResponse> {
   validateQuoteItems(request.items);
   if (
@@ -501,7 +545,22 @@ export async function createOrder(
     throw invalidOrderResponse();
   }
 
-  const payload = await requestPostJson('/api/v1/orders', request, signal);
+  const headers = new Headers({
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+  });
+  appendOptionalCredentials(
+    headers,
+    options.accessToken,
+    undefined,
+    invalidOrderResponse,
+  );
+  const payload = await requestPostJson(
+    '/api/v1/orders',
+    request,
+    options.signal,
+    headers,
+  );
   const response = parseOrderCreateResponse(payload);
   const expectedTableNumber =
     request.order_type === 'dine_in' ? request.table_number : null;
@@ -582,29 +641,37 @@ function parsePositiveRetryAfter(value: string | null): number | undefined {
   return Number.isSafeInteger(seconds) ? seconds : undefined;
 }
 
-/** Create or replay one idempotent hosted checkout session without a request body. */
+/** Create or replay one mixed-access checkout session without a request body. */
 export async function createCheckoutSession(
   publicOrderNumber: string,
-  orderAccessToken: string,
-  idempotencyKey: string,
-  signal?: AbortSignal,
+  options: CheckoutSessionOptions,
 ): Promise<CheckoutSessionResponse> {
   if (
     !PUBLIC_ORDER_NUMBER_PATTERN.test(publicOrderNumber) ||
-    orderAccessToken.trim().length === 0 ||
-    !CANONICAL_UUID_V4_PATTERN.test(idempotencyKey)
+    !CANONICAL_UUID_V4_PATTERN.test(options.idempotencyKey)
   ) {
+    throw invalidCheckoutResponse();
+  }
+
+  const headers = new Headers({ 'Idempotency-Key': options.idempotencyKey });
+  appendOptionalCredentials(
+    headers,
+    options.accessToken,
+    options.guestAccessToken,
+    invalidCheckoutResponse,
+  );
+  if (options.accessToken === undefined && options.guestAccessToken === undefined) {
     throw invalidCheckoutResponse();
   }
 
   const controller = new AbortController();
   let timeoutTriggered = false;
   let responseReceived = false;
-  const forwardAbort = () => controller.abort(signal?.reason);
-  if (signal?.aborted === true) {
+  const forwardAbort = () => controller.abort(options.signal?.reason);
+  if (options.signal?.aborted === true) {
     forwardAbort();
   } else {
-    signal?.addEventListener('abort', forwardAbort, { once: true });
+    options.signal?.addEventListener('abort', forwardAbort, { once: true });
   }
   const timeoutId = window.setTimeout(() => {
     timeoutTriggered = true;
@@ -617,10 +684,7 @@ export async function createCheckoutSession(
         `/api/v1/orders/${encodeURIComponent(publicOrderNumber)}/checkout-session`,
       ),
       {
-        headers: {
-          'Idempotency-Key': idempotencyKey,
-          'X-Order-Access-Token': orderAccessToken,
-        },
+        headers,
         method: 'POST',
         signal: controller.signal,
       },
@@ -667,7 +731,7 @@ export async function createCheckoutSession(
     );
   } finally {
     window.clearTimeout(timeoutId);
-    signal?.removeEventListener('abort', forwardAbort);
+    options.signal?.removeEventListener('abort', forwardAbort);
   }
 }
 
@@ -732,27 +796,31 @@ export function parseOrderStatusResponse(
   };
 }
 
-/** Fetch one protected guest order snapshot with the ordinary 10-second timeout. */
+/** Fetch one mixed-access order snapshot with the ordinary 10-second timeout. */
 export async function fetchOrderStatus(
   publicOrderNumber: string,
-  orderAccessToken: string,
-  signal?: AbortSignal,
+  options: OrderStatusOptions,
 ): Promise<OrderStatusResponse> {
-  if (
-    !PUBLIC_ORDER_NUMBER_PATTERN.test(publicOrderNumber) ||
-    orderAccessToken.trim().length === 0
-  ) {
+  if (!PUBLIC_ORDER_NUMBER_PATTERN.test(publicOrderNumber)) {
     throw invalidOrderStatusResponse();
   }
+
+  const headers = new Headers();
+  appendOptionalCredentials(
+    headers,
+    options.accessToken,
+    options.guestAccessToken,
+    invalidOrderStatusResponse,
+  );
 
   const controller = new AbortController();
   let timeoutTriggered = false;
   let responseReceived = false;
-  const forwardAbort = () => controller.abort(signal?.reason);
-  if (signal?.aborted === true) {
+  const forwardAbort = () => controller.abort(options.signal?.reason);
+  if (options.signal?.aborted === true) {
     forwardAbort();
   } else {
-    signal?.addEventListener('abort', forwardAbort, { once: true });
+    options.signal?.addEventListener('abort', forwardAbort, { once: true });
   }
   const timeoutId = window.setTimeout(() => {
     timeoutTriggered = true;
@@ -763,7 +831,7 @@ export async function fetchOrderStatus(
     const response = await fetch(
       buildApiUrl(`/api/v1/orders/${encodeURIComponent(publicOrderNumber)}`),
       {
-        headers: { 'X-Order-Access-Token': orderAccessToken },
+        headers,
         method: 'GET',
         signal: controller.signal,
       },
@@ -800,6 +868,6 @@ export async function fetchOrderStatus(
     });
   } finally {
     window.clearTimeout(timeoutId);
-    signal?.removeEventListener('abort', forwardAbort);
+    options.signal?.removeEventListener('abort', forwardAbort);
   }
 }

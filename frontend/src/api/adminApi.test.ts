@@ -14,7 +14,7 @@ describe('administrator HTTP transport', () => {
   it('adds the exact Bearer header only to a canonical admin path', async () => {
     const stub = installFetchStub({ json: { ok: true } });
 
-    await adminRequestJson('/api/v1/admin/auth/me', {
+    await adminRequestJson('/api/v1/admin/orders', {
       accessToken: SYNTHETIC_TOKEN,
     });
 
@@ -30,8 +30,8 @@ describe('administrator HTTP transport', () => {
     '/api/v1/menu',
     '/api/v1/orders/quote',
     '/api/v1/admin/../menu',
-    '//example.invalid/api/v1/admin/auth/me',
-    '/api/v1/admin/auth/me#fragment',
+    '//example.invalid/api/v1/admin/orders',
+    '/api/v1/admin/orders#fragment',
   ])('rejects the non-canonical admin path %s before fetch', async (path) => {
     const fetchSpy = vi.fn<typeof fetch>();
     vi.stubGlobal('fetch', fetchSpy);
@@ -45,8 +45,8 @@ describe('administrator HTTP transport', () => {
   it('sends JSON content type and the exact POST body only when supplied', async () => {
     const stub = installFetchStub({ json: { ok: true } });
 
-    await adminRequestJson('/api/v1/admin/auth/login', {
-      body: { email: 'admin@example.test', password: 'synthetic password' },
+    await adminRequestJson('/api/v1/admin/menu/categories', {
+      body: { display_order: 10, name: 'Synthetic category' },
       method: 'POST',
     });
 
@@ -54,8 +54,8 @@ describe('administrator HTTP transport', () => {
     expect(stub.calls[0]?.headers.get('Content-Type')).toBe('application/json');
     expect(stub.calls[0]?.body).toBe(
       JSON.stringify({
-        email: 'admin@example.test',
-        password: 'synthetic password',
+        display_order: 10,
+        name: 'Synthetic category',
       }),
     );
   });
@@ -63,10 +63,9 @@ describe('administrator HTTP transport', () => {
   it('preserves HTTP status and a positive Retry-After value', async () => {
     installFetchStub({ headers: { 'Retry-After': '17' }, status: 429 });
 
-    const error = await adminRequestJson('/api/v1/admin/auth/login', {
-      body: { email: 'admin@example.test', password: 'synthetic password' },
-      method: 'POST',
-    }).catch((caught: unknown) => caught);
+    const error = await adminRequestJson('/api/v1/admin/orders').catch(
+      (caught: unknown) => caught,
+    );
 
     expect(error).toBeInstanceOf(AdminApiRequestError);
     expect(error).toMatchObject({
@@ -81,7 +80,7 @@ describe('administrator HTTP transport', () => {
     async (retryAfter) => {
       installFetchStub({ headers: { 'Retry-After': retryAfter }, status: 429 });
 
-      await expect(adminRequestJson('/api/v1/admin/auth/login')).rejects.toMatchObject({
+      await expect(adminRequestJson('/api/v1/admin/orders')).rejects.toMatchObject({
         retryAfterSeconds: null,
         status: 429,
       });
@@ -91,7 +90,7 @@ describe('administrator HTTP transport', () => {
   it('maps a rejected fetch to a network error', async () => {
     installFetchStub({ error: new TypeError('offline') });
 
-    await expect(adminRequestJson('/api/v1/admin/auth/login')).rejects.toMatchObject({
+    await expect(adminRequestJson('/api/v1/admin/orders')).rejects.toMatchObject({
       kind: 'network',
       status: null,
     });
@@ -100,7 +99,7 @@ describe('administrator HTTP transport', () => {
   it('aborts on timeout and preserves the timeout category', async () => {
     vi.useFakeTimers();
     installFetchStub({ waitForAbort: true });
-    const request = adminRequestJson('/api/v1/admin/auth/login', { timeoutMs: 25 });
+    const request = adminRequestJson('/api/v1/admin/orders', { timeoutMs: 25 });
     const expectation = expect(request).rejects.toMatchObject({
       kind: 'timeout',
       status: null,
@@ -114,7 +113,7 @@ describe('administrator HTTP transport', () => {
   it('forwards an external abort without classifying it as a timeout', async () => {
     installFetchStub({ waitForAbort: true });
     const controller = new AbortController();
-    const request = adminRequestJson('/api/v1/admin/auth/login', {
+    const request = adminRequestJson('/api/v1/admin/orders', {
       signal: controller.signal,
     });
 
@@ -126,7 +125,7 @@ describe('administrator HTTP transport', () => {
   it('rejects malformed JSON as an invalid response', async () => {
     installFetchStub({ body: '{broken', status: 200 });
 
-    await expect(adminRequestJson('/api/v1/admin/auth/login')).rejects.toMatchObject({
+    await expect(adminRequestJson('/api/v1/admin/orders')).rejects.toMatchObject({
       kind: 'invalid-response',
       status: null,
     });
@@ -137,7 +136,7 @@ describe('administrator HTTP transport', () => {
     vi.stubGlobal('fetch', fetchSpy);
 
     await expect(
-      adminRequestJson('/api/v1/admin/auth/me', { accessToken: '   ' }),
+      adminRequestJson('/api/v1/admin/orders', { accessToken: '   ' }),
     ).rejects.toMatchObject({ kind: 'invalid-response' });
     expect(fetchSpy).not.toHaveBeenCalled();
   });

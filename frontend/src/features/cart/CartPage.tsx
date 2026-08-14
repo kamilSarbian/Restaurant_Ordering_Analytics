@@ -10,6 +10,7 @@ import type {
   QuoteResponse,
 } from '../../api/types';
 import AsyncNotice from '../../components/AsyncNotice';
+import { useAuth } from '../auth/AuthContext';
 import { saveOrderAccess } from '../checkout/orderAccessStorage';
 import { useCart } from './CartContext';
 import styles from './CartPage.module.css';
@@ -42,10 +43,10 @@ type OrderSubmissionState =
   | { status: 'idle' }
   | { status: 'refreshing-quote' }
   | { status: 'creating' }
+  | { status: 'session-expired' }
   | { focusTable?: boolean; message: string; status: 'error' }
   | { message: string; status: 'ambiguous' }
   | {
-      orderAccessToken: string;
       publicOrderNumber: string;
       status: 'navigation-error';
     };
@@ -124,6 +125,14 @@ function getDefinitiveOrderErrorMessage(error: ApiRequestError): string {
 
 export default function CartPage() {
   const navigate = useNavigate();
+  const {
+    getAuthenticatedSession,
+    invalidateSessionIfCurrent,
+    logout,
+    phase: authPhase,
+    retrySession,
+  } = useAuth();
+  const currentAuthRef = useRef({ getAuthenticatedSession, phase: authPhase });
   const { clearCart, decrementItem, incrementItem, items, removeItem, totalQuantity } =
     useCart();
   const [menuLookup, setMenuLookup] = useState<MenuLookupState>({
@@ -157,8 +166,14 @@ export default function CartPage() {
   const tableNumberIsValid = orderType === 'takeaway' || tableNumber !== null;
   const orderRequestInFlight =
     orderState.status === 'refreshing-quote' || orderState.status === 'creating';
+  const authIsResolved =
+    authPhase === 'authenticated' || authPhase === 'unauthenticated';
   const backendTableError =
     orderState.status === 'error' && orderState.focusTable === true;
+
+  useEffect(() => {
+    currentAuthRef.current = { getAuthenticatedSession, phase: authPhase };
+  }, [authPhase, getAuthenticatedSession]);
 
   useEffect(() => {
     latestSignature.current = cartSignature;
@@ -239,7 +254,7 @@ export default function CartPage() {
       <div className={styles.page}>
         <h1>Your cart</h1>
         <AsyncNotice title="Your cart is empty.">
-          <Link to="/">Browse the menu</Link>
+          <Link to="/menu">Browse the menu</Link>
         </AsyncNotice>
       </div>
     );
@@ -265,17 +280,14 @@ export default function CartPage() {
   const canPlaceOrder =
     quoteIsCurrent &&
     tableNumberIsValid &&
+    authIsResolved &&
     !orderRequestInFlight &&
     orderState.status !== 'ambiguous' &&
+    orderState.status !== 'session-expired' &&
     orderState.status !== 'navigation-error';
 
-  const navigateToCheckout = (publicOrderNumber: string, token: string) => {
-    navigate(`/orders/${publicOrderNumber}/checkout`, {
-      state: {
-        orderAccessToken: token,
-        publicOrderNumber,
-      },
-    });
+  const navigateToCheckout = (publicOrderNumber: string) => {
+    navigate(`/orders/${publicOrderNumber}/checkout`);
   };
 
   const submitOrder = async (deliberateRetry = false) => {
@@ -283,7 +295,9 @@ export default function CartPage() {
       submissionInFlight.current ||
       !quoteIsCurrent ||
       !tableNumberIsValid ||
+      !authIsResolved ||
       (orderState.status === 'ambiguous' && !deliberateRetry) ||
+      orderState.status === 'session-expired' ||
       orderState.status === 'navigation-error'
     ) {
       if (!tableNumberIsValid) {
@@ -342,25 +356,50 @@ export default function CartPage() {
             }
           : { items: submittedItems, order_type: 'takeaway' };
 
+      const currentAuth = currentAuthRef.current;
+      if (
+        currentAuth.phase !== 'authenticated' &&
+        currentAuth.phase !== 'unauthenticated'
+      ) {
+        setOrderState({ status: 'idle' });
+        return;
+      }
+      const requestSession =
+        currentAuth.phase === 'authenticated'
+          ? currentAuth.getAuthenticatedSession()
+          : null;
+      if (currentAuth.phase === 'authenticated' && requestSession === null) {
+        setOrderState({ status: 'session-expired' });
+        return;
+      }
+
       try {
-        const createdOrder = await createOrder(request);
+        const createdOrder = await createOrder(request, {
+          accessToken: requestSession?.accessToken,
+        });
         saveOrderAccess(
           createdOrder.public_order_number,
           createdOrder.order_access_token,
         );
         try {
-          navigateToCheckout(
-            createdOrder.public_order_number,
-            createdOrder.order_access_token,
-          );
+          navigateToCheckout(createdOrder.public_order_number);
         } catch {
           setOrderState({
-            orderAccessToken: createdOrder.order_access_token,
             publicOrderNumber: createdOrder.public_order_number,
             status: 'navigation-error',
           });
         }
       } catch (error: unknown) {
+        if (
+          requestSession !== null &&
+          error instanceof ApiRequestError &&
+          error.kind === 'http' &&
+          error.status === 401
+        ) {
+          invalidateSessionIfCurrent(requestSession);
+          setOrderState({ status: 'session-expired' });
+          return;
+        }
         if (isAmbiguousOrderError(error)) {
           setOrderState({
             message:
@@ -391,7 +430,7 @@ export default function CartPage() {
       return;
     }
     try {
-      navigateToCheckout(orderState.publicOrderNumber, orderState.orderAccessToken);
+      navigateToCheckout(orderState.publicOrderNumber);
     } catch {
       return;
     }
@@ -403,13 +442,19 @@ export default function CartPage() {
       ? 'Resolve the quote error before placing the order.'
       : !quoteIsCurrent
         ? 'Wait for a current server quote before placing the order.'
-        : orderRequestInFlight
-          ? 'Order creation is already in progress.'
-          : orderState.status === 'ambiguous'
-            ? 'Use the deliberate retry control only after reviewing the duplicate-order warning.'
-            : orderState.status === 'navigation-error'
-              ? 'The order already exists. Continue to its checkout page instead of creating it again.'
-              : 'A fresh server quote will be checked again before the order is created.';
+        : authPhase === 'checking-session'
+          ? 'Wait while your saved session is checked before placing the order.'
+          : authPhase === 'temporarily-unavailable'
+            ? 'Resolve the saved session before placing the order.'
+            : orderRequestInFlight
+              ? 'Order creation is already in progress.'
+              : orderState.status === 'ambiguous'
+                ? 'Use the deliberate retry control only after reviewing the duplicate-order warning.'
+                : orderState.status === 'session-expired'
+                  ? 'Sign in again before making another deliberate order attempt.'
+                  : orderState.status === 'navigation-error'
+                    ? 'The order already exists. Continue to its checkout page instead of creating it again.'
+                    : 'A fresh server quote will be checked again before the order is created.';
 
   return (
     <div className={styles.page}>
@@ -422,7 +467,7 @@ export default function CartPage() {
             {items.length} {items.length === 1 ? 'dish' : 'dishes'}.
           </p>
         </div>
-        <Link className={styles.menuLink} to="/">
+        <Link className={styles.menuLink} to="/menu">
           Continue browsing
         </Link>
       </header>
@@ -560,7 +605,7 @@ export default function CartPage() {
                 >
                   Retry quote
                 </button>
-                <Link to="/">Review menu</Link>
+                <Link to="/menu">Review menu</Link>
               </div>
             </AsyncNotice>
           )}
@@ -703,6 +748,41 @@ export default function CartPage() {
                 >
                   Continue to payment setup
                 </button>
+              </AsyncNotice>
+            )}
+
+            {authPhase === 'checking-session' && (
+              <p className={styles.submissionStatus} role="status" aria-live="polite">
+                Checking your session before order creation...
+              </p>
+            )}
+            {authPhase === 'temporarily-unavailable' && (
+              <AsyncNotice tone="error" title="Session validation unavailable">
+                <p>
+                  Your saved identity could not be verified. No guest order will be
+                  created unless you explicitly clear the session.
+                </p>
+                <div className={styles.errorActions}>
+                  <button
+                    className={styles.retryButton}
+                    type="button"
+                    onClick={() => void retrySession()}
+                  >
+                    Retry session validation
+                  </button>
+                  <button className={styles.retryButton} type="button" onClick={logout}>
+                    Clear session
+                  </button>
+                </div>
+              </AsyncNotice>
+            )}
+            {orderState.status === 'session-expired' && (
+              <AsyncNotice tone="error" title="Session expired">
+                <p>
+                  The authenticated order request was not retried as a guest. Sign in
+                  again before placing another order.
+                </p>
+                <Link to="/login?next=%2Fcart">Sign in again</Link>
               </AsyncNotice>
             )}
 

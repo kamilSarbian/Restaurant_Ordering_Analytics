@@ -298,8 +298,9 @@
 
 ## 16. Administrator Frontend
 
-- **Status:** in progress; administrator frontend, unified auth backend, and
-  Order ownership/account API are complete, while Stages 16F and 16G remain.
+- **Status:** Stage 16F is PRE-COMMIT READY; implementation, ENV1, manual QA,
+  and C1 documentation and cumulative validation are complete, with C2 next.
+  Stage 16G remains not started.
 - **Goal:** provide staff with a simple operational panel and dashboard.
 - **Outcome:** sign-in, protected routes, order list and detail, status changes,
   menu management, charts, and CSV downloads.
@@ -370,16 +371,15 @@
   super-admin authorization, secure first-super-admin bootstrap, minimum role
   API, auth configuration transition, and existing administrator consumer
   compatibility are implemented.
-- **Migration boundary:** this stage established migration 0007. Repository and
-  Alembic head are now 0008 after Stage 16E. The development database
-  deliberately remains at 0006 and requires a separately approved
-  `0006 -> 0007 -> 0008` operation before local unified-auth and ownership
-  runtime use.
+- **Migration boundary:** this stage established migration 0007 while the
+  development database deliberately remained at 0006. Stage 16E later advanced
+  repository and Alembic head to 0008. Stage 16F ENV1 then backed up and safely
+  upgraded the development database through 0007 to 0008 while preserving the
+  historical administrator as an active `super_admin`.
 
 ### 16E — Order Ownership and Customer Account API
 
-- **Status:** PRE-COMMIT READY; E1 through E5, FIX1, and C1 are complete, with
-  independent review and commit pending.
+- **Status:** completed, independently reviewed, and committed on 2026-08-13.
 - **Outcome:** nullable Order ownership through migration 0008, exact optional
   canonical-auth semantics for creation, owner-or-capability public status and
   Checkout, current-User own-order list/detail, privacy-safe DTOs, and
@@ -387,20 +387,39 @@
   the independent Order capability.
 - **Completed slices:** E1 ownership model/migration, E2 optional-auth creation,
   E3 owner-or-capability status/Checkout, E4 account reads, E5 hardening,
-  E5-FIX1 deterministic frontend Date tests, and C1 documentation/full
-  pre-commit validation.
-- **Frontend boundary:** production customer and administrator frontend source
-  is unchanged by Stage 16E. Landing, unified customer auth/account UI,
-  authenticated ordering UX, and administrator User-management UI remain
-  Stage 16F work.
+  E5-FIX1 deterministic frontend Date tests, C1 documentation/full pre-commit
+  validation, and C2 independent review/final commit.
+- **Historical frontend boundary:** at Stage 16E completion, production customer
+  and administrator frontend source was unchanged. Landing, unified customer
+  auth/account UI, authenticated ordering UX, and administrator User-management
+  UI were implemented later in Stage 16F.
 
 ### 16F — Landing, Unified Authentication Frontend, Customer Account, and Super-Admin User Management
 
-- **Status:** not started.
+- **Status:** PRE-COMMIT READY; implementation, ENV1, automated acceptance,
+  developer/user manual QA, and C1 documentation and cumulative pre-commit
+  validation are complete, with C2 next.
 - **Outcome:** the concise landing page, public menu at `/menu`, unified
-  `/login` and `/register`, shared AuthContext, `/account` and own-order UI,
-  `/admin/users`, migration of the administrator frontend to unified auth, and
-  a transitional `/admin/login` redirect.
+  `/login` and `/register`, shared AuthContext, mixed guest/authenticated Order
+  flows, `/account` and own-order UI, super-admin-only `/admin/users`, migration
+  of the administrator frontend to unified auth, and a transitional
+  `/admin/login` redirect are implemented.
+- **Completed slices:** F1 shared canonical auth/session and administrator auth
+  migration; F2 landing, menu, registration, and navigation; F3 authenticated
+  ordering, status, and Checkout; F4 personal account Order UI; F5 super-admin
+  User governance; F6 cumulative hardening; FIX1 long-email wrapping; FIX2
+  deterministic Login/Register back navigation; ENV1 controlled development
+  database upgrade; and C1 documentation and cumulative validation.
+- **Validation state:** C1 passed the 780-test targeted and 890-test full
+  frontend suites, the 273-test targeted and 1584-test full backend suites,
+  backend/frontend quality gates, dependency audits, and isolated Alembic
+  round-trip/no-drift validation. Repository, Alembic, and the development
+  database are at
+  `0008_add_order_ownership`. The automated browser environment was unavailable,
+  and accepted developer/user local-browser QA, including the final FIX2
+  recheck, passed.
+- **Next gate:** run C2 independent review and the final Stage 16F commit.
+  Stage 16G and Stage 17 have not started.
 
 ### 16G — Integrated Security, Regression, Documentation, and Final Review
 
@@ -474,16 +493,15 @@
 
 ## Next Recommended Stage
 
-Stage 1 through Stage 15 and the Stage 16 administrator frontend are complete
-and verified. Stage 16D unified User/authentication/RBAC is committed. Stage 16E
-implements nullable Order ownership, mixed guest/authenticated creation,
-owner-or-capability status and Checkout, and strict personal account Order
-reads; its C1 documentation and full pre-commit validation gate is complete.
+Stage 1 through Stage 15, the Stage 16 administrator operational frontend,
+Stage 16D unified User/authentication/RBAC, and Stage 16E Order ownership and
+account API are complete and committed. Stage 16F implementation, ENV1, manual
+QA, and C1 documentation and cumulative pre-commit validation are complete;
+Stage 16F is PRE-COMMIT READY.
 
-The immediate gate is **Stage 16E-C2 independent review and final commit**.
-After that separate gate, the next planned implementation stage is **Stage 16F
-— Landing, Unified Authentication Frontend, Customer Account, and Super-Admin
-User Management**. Stage 16G and Stage 17 have not started and require separate
-approval. Before local runtime use of Stage 16D/16E functionality, the
-development database's deliberate 0006 state requires a separately approved
-`0006 -> 0007 -> 0008` operational migration; C1 does not perform it.
+The immediate gate is **Stage 16F-C2 independent review and final commit**.
+After that separate gate, the next planned stage is **Stage 16G —
+Integrated Security, Regression, Documentation, and Final Review**. Stage 16G
+and Stage 17 have not started and require separate approval. Repository,
+Alembic, and the development database are at `0008_add_order_ownership` after
+the controlled Stage 16F ENV1 backup and `0006 -> 0007 -> 0008` upgrade.

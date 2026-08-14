@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useLocation, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 
 import { ApiRequestError } from '../../api/client';
 import { CheckoutRequestError, createCheckoutSession } from '../../api/customerApi';
+import { useAuth } from '../auth/AuthContext';
 import { useCart } from '../cart/CartContext';
 import { saveCartState } from '../cart/cartStorage';
 import {
@@ -11,17 +12,8 @@ import {
   loadCheckoutAttempt,
   saveCheckoutAttempt,
 } from './checkoutAttemptStorage';
-import {
-  isOrderAccessToken,
-  isPublicOrderNumber,
-  loadOrderAccess,
-} from './orderAccessStorage';
+import { isPublicOrderNumber, loadOrderAccess } from './orderAccessStorage';
 import styles from './CheckoutPage.module.css';
-
-interface CheckoutNavigationState {
-  orderAccessToken: string;
-  publicOrderNumber: string;
-}
 
 interface CheckoutPageProps {
   redirectToCheckout?: (checkoutUrl: string) => void;
@@ -35,20 +27,6 @@ type CheckoutFeedback =
   | { kind: 'definitive' }
   | { checkoutUrl: string; kind: 'redirect-failed' }
   | { kind: 'capability' };
-
-function readNavigationToken(value: unknown, publicOrderNumber: string): string | null {
-  if (
-    typeof value !== 'object' ||
-    value === null ||
-    !('orderAccessToken' in value) ||
-    !('publicOrderNumber' in value) ||
-    value.publicOrderNumber !== publicOrderNumber ||
-    !isOrderAccessToken(value.orderAccessToken)
-  ) {
-    return null;
-  }
-  return (value as CheckoutNavigationState).orderAccessToken;
-}
 
 function resolveInitialAttempt(
   publicOrderNumber: string | null,
@@ -136,24 +114,29 @@ function defaultRedirect(checkoutUrl: string): void {
   window.location.assign(checkoutUrl);
 }
 
-/** Start or safely replay the hosted checkout flow for one guest order. */
+/** Start or safely replay the hosted checkout flow for one customer order. */
 export default function CheckoutPage({
   redirectToCheckout = defaultRedirect,
 }: CheckoutPageProps) {
   const { publicOrderNumber } = useParams();
-  const location = useLocation();
+  const {
+    getAuthenticatedSession,
+    invalidateSessionIfCurrent,
+    logout,
+    phase: authPhase,
+    retrySession,
+  } = useAuth();
   const { clearCart } = useCart();
   const validPublicOrderNumber = isPublicOrderNumber(publicOrderNumber)
     ? publicOrderNumber
     : null;
-  const navigationToken =
-    validPublicOrderNumber === null
-      ? null
-      : readNavigationToken(location.state, validPublicOrderNumber);
-  const storedToken =
+  const orderAccessToken =
     validPublicOrderNumber === null ? null : loadOrderAccess(validPublicOrderNumber);
-  const orderAccessToken = navigationToken ?? storedToken;
-  const hasOrderAccess = orderAccessToken !== null;
+  const authenticatedSession =
+    authPhase === 'authenticated' ? getAuthenticatedSession() : null;
+  const hasOrderAccess =
+    authenticatedSession !== null ||
+    (authPhase === 'unauthenticated' && orderAccessToken !== null);
   const [attempt, setAttempt] = useState<CheckoutAttempt | null>(() =>
     resolveInitialAttempt(validPublicOrderNumber, hasOrderAccess),
   );
@@ -161,6 +144,7 @@ export default function CheckoutPage({
     attempt === null && hasOrderAccess ? { kind: 'capability' } : { kind: 'idle' },
   );
   const [clock, setClock] = useState(() => Date.now());
+  const [authenticatedFailure, setAuthenticatedFailure] = useState(false);
   const pendingRef = useRef(false);
   const activeControllerRef = useRef<AbortController | null>(null);
   const mountedRef = useRef(false);
@@ -195,7 +179,7 @@ export default function CheckoutPage({
     }
   }, [feedback]);
 
-  if (validPublicOrderNumber === null || !hasOrderAccess) {
+  if (validPublicOrderNumber === null) {
     return (
       <div className={styles.page}>
         <section className={styles.panel} aria-labelledby="checkout-unavailable-title">
@@ -208,7 +192,65 @@ export default function CheckoutPage({
           </p>
           <nav className={styles.links} aria-label="Recovery options">
             <Link to="/cart">Return to cart</Link>
-            <Link to="/">Browse the menu</Link>
+            <Link to="/menu">Browse the menu</Link>
+          </nav>
+        </section>
+      </div>
+    );
+  }
+
+  if (authPhase === 'checking-session') {
+    return (
+      <div className={styles.page}>
+        <section className={styles.panel} role="status" aria-live="polite">
+          <p className={styles.eyebrow}>Order access</p>
+          <h1>Checking your session</h1>
+          <p>Checkout remains paused until your saved identity is validated.</p>
+        </section>
+      </div>
+    );
+  }
+
+  if (authPhase === 'temporarily-unavailable') {
+    return (
+      <div className={styles.page}>
+        <section className={styles.panel} role="alert" aria-live="assertive">
+          <p className={styles.eyebrow}>Order access</p>
+          <h1>Session validation unavailable</h1>
+          <p>
+            Checkout was not started as a guest because a saved identity is unresolved.
+          </p>
+          <div className={styles.actions}>
+            <button
+              className={styles.secondaryAction}
+              type="button"
+              onClick={() => void retrySession()}
+            >
+              Retry session validation
+            </button>
+            <button className={styles.secondaryAction} type="button" onClick={logout}>
+              Clear session
+            </button>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
+  if (!hasOrderAccess && !authenticatedFailure) {
+    return (
+      <div className={styles.page}>
+        <section className={styles.panel} aria-labelledby="checkout-unavailable-title">
+          <p className={styles.eyebrow}>Order access</p>
+          <h1 id="checkout-unavailable-title">Order access unavailable</h1>
+          <p>
+            This browser session does not have the guest access needed to continue with
+            this order. For security, access credentials cannot be recovered from the
+            URL.
+          </p>
+          <nav className={styles.links} aria-label="Recovery options">
+            <Link to="/cart">Return to cart</Link>
+            <Link to="/menu">Browse the menu</Link>
           </nav>
         </section>
       </div>
@@ -225,23 +267,45 @@ export default function CheckoutPage({
     feedback.kind === 'definitive' ||
     feedback.kind === 'redirect-failed' ||
     feedback.kind === 'capability' ||
+    authenticatedFailure ||
     rateLimitActive;
 
   const startCheckout = async (): Promise<void> => {
-    if (pendingRef.current || attempt === null || checkoutDisabled) {
+    if (pendingRef.current || checkoutDisabled) {
       return;
+    }
+    const requestAttempt =
+      attempt ?? resolveInitialAttempt(validPublicOrderNumber, hasOrderAccess);
+    if (requestAttempt === null) {
+      setFeedback({ kind: 'capability' });
+      return;
+    }
+    if (attempt === null) {
+      setAttempt(requestAttempt);
     }
     pendingRef.current = true;
     setFeedback({ kind: 'pending' });
     const controller = new AbortController();
     activeControllerRef.current = controller;
+    const requestSession =
+      authPhase === 'authenticated' ? getAuthenticatedSession() : null;
+    if (authPhase === 'authenticated' && requestSession === null) {
+      pendingRef.current = false;
+      activeControllerRef.current = null;
+      setAuthenticatedFailure(true);
+      setFeedback({
+        kind: 'retry',
+        message: 'Your session changed before checkout started. Sign in and retry.',
+      });
+      return;
+    }
     try {
-      const response = await createCheckoutSession(
-        validPublicOrderNumber,
-        orderAccessToken,
-        attempt.idempotencyKey,
-        controller.signal,
-      );
+      const response = await createCheckoutSession(validPublicOrderNumber, {
+        accessToken: requestSession?.accessToken,
+        guestAccessToken: orderAccessToken ?? undefined,
+        idempotencyKey: requestAttempt.idempotencyKey,
+        signal: controller.signal,
+      });
       if (!mountedRef.current) {
         return;
       }
@@ -256,7 +320,22 @@ export default function CheckoutPage({
       }
     } catch (error: unknown) {
       if (mountedRef.current) {
-        setFeedback(mapCheckoutError(error));
+        if (
+          requestSession !== null &&
+          error instanceof ApiRequestError &&
+          error.kind === 'http' &&
+          error.status === 401
+        ) {
+          invalidateSessionIfCurrent(requestSession);
+          setAuthenticatedFailure(true);
+          setFeedback({
+            kind: 'retry',
+            message:
+              'Your session expired. Checkout was not retried as a guest; sign in and retry this same payment attempt.',
+          });
+        } else {
+          setFeedback(mapCheckoutError(error));
+        }
       }
     } finally {
       pendingRef.current = false;
@@ -386,7 +465,7 @@ export default function CheckoutPage({
 
         <nav className={styles.links} aria-label="Order navigation">
           <Link to="/cart">Return to cart</Link>
-          <Link to="/">Browse the menu</Link>
+          <Link to="/menu">Browse the menu</Link>
         </nav>
       </section>
     </div>

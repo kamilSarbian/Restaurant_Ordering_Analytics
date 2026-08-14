@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { AdminApiRequestError } from '../../api/adminApi';
-import { useAdminAuth } from '../admin-auth/AdminAuthContext';
+import { useAuth } from '../auth/AuthContext';
 import {
   type AdminOrderListResponse,
   fetchAdminOrders,
@@ -150,7 +150,12 @@ function OrderCards({ data }: { data: AdminOrderListResponse }) {
 }
 
 export default function AdminOrdersPage() {
-  const { expireSession, getAccessToken } = useAdminAuth();
+  const {
+    getAuthenticatedSession,
+    invalidateSessionIfCurrent,
+    logout,
+    refreshCurrentUser,
+  } = useAuth();
   const [query, setQuery] = useState<OrdersQuery>({
     offset: 0,
     orderType: '',
@@ -161,11 +166,12 @@ export default function AdminOrdersPage() {
   const generationRef = useRef(0);
 
   const loadOrders = useCallback(async () => {
-    const accessToken = getAccessToken();
-    if (accessToken === null) {
-      expireSession();
+    const authSession = getAuthenticatedSession();
+    if (authSession === null) {
+      logout();
       return;
     }
+    const accessToken = authSession.accessToken;
 
     generationRef.current += 1;
     const generation = generationRef.current;
@@ -198,12 +204,21 @@ export default function AdminOrdersPage() {
         return;
       }
       if (error instanceof AdminApiRequestError && error.status === 401) {
-        expireSession();
+        invalidateSessionIfCurrent(authSession);
         return;
+      }
+      if (error instanceof AdminApiRequestError && error.status === 403) {
+        await refreshCurrentUser();
       }
       setState({ kind: 'error', message: getListErrorMessage(error) });
     }
-  }, [expireSession, getAccessToken, query]);
+  }, [
+    getAuthenticatedSession,
+    invalidateSessionIfCurrent,
+    logout,
+    query,
+    refreshCurrentUser,
+  ]);
 
   useEffect(() => {
     const requestStartId = window.setTimeout(() => void loadOrders(), 0);

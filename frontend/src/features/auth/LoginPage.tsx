@@ -1,50 +1,32 @@
 import { type FormEvent, useEffect, useRef, useState } from 'react';
-import { Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useSearchParams } from 'react-router-dom';
 
-import { useAdminAuth, type AdminLoginOutcome } from './AdminAuthContext';
-import styles from './AdminLoginPage.module.css';
+import { useAuth, type AuthActionOutcome } from './AuthContext';
+import {
+  isAdminContinuation,
+  parseSafeNext,
+  resolveAuthDestination,
+} from './authNavigation';
+import styles from './AuthPage.module.css';
 
 interface LoginErrors {
   email?: string;
   password?: string;
 }
 
-interface LoginLocationState {
-  returnTo?: unknown;
-}
-
 function isPlausibleEmail(value: string): boolean {
-  const trimmed = value.trim();
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed);
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 }
 
-function passwordCodePointLength(value: string): number {
-  return Array.from(value).length;
-}
-
-function safeReturnTarget(value: unknown): string {
-  if (
-    typeof value !== 'string' ||
-    !value.startsWith('/admin/') ||
-    value.startsWith('//') ||
-    value === '/admin/login' ||
-    value.startsWith('/admin/login?') ||
-    value.includes('://') ||
-    value.includes('\\')
-  ) {
-    return '/admin';
-  }
-  return value;
-}
-
-function outcomeMessage(outcome: AdminLoginOutcome): string {
+function outcomeMessage(outcome: AuthActionOutcome): string {
   switch (outcome.kind) {
     case 'invalid-credentials':
       return 'The email or password is incorrect.';
+    case 'rate-limited':
+      return 'Too many sign-in attempts. Try again later.';
     case 'service-unavailable':
-      return 'The authentication service is temporarily unavailable. Try again.';
     case 'session-unavailable':
-      return 'Your credentials were accepted, but session validation is temporarily unavailable.';
+      return 'The authentication service is temporarily unavailable. Try again.';
     case 'timeout':
       return 'The sign-in request timed out. Check your connection and try again.';
     case 'network':
@@ -53,17 +35,17 @@ function outcomeMessage(outcome: AdminLoginOutcome): string {
       return 'The authentication service returned an invalid response. Try again later.';
     case 'aborted':
       return 'The sign-in request was cancelled.';
-    case 'rate-limited':
-      return 'Too many sign-in attempts. Try again later.';
+    case 'account-exists':
+    case 'validation':
+      return 'The sign-in request was not valid.';
     case 'authenticated':
       return '';
   }
 }
 
-export default function AdminLoginPage() {
-  const { phase, login, logout, retrySessionValidation } = useAdminAuth();
-  const location = useLocation();
-  const navigate = useNavigate();
+export default function LoginPage() {
+  const { login, logout, phase, retrySession, user } = useAuth();
+  const [searchParams] = useSearchParams();
   const emailRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
   const [email, setEmail] = useState('');
@@ -83,16 +65,25 @@ export default function AdminLoginPage() {
     return () => window.clearInterval(timer);
   }, [retrySeconds]);
 
-  if (phase === 'authenticated') {
-    const state = location.state as LoginLocationState | null;
-    return <Navigate to={safeReturnTarget(state?.returnTo)} replace />;
+  if (phase === 'authenticated' && user !== null) {
+    const next = searchParams.get('next');
+    const safeNext = parseSafeNext(next);
+    const denied =
+      user.role === 'customer' && safeNext !== null && isAdminContinuation(safeNext);
+    return (
+      <Navigate
+        to={resolveAuthDestination(next, user.role)}
+        replace
+        state={denied ? { accessDenied: 'administrator' } : undefined}
+      />
+    );
   }
 
   if (phase === 'checking-session') {
     return (
       <main className={styles.screen}>
         <section className={styles.panel} role="status" aria-live="polite">
-          <p className="eyebrow">Administrator access</p>
+          <p className="eyebrow">Account access</p>
           <h1>Checking your session</h1>
           <p className={styles.intro}>Please wait before signing in again.</p>
         </section>
@@ -104,17 +95,16 @@ export default function AdminLoginPage() {
     return (
       <main className={styles.screen}>
         <section className={styles.panel} role="alert" aria-live="assertive">
-          <p className="eyebrow">Administrator access</p>
+          <p className="eyebrow">Account access</p>
           <h1>Session validation is unavailable</h1>
           <p className={styles.intro}>
-            The saved administrator session remains available for another validation
-            attempt.
+            Your saved session remains available for another validation attempt.
           </p>
           <div className={styles.actions}>
             <button
               className={styles.secondaryButton}
               type="button"
-              onClick={() => void retrySessionValidation()}
+              onClick={() => void retrySession()}
             >
               Retry validation
             </button>
@@ -134,7 +124,7 @@ export default function AdminLoginPage() {
     } else if (!isPlausibleEmail(email)) {
       nextErrors.email = 'Enter a valid email address.';
     }
-    const passwordLength = passwordCodePointLength(password);
+    const passwordLength = Array.from(password).length;
     if (passwordLength === 0) {
       nextErrors.password = 'Password is required.';
     } else if (passwordLength > 128) {
@@ -148,7 +138,6 @@ export default function AdminLoginPage() {
     if (submitting || retrySeconds > 0) {
       return;
     }
-
     const nextErrors = validate();
     setErrors(nextErrors);
     setFeedback('');
@@ -167,8 +156,6 @@ export default function AdminLoginPage() {
     setSubmitting(false);
     if (outcome.kind === 'authenticated') {
       setPassword('');
-      const state = location.state as LoginLocationState | null;
-      navigate(safeReturnTarget(state?.returnTo), { replace: true });
       return;
     }
     if (outcome.kind === 'rate-limited') {
@@ -182,53 +169,53 @@ export default function AdminLoginPage() {
 
   return (
     <main className={styles.screen}>
-      <section className={styles.panel} aria-labelledby="admin-login-heading">
+      <section className={styles.panel} aria-labelledby="login-heading">
         <div>
-          <p className="eyebrow">Restaurant administration</p>
-          <h1 id="admin-login-heading">Administrator sign-in</h1>
+          <p className="eyebrow">Account access</p>
+          <h1 id="login-heading">Sign in</h1>
         </div>
-        <p className={styles.intro}>Use an authorized administrator account.</p>
+        <p className={styles.intro}>Use your customer or administrator account.</p>
         <form
           className={styles.form}
           noValidate
           onSubmit={(event) => void handleSubmit(event)}
         >
           <div className={styles.field}>
-            <label htmlFor="admin-email">Email</label>
+            <label htmlFor="login-email">Email</label>
             <input
               ref={emailRef}
-              id="admin-email"
+              id="login-email"
               type="email"
               autoComplete="username"
               value={email}
               aria-describedby={
-                errors.email === undefined ? undefined : 'admin-email-error'
+                errors.email === undefined ? undefined : 'login-email-error'
               }
               aria-invalid={errors.email !== undefined}
               onChange={(event) => setEmail(event.target.value)}
             />
             {errors.email !== undefined ? (
-              <p id="admin-email-error" className={styles.fieldError}>
+              <p id="login-email-error" className={styles.fieldError}>
                 {errors.email}
               </p>
             ) : null}
           </div>
           <div className={styles.field}>
-            <label htmlFor="admin-password">Password</label>
+            <label htmlFor="login-password">Password</label>
             <input
               ref={passwordRef}
-              id="admin-password"
+              id="login-password"
               type="password"
               autoComplete="current-password"
               value={password}
               aria-describedby={
-                errors.password === undefined ? undefined : 'admin-password-error'
+                errors.password === undefined ? undefined : 'login-password-error'
               }
               aria-invalid={errors.password !== undefined}
               onChange={(event) => setPassword(event.target.value)}
             />
             {errors.password !== undefined ? (
-              <p id="admin-password-error" className={styles.fieldError}>
+              <p id="login-password-error" className={styles.fieldError}>
                 {errors.password}
               </p>
             ) : null}
@@ -253,6 +240,9 @@ export default function AdminLoginPage() {
           >
             {submitting ? 'Signing in…' : retryLabel}
           </button>
+          <Link className={styles.backLink} to="/">
+            ← Back to home
+          </Link>
         </form>
       </section>
     </main>

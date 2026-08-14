@@ -11,7 +11,7 @@ import {
   isValidDateOnly,
   type AdminDateRangeSelection,
 } from '../../components/admin/adminDateRange';
-import { useAdminAuth } from '../admin-auth/AdminAuthContext';
+import { useAuth } from '../auth/AuthContext';
 import {
   requestAdminCsvExport,
   type AdminExportKind,
@@ -72,7 +72,12 @@ function exportErrorMessage(error: unknown): string {
 }
 
 export default function AdminExportsPage() {
-  const { expireSession, getAccessToken } = useAdminAuth();
+  const {
+    getAuthenticatedSession,
+    invalidateSessionIfCurrent,
+    logout,
+    refreshCurrentUser,
+  } = useAuth();
   const [dates, setDates] = useState(getDefaultAdminDateRange);
   const [dateErrors, setDateErrors] = useState<AdminDateRangeErrors>({});
   const [currency, setCurrency] = useState('');
@@ -128,11 +133,12 @@ export default function AdminExportsPage() {
       return;
     }
 
-    const accessToken = getAccessToken();
-    if (accessToken === null) {
-      expireSession();
+    const authSession = getAuthenticatedSession();
+    if (authSession === null) {
+      logout();
       return;
     }
+    const accessToken = authSession.accessToken;
     const range = buildAdminAwareDateRange(dates);
     const controller = new AbortController();
     pendingRef.current.add(kind);
@@ -169,8 +175,11 @@ export default function AdminExportsPage() {
         error.kind === 'http' &&
         error.status === 401
       ) {
-        expireSession();
+        invalidateSessionIfCurrent(authSession);
         return;
+      }
+      if (error instanceof AdminApiRequestError && error.status === 403) {
+        await refreshCurrentUser();
       }
       setNotice(kind, { kind: 'error', message: exportErrorMessage(error) });
     } finally {

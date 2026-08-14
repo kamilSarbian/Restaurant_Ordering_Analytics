@@ -11,6 +11,7 @@ vi.mock('../../api/customerApi', () => ({ fetchOrderStatus: vi.fn() }));
 const PUBLIC_ORDER_NUMBER = 'ROA-23456789ABCD';
 const SECOND_PUBLIC_ORDER_NUMBER = 'ROA-BCDEFGHJKLMN';
 const TOKEN = 'private-guest-token';
+const AUTH_TOKEN = 'private-auth-token';
 
 const VALID_STATUS: OrderStatusResponse = {
   created_at: '2026-08-11T15:00:00Z',
@@ -75,10 +76,22 @@ afterEach(() => {
 describe('useOrderStatusPolling', () => {
   it('starts with one immediate fetch and schedules the next after eight seconds', async () => {
     vi.mocked(fetchOrderStatus).mockResolvedValue(VALID_STATUS);
-    renderHook(() => useOrderStatusPolling(PUBLIC_ORDER_NUMBER, TOKEN, true));
+    renderHook(() =>
+      useOrderStatusPolling(PUBLIC_ORDER_NUMBER, {
+        enabled: true,
+        guestAccessToken: TOKEN,
+      }),
+    );
 
     await flushPromises();
     expect(fetchOrderStatus).toHaveBeenCalledTimes(1);
+    expect(fetchOrderStatus).toHaveBeenCalledWith(
+      PUBLIC_ORDER_NUMBER,
+      expect.objectContaining({
+        guestAccessToken: TOKEN,
+        signal: expect.any(AbortSignal),
+      }),
+    );
     await act(async () => {
       await vi.advanceTimersByTimeAsync(7_999);
     });
@@ -97,7 +110,12 @@ describe('useOrderStatusPolling', () => {
           resolveRequest = resolve;
         }),
     );
-    renderHook(() => useOrderStatusPolling(PUBLIC_ORDER_NUMBER, TOKEN, true));
+    renderHook(() =>
+      useOrderStatusPolling(PUBLIC_ORDER_NUMBER, {
+        enabled: true,
+        guestAccessToken: TOKEN,
+      }),
+    );
     await flushPromises();
 
     await act(async () => {
@@ -112,12 +130,92 @@ describe('useOrderStatusPolling', () => {
     expect(fetchOrderStatus).toHaveBeenCalledTimes(2);
   });
 
+  it('forwards canonical bearer and guest capability together', async () => {
+    vi.mocked(fetchOrderStatus).mockResolvedValue(VALID_STATUS);
+
+    renderHook(() =>
+      useOrderStatusPolling(PUBLIC_ORDER_NUMBER, {
+        accessToken: AUTH_TOKEN,
+        enabled: true,
+        guestAccessToken: TOKEN,
+      }),
+    );
+    await flushPromises();
+
+    expect(fetchOrderStatus).toHaveBeenCalledWith(
+      PUBLIC_ORDER_NUMBER,
+      expect.objectContaining({
+        accessToken: AUTH_TOKEN,
+        guestAccessToken: TOKEN,
+      }),
+    );
+  });
+
+  it('supports bearer-only owner polling', async () => {
+    vi.mocked(fetchOrderStatus).mockResolvedValue(VALID_STATUS);
+
+    renderHook(() =>
+      useOrderStatusPolling(PUBLIC_ORDER_NUMBER, {
+        accessToken: AUTH_TOKEN,
+        enabled: true,
+      }),
+    );
+    await flushPromises();
+
+    expect(fetchOrderStatus).toHaveBeenCalledWith(
+      PUBLIC_ORDER_NUMBER,
+      expect.objectContaining({ accessToken: AUTH_TOKEN }),
+    );
+    expect(vi.mocked(fetchOrderStatus).mock.calls[0]?.[1]).not.toHaveProperty(
+      'guestAccessToken',
+    );
+  });
+
+  it('does not start while mixed authentication is unresolved', async () => {
+    renderHook(() =>
+      useOrderStatusPolling(PUBLIC_ORDER_NUMBER, {
+        enabled: false,
+        guestAccessToken: TOKEN,
+      }),
+    );
+    await flushPromises();
+
+    expect(fetchOrderStatus).not.toHaveBeenCalled();
+  });
+
+  it('stops an authenticated 401 without an anonymous retry', async () => {
+    const onUnauthorized = vi.fn();
+    vi.mocked(fetchOrderStatus).mockRejectedValue(
+      new ApiRequestError('http', 'unauthorized', { status: 401 }),
+    );
+    const { result } = renderHook(() =>
+      useOrderStatusPolling(PUBLIC_ORDER_NUMBER, {
+        accessToken: AUTH_TOKEN,
+        enabled: true,
+        guestAccessToken: TOKEN,
+        onUnauthorized,
+      }),
+    );
+    await flushPromises();
+
+    expect(result.current.error).toMatchObject({ kind: 'access', retryable: false });
+    expect(result.current.isStopped).toBe(true);
+    expect(onUnauthorized).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(fetchOrderStatus).toHaveBeenCalledTimes(1);
+  });
+
   it.each(['completed', 'cancelled'] as const)(
     'stops immediately after terminal status %s',
     async (status) => {
       vi.mocked(fetchOrderStatus).mockResolvedValue(statusResponse(status));
       const { result } = renderHook(() =>
-        useOrderStatusPolling(PUBLIC_ORDER_NUMBER, TOKEN, true),
+        useOrderStatusPolling(PUBLIC_ORDER_NUMBER, {
+          enabled: true,
+          guestAccessToken: TOKEN,
+        }),
       );
 
       await flushPromises();
@@ -131,7 +229,12 @@ describe('useOrderStatusPolling', () => {
 
   it('continues polling after ready', async () => {
     vi.mocked(fetchOrderStatus).mockResolvedValue(statusResponse('ready'));
-    renderHook(() => useOrderStatusPolling(PUBLIC_ORDER_NUMBER, TOKEN, true));
+    renderHook(() =>
+      useOrderStatusPolling(PUBLIC_ORDER_NUMBER, {
+        enabled: true,
+        guestAccessToken: TOKEN,
+      }),
+    );
 
     await flushPromises();
     await act(async () => {
@@ -144,7 +247,12 @@ describe('useOrderStatusPolling', () => {
     vi.mocked(fetchOrderStatus).mockRejectedValue(
       new ApiRequestError('network', 'offline'),
     );
-    renderHook(() => useOrderStatusPolling(PUBLIC_ORDER_NUMBER, TOKEN, true));
+    renderHook(() =>
+      useOrderStatusPolling(PUBLIC_ORDER_NUMBER, {
+        enabled: true,
+        guestAccessToken: TOKEN,
+      }),
+    );
     await flushPromises();
     expect(fetchOrderStatus).toHaveBeenCalledTimes(1);
 
@@ -169,7 +277,12 @@ describe('useOrderStatusPolling', () => {
     vi.mocked(fetchOrderStatus)
       .mockRejectedValueOnce(new ApiRequestError('timeout', 'slow'))
       .mockResolvedValue(VALID_STATUS);
-    renderHook(() => useOrderStatusPolling(PUBLIC_ORDER_NUMBER, TOKEN, true));
+    renderHook(() =>
+      useOrderStatusPolling(PUBLIC_ORDER_NUMBER, {
+        enabled: true,
+        guestAccessToken: TOKEN,
+      }),
+    );
     await flushPromises();
 
     await act(async () => {
@@ -188,7 +301,10 @@ describe('useOrderStatusPolling', () => {
   ])('stops automatic polling after a non-transient error', async (error) => {
     vi.mocked(fetchOrderStatus).mockRejectedValue(error);
     const { result } = renderHook(() =>
-      useOrderStatusPolling(PUBLIC_ORDER_NUMBER, TOKEN, true),
+      useOrderStatusPolling(PUBLIC_ORDER_NUMBER, {
+        enabled: true,
+        guestAccessToken: TOKEN,
+      }),
     );
 
     await flushPromises();
@@ -205,7 +321,10 @@ describe('useOrderStatusPolling', () => {
       .mockRejectedValueOnce(new ApiRequestError('network', 'offline'))
       .mockResolvedValue(VALID_STATUS);
     const { result } = renderHook(() =>
-      useOrderStatusPolling(PUBLIC_ORDER_NUMBER, TOKEN, true),
+      useOrderStatusPolling(PUBLIC_ORDER_NUMBER, {
+        enabled: true,
+        guestAccessToken: TOKEN,
+      }),
     );
     await flushPromises();
 
@@ -221,7 +340,12 @@ describe('useOrderStatusPolling', () => {
 
   it('pauses while hidden and refreshes immediately when visible', async () => {
     vi.mocked(fetchOrderStatus).mockResolvedValue(VALID_STATUS);
-    renderHook(() => useOrderStatusPolling(PUBLIC_ORDER_NUMBER, TOKEN, true));
+    renderHook(() =>
+      useOrderStatusPolling(PUBLIC_ORDER_NUMBER, {
+        enabled: true,
+        guestAccessToken: TOKEN,
+      }),
+    );
     await flushPromises();
 
     hidden = true;
@@ -239,7 +363,12 @@ describe('useOrderStatusPolling', () => {
 
   it('pauses while offline and refreshes immediately when online', async () => {
     vi.mocked(fetchOrderStatus).mockResolvedValue(VALID_STATUS);
-    renderHook(() => useOrderStatusPolling(PUBLIC_ORDER_NUMBER, TOKEN, true));
+    renderHook(() =>
+      useOrderStatusPolling(PUBLIC_ORDER_NUMBER, {
+        enabled: true,
+        guestAccessToken: TOKEN,
+      }),
+    );
     await flushPromises();
 
     online = false;
@@ -257,7 +386,12 @@ describe('useOrderStatusPolling', () => {
 
   it('waits for both visible and online without duplicate resume requests', async () => {
     vi.mocked(fetchOrderStatus).mockResolvedValue(VALID_STATUS);
-    renderHook(() => useOrderStatusPolling(PUBLIC_ORDER_NUMBER, TOKEN, true));
+    renderHook(() =>
+      useOrderStatusPolling(PUBLIC_ORDER_NUMBER, {
+        enabled: true,
+        guestAccessToken: TOKEN,
+      }),
+    );
     await flushPromises();
 
     hidden = true;
@@ -279,9 +413,9 @@ describe('useOrderStatusPolling', () => {
 
   it('aborts the active request and removes work on unmount', async () => {
     vi.mocked(fetchOrderStatus).mockImplementation(
-      (_number, _token, signal) =>
+      (_number, options) =>
         new Promise((_resolve, reject) => {
-          signal?.addEventListener(
+          options.signal?.addEventListener(
             'abort',
             () => reject(new DOMException('Aborted', 'AbortError')),
             { once: true },
@@ -289,10 +423,13 @@ describe('useOrderStatusPolling', () => {
         }),
     );
     const { unmount } = renderHook(() =>
-      useOrderStatusPolling(PUBLIC_ORDER_NUMBER, TOKEN, true),
+      useOrderStatusPolling(PUBLIC_ORDER_NUMBER, {
+        enabled: true,
+        guestAccessToken: TOKEN,
+      }),
     );
     await flushPromises();
-    const signal = vi.mocked(fetchOrderStatus).mock.calls[0]?.[2];
+    const signal = vi.mocked(fetchOrderStatus).mock.calls[0]?.[1].signal;
 
     unmount();
 
@@ -320,7 +457,11 @@ describe('useOrderStatusPolling', () => {
           }),
       );
     const { rerender, result } = renderHook(
-      ({ number, token }) => useOrderStatusPolling(number, token, true),
+      ({ number, token }) =>
+        useOrderStatusPolling(number, {
+          enabled: true,
+          guestAccessToken: token,
+        }),
       { initialProps: { number: PUBLIC_ORDER_NUMBER, token: TOKEN } },
     );
     await flushPromises();

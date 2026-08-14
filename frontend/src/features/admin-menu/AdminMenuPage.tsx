@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { AdminApiRequestError } from '../../api/adminApi';
 import AsyncNotice, { type AsyncNoticeTone } from '../../components/AsyncNotice';
-import { useAdminAuth } from '../admin-auth/AdminAuthContext';
+import { useAuth } from '../auth/AuthContext';
 import {
   type AdminCategory,
   type AdminCategoryCreatePayload,
@@ -394,7 +394,12 @@ function ItemResults({
 }
 
 export default function AdminMenuPage() {
-  const { expireSession, getAccessToken } = useAdminAuth();
+  const {
+    getAuthenticatedSession,
+    invalidateSessionIfCurrent,
+    logout,
+    refreshCurrentUser,
+  } = useAuth();
   const [categoryOffset, setCategoryOffset] = useState(0);
   const [itemOffset, setItemOffset] = useState(0);
   const [categoryState, setCategoryState] = useState<
@@ -423,8 +428,9 @@ export default function AdminMenuPage() {
   const itemGenerationRef = useRef(0);
 
   const loadCategories = useCallback(async () => {
-    const token = getAccessToken();
-    if (token === null) return expireSession();
+    const authSession = getAuthenticatedSession();
+    if (authSession === null) return logout();
+    const token = authSession.accessToken;
     categoryGenerationRef.current += 1;
     const generation = categoryGenerationRef.current;
     categoryControllerRef.current?.abort();
@@ -449,18 +455,30 @@ export default function AdminMenuPage() {
     } catch (error: unknown) {
       if (generation !== categoryGenerationRef.current) return;
       if (error instanceof AdminApiRequestError && error.kind === 'aborted') return;
-      if (error instanceof AdminApiRequestError && error.status === 401)
-        return expireSession();
+      if (error instanceof AdminApiRequestError && error.status === 401) {
+        invalidateSessionIfCurrent(authSession);
+        return;
+      }
+      if (error instanceof AdminApiRequestError && error.status === 403) {
+        await refreshCurrentUser();
+      }
       setCategoryState({
         kind: 'error',
         message: getListErrorMessage('categories', error),
       });
     }
-  }, [categoryOffset, expireSession, getAccessToken]);
+  }, [
+    categoryOffset,
+    getAuthenticatedSession,
+    invalidateSessionIfCurrent,
+    logout,
+    refreshCurrentUser,
+  ]);
 
   const loadItems = useCallback(async () => {
-    const token = getAccessToken();
-    if (token === null) return expireSession();
+    const authSession = getAuthenticatedSession();
+    if (authSession === null) return logout();
+    const token = authSession.accessToken;
     itemGenerationRef.current += 1;
     const generation = itemGenerationRef.current;
     itemControllerRef.current?.abort();
@@ -480,14 +498,25 @@ export default function AdminMenuPage() {
     } catch (error: unknown) {
       if (generation !== itemGenerationRef.current) return;
       if (error instanceof AdminApiRequestError && error.kind === 'aborted') return;
-      if (error instanceof AdminApiRequestError && error.status === 401)
-        return expireSession();
+      if (error instanceof AdminApiRequestError && error.status === 401) {
+        invalidateSessionIfCurrent(authSession);
+        return;
+      }
+      if (error instanceof AdminApiRequestError && error.status === 403) {
+        await refreshCurrentUser();
+      }
       setItemState({
         kind: 'error',
         message: getListErrorMessage('menu items', error),
       });
     }
-  }, [expireSession, getAccessToken, itemOffset]);
+  }, [
+    getAuthenticatedSession,
+    invalidateSessionIfCurrent,
+    itemOffset,
+    logout,
+    refreshCurrentUser,
+  ]);
 
   useEffect(() => {
     const id = window.setTimeout(() => void loadCategories(), 0);
@@ -524,8 +553,9 @@ export default function AdminMenuPage() {
       setItemEditor(item);
       return;
     }
-    const token = getAccessToken();
-    if (token === null) return expireSession();
+    const authSession = getAuthenticatedSession();
+    if (authSession === null) return logout();
+    const token = authSession.accessToken;
     optionsControllerRef.current?.abort();
     const controller = new AbortController();
     optionsControllerRef.current = controller;
@@ -538,8 +568,13 @@ export default function AdminMenuPage() {
     } catch (error: unknown) {
       optionsControllerRef.current = null;
       if (error instanceof AdminApiRequestError && error.kind === 'aborted') return;
-      if (error instanceof AdminApiRequestError && error.status === 401)
-        return expireSession();
+      if (error instanceof AdminApiRequestError && error.status === 401) {
+        invalidateSessionIfCurrent(authSession);
+        return;
+      }
+      if (error instanceof AdminApiRequestError && error.status === 403) {
+        await refreshCurrentUser();
+      }
       setCategoryOptions({
         kind: 'error',
         message: getListErrorMessage('categories', error),
@@ -550,8 +585,9 @@ export default function AdminMenuPage() {
   const handleCategorySubmit = async (
     payload: AdminCategoryCreatePayload | AdminCategoryUpdatePayload,
   ) => {
-    const token = getAccessToken();
-    if (token === null) return expireSession();
+    const authSession = getAuthenticatedSession();
+    if (authSession === null) return logout();
+    const token = authSession.accessToken;
     setCategoryBusy(true);
     setCategoryNotice(null);
     const controller = new AbortController();
@@ -585,8 +621,19 @@ export default function AdminMenuPage() {
           tone: 'success',
         });
       } catch (refreshError: unknown) {
-        if (refreshError instanceof AdminApiRequestError && refreshError.status === 401)
-          return expireSession();
+        if (
+          refreshError instanceof AdminApiRequestError &&
+          refreshError.status === 401
+        ) {
+          invalidateSessionIfCurrent(authSession);
+          return;
+        }
+        if (
+          refreshError instanceof AdminApiRequestError &&
+          refreshError.status === 403
+        ) {
+          await refreshCurrentUser();
+        }
         setCategoryNotice({
           message:
             'The category was saved, but the latest list could not be refreshed. Use Refresh.',
@@ -595,8 +642,13 @@ export default function AdminMenuPage() {
         });
       }
     } catch (error: unknown) {
-      if (error instanceof AdminApiRequestError && error.status === 401)
-        return expireSession();
+      if (error instanceof AdminApiRequestError && error.status === 401) {
+        invalidateSessionIfCurrent(authSession);
+        return;
+      }
+      if (error instanceof AdminApiRequestError && error.status === 403) {
+        await refreshCurrentUser();
+      }
       if (error instanceof AdminApiRequestError && error.status === 404) {
         setCategoryEditor(undefined);
         setCategoryNotice({
@@ -618,8 +670,9 @@ export default function AdminMenuPage() {
   const handleItemSubmit = async (
     payload: AdminMenuItemCreatePayload | AdminMenuItemUpdatePayload,
   ) => {
-    const token = getAccessToken();
-    if (token === null) return expireSession();
+    const authSession = getAuthenticatedSession();
+    if (authSession === null) return logout();
+    const token = authSession.accessToken;
     setItemBusy(true);
     setItemNotice(null);
     const controller = new AbortController();
@@ -649,8 +702,19 @@ export default function AdminMenuPage() {
           tone: 'success',
         });
       } catch (refreshError: unknown) {
-        if (refreshError instanceof AdminApiRequestError && refreshError.status === 401)
-          return expireSession();
+        if (
+          refreshError instanceof AdminApiRequestError &&
+          refreshError.status === 401
+        ) {
+          invalidateSessionIfCurrent(authSession);
+          return;
+        }
+        if (
+          refreshError instanceof AdminApiRequestError &&
+          refreshError.status === 403
+        ) {
+          await refreshCurrentUser();
+        }
         setItemNotice({
           message:
             'The menu item was saved, but the latest list could not be refreshed. Use Refresh.',
@@ -659,8 +723,13 @@ export default function AdminMenuPage() {
         });
       }
     } catch (error: unknown) {
-      if (error instanceof AdminApiRequestError && error.status === 401)
-        return expireSession();
+      if (error instanceof AdminApiRequestError && error.status === 401) {
+        invalidateSessionIfCurrent(authSession);
+        return;
+      }
+      if (error instanceof AdminApiRequestError && error.status === 403) {
+        await refreshCurrentUser();
+      }
       if (error instanceof AdminApiRequestError && error.status === 404) {
         setItemEditor(undefined);
         setCategoryOptions({ kind: 'idle' });

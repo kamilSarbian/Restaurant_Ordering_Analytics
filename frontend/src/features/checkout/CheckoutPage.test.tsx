@@ -4,6 +4,12 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, vi } from 'vitest';
 
 import { installFetchStub } from '../../test/fetchStub';
+import { AuthProvider } from '../auth/AuthContext';
+import {
+  AUTH_STORAGE_KEY,
+  loadAuthToken,
+  resetAuthMemoryForTests,
+} from '../auth/authStorage';
 import { CartProvider } from '../cart/CartContext';
 import CheckoutPage from './CheckoutPage';
 import {
@@ -21,6 +27,71 @@ import {
 
 const PUBLIC_ORDER_NUMBER = 'ROA-23456789ABCD';
 const ACCESS_TOKEN = 'guest-access-token-that-must-stay-private';
+const AUTH_TOKEN = 'canonical-customer-token';
+const AUTH_USER = {
+  email: 'customer@example.invalid',
+  id: '11111111-1111-4111-8111-111111111111',
+  is_active: true,
+  role: 'customer',
+};
+
+interface CapturedRequest {
+  headers: Headers;
+  method: string;
+  url: string;
+}
+
+function seedAuthToken(accessToken = AUTH_TOKEN): void {
+  sessionStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ accessToken, version: 1 }));
+  resetAuthMemoryForTests();
+}
+
+function installAuthenticatedCheckoutFetch(
+  options: {
+    checkoutStatus?: number;
+    meStatus?: number | 'pending';
+  } = {},
+): CapturedRequest[] {
+  const calls: CapturedRequest[] = [];
+  const fetchStub: typeof fetch = async (input, init) => {
+    const url = input instanceof Request ? input.url : input.toString();
+    calls.push({
+      headers: new Headers(init?.headers),
+      method: init?.method ?? 'GET',
+      url,
+    });
+    if (url.endsWith('/api/v1/auth/me')) {
+      if (options.meStatus === 'pending') {
+        return new Promise<Response>(() => undefined);
+      }
+      return new Response(
+        options.meStatus === undefined ? JSON.stringify(AUTH_USER) : null,
+        {
+          headers:
+            options.meStatus === undefined
+              ? { 'Content-Type': 'application/json' }
+              : undefined,
+          status: options.meStatus ?? 200,
+        },
+      );
+    }
+    if (url.endsWith('/checkout-session')) {
+      return new Response(
+        options.checkoutStatus === undefined ? JSON.stringify(VALID_CHECKOUT) : null,
+        {
+          headers:
+            options.checkoutStatus === undefined
+              ? { 'Content-Type': 'application/json' }
+              : undefined,
+          status: options.checkoutStatus ?? 201,
+        },
+      );
+    }
+    throw new Error(`Unexpected test request: ${url}`);
+  };
+  vi.stubGlobal('fetch', vi.fn(fetchStub));
+  return calls;
+}
 const FIRST_KEY = '00000000-0000-4000-8000-000000000004';
 const SECOND_KEY = '00000000-0000-4000-8000-000000000014';
 const VALID_CHECKOUT = {
@@ -44,14 +115,16 @@ function renderCheckout(
         },
       ]}
     >
-      <CartProvider>
-        <Routes>
-          <Route
-            path="/orders/:publicOrderNumber/checkout"
-            element={<CheckoutPage redirectToCheckout={redirectToCheckout} />}
-          />
-        </Routes>
-      </CartProvider>
+      <AuthProvider>
+        <CartProvider>
+          <Routes>
+            <Route
+              path="/orders/:publicOrderNumber/checkout"
+              element={<CheckoutPage redirectToCheckout={redirectToCheckout} />}
+            />
+          </Routes>
+        </CartProvider>
+      </AuthProvider>
     </MemoryRouter>,
   );
 }
@@ -250,6 +323,7 @@ describe('checkoutAttemptStorage', () => {
 describe('CheckoutPage', () => {
   beforeEach(() => {
     sessionStorage.clear();
+    resetAuthMemoryForTests();
     vi.spyOn(window.crypto, 'randomUUID').mockReturnValue(FIRST_KEY);
   });
 
@@ -258,6 +332,7 @@ describe('CheckoutPage', () => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     sessionStorage.clear();
+    resetAuthMemoryForTests();
   });
 
   it('shows the exact checkout CTA without calling the API on mount', () => {
@@ -275,19 +350,23 @@ describe('CheckoutPage', () => {
     ).toBeEnabled();
     expect(screen.queryByText(ACCESS_TOKEN)).not.toBeInTheDocument();
     expect(screen.queryByText(FIRST_KEY)).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Browse the menu' })).toHaveAttribute(
+      'href',
+      '/menu',
+    );
     expect(stub.calls).toHaveLength(0);
     expect(loadCheckoutAttempt(PUBLIC_ORDER_NUMBER)?.idempotencyKey).toBe(FIRST_KEY);
     expect(window.crypto.randomUUID).toHaveBeenCalledTimes(1);
   });
 
-  it('uses transient navigation access and never renders the token', () => {
+  it('ignores a capability supplied through navigation state and never renders it', () => {
     renderCheckout(PUBLIC_ORDER_NUMBER, {
       orderAccessToken: ACCESS_TOKEN,
       publicOrderNumber: PUBLIC_ORDER_NUMBER,
     });
 
     expect(
-      screen.getByRole('heading', { level: 1, name: 'Order created' }),
+      screen.getByRole('heading', { level: 1, name: 'Order access unavailable' }),
     ).toBeVisible();
     expect(screen.queryByText(ACCESS_TOKEN)).not.toBeInTheDocument();
   });
@@ -321,7 +400,11 @@ describe('CheckoutPage', () => {
     expect(window.crypto.randomUUID).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps an in-memory attempt when sessionStorage raises SecurityError', () => {
+  it('keeps an in-memory attempt when sessionStorage raises SecurityError', async () => {
+    seedAuthToken();
+    expect(loadAuthToken()).toBe(AUTH_TOKEN);
+    const calls = installAuthenticatedCheckoutFetch();
+    const user = userEvent.setup();
     const getItem = vi
       .spyOn(window.Storage.prototype, 'getItem')
       .mockImplementation(() => {
@@ -333,14 +416,18 @@ describe('CheckoutPage', () => {
         throw new DOMException('Blocked', 'SecurityError');
       });
 
-    renderCheckout(PUBLIC_ORDER_NUMBER, {
-      orderAccessToken: ACCESS_TOKEN,
-      publicOrderNumber: PUBLIC_ORDER_NUMBER,
-    });
+    renderCheckout();
 
-    expect(
+    await screen.findByRole('heading', { level: 1, name: 'Order created' });
+    await user.click(
       screen.getByRole('button', { name: 'Continue to secure payment' }),
-    ).toBeEnabled();
+    );
+
+    await waitFor(() =>
+      expect(
+        calls.filter((call) => call.url.endsWith('/checkout-session')),
+      ).toHaveLength(1),
+    );
     expect(window.crypto.randomUUID).toHaveBeenCalledTimes(1);
     expect(getItem).toHaveBeenCalled();
     expect(setItem).toHaveBeenCalled();
@@ -383,7 +470,7 @@ describe('CheckoutPage', () => {
     );
     expect(screen.getByRole('link', { name: 'Browse the menu' })).toHaveAttribute(
       'href',
-      '/',
+      '/menu',
     );
     expect(screen.queryByText(/token/i)).not.toBeInTheDocument();
     expect(window.crypto.randomUUID).not.toHaveBeenCalled();
@@ -420,6 +507,106 @@ describe('CheckoutPage', () => {
         JSON.parse(sessionStorage.getItem('restaurant-ordering:cart:v1') ?? ''),
       ).toEqual({ items: [], version: 1 }),
     );
+  });
+
+  it('sends Bearer and the stored capability for authenticated checkout', async () => {
+    seedAuthToken();
+    saveOrderAccess(PUBLIC_ORDER_NUMBER, ACCESS_TOKEN);
+    seedAttempt();
+    const calls = installAuthenticatedCheckoutFetch();
+    const redirect = vi.fn();
+    const user = userEvent.setup();
+    renderCheckout(PUBLIC_ORDER_NUMBER, null, redirect);
+
+    await screen.findByRole('heading', { name: 'Order created' });
+    await user.click(
+      screen.getByRole('button', { name: 'Continue to secure payment' }),
+    );
+
+    await waitFor(() => expect(redirect).toHaveBeenCalledTimes(1));
+    const checkoutCalls = calls.filter((call) =>
+      call.url.endsWith('/checkout-session'),
+    );
+    expect(checkoutCalls).toHaveLength(1);
+    expect(checkoutCalls[0]?.headers.get('Authorization')).toBe(`Bearer ${AUTH_TOKEN}`);
+    expect(checkoutCalls[0]?.headers.get('X-Order-Access-Token')).toBe(ACCESS_TOKEN);
+    expect(checkoutCalls[0]?.headers.get('Idempotency-Key')).toBe(FIRST_KEY);
+  });
+
+  it('allows an authenticated owner to checkout without a guest capability', async () => {
+    seedAuthToken();
+    const calls = installAuthenticatedCheckoutFetch();
+    const redirect = vi.fn();
+    const user = userEvent.setup();
+    renderCheckout(PUBLIC_ORDER_NUMBER, null, redirect);
+
+    await screen.findByRole('heading', { name: 'Order created' });
+    await user.click(
+      screen.getByRole('button', { name: 'Continue to secure payment' }),
+    );
+
+    await waitFor(() => expect(redirect).toHaveBeenCalledTimes(1));
+    expect(loadCheckoutAttempt(PUBLIC_ORDER_NUMBER)?.idempotencyKey).toBe(FIRST_KEY);
+    const checkoutCall = calls.find((call) => call.url.endsWith('/checkout-session'));
+    expect(checkoutCall?.headers.get('Authorization')).toBe(`Bearer ${AUTH_TOKEN}`);
+    expect(checkoutCall?.headers.has('X-Order-Access-Token')).toBe(false);
+    expect(checkoutCall?.headers.get('Idempotency-Key')).toBe(FIRST_KEY);
+  });
+
+  it('does not start guest checkout while a stored session is being checked', async () => {
+    seedAuthToken();
+    saveOrderAccess(PUBLIC_ORDER_NUMBER, ACCESS_TOKEN);
+    const calls = installAuthenticatedCheckoutFetch({ meStatus: 'pending' });
+    renderCheckout();
+
+    expect(
+      await screen.findByRole('heading', { name: 'Checking your session' }),
+    ).toBeVisible();
+    expect(calls.filter((call) => call.url.endsWith('/checkout-session'))).toHaveLength(
+      0,
+    );
+    expect(window.crypto.randomUUID).not.toHaveBeenCalled();
+  });
+
+  it('does not downgrade to capability checkout when session validation is unavailable', async () => {
+    seedAuthToken();
+    saveOrderAccess(PUBLIC_ORDER_NUMBER, ACCESS_TOKEN);
+    const calls = installAuthenticatedCheckoutFetch({ meStatus: 503 });
+    renderCheckout();
+
+    expect(
+      await screen.findByRole('heading', { name: 'Session validation unavailable' }),
+    ).toBeVisible();
+    expect(calls.filter((call) => call.url.endsWith('/checkout-session'))).toHaveLength(
+      0,
+    );
+    expect(loadOrderAccess(PUBLIC_ORDER_NUMBER)).toBe(ACCESS_TOKEN);
+  });
+
+  it('keeps capability and idempotency after authenticated 401 without retrying', async () => {
+    seedAuthToken();
+    saveOrderAccess(PUBLIC_ORDER_NUMBER, ACCESS_TOKEN);
+    seedAttempt();
+    const calls = installAuthenticatedCheckoutFetch({ checkoutStatus: 401 });
+    const redirect = vi.fn();
+    const user = userEvent.setup();
+    renderCheckout(PUBLIC_ORDER_NUMBER, null, redirect);
+
+    await screen.findByRole('heading', { name: 'Order created' });
+    await user.click(
+      screen.getByRole('button', { name: 'Continue to secure payment' }),
+    );
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Checkout was not retried as a guest',
+    );
+    expect(calls.filter((call) => call.url.endsWith('/checkout-session'))).toHaveLength(
+      1,
+    );
+    expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toBeNull();
+    expect(loadOrderAccess(PUBLIC_ORDER_NUMBER)).toBe(ACCESS_TOKEN);
+    expect(loadCheckoutAttempt(PUBLIC_ORDER_NUMBER)?.idempotencyKey).toBe(FIRST_KEY);
+    expect(redirect).not.toHaveBeenCalled();
   });
 
   it('treats a 200 replay as the same successful customer flow', async () => {

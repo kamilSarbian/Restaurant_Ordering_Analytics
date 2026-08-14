@@ -19,7 +19,7 @@ import {
   getDefaultAdminDateRange,
   isValidDateOnly,
 } from '../../components/admin/adminDateRange';
-import { useAdminAuth } from '../admin-auth/AdminAuthContext';
+import { useAuth } from '../auth/AuthContext';
 import {
   type AdminAnalyticsOverview,
   type AdminAnalyticsQuery,
@@ -105,6 +105,14 @@ function isUnauthorized(result: PromiseSettledResult<unknown>): boolean {
     result.status === 'rejected' &&
     result.reason instanceof AdminApiRequestError &&
     result.reason.status === 401
+  );
+}
+
+function isForbidden(result: PromiseSettledResult<unknown>): boolean {
+  return (
+    result.status === 'rejected' &&
+    result.reason instanceof AdminApiRequestError &&
+    result.reason.status === 403
   );
 }
 
@@ -306,7 +314,12 @@ function OrderTypes({ data }: { data: AdminOrderTypeSales }) {
 }
 
 export default function AdminAnalyticsPage() {
-  const { expireSession, getAccessToken } = useAdminAuth();
+  const {
+    getAuthenticatedSession,
+    invalidateSessionIfCurrent,
+    logout,
+    refreshCurrentUser,
+  } = useAuth();
   const [filters, setFilters] = useState<DraftFilters>(() => ({
     ...getDefaultAdminDateRange(),
     currency: '',
@@ -330,8 +343,9 @@ export default function AdminAnalyticsPage() {
 
   const runAnalytics = useCallback(
     async (applied: AppliedFilters): Promise<void> => {
-      const token = getAccessToken();
-      if (token === null) return expireSession();
+      const authSession = getAuthenticatedSession();
+      if (authSession === null) return logout();
+      const token = authSession.accessToken;
       generationRef.current += 1;
       const generation = generationRef.current;
       controllerRef.current?.abort();
@@ -366,14 +380,23 @@ export default function AdminAnalyticsPage() {
           isUnauthorized,
         )
       ) {
-        return expireSession();
+        invalidateSessionIfCurrent(authSession);
+        return;
+      }
+      if (
+        [overviewResult, productResult, categoryResult, orderTypeResult].some(
+          isForbidden,
+        )
+      ) {
+        await refreshCurrentUser();
+        if (generationRef.current !== generation) return;
       }
       finishSection(setOverview, overviewResult);
       finishSection(setProducts, productResult);
       finishSection(setCategories, categoryResult);
       finishSection(setOrderTypes, orderTypeResult);
     },
-    [expireSession, getAccessToken],
+    [getAuthenticatedSession, invalidateSessionIfCurrent, logout, refreshCurrentUser],
   );
 
   useEffect(() => {

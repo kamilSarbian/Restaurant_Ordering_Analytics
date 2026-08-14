@@ -23,17 +23,21 @@
     font-size: clamp(2.15rem, 10vw, 3.75rem);
 }
 
-.intro {
+.intro,
+.statusNotice {
     color: var(--color-muted);
 }
 
-.form {
+.form,
+.field {
     display: grid;
+}
+
+.form {
     gap: var(--space-4);
 }
 
 .field {
-    display: grid;
     gap: var(--space-2);
 }
 
@@ -61,10 +65,6 @@
     color: var(--color-accent-strong);
 }
 
-.statusNotice {
-    color: var(--color-muted);
-}
-
 .submitButton,
 .secondaryButton {
     min-height: 2.75rem;
@@ -88,6 +88,24 @@
 .submitButton:disabled {
     cursor: not-allowed;
     opacity: 0.65;
+}
+
+.backLink {
+    display: inline-flex;
+    min-width: 0;
+    max-width: 100%;
+    min-height: 2.75rem;
+    align-items: center;
+    justify-content: center;
+    justify-self: start;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-small);
+    color: var(--color-primary-hover);
+    font-weight: 700;
+    overflow-wrap: anywhere;
+    text-align: center;
+    text-decoration: underline;
+    text-underline-offset: 0.18em;
 }
 
 .secondaryButton {

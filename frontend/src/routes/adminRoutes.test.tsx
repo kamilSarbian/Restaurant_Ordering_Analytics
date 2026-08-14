@@ -7,9 +7,14 @@ import {
 } from 'react-router-dom';
 import { afterEach, beforeEach, vi } from 'vitest';
 
+import { AuthProvider } from '../features/auth/AuthContext';
+import LoginPage from '../features/auth/LoginPage';
+import {
+  AUTH_STORAGE_KEY,
+  resetAuthMemoryForTests,
+} from '../features/auth/authStorage';
 import { installFetchStub } from '../test/fetchStub';
 import { adminRoutes } from './adminRoutes';
-import { ADMIN_AUTH_STORAGE_KEY } from '../features/admin-auth/adminAuthStorage';
 
 const SYNTHETIC_TOKEN = 'test-admin-token';
 const FIXED_NOW = new Date('2026-08-12T12:00:00+02:00');
@@ -18,11 +23,20 @@ const LOGIN_RESPONSE = {
   expires_in: 1_800,
   token_type: 'bearer',
 };
-const ME_RESPONSE = { email: 'admin@example.test', is_active: true };
+const ADMIN_USER_ID = '00000000-0000-4000-8000-000000000900';
+const ME_RESPONSE = {
+  email: 'admin@example.test',
+  id: ADMIN_USER_ID,
+  is_active: true,
+  role: 'admin',
+};
+const CUSTOMER_ME_RESPONSE = { ...ME_RESPONSE, role: 'customer' };
+const SUPER_ADMIN_ME_RESPONSE = { ...ME_RESPONSE, role: 'super_admin' };
 const PUBLIC_ORDER_NUMBER = 'ROA-23456789ABCD';
 const EMPTY_ORDERS_RESPONSE = { items: [], total: 0, limit: 50, offset: 0 };
 const EMPTY_CATEGORIES_RESPONSE = { items: [], total: 0, limit: 50, offset: 0 };
 const EMPTY_MENU_ITEMS_RESPONSE = { items: [], total: 0, limit: 50, offset: 0 };
+const EMPTY_USERS_RESPONSE = { items: [], total: 0, limit: 50, offset: 0 };
 const ANALYTICS_RANGE = {
   start: '2026-08-06T00:00:00+02:00',
   end: '2026-08-13T00:00:00+02:00',
@@ -58,13 +72,27 @@ const ORDER_DETAIL_RESPONSE = {
 
 function storeToken(): void {
   sessionStorage.setItem(
-    ADMIN_AUTH_STORAGE_KEY,
+    AUTH_STORAGE_KEY,
     JSON.stringify({ accessToken: SYNTHETIC_TOKEN, version: 1 }),
   );
 }
 
 function renderAdminRoute(initialEntry: InitialEntry) {
-  const router = createMemoryRouter([adminRoutes], { initialEntries: [initialEntry] });
+  const router = createMemoryRouter(
+    [
+      {
+        element: <AuthProvider />,
+        children: [
+          { path: '/', element: <h1>Customer home</h1> },
+          { path: '/account', element: <h1>Customer account</h1> },
+          { path: '/menu', element: <h1>Customer menu</h1> },
+          { path: '/login', element: <LoginPage /> },
+          adminRoutes,
+        ],
+      },
+    ],
+    { initialEntries: [initialEntry] },
+  );
   return { router, ...render(<RouterProvider router={router} />) };
 }
 
@@ -83,6 +111,7 @@ beforeEach(() => {
 afterEach(() => {
   sessionStorage.clear();
   localStorage.clear();
+  resetAuthMemoryForTests();
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
@@ -92,11 +121,13 @@ describe('administrator authentication routes and guard', () => {
     const fetchSpy = vi.fn<typeof fetch>();
     vi.stubGlobal('fetch', fetchSpy);
 
-    renderAdminRoute('/admin/login');
+    const { router } = renderAdminRoute('/admin/login');
 
-    expect(
-      await screen.findByRole('heading', { name: 'Administrator sign-in' }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/login');
+    expect(new URLSearchParams(router.state.location.search).get('next')).toBe(
+      '/admin',
+    );
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
@@ -105,11 +136,11 @@ describe('administrator authentication routes and guard', () => {
     vi.stubGlobal('fetch', fetchSpy);
     const { router } = renderAdminRoute('/admin');
 
-    expect(
-      await screen.findByRole('heading', { name: 'Administrator sign-in' }),
-    ).toBeInTheDocument();
-    expect(router.state.location.pathname).toBe('/admin/login');
-    expect(router.state.location.state).toEqual({ returnTo: '/admin' });
+    expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/login');
+    expect(new URLSearchParams(router.state.location.search).get('next')).toBe(
+      '/admin',
+    );
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
@@ -125,51 +156,161 @@ describe('administrator authentication routes and guard', () => {
     ).toBeInTheDocument();
     expect(screen.queryByText('Administrator workspace')).not.toBeInTheDocument();
     expect(stub.calls).toHaveLength(1);
-    expect(stub.calls[0]?.url).toBe('/api/v1/admin/auth/me');
+    expect(stub.calls[0]?.url).toBe('/api/v1/auth/me');
   });
 
-  it('renders AdminShell and the safe profile after successful /me validation', async () => {
+  it.each([
+    ['admin', ME_RESPONSE],
+    ['super_admin', SUPER_ADMIN_ME_RESPONSE],
+  ])(
+    'renders AdminShell and the safe %s profile after successful /me validation',
+    async (role, profile) => {
+      storeToken();
+      installFetchStub({ json: profile });
+
+      renderAdminRoute('/admin');
+
+      expect(
+        await screen.findByRole('heading', { name: 'Administrator workspace' }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          'Manage orders, menu availability, analytics, and CSV exports from the administrator tools.',
+        ),
+      ).toBeVisible();
+      expect(
+        screen.queryByText(/Operational screens will be added/i),
+      ).not.toBeInTheDocument();
+      expect(screen.getByText('admin@example.test')).toBeVisible();
+      expect(
+        screen.getByRole('navigation', { name: 'Administrator navigation' }),
+      ).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Admin home' })).toHaveAttribute(
+        'aria-current',
+        'page',
+      );
+      expect(screen.getByRole('link', { name: 'Orders' })).toHaveAttribute(
+        'href',
+        '/admin/orders',
+      );
+      expect(screen.getByRole('link', { name: 'Menu' })).toHaveAttribute(
+        'href',
+        '/admin/menu',
+      );
+      expect(screen.getByRole('link', { name: 'Analytics' })).toHaveAttribute(
+        'href',
+        '/admin/analytics',
+      );
+      expect(screen.getByRole('link', { name: 'Exports' })).toHaveAttribute(
+        'href',
+        '/admin/exports',
+      );
+      if (role === 'super_admin') {
+        expect(screen.getByRole('link', { name: 'Users' })).toHaveAttribute(
+          'href',
+          '/admin/users',
+        );
+      } else {
+        expect(screen.queryByRole('link', { name: 'Users' })).not.toBeInTheDocument();
+      }
+      expect(screen.queryByText(SYNTHETIC_TOKEN)).not.toBeInTheDocument();
+    },
+  );
+
+  it('routes an authenticated customer away from administrator content', async () => {
+    storeToken();
+    installFetchStub({ json: CUSTOMER_ME_RESPONSE });
+    const { router } = renderAdminRoute('/admin');
+
+    expect(
+      await screen.findByRole('heading', { name: 'Customer account' }),
+    ).toBeVisible();
+    expect(router.state.location.pathname).toBe('/account');
+    expect(screen.queryByText('Administrator workspace')).not.toBeInTheDocument();
+    expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toContain(SYNTHETIC_TOKEN);
+  });
+
+  it('preserves the super-admin users destination through shared login', async () => {
+    const fetchSpy = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetchSpy);
+    const { router } = renderAdminRoute('/admin/users');
+
+    expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeVisible();
+    expect(router.state.location.pathname).toBe('/login');
+    expect(new URLSearchParams(router.state.location.search).get('next')).toBe(
+      '/admin/users',
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('routes a customer away from the super-admin users page', async () => {
+    storeToken();
+    installFetchStub({ json: CUSTOMER_ME_RESPONSE });
+    const { router } = renderAdminRoute('/admin/users');
+
+    expect(
+      await screen.findByRole('heading', { name: 'Customer account' }),
+    ).toBeVisible();
+    expect(router.state.location.pathname).toBe('/account');
+    expect(screen.queryByRole('heading', { name: 'Users' })).not.toBeInTheDocument();
+  });
+
+  it('routes an ordinary admin away from the super-admin users page', async () => {
     storeToken();
     installFetchStub({ json: ME_RESPONSE });
-
-    renderAdminRoute('/admin');
+    const { router } = renderAdminRoute('/admin/users');
 
     expect(
       await screen.findByRole('heading', { name: 'Administrator workspace' }),
-    ).toBeInTheDocument();
+    ).toBeVisible();
+    expect(router.state.location.pathname).toBe('/admin');
+    expect(screen.queryByRole('link', { name: 'Users' })).not.toBeInTheDocument();
+  });
+
+  it('renders the users page only for a current super-admin', async () => {
+    storeToken();
+    installFetchStub({ json: SUPER_ADMIN_ME_RESPONSE }, { json: EMPTY_USERS_RESPONSE });
+
+    renderAdminRoute('/admin/users');
+
     expect(
-      screen.getByText(
-        'Manage orders, menu availability, analytics, and CSV exports from the administrator tools.',
-      ),
+      await screen.findByRole('heading', { level: 1, name: 'Users' }),
     ).toBeVisible();
     expect(
-      screen.queryByText(/Operational screens will be added/i),
-    ).not.toBeInTheDocument();
-    expect(screen.getByText('admin@example.test')).toBeVisible();
-    expect(
-      screen.getByRole('navigation', { name: 'Administrator navigation' }),
-    ).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Admin home' })).toHaveAttribute(
+      await screen.findByRole('heading', { name: 'No users found' }),
+    ).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Users' })).toHaveAttribute(
       'aria-current',
       'page',
     );
-    expect(screen.getByRole('link', { name: 'Orders' })).toHaveAttribute(
-      'href',
-      '/admin/orders',
-    );
-    expect(screen.getByRole('link', { name: 'Menu' })).toHaveAttribute(
-      'href',
-      '/admin/menu',
-    );
-    expect(screen.getByRole('link', { name: 'Analytics' })).toHaveAttribute(
-      'href',
-      '/admin/analytics',
-    );
-    expect(screen.getByRole('link', { name: 'Exports' })).toHaveAttribute(
-      'href',
-      '/admin/exports',
-    );
-    expect(screen.queryByText(SYNTHETIC_TOKEN)).not.toBeInTheDocument();
+  });
+
+  it('fails closed on the users route while the session is being checked', async () => {
+    storeToken();
+    const pending = new Promise<Response>(() => undefined);
+    const stub = installFetchStub({ responsePromise: pending });
+
+    renderAdminRoute('/admin/users');
+
+    expect(
+      await screen.findByRole('heading', { name: 'Checking your session' }),
+    ).toBeVisible();
+    expect(screen.queryByRole('heading', { name: 'Users' })).not.toBeInTheDocument();
+    expect(stub.calls).toHaveLength(1);
+  });
+
+  it('retains the users-route session when validation is unavailable', async () => {
+    storeToken();
+    installFetchStub({ status: 503 });
+
+    renderAdminRoute('/admin/users');
+
+    expect(
+      await screen.findByRole('heading', { name: 'Session validation is unavailable' }),
+    ).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Retry validation' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Log out' })).toBeEnabled();
+    expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toContain(SYNTHETIC_TOKEN);
   });
 
   it('clears a stored token on /me 401 and returns to login', async () => {
@@ -178,10 +319,8 @@ describe('administrator authentication routes and guard', () => {
 
     renderAdminRoute('/admin');
 
-    expect(
-      await screen.findByRole('heading', { name: 'Administrator sign-in' }),
-    ).toBeInTheDocument();
-    expect(sessionStorage.getItem(ADMIN_AUTH_STORAGE_KEY)).toBeNull();
+    expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeInTheDocument();
+    expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toBeNull();
   });
 
   it('keeps a stored token on /me 503 and retries validation explicitly', async () => {
@@ -194,7 +333,7 @@ describe('administrator authentication routes and guard', () => {
     expect(
       await screen.findByRole('heading', { name: 'Session validation is unavailable' }),
     ).toBeInTheDocument();
-    expect(sessionStorage.getItem(ADMIN_AUTH_STORAGE_KEY)).toContain(SYNTHETIC_TOKEN);
+    expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toContain(SYNTHETIC_TOKEN);
     await user.click(screen.getByRole('button', { name: 'Retry validation' }));
 
     expect(
@@ -220,7 +359,7 @@ describe('administrator authentication routes and guard', () => {
     expect(
       screen.getByRole('heading', { name: 'Session validation is unavailable' }),
     ).toBeInTheDocument();
-    expect(sessionStorage.getItem(ADMIN_AUTH_STORAGE_KEY)).toContain(SYNTHETIC_TOKEN);
+    expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toContain(SYNTHETIC_TOKEN);
   });
 
   it('redirects an authenticated login route to the admin root', async () => {
@@ -234,7 +373,7 @@ describe('administrator authentication routes and guard', () => {
     expect(router.state.location.pathname).toBe('/admin');
   });
 
-  it('logs out without a server request and clears the administrator session', async () => {
+  it('logs out to Home without a server request or admin continuation', async () => {
     storeToken();
     const stub = installFetchStub({ json: ME_RESPONSE });
     const user = userEvent.setup();
@@ -243,8 +382,15 @@ describe('administrator authentication routes and guard', () => {
 
     await user.click(screen.getByRole('button', { name: 'Log out' }));
 
-    expect(router.state.location.pathname).toBe('/admin/login');
-    expect(sessionStorage.getItem(ADMIN_AUTH_STORAGE_KEY)).toBeNull();
+    expect(await screen.findByRole('heading', { name: 'Customer home' })).toBeVisible();
+    expect(router.state.location.pathname).toBe('/');
+    expect(router.state.location.search).toBe('');
+    expect(router.state.historyAction).toBe('REPLACE');
+    expect(screen.queryByRole('heading', { name: 'Sign in' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { name: 'Administrator workspace' }),
+    ).not.toBeInTheDocument();
+    expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toBeNull();
     expect(stub.calls).toHaveLength(1);
   });
 
@@ -356,10 +502,9 @@ describe('administrator authentication routes and guard', () => {
     vi.stubGlobal('fetch', fetchSpy);
     const { router } = renderAdminRoute(path);
 
-    expect(
-      await screen.findByRole('heading', { name: 'Administrator sign-in' }),
-    ).toBeInTheDocument();
-    expect(router.state.location.pathname).toBe('/admin/login');
+    expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/login');
+    expect(new URLSearchParams(router.state.location.search).get('next')).toBe(path);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
@@ -384,53 +529,65 @@ describe('administrator authentication routes and guard', () => {
 
     renderAdminRoute('/admin/unknown');
 
-    expect(
-      await screen.findByRole('heading', { name: 'Administrator sign-in' }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeInTheDocument();
     expect(screen.queryByText('Administrator page not found')).not.toBeInTheDocument();
   });
 
-  it('returns to a safe admin deep link after login', async () => {
-    installFetchStub({ json: LOGIN_RESPONSE }, { json: ME_RESPONSE });
-    const { router } = renderAdminRoute('/admin/unknown');
+  it('returns to a safe known admin deep link after login', async () => {
+    installFetchStub(
+      { json: LOGIN_RESPONSE },
+      { json: ME_RESPONSE },
+      { json: EMPTY_ORDERS_RESPONSE },
+    );
+    const { router } = renderAdminRoute('/login?next=%2Fadmin%2Forders');
+
+    await signIn();
+
+    expect(await screen.findByRole('heading', { name: 'Orders' })).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/admin/orders');
+  });
+
+  it('returns a super-admin to the safe users destination after login', async () => {
+    installFetchStub(
+      { json: LOGIN_RESPONSE },
+      { json: SUPER_ADMIN_ME_RESPONSE },
+      { json: EMPTY_USERS_RESPONSE },
+    );
+    const { router } = renderAdminRoute('/login?next=%2Fadmin%2Fusers');
 
     await signIn();
 
     expect(
-      await screen.findByRole('heading', { name: 'Administrator page not found' }),
-    ).toBeInTheDocument();
-    expect(router.state.location.pathname).toBe('/admin/unknown');
+      await screen.findByRole('heading', { level: 1, name: 'Users' }),
+    ).toBeVisible();
+    expect(router.state.location.pathname).toBe('/admin/users');
   });
 
   it.each(['https://example.invalid/admin', '//example.invalid/admin', '/admin/login'])(
     'rejects the unsafe return target %s',
     async (returnTo) => {
       installFetchStub({ json: LOGIN_RESPONSE }, { json: ME_RESPONSE });
-      const { router } = renderAdminRoute({
-        pathname: '/admin/login',
-        state: { returnTo },
-      });
+      const { router } = renderAdminRoute(
+        `/login?next=${encodeURIComponent(returnTo)}`,
+      );
 
       await signIn();
 
       expect(
-        await screen.findByRole('heading', { name: 'Administrator workspace' }),
-      ).toBeInTheDocument();
-      expect(router.state.location.pathname).toBe('/admin');
+        await screen.findByRole('heading', { name: 'Customer account' }),
+      ).toBeVisible();
+      expect(router.state.location.pathname).toBe('/account');
     },
   );
 
-  it.each(['/admin/users', '/stage17'])(
-    'does not expose the future route %s',
-    async (path) => {
-      storeToken();
-      installFetchStub({ json: ME_RESPONSE });
+  it('does not expose the future Stage 17 route', async () => {
+    storeToken();
+    installFetchStub({ json: ME_RESPONSE });
 
-      renderAdminRoute(path.startsWith('/admin') ? path : '/admin/stage17');
+    renderAdminRoute('/admin/stage17');
 
-      expect(
-        await screen.findByRole('heading', { name: 'Administrator page not found' }),
-      ).toBeInTheDocument();
-    },
-  );
+    expect(
+      await screen.findByRole('heading', { name: 'Administrator page not found' }),
+    ).toBeInTheDocument();
+  });
 });

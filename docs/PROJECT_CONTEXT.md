@@ -69,23 +69,27 @@ An anonymous `guest` remains neither a User nor a role, and guest ordering is
 unchanged. `AdminUser` remains only as a temporary Python import alias for the
 same mapped User during compatibility work. Stage 16E links new Orders to a
 canonical active User when valid optional authentication is supplied and
-provides read-only personal Order history. The unified customer account
-frontend remains planned for Stage 16F.
+provides read-only personal Order history. Stage 16F completes the shared
+browser authentication, registration and login, authenticated ordering,
+personal account, and super-administrator User-management interfaces.
 
 Migration `0007_unify_user_auth_roles` implements the rename from `admin_users`
 to `users`, the constrained role, safe zero/one-row upgrade, atomic multi-row
 failure, and guarded downgrade. Its child `0008_add_order_ownership` adds the
 nullable Order owner foreign key and personal-history index without a backfill.
-Repository head is `0008_add_order_ownership`. The development database
-deliberately remains at `0006_create_admin_user_model` until a separately
-approved `0006 -> 0007 -> 0008` migration operation; Stage 16E-C1 does not
-mutate it.
+Repository and Alembic head are `0008_add_order_ownership`. During the approved
+Stage 16F local-QA preparation, the development database was backed up outside
+the repository and upgraded through `0006 -> 0007 -> 0008`. The historical
+administrator remains active as `super_admin`; `users`, the ownership foreign
+key, and the owner-history index are present, and the legacy `admin_users`
+table is absent.
 
 ## 4. Main Flows
 
 ### 4.1. Menu Browsing and Cart
 
-1. The frontend retrieves active categories and active menu items. Active but
+1. The `/` route presents the restaurant landing page, while `/menu` retrieves
+   active categories and active menu items. Active but
    temporarily unavailable items remain visible by default and expose their
    availability state.
 2. The customer filters the menu and builds a cart in the browser.
@@ -208,11 +212,12 @@ mutate it.
    `super_admin`; `require_super_admin` permits only current `super_admin`.
    Missing or inactive identities return 401, while an authenticated
    insufficient role returns 403.
-4. The existing administrator frontend continues to use
-   `/api/v1/admin/auth/login` and `/api/v1/admin/auth/me`. The login alias uses
-   unified credentials, rejects customers with a generic 401, and issues
-   `user_access`. Both login aliases share one limiter; registration uses a
-   separate limiter.
+4. The backend `/api/v1/admin/auth/login` and `/api/v1/admin/auth/me` aliases
+   remain available for compatibility. The shared Stage 16F frontend no longer
+   has a separate administrator authentication silo: it uses the canonical
+   `/api/v1/auth/...` contracts for every role, and `/admin/login` redirects to
+   the unified `/login`. Both backend login aliases share one limiter;
+   registration uses a separate limiter.
 5. `GET /api/v1/admin/users` and
    `PATCH /api/v1/admin/users/{user_id}/role` are super-admin-only. The PATCH
    endpoint uses a row lock and permits only `customer <-> admin`; it cannot
@@ -311,14 +316,34 @@ mutate it.
     generated file, or frontend. The separate Stage 15 client does not alter
     the export boundary.
 
-### 4.7. Guest Customer Frontend
+### 4.7. Customer Frontend
 
-Stage 15 implements the customer journey as a guest-only React application.
-The browser retrieves the public menu, filters it locally, stores only cart
-identifiers and quantities for the current session, obtains server-authoritative
-quotes, and creates a takeaway or dine-in Order. It preserves the one-time
-guest access token in `sessionStorage` or transient memory and sends it only in
-the `X-Order-Access-Token` header.
+Stage 16F evolves the Stage 15 guest journey into one role-aware React
+application without making registration a purchase requirement. `/` is the
+restaurant landing page, `/menu` is the public menu, and `/cart` retains the
+server-quoted dine-in and takeaway flow. `/login` and `/register` provide the
+canonical account entry points, while account and administrator destinations
+use the same authenticated session.
+
+One shared `AuthContext` represents `checking-session`, `authenticated`,
+`unauthenticated`, and `temporarily-unavailable`. It stores an opaque canonical
+`user_access` token under `restaurant-ordering:auth:v1` in `sessionStorage`,
+with an in-memory fallback when storage is unavailable. It never uses
+`localStorage` or derives role authority from JWT claims. A successful
+`GET /api/v1/auth/me` supplies the database-authoritative User, role, and active
+state. The old administrator storage record is accepted only as a one-time
+migration candidate and is then removed. Authentication defaults to `/account`,
+uses a role-aware safe `next`, and treats `/admin/login` as a compatibility
+redirect to `/login`.
+
+Menu and quote requests remain credential-free. Guest creation sends no
+Bearer and retains the independent Order capability for status and Checkout.
+Authenticated creation sends the current canonical Bearer so the backend can
+assign ownership, while still retaining the capability returned for every
+Order. Authenticated status and Checkout send Bearer plus the capability when
+available; the matching owner also works without that capability. A checking
+or temporarily unavailable session never silently becomes a guest request, and
+an authenticated 401 is not retried anonymously.
 
 Order creation remains deliberately non-idempotent, so ambiguous failures are
 not retried automatically. Hosted Checkout is a separate idempotent operation:
@@ -329,19 +354,20 @@ neutral navigation outcomes and never determine Payment state.
 
 The protected status view shows only the six fulfilment states and polls with
 one request in flight, visibility/offline pauses, bounded transient backoff,
-and terminal stopping. It exposes no Payment status. Stage 15 adds no customer
-account, PII collection, administrator frontend, backend schema, model, route,
-or migration. Its implementation, automated checks, and mandatory manual
-responsive acceptance are complete and verified.
+and terminal stopping. It exposes no Payment status. Automated validation is
+complete. The automated browser environment was unavailable, so the
+developer/user completed the required QA in a local browser after the final
+Stage 16F fixes; it passed with no remaining manual acceptance blocker.
 
 ### 4.7A. Administrator Frontend
 
-Stage 16B implements a dedicated administrator route tree with sign-in,
-current-session token storage, `/me` validation, a protected route guard, and a
-shared AdminShell. The implemented screens cover order list/detail and explicit
-status actions, category and item administration, the four analytics views, and
-the three CSV downloads. Administrator requests use a dedicated path-isolated
-Bearer transport; public and guest APIs never receive that credential.
+The administrator route tree now consumes the shared canonical `AuthContext`,
+database-authoritative `/auth/me` result, role guards, and AdminShell. The
+implemented screens cover order list/detail and explicit status actions,
+category and item administration, the four analytics views, the three CSV
+downloads, and super-admin User management at `/admin/users`. Administrator
+requests use a path-isolated Bearer transport; public and guest-only requests
+never receive that credential.
 
 Order status mutation is backend-authoritative, requires inline confirmation,
 does not update optimistically, and refetches detail after success. Ambiguous
@@ -353,18 +379,23 @@ Analytics uses date-only Europe/Oslo controls converted to aware half-open
 backend ranges, keeps currencies separate, and issues four parallel requests
 with section-level partial failure. Exports preserve backend CSV bytes through
 the shared Blob transport and conservative filename/download handling. The
-administrator frontend does not poll, perform refunds, delete menu resources,
-or implement finer RBAC beyond the current single administrator privilege.
+`/admin/users` route is guarded for `super_admin` only. It lists safe User fields
+and offers only explicit `customer -> admin` or `admin -> customer` actions;
+`super_admin` rows are read-only. Every role change requires confirmation,
+performs no optimistic update, and refetches the authoritative list. An
+ambiguous mutation result locks further role actions until a successful
+reconciliation refresh. The UI provides no User deletion, password reset,
+active-state mutation, super-admin assignment, or super-admin demotion.
+
 Automated acceptance and user-performed manual responsive acceptance at the
 required mobile, tablet, and desktop viewports are complete and verified.
 
-### 4.8. Unified Authentication, Order Ownership, and Account Reads
+### 4.8. Order Ownership, Personal Account, and Local Readiness
 
 The backend implements `POST /api/v1/auth/register`,
-`POST /api/v1/auth/login`, and `GET /api/v1/auth/me`. The planned Stage 16F
-landing route will offer Order as guest, Log in, and Create account. Order as
-guest will lead directly to the public menu and preserve the complete current
-no-login flow.
+`POST /api/v1/auth/login`, and `GET /api/v1/auth/me`. The current landing page
+offers guest ordering, login, and account creation; guest ordering leads to
+`/menu` and preserves the complete no-login flow.
 
 Stage 16E implements nullable `Order.customer_user_id`. A newly created Order
 is linked to the current registered User when valid optional canonical Bearer
@@ -373,41 +404,47 @@ guest creation. Invalid, malformed, legacy, inactive, or missing-User
 authentication returns 401 instead of silently downgrading to guest. Every
 active `customer`, `admin`, or `super_admin` may create only its own owned
 Order. Every Order still receives its independent capability for Checkout and
-public status,
-so the matching owner or a valid capability holder may use those public routes.
-An authenticated non-owner without the capability receives the same 404 as an
-unknown Order, not an ownership-revealing 403.
+public status, so the matching owner or a valid capability holder may use those
+public routes. An authenticated non-owner without the capability receives the
+same 404 as an unknown Order, not an ownership-revealing 403.
 
-The implemented `GET /api/v1/account/orders` and
-`GET /api/v1/account/orders/{public_order_number}` routes require strict
-canonical authentication. Every active role sees only personally owned Orders.
-List, count, and detail predicates are owner-scoped in SQL; another User's,
-unowned, and unknown detail all return one 404. A guest capability does not
-bypass this boundary. Dedicated safe list fields and the shared public status
-serializer expose no owner, PII, Payment, or Stripe data, and there is no
-account mutation or retroactive ownership claim.
+The `GET /api/v1/account/orders` and
+`GET /api/v1/account/orders/{public_order_number}` routes and their Stage 16F
+list/detail screens require strict canonical authentication. Every active role
+uses personal scope only. The UI provides deterministic pagination and a shared
+safe Order-status summary. List, count, and detail predicates are owner-scoped
+in SQL; another User's, unowned, and unknown detail all return one generic 404.
+A guest capability does not bypass this boundary. Responses expose no owner,
+customer PII, Payment, Stripe, cost, or margin data, and there is no account
+mutation, ownership reassignment, or retroactive guest-Order claim.
 
-Stage 16E changes no production frontend source. Landing, customer login and
-registration UX, authenticated ordering, account screens, and administrator
-User-management UI remain planned for Stage 16F.
+The development database is now at `0008_add_order_ownership`. Its approved
+`0006 -> 0007 -> 0008` upgrade used an external backup, preserved the active
+historical administrator as `super_admin`, and verified the unified User and
+ownership schema. The project PostgreSQL container remains published from host
+5433 to container 5432, while the independent host PostgreSQL service on 5432
+was untouched.
 
-Stage 16G integrated finalization and Stage 17 full-system Docker remain not
-started and require their own approvals.
+Stage 16F implementation, manual QA, and C1 documentation and cumulative
+pre-commit validation are complete. Stage 16F is PRE-COMMIT READY, with C2
+independent review and final commit next. Stage 16G integrated finalization and
+Stage 17 full-system Docker have not started and require their own approvals.
 
 ## 5. MVP Scope
 
 The MVP includes:
 
-- public menu and categories;
-- a frontend cart;
+- a restaurant landing page, public menu and categories, and frontend cart;
 - backend order quoting;
 - guest dine-in and takeaway orders;
-- registered customer authentication and read-only personal Order history;
+- shared registered-user authentication, owned ordering, and read-only personal
+  Order history;
 - table handling;
 - Stripe Checkout in test mode;
 - verified and idempotent Stripe webhooks;
 - order and payment persistence in PostgreSQL;
-- an administrator panel and controlled order statuses;
+- an administrator panel, controlled order statuses, and super-admin User
+  role management;
 - menu and product availability management;
 - a basic analytics dashboard with six defined metrics;
 - CSV exports for orders, product sales, and payments;
@@ -540,6 +577,11 @@ discounts. Dine-in orders additionally preserve `table_number_snapshot`.
 - JWT Bearer access is verified by the backend, and every protected request
   performs a current active-identity lookup in PostgreSQL. Role changes and
   deactivation therefore take effect immediately for existing tokens.
+- The frontend uses one canonical AuthContext, an opaque token in current-tab
+  `sessionStorage` or memory, and no `localStorage` or JWT role parsing. Request
+  generation and token identity prevent stale 401 responses from clearing a
+  newer session; administrator 403 responses trigger an authoritative
+  `/auth/me` role refresh.
 - Canonical and administrator-alias login share an app-scoped limiter of five
   attempts per 60 seconds for each direct peer; registration has a separate
   limiter. Forwarded identity headers remain ignored until a trusted-proxy
@@ -574,16 +616,16 @@ discounts. Dine-in orders additionally preserve `table_number_snapshot`.
 
 ## 8. Expected Portfolio Value
 
-Stages 11 through 15 are complete and verified. The Stage 15 customer frontend
-passed automated validation and manual responsive acceptance at the required
-mobile, tablet, and desktop viewports. Stage 16 administrator authentication,
-orders, menu, analytics, and exports are implemented and pass automated
-validation and user-performed manual administrator responsive acceptance.
-Stage 16D also implements the unified User/authentication/RBAC backend and
-super-admin role-management API. Stage 16E implements Order ownership, mixed
-guest/authenticated creation and public access, and the read-only personal
-account API. The unified customer account and administrator User-management
-frontend remains planned for Stage 16F.
+Stages 11 through 15 are complete and verified. Stage 16 implements the
+administrator operations, unified User/authentication/RBAC backend, Order
+ownership, mixed guest/authenticated ordering, personal account, and
+super-admin User-management frontend. Stage 16F adds the landing/menu route
+split, one canonical browser session, login and registration, personal account
+screens, and `/admin/users`. Automated validation is complete, and the
+developer/user completed the required manual local-browser verification after
+the final responsive and navigation fixes. Stage 16F passed its C1 pre-commit
+gate and is PRE-COMMIT READY; Stage 16G and Stage 17 remain future, separately
+approved work.
 
 The project should demonstrate to a recruiter that its author can:
 

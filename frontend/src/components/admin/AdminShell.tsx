@@ -1,15 +1,15 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 
-import { useAdminAuth } from '../../features/admin-auth/AdminAuthContext';
+import { useAuth } from '../../features/auth/AuthContext';
 import styles from './AdminShell.module.css';
 
 export default function AdminShell() {
-  const { admin, logout } = useAdminAuth();
+  const { logout, user } = useAuth();
   const navigate = useNavigate();
 
   const handleLogout = () => {
     logout();
-    navigate('/admin/login', { replace: true });
+    navigate('/', { flushSync: true, replace: true });
   };
 
   return (
@@ -26,9 +26,7 @@ export default function AdminShell() {
             <span>Restaurant Administration</span>
           </NavLink>
           <div className={styles.identity}>
-            {admin !== null ? (
-              <span className={styles.email}>{admin.email}</span>
-            ) : null}
+            {user !== null ? <span className={styles.email}>{user.email}</span> : null}
             <button
               className={styles.logoutButton}
               type="button"
@@ -40,7 +38,7 @@ export default function AdminShell() {
         </div>
       </header>
       <nav className={styles.navigation} aria-label="Administrator navigation">
-        <div className={styles.navigationContent} style={{ flexWrap: 'wrap' }}>
+        <div className={styles.navigationContent}>
           <NavLink
             className={({ isActive }) =>
               `${styles.navigationLink} ${isActive ? styles.navigationLinkActive : ''}`
@@ -82,6 +80,16 @@ export default function AdminShell() {
           >
             Exports
           </NavLink>
+          {user?.role === 'super_admin' ? (
+            <NavLink
+              className={({ isActive }) =>
+                `${styles.navigationLink} ${isActive ? styles.navigationLinkActive : ''}`
+              }
+              to="/admin/users"
+            >
+              Users
+            </NavLink>
+          ) : null}
         </div>
       </nav>
       <main id="admin-main-content" className={styles.main} tabIndex={-1}>

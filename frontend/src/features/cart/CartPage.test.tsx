@@ -3,6 +3,8 @@ import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, vi } from 'vitest';
 
 import { installFetchStub } from '../../test/fetchStub';
+import { AuthProvider } from '../auth/AuthContext';
+import { AUTH_STORAGE_KEY, resetAuthMemoryForTests } from '../auth/authStorage';
 import {
   getOrderAccessStorageKey,
   loadOrderAccess,
@@ -16,6 +18,77 @@ const ITEM_ID = '00000000-0000-4000-8000-000000000011';
 const SECOND_ITEM_ID = '00000000-0000-4000-8000-000000000012';
 const PUBLIC_ORDER_NUMBER = 'ROA-23456789ABCD';
 const ACCESS_TOKEN = 'guest-access-token-private-value';
+const AUTH_TOKEN = 'canonical-customer-token';
+const AUTH_USER = {
+  email: 'customer@example.invalid',
+  id: '11111111-1111-4111-8111-111111111111',
+  is_active: true,
+  role: 'customer',
+};
+
+interface CapturedRequest {
+  headers: Headers;
+  method: string;
+  url: string;
+}
+
+function seedAuthToken(accessToken = AUTH_TOKEN): void {
+  sessionStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ accessToken, version: 1 }));
+  resetAuthMemoryForTests();
+}
+
+function installAuthenticatedCartFetch(
+  options: {
+    meStatus?: number | 'pending';
+    orderStatus?: number;
+  } = {},
+): CapturedRequest[] {
+  const calls: CapturedRequest[] = [];
+  const fetchStub: typeof fetch = async (input, init) => {
+    const url = input instanceof Request ? input.url : input.toString();
+    calls.push({
+      headers: new Headers(init?.headers),
+      method: init?.method ?? 'GET',
+      url,
+    });
+    if (url.endsWith('/api/v1/auth/me')) {
+      if (options.meStatus === 'pending') {
+        return new Promise<Response>(() => undefined);
+      }
+      return new Response(
+        options.meStatus === undefined ? JSON.stringify(AUTH_USER) : null,
+        {
+          headers:
+            options.meStatus === undefined
+              ? { 'Content-Type': 'application/json' }
+              : undefined,
+          status: options.meStatus ?? 200,
+        },
+      );
+    }
+    if (url.endsWith('/api/v1/menu')) {
+      return Response.json(MENU);
+    }
+    if (url.endsWith('/api/v1/orders/quote')) {
+      return Response.json(quoteFor(1));
+    }
+    if (url.endsWith('/api/v1/orders')) {
+      return new Response(
+        options.orderStatus === undefined ? JSON.stringify(orderFor(1)) : null,
+        {
+          headers:
+            options.orderStatus === undefined
+              ? { 'Content-Type': 'application/json' }
+              : undefined,
+          status: options.orderStatus ?? 201,
+        },
+      );
+    }
+    throw new Error(`Unexpected test request: ${url}`);
+  };
+  vi.stubGlobal('fetch', vi.fn(fetchStub));
+  return calls;
+}
 
 const MENU = {
   categories: [
@@ -101,7 +174,16 @@ function seedCart(
 
 function LocationProbe() {
   const location = useLocation();
-  return <span data-testid="current-path">{location.pathname}</span>;
+  return (
+    <>
+      <span data-testid="current-path">
+        {location.pathname}
+        {location.search}
+        {location.hash}
+      </span>
+      <span data-testid="current-state">{JSON.stringify(location.state ?? null)}</span>
+    </>
+  );
 }
 
 function ExternalCartMutation() {
@@ -116,11 +198,13 @@ function ExternalCartMutation() {
 function renderCart(options: { externalMutation?: boolean } = {}) {
   return render(
     <MemoryRouter initialEntries={['/cart']}>
-      <CartProvider>
-        <CartPage />
-        {options.externalMutation === true && <ExternalCartMutation />}
-        <LocationProbe />
-      </CartProvider>
+      <AuthProvider>
+        <CartProvider>
+          <CartPage />
+          {options.externalMutation === true && <ExternalCartMutation />}
+          <LocationProbe />
+        </CartProvider>
+      </AuthProvider>
     </MemoryRouter>,
   );
 }
@@ -158,12 +242,14 @@ describe('CartPage', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     sessionStorage.clear();
+    resetAuthMemoryForTests();
   });
 
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
     sessionStorage.clear();
+    resetAuthMemoryForTests();
   });
 
   it('renders the empty state and never requests menu or quote', () => {
@@ -175,7 +261,7 @@ describe('CartPage', () => {
     expect(screen.getByText('Your cart is empty.')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Browse the menu' })).toHaveAttribute(
       'href',
-      '/',
+      '/menu',
     );
     expect(stub.calls).toHaveLength(0);
     expect(screen.queryByRole('button', { name: /place order|checkout/i })).toBeNull();
@@ -306,6 +392,10 @@ describe('CartPage', () => {
     expect(
       screen.getByRole('heading', { level: 3, name: 'Seasonal bowl' }),
     ).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Review menu' })).toHaveAttribute(
+      'href',
+      '/menu',
+    );
 
     fireEvent.click(screen.getByRole('button', { name: 'Retry quote' }));
     await advanceQuoteDebounce();
@@ -407,6 +497,10 @@ describe('CartPage', () => {
       }),
     ).toBeDisabled();
     expect(screen.getByRole('radio', { name: 'Takeaway' })).toBeChecked();
+    expect(screen.getByRole('link', { name: 'Continue browsing' })).toHaveAttribute(
+      'href',
+      '/menu',
+    );
     expect(screen.queryByLabelText('Table number')).not.toBeInTheDocument();
     expect(screen.queryByText(/checkout session|Stripe/i)).toBeNull();
   });
@@ -611,11 +705,94 @@ describe('CartPage', () => {
     );
     expect(loadOrderAccess(PUBLIC_ORDER_NUMBER)).toBe(ACCESS_TOKEN);
     expect(screen.queryByText(ACCESS_TOKEN)).not.toBeInTheDocument();
+    expect(screen.getByTestId('current-path')).not.toHaveTextContent(ACCESS_TOKEN);
+    expect(screen.getByTestId('current-state')).toHaveTextContent('null');
     expect(sessionStorage.getItem(CART_STORAGE_KEY)).toContain(ITEM_ID);
     expect(
       stub.calls.filter((call) => call.url.includes('checkout-session')),
     ).toHaveLength(0);
     expect(stub.calls.filter((call) => call.url === '/api/v1/orders')).toHaveLength(1);
+    expect(
+      stub.calls
+        .find((call) => call.url === '/api/v1/orders')
+        ?.headers.has('Authorization'),
+    ).toBe(false);
+  });
+
+  it('creates an owned order with Bearer and still stores its guest capability', async () => {
+    seedCart();
+    seedAuthToken();
+    const calls = installAuthenticatedCartFetch();
+    renderCart();
+    await flushAsyncWork();
+    await advanceQuoteDebounce();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Place order and continue to payment' }),
+    );
+    await flushAsyncWork();
+
+    const createCalls = calls.filter((call) => call.url.endsWith('/api/v1/orders'));
+    expect(createCalls).toHaveLength(1);
+    expect(createCalls[0]?.headers.get('Authorization')).toBe(`Bearer ${AUTH_TOKEN}`);
+    expect(createCalls[0]?.headers.has('X-Order-Access-Token')).toBe(false);
+    expect(loadOrderAccess(PUBLIC_ORDER_NUMBER)).toBe(ACCESS_TOKEN);
+    expect(sessionStorage.getItem(CART_STORAGE_KEY)).toContain(ITEM_ID);
+  });
+
+  it('blocks final creation while a stored session is still being checked', async () => {
+    seedCart();
+    seedAuthToken();
+    const calls = installAuthenticatedCartFetch({ meStatus: 'pending' });
+    renderCart();
+    await flushAsyncWork();
+    await advanceQuoteDebounce();
+
+    expect(
+      screen.getByText('Checking your session before order creation...'),
+    ).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: 'Place order and continue to payment' }),
+    ).toBeDisabled();
+    expect(calls.filter((call) => call.url.endsWith('/api/v1/orders'))).toHaveLength(0);
+  });
+
+  it('blocks guest fallback while saved-session validation is unavailable', async () => {
+    seedCart();
+    seedAuthToken();
+    const calls = installAuthenticatedCartFetch({ meStatus: 503 });
+    renderCart();
+    await flushAsyncWork();
+    await advanceQuoteDebounce();
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Session validation unavailable',
+    );
+    expect(
+      screen.getByRole('button', { name: 'Place order and continue to payment' }),
+    ).toBeDisabled();
+    expect(calls.filter((call) => call.url.endsWith('/api/v1/orders'))).toHaveLength(0);
+    expect(sessionStorage.getItem(CART_STORAGE_KEY)).toContain(ITEM_ID);
+  });
+
+  it('invalidates the request session on authenticated 401 without a guest retry', async () => {
+    seedCart();
+    seedAuthToken();
+    const calls = installAuthenticatedCartFetch({ orderStatus: 401 });
+    renderCart();
+    await flushAsyncWork();
+    await advanceQuoteDebounce();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Place order and continue to payment' }),
+    );
+    await flushAsyncWork();
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Session expired');
+    expect(calls.filter((call) => call.url.endsWith('/api/v1/orders'))).toHaveLength(1);
+    expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toBeNull();
+    expect(sessionStorage.getItem(CART_STORAGE_KEY)).toContain(ITEM_ID);
+    expect(loadOrderAccess(PUBLIC_ORDER_NUMBER)).toBeNull();
   });
 
   it('warns about an ambiguous network result without automatic retry', async () => {

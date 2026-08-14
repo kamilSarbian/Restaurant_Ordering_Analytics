@@ -26,12 +26,13 @@ job interview.
 - TypeScript;
 - Vite;
 - React Router;
-- React Context for the cart and administrator session;
+- React Context for the cart and canonical application authentication session;
 - CSS Modules and shared CSS design tokens;
 - native `fetch`, `sessionStorage`, Vitest, and React Testing Library.
 
-The implemented administrator frontend also uses React Context, native HTML/CSS,
-and feature-local rendering; Zustand and Recharts were not required.
+The customer, account, and administrator route trees share one canonical
+authentication Context. Feature-local rendering and native HTML/CSS remain
+sufficient; Zustand and Recharts were not required.
 
 ### Integrations and Infrastructure
 
@@ -803,11 +804,12 @@ boundaries:
 frontend/src/
 |-- api/adminApi.ts
 |-- components/admin/
-|-- features/admin-auth/
+|-- features/auth/
 |-- features/admin-orders/
 |-- features/admin-menu/
 |-- features/admin-analytics/
 |-- features/admin-exports/
+|-- features/admin-users/
 `-- routes/adminRoutes.tsx
 ```
 
@@ -815,20 +817,21 @@ frontend/src/
 creation, timeout/abort classification, and shared execution for JSON and Blob
 responses. Feature modules use native `fetch` only through this transport and
 strict feature-local parsers or request builders. There is no global Bearer
-interceptor, and customer/public transports cannot receive the administrator
-credential.
+interceptor. `adminApi` cannot attach Bearer outside its administrator
+allowlist; account and mixed-Order transports use separate explicit allowlists
+and may receive the same canonical session for any authenticated role.
 
-`AdminAuthContext` keeps the current opaque token in memory and uses the exact
-versioned `restaurant-ordering:admin-auth:v1` `sessionStorage` record containing
-only `version` and `accessToken`. A storage failure leaves a newly authenticated
-current-tab session usable in memory. `AdminRouteGuard` requires successful
-`/api/v1/admin/auth/me` validation before rendering `AdminShell`; a 401 clears
-the session, while a network or 503 validation failure preserves it behind an
-explicit retry state. The app never uses `localStorage`, and the token is never
-placed in a URL, DOM node, or log. Frontend logout clears this state because the
-current backend has no logout endpoint. The backend already issues canonical
-`user_access` from the legacy login alias; migration to the shared browser
-AuthContext remains Stage 16F.
+The application-wide `AuthContext` keeps the current opaque canonical token in
+memory and uses the exact versioned `restaurant-ordering:auth:v1`
+`sessionStorage` record containing only `version` and `accessToken`. A storage
+failure leaves a newly authenticated current-tab session usable in memory. The
+legacy `restaurant-ordering:admin-auth:v1` record is a one-time migration or
+cleanup input, not a second live session. Canonical `/api/v1/auth/me` validation
+must succeed before `AdminShell` renders; a current-session 401 clears that
+session, while network or 503 validation failure preserves it behind explicit
+retry. The app never uses `localStorage`, and no token enters a URL, Router
+state, DOM node, or log. Frontend logout clears this state because the backend
+has no logout endpoint.
 
 Order list/detail views remain read-only except for explicit detail actions
 derived from the current status. Mutation requires inline confirmation and
@@ -860,15 +863,27 @@ download helper accepts only a short quoted ASCII `.csv` filename or uses a
 fixed report fallback, clicks one temporary link, and always removes the link
 and revokes the object URL. No Blob or object URL is persisted.
 
+`/admin/users` is a separately guarded `super_admin` route over safe paginated
+GET and ordinary-role PATCH contracts. Customer rows expose Promote to admin;
+admin rows expose Demote to customer; super-admin rows are read-only. Every
+action requires confirmation, allows one PATCH in flight, performs no optimistic
+update, and is followed by an authoritative list GET. An ambiguous mutation
+outcome establishes a generation barrier, aborts or ignores any older list
+request, and locks mutation and pagination until an explicit reconciliation GET
+succeeds. A captured-session 401 is generation-safe; 403 refreshes canonical
+`/auth/me` state before role guards choose `/account`, `/admin`, or continued
+super-administrator access.
+
 ### 5.19. Implemented Customer Frontend Runtime
 
-Stage 15 established a guest-only React and TypeScript client. Its
-feature directories are `menu`, `cart`, `checkout`, and `order-status`.
-`src/api` owns transport and strict runtime response validation,
-`src/components` owns genuinely shared shell and notice components,
-`src/routes` owns the public route table, and `src/styles` owns global tokens
-and base rules. Stage 16 has since added the implemented administrator frontend
-described above. No customer-account state exists.
+Stage 15 established the guest Order flow. Stage 16F preserves it while adding
+`landing`, canonical `auth`, and personal `account` features to the same React
+and TypeScript application. The customer feature directories are `landing`,
+`auth`, `menu`, `cart`, `checkout`, `order-status`, and `account`; administrator
+features share the same authentication provider. `src/api` owns transport and
+strict runtime response validation, `src/components` owns genuinely shared
+shell and notice components, `src/routes` owns the unified route table, and
+`src/styles` owns global tokens and base rules.
 
 The browser is not a pricing or lifecycle authority. It sends item identifiers,
 quantities, order type, and an optional dine-in table number; FastAPI supplies
@@ -880,17 +895,20 @@ rendered DOM, or log.
 Browser persistence is limited to `sessionStorage` with these exact versioned
 keys:
 
+- `restaurant-ordering:auth:v1`;
 - `restaurant-ordering:cart:v1`;
 - `restaurant-ordering:order-access:v1:<PUBLIC_ORDER_NUMBER>`;
 - `restaurant-ordering:checkout-attempt:v1:<PUBLIC_ORDER_NUMBER>`.
 
-The cart record contains only menu-item identifiers and quantities. The order
-access record contains the guest credential for the current session. The
+The auth record contains only version and the opaque `user_access`; the legacy
+administrator-auth key is accepted only as a one-time migration candidate. The
+cart record contains only menu-item identifiers and quantities. The Order
+access record contains the independent capability for the current session. The
 Checkout record contains the public order number and canonical UUIDv4
-idempotency key, but no guest token, Checkout URL, Stripe identifier, or
-Payment identifier. The app never uses `localStorage`. Malformed persisted
-records are discarded; storage failures such as `SecurityError` leave the
-current in-memory flow usable where an in-memory value already exists.
+idempotency key, but no capability, Checkout URL, Stripe identifier, or Payment
+identifier. The app never uses `localStorage`. Malformed persisted records are
+discarded; storage failures such as `SecurityError` leave the current in-memory
+flow usable where an in-memory value already exists.
 
 The API layer accepts only paths below `/api/` and classifies failures as
 `http`, `network`, `timeout`, `aborted`, or `invalid-response`. Feature layers
@@ -901,7 +919,18 @@ Checkout preserves its idempotency key for network, timeout, 429, 503, and
 redirect failures and replaces it only through explicit customer action after
 a definitive 502.
 
-Fulfilment polling performs one request at a time. It requests immediately,
+Menu and quote requests remain anonymous. Order creation captures the current
+authentication generation: an unauthenticated request sends no Bearer, while
+an authenticated request sends canonical Bearer and becomes owned in the
+backend transaction. Both keep the independently returned capability. Checkout
+and status send Bearer for an authenticated session plus the capability when it
+is available; ownership works without capability, and capability remains valid
+for a guest or non-owner. Checking or temporarily unavailable authentication
+blocks these actions rather than silently selecting guest mode. An
+authenticated 401 invalidates only the captured session and is never retried
+anonymously. Stripe redirect navigation carries no application auth header.
+
+Owner-or-capability fulfilment polling performs one request at a time. It requests immediately,
 schedules the next normal request 8 seconds after settlement, and uses bounded
 8, 16, and 30 second delays after transient failures. It pauses when the page
 is hidden or offline, resumes immediately only when visible and online, and
@@ -958,11 +987,12 @@ Stage 16E public Order routes instead use optional canonical authentication:
 - creation and Checkout run their existing rate limiters before optional User
   resolution.
 
-The planned Stage 16F browser transport preserves explicit trust boundaries:
+The implemented browser transports preserve explicit trust boundaries:
 
 - `publicApi` sends no Bearer token;
-- `authenticatedApi` may send Bearer only to an explicit account-route
-  allowlist and to optional authenticated Order creation;
+- `authenticatedApi` sends Bearer only to an explicit account-route allowlist;
+- `customerApi` sends optional Bearer only for mixed-auth Order creation,
+  status, and Checkout contracts;
 - `adminApi` may send Bearer only to `/api/v1/admin/...`;
 - no global interceptor may attach the account token to arbitrary requests.
 
@@ -993,18 +1023,20 @@ discarding customer data. Migration validation uses only the disposable exact
 test database on the project PostgreSQL listener at 5433; it does not mutate the
 development database or host PostgreSQL at 5432.
 Migration `0008_add_order_ownership` is the schema-only child of 0007 and adds
-the nullable foreign key plus the composite owner-history index. Repository and
-Alembic head are 0008, while the local development database deliberately
-remains at 0006 until a separately approved `0006 -> 0007 -> 0008` migration
-operation.
+the nullable foreign key plus the composite owner-history index. Repository,
+Alembic, and the development database are now at 0008. The development upgrade
+ran additively through `0006 -> 0007 -> 0008` after an external backup; it
+preserved the historical administrator as an active `super_admin`, replaced
+`admin_users` with `users`, and verified the ownership foreign key and index.
+The project PostgreSQL remains exposed on host port 5433 to container port 5432;
+the separate host PostgreSQL service on port 5432 was untouched.
 
 Public registration always creates `customer`. The super-admin-only list API
 returns safe User fields and deterministic pagination. Its role PATCH locks the
 target row and allows only `customer <-> admin`; it cannot assign or modify a
-`super_admin`, mutate active state, or delete a User. The `/admin/users`
-frontend is not implemented. Order ownership and account Order-history API are
-implemented in Stage 16E; the shared authentication, account, and administrator
-User-management frontend remains planned for Stage 16F.
+`super_admin`, mutate active state, or delete a User. Stage 16F implements the
+shared authentication, personal account, and `/admin/users` frontend without
+expanding those backend permissions.
 Because every protected request reloads the User, a successful role change
 affects authorization immediately even when the client reuses the same token.
 
@@ -1027,15 +1059,77 @@ database work and exposes no owner, PII, capability, Payment, or Stripe data.
 Existing administrator Order DTOs remain unchanged and likewise do not expose
 ownership.
 
+### 5.21. Implemented Stage 16F Authentication and Route Architecture
+
+One application-wide `AuthContext` represents exactly four phases:
+`checking-session`, `authenticated`, `unauthenticated`, and
+`temporarily-unavailable`. It stores opaque canonical `user_access` in
+`restaurant-ordering:auth:v1` `sessionStorage` with a memory fallback, never in
+`localStorage`. A legacy `restaurant-ordering:admin-auth:v1` record is read only
+as a one-time migration candidate and is removed after validation or rejection.
+`GET /api/v1/auth/me` is the authority for the current role and `is_active`; the
+frontend never parses JWT claims for authorization.
+
+Validation, login, registration, refresh, and logout use request generations
+and AbortController cancellation so an older result cannot replace a newer
+session. Each protected operation captures both token and session generation.
+A 401 clears credentials only when that captured session is still current. An
+administrator 403 refreshes `/api/v1/auth/me` without first discarding the
+session, allowing current database role state to drive the route guard.
+
+The route and guard matrix is:
+
+| Boundary | Routes | Allowed identity |
+| --- | --- | --- |
+| public | `/`, `/menu`, `/cart`, `/login`, `/register`, `/orders/:publicOrderNumber/...`, `*` | anonymous or authenticated as the feature permits |
+| account | `/account`, `/account/orders/:publicOrderNumber` | every authenticated role, personal scope only |
+| operational admin | `/admin`, `/admin/orders...`, `/admin/menu`, `/admin/analytics`, `/admin/exports`, `/admin/*` | `admin` or `super_admin` |
+| User governance | `/admin/users` | `super_admin` only |
+| compatibility | `/admin/login` | redirect to `/login?next=%2Fadmin` |
+
+An unauthenticated protected-route visit goes to unified `/login` with a safe
+continuation. Customers rejected from administrator routes go to `/account`; an
+administrator rejected from `/admin/users` goes to `/admin`. The default after
+login or registration is `/account`. The `next` parser accepts only explicitly
+known same-origin routes and valid public Order numbers. It rejects external or
+protocol-relative URLs, backslashes, traversal, control characters, query or
+fragment injection, unsupported destinations, and auth loops. Credentials and
+capabilities never enter a URL or Router state.
+
+The customer credential matrix is:
+
+| Operation | Guest | Authenticated User |
+| --- | --- | --- |
+| menu and quote | no credential | no credential |
+| Order creation | no credential | Bearer |
+| public status | capability | Bearer plus optional capability |
+| Checkout | capability plus idempotency key | Bearer plus optional capability and idempotency key |
+| Stripe redirect | no application header | no application header |
+
+The account list and detail use strict canonical Bearer and never accept the
+guest capability. List pagination and detail authorization are owner-scoped in
+SQL. Both customer screens use safe DTOs; detail shares the query-free
+`OrderStatusSummary` renderer with public status and performs no polling.
+Generic 404 protects unknown, unowned, and cross-user Orders, while 503 keeps
+the canonical session available for retry.
+
+Stage 16F automated acceptance passed. The automated browser environment was
+unavailable, so the developer/user performed the required local-browser QA and
+confirmed the final build after FIX2 at 375x812, 768x1024, and 1280x800. The
+responsive fixes include long-email wrapping on the authenticated landing and
+User-role confirmation surfaces and direct Back to home navigation from login
+and registration. No manual QA blocker remains.
+
 ## 6. Architecture Diagram
 
 ```mermaid
 flowchart LR
-    Customer[Customer] --> ClientUI[React: menu and cart]
-    Admin[Administrator] --> AdminUI[React: administrator panel]
+    Guest[Guest] --> UI[Unified React application]
+    User[Registered User] --> UI
+    Admin[Administrator] --> UI
+    SuperAdmin[Super Administrator] --> UI
 
-    ClientUI -->|HTTPS / JSON| API[FastAPI modular monolith]
-    AdminUI -->|HTTPS / JSON + JWT| API
+    UI -->|HTTPS / JSON; optional capability or Bearer| API[FastAPI modular monolith]
 
     subgraph Backend[FastAPI]
         API --> Auth[auth]
@@ -1060,7 +1154,7 @@ flowchart LR
     Payments --> DB
 
     Payments -->|create Checkout Session| Stripe[Stripe Checkout]
-    ClientUI -->|redirect| Stripe
+    UI -->|header-free redirect| Stripe
     Stripe -->|signed webhook| Payments
 ```
 
@@ -1097,7 +1191,7 @@ Files such as `models.py`, `schemas.py`, `router.py`, and `service.py` are
 allowed within a module, but they are created only when the module actually
 needs the relevant responsibility.
 
-## 8. Implemented Stage 15 Customer Frontend Structure
+## 8. Implemented Stage 16F Unified Frontend Structure
 
 ```text
 frontend/
@@ -1105,14 +1199,21 @@ frontend/
 │   ├── api/
 │   ├── components/
 │   ├── features/
+│   │   ├── landing/
+│   │   ├── auth/
 │   │   ├── menu/
 │   │   ├── cart/
 │   │   ├── checkout/
-│   │   └── order-status/
+│   │   ├── order-status/
+│   │   ├── account/
+│   │   ├── admin-orders/
+│   │   ├── admin-menu/
+│   │   ├── admin-analytics/
+│   │   ├── admin-exports/
+│   │   └── admin-users/
 │   ├── routes/
 │   ├── styles/
 │   ├── test/
-│   ├── App.tsx
 │   └── main.tsx
 ├── index.html
 ├── package.json
@@ -1121,10 +1222,11 @@ frontend/
 ```
 
 Code is grouped primarily by feature. Shared components are placed in
-`components` only when they are genuinely shared. The tree above records the
-Stage 15 baseline. Stage 16 has since added the complete administrator auth,
-shell, orders, menu, analytics, and exports implementation described in Section
-5.18; user-performed manual responsive acceptance passed at the required
+`components` only when they are genuinely shared. One `AuthProvider` wraps the
+public, account, and administrator route trees. The historical Stage 15 guest
+features remain in place, while Stage 16F adds landing, shared authentication,
+personal account, and super-administrator governance without a second app root
+or auth silo. User-performed manual responsive acceptance passed at the required
 mobile, tablet, and desktop viewports.
 
 ## 9. Trust Boundaries and Data Integrity
@@ -1145,9 +1247,13 @@ mobile, tablet, and desktop viewports.
 - UUIDs are internal primary keys; public access to order status requires the
   `public_order_number` and either matching canonical ownership or a capability
   whose raw value is not stored.
-- Customer state uses current-session storage only. No guest credential or
-  Checkout URL is placed in a URL, persistent local storage, rendered DOM, or
-  application log.
+- Canonical role and activation authority comes from PostgreSQL through
+  `/api/v1/auth/me`, never from frontend JWT decoding.
+- Account reads require strict canonical Bearer and an owner predicate; an Order
+  capability provides no account authority or administrator bypass.
+- Customer and auth state use current-session storage only. No Bearer token,
+  Order capability, or Checkout URL is placed in a URL, Router state,
+  `localStorage`, rendered DOM, or application log.
 - Secrets do not enter the repository, the frontend image, or logs.
 
 ## 10. API Scope

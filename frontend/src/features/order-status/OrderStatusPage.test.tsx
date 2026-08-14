@@ -4,11 +4,20 @@ import { afterEach, beforeEach, vi } from 'vitest';
 
 import type { OrderStatus, OrderStatusResponse } from '../../api/types';
 import { installFetchStub } from '../../test/fetchStub';
-import { saveOrderAccess } from '../checkout/orderAccessStorage';
+import { AuthProvider } from '../auth/AuthContext';
+import { AUTH_STORAGE_KEY, resetAuthMemoryForTests } from '../auth/authStorage';
+import { loadOrderAccess, saveOrderAccess } from '../checkout/orderAccessStorage';
 import OrderStatusPage from './OrderStatusPage';
 
 const PUBLIC_ORDER_NUMBER = 'ROA-23456789ABCD';
 const TOKEN = 'private-guest-token-that-must-not-render';
+const AUTH_TOKEN = 'private-auth-token-that-must-not-render';
+const CURRENT_USER = {
+  email: 'customer@example.invalid',
+  id: '11111111-1111-4111-8111-111111111111',
+  is_active: true,
+  role: 'customer',
+};
 
 const VALID_STATUS: OrderStatusResponse = {
   created_at: '2026-08-11T15:00:00Z',
@@ -45,21 +54,36 @@ function responseFor(status: OrderStatus): OrderStatusResponse {
 function renderStatusPage(publicOrderNumber = PUBLIC_ORDER_NUMBER) {
   return render(
     <MemoryRouter initialEntries={[`/orders/${publicOrderNumber}/status`]}>
-      <Routes>
-        <Route path="/orders/:publicOrderNumber/status" element={<OrderStatusPage />} />
-      </Routes>
+      <AuthProvider>
+        <Routes>
+          <Route
+            path="/orders/:publicOrderNumber/status"
+            element={<OrderStatusPage />}
+          />
+        </Routes>
+      </AuthProvider>
     </MemoryRouter>,
+  );
+}
+
+function storeAuthToken(): void {
+  sessionStorage.setItem(
+    AUTH_STORAGE_KEY,
+    JSON.stringify({ accessToken: AUTH_TOKEN, version: 1 }),
   );
 }
 
 beforeEach(() => {
   sessionStorage.clear();
+  localStorage.clear();
 });
 
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
   sessionStorage.clear();
+  localStorage.clear();
+  resetAuthMemoryForTests();
 });
 
 describe('OrderStatusPage', () => {
@@ -73,7 +97,7 @@ describe('OrderStatusPage', () => {
     ).toBeVisible();
     expect(screen.getByRole('link', { name: 'Browse the menu' })).toHaveAttribute(
       'href',
-      '/',
+      '/menu',
     );
     expect(stub.calls).toHaveLength(0);
   });
@@ -100,7 +124,93 @@ describe('OrderStatusPage', () => {
     expect(
       await screen.findByRole('heading', { level: 2, name: 'Order received' }),
     ).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Browse the menu' })).toHaveAttribute(
+      'href',
+      '/menu',
+    );
     expect(screen.queryByText(TOKEN)).not.toBeInTheDocument();
+  });
+
+  it('loads an authenticated owner without guest capability', async () => {
+    storeAuthToken();
+    const stub = installFetchStub({ json: CURRENT_USER }, { json: VALID_STATUS });
+
+    renderStatusPage();
+
+    expect(
+      await screen.findByRole('heading', { level: 2, name: 'Order received' }),
+    ).toBeVisible();
+    const statusCall = stub.calls.find((call) =>
+      call.url.includes(PUBLIC_ORDER_NUMBER),
+    );
+    expect(statusCall?.headers.get('Authorization')).toBe(`Bearer ${AUTH_TOKEN}`);
+    expect(statusCall?.headers.has('X-Order-Access-Token')).toBe(false);
+  });
+
+  it('forwards both owner bearer and stored guest capability', async () => {
+    storeAuthToken();
+    saveOrderAccess(PUBLIC_ORDER_NUMBER, TOKEN);
+    const stub = installFetchStub({ json: CURRENT_USER }, { json: VALID_STATUS });
+
+    renderStatusPage();
+    await screen.findByRole('heading', { level: 2, name: 'Order received' });
+
+    const statusCall = stub.calls.find((call) =>
+      call.url.includes(PUBLIC_ORDER_NUMBER),
+    );
+    expect(statusCall?.headers.get('Authorization')).toBe(`Bearer ${AUTH_TOKEN}`);
+    expect(statusCall?.headers.get('X-Order-Access-Token')).toBe(TOKEN);
+  });
+
+  it('does not start a guest request while session validation is pending', async () => {
+    storeAuthToken();
+    saveOrderAccess(PUBLIC_ORDER_NUMBER, TOKEN);
+    const stub = installFetchStub({
+      responsePromise: new Promise<Response>(() => undefined),
+    });
+
+    renderStatusPage();
+
+    expect(
+      await screen.findByRole('heading', { name: 'Checking your session' }),
+    ).toBeVisible();
+    expect(stub.calls.map((call) => call.url)).toEqual(['/api/v1/auth/me']);
+  });
+
+  it('blocks capability fallback while saved-session validation is unavailable', async () => {
+    storeAuthToken();
+    saveOrderAccess(PUBLIC_ORDER_NUMBER, TOKEN);
+    const stub = installFetchStub({ status: 503 });
+
+    renderStatusPage();
+
+    expect(
+      await screen.findByRole('heading', { name: 'Session validation is unavailable' }),
+    ).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Retry validation' })).toBeEnabled();
+    expect(stub.calls.map((call) => call.url)).toEqual(['/api/v1/auth/me']);
+    expect(loadOrderAccess(PUBLIC_ORDER_NUMBER)).toBe(TOKEN);
+  });
+
+  it('invalidates an authenticated 401 without retrying as a guest', async () => {
+    storeAuthToken();
+    saveOrderAccess(PUBLIC_ORDER_NUMBER, TOKEN);
+    const stub = installFetchStub({ json: CURRENT_USER }, { status: 401 });
+
+    renderStatusPage();
+
+    expect(
+      await screen.findByRole('heading', { name: 'Your session expired' }),
+    ).toBeVisible();
+    expect(
+      stub.calls.filter((call) => call.url.includes(PUBLIC_ORDER_NUMBER)),
+    ).toHaveLength(1);
+    expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toBeNull();
+    expect(loadOrderAccess(PUBLIC_ORDER_NUMBER)).toBe(TOKEN);
+    expect(screen.getByRole('link', { name: 'Sign in' })).toHaveAttribute(
+      'href',
+      `/login?next=${encodeURIComponent(`/orders/${PUBLIC_ORDER_NUMBER}/status`)}`,
+    );
   });
 
   it.each([
