@@ -18,8 +18,13 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.auth.models import User
 from app.auth.roles import UserRole
-from app.auth.service import USER_AUDIENCE, USER_TOKEN_TYPE, UserTokenService
-from app.auth.tokens import ALGORITHM, ISSUER, AdminTokenService
+from app.auth.service import (
+    ALGORITHM,
+    ISSUER,
+    USER_AUDIENCE,
+    USER_TOKEN_TYPE,
+    UserTokenService,
+)
 from app.categories.models import Category
 from app.core.config import Settings
 from app.database.session import create_session_factory
@@ -47,6 +52,7 @@ SYNTHETIC_SECRET = "a" * 32
 OTHER_SYNTHETIC_SECRET = "o" * 32
 FIXED_NOW = datetime(2026, 8, 13, 12, tzinfo=UTC)
 ISSUED_AT = int(FIXED_NOW.timestamp())
+LEGACY_ADMIN_AUDIENCE = "restaurant-ordering-analytics-admin"
 
 
 @dataclass(frozen=True)
@@ -268,10 +274,6 @@ def test_account_routes_require_strict_canonical_current_user(
         menu_item_id,
         customer_user_id=owner_id,
     )
-    legacy_service = AdminTokenService(
-        SYNTHETIC_SECRET,
-        now_provider=lambda: FIXED_NOW,
-    )
     authorization_values: list[str | None] = [
         None,
         "Basic credentials",
@@ -280,7 +282,7 @@ def test_account_routes_require_strict_canonical_current_user(
         f"Bearer {_signed_canonical_token(owner_id, iss='wrong-issuer')}",
         f"Bearer {_signed_canonical_token(owner_id, aud='wrong-audience')}",
         f"Bearer {_signed_canonical_token(owner_id, secret=OTHER_SYNTHETIC_SECRET)}",
-        f"Bearer {legacy_service.create_access_token(owner_id)}",
+        f"Bearer {_signed_canonical_token(owner_id, type='admin_access', aud=LEGACY_ADMIN_AUDIENCE)}",
         f"Bearer {user_token_service.create_access_token(inactive_id)}",
         f"Bearer {user_token_service.create_access_token(uuid4())}",
     ]
@@ -710,6 +712,7 @@ def test_openapi_contains_exactly_two_strict_account_order_operations(
         LIST_PATH: {"get"},
         "/api/v1/account/orders/{public_order_number}": {"get"},
     }
+    assert set(document["components"]["securitySchemes"]) == {"UserBearer"}
     list_operation = document["paths"][LIST_PATH]["get"]
     detail_operation = document["paths"][
         "/api/v1/account/orders/{public_order_number}"

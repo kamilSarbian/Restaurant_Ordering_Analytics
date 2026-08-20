@@ -16,13 +16,12 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.auth.models import User
 from app.auth.roles import UserRole
-from app.auth.service import USER_AUDIENCE, USER_TOKEN_TYPE, UserTokenService
-from app.auth.tokens import (
+from app.auth.service import (
     ALGORITHM,
-    AUDIENCE,
     ISSUER,
-    TOKEN_TYPE,
-    AdminTokenService,
+    USER_AUDIENCE,
+    USER_TOKEN_TYPE,
+    UserTokenService,
 )
 from app.core.config import Settings
 from app.database.session import create_session_factory
@@ -33,6 +32,8 @@ pytestmark = pytest.mark.integration
 SYNTHETIC_SECRET = "r" * 32
 FIXED_NOW = datetime(2026, 8, 12, 12, tzinfo=UTC)
 ISSUED_AT = int(FIXED_NOW.timestamp())
+LEGACY_AUDIENCE = "restaurant-ordering-analytics-admin"
+LEGACY_TOKEN_TYPE = "admin_access"
 RANGE_PARAMS = {
     "start": "2026-01-01T00:00:00Z",
     "end": "2026-01-02T00:00:00Z",
@@ -72,16 +73,9 @@ def user_token_service() -> UserTokenService:
 
 
 @pytest.fixture
-def legacy_token_service() -> AdminTokenService:
-    """Create deterministic legacy validation tokens for transition tests."""
-    return AdminTokenService(SYNTHETIC_SECRET, now_provider=lambda: FIXED_NOW)
-
-
-@pytest.fixture
 def client(
     authorization_session_factory: sessionmaker[Session],
     user_token_service: UserTokenService,
-    legacy_token_service: AdminTokenService,
 ) -> Generator[TestClient, None, None]:
     """Run unchanged domain routers behind the centralized dependency."""
     application = create_app(
@@ -92,7 +86,6 @@ def client(
         ),
         session_factory=authorization_session_factory,
         user_token_service=user_token_service,
-        admin_token_service=legacy_token_service,
     )
     with TestClient(application) as test_client:
         yield test_client
@@ -157,32 +150,38 @@ def test_canonical_user_access_uses_current_role_for_each_admin_family(
 
 
 @pytest.mark.parametrize(
-    ("role", "expected_status"),
-    [
-        (UserRole.CUSTOMER, 403),
-        (UserRole.ADMIN, 200),
-        (UserRole.SUPER_ADMIN, 200),
-    ],
+    "role",
+    [UserRole.CUSTOMER, UserRole.ADMIN, UserRole.SUPER_ADMIN],
 )
-def test_legacy_admin_access_uses_current_database_role(
+def test_legacy_admin_access_is_rejected_for_every_database_role(
     client: TestClient,
     authorization_session_factory: sessionmaker[Session],
-    legacy_token_service: AdminTokenService,
     role: UserRole,
-    expected_status: int,
 ) -> None:
-    """Treat legacy token type as identity only, never as administrator proof."""
+    """Reject signed admin_access without consulting its stored User role."""
     user_id = _store_user(authorization_session_factory, role=role)
-    token = legacy_token_service.create_access_token(user_id)
+    token = jwt.encode(
+        {
+            "sub": str(user_id),
+            "type": LEGACY_TOKEN_TYPE,
+            "iat": ISSUED_AT,
+            "exp": ISSUED_AT + 1800,
+            "iss": ISSUER,
+            "aud": LEGACY_AUDIENCE,
+        },
+        SYNTHETIC_SECRET,
+        algorithm=ALGORITHM,
+    )
     response = _read_admin(client, ADMIN_READS[0][1], {}, token)
-    assert response.status_code == expected_status
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Invalid authentication credentials"}
 
 
 @pytest.mark.parametrize(
     ("token_type", "audience", "issuer"),
     [
-        (USER_TOKEN_TYPE, AUDIENCE, ISSUER),
-        (TOKEN_TYPE, USER_AUDIENCE, ISSUER),
+        (USER_TOKEN_TYPE, LEGACY_AUDIENCE, ISSUER),
+        (LEGACY_TOKEN_TYPE, USER_AUDIENCE, ISSUER),
         (None, USER_AUDIENCE, ISSUER),
         ("unknown_access", USER_AUDIENCE, ISSUER),
         (USER_TOKEN_TYPE, USER_AUDIENCE, "wrong-issuer"),
@@ -215,10 +214,10 @@ def test_confused_or_incomplete_token_contracts_are_rejected(
     assert response.status_code == 401
 
 
-def test_canonical_auth_config_builds_both_strict_role_aware_validators(
+def test_canonical_auth_config_builds_only_the_user_access_validator(
     authorization_session_factory: sessionmaker[Session],
 ) -> None:
-    """Use one canonical key while retaining isolated token-family contracts."""
+    """Build one canonical validator without restoring legacy runtime state."""
     user_id = _store_user(
         authorization_session_factory,
         role=UserRole.SUPER_ADMIN,
@@ -233,10 +232,9 @@ def test_canonical_auth_config_builds_both_strict_role_aware_validators(
         session_factory=authorization_session_factory,
     )
     canonical = application.state.user_token_service.create_access_token(user_id)
-    legacy = application.state.admin_token_service.create_access_token(user_id)
+    assert not hasattr(application.state, "admin_token_service")
     with TestClient(application) as client:
-        for token in (canonical, legacy):
-            assert _read_admin(client, ADMIN_READS[0][1], {}, token).status_code == 200
+        assert _read_admin(client, ADMIN_READS[0][1], {}, canonical).status_code == 200
 
 
 @pytest.mark.parametrize("token", [None, "not-a-jwt"])
@@ -270,28 +268,36 @@ def test_inactive_and_missing_users_return_401(
         assert response.status_code == 401
 
 
-@pytest.mark.parametrize("legacy", [False, True])
-def test_same_token_loses_access_immediately_after_database_demotion(
+@pytest.mark.parametrize(
+    ("new_role", "is_active", "expected_status", "expected_detail"),
+    [
+        (UserRole.CUSTOMER, True, 403, "Administrator access required"),
+        (UserRole.ADMIN, False, 401, "Invalid authentication credentials"),
+    ],
+)
+def test_same_token_reflects_database_role_and_activity_changes(
     client: TestClient,
     authorization_session_factory: sessionmaker[Session],
     user_token_service: UserTokenService,
-    legacy_token_service: AdminTokenService,
-    legacy: bool,
+    new_role: UserRole,
+    is_active: bool,
+    expected_status: int,
+    expected_detail: str,
 ) -> None:
-    """Prove current DB role authority for canonical and legacy token families."""
+    """Prove current DB role and activity authority for canonical tokens."""
     user_id = _store_user(authorization_session_factory, role=UserRole.ADMIN)
-    service = legacy_token_service if legacy else user_token_service
-    token = service.create_access_token(user_id)
+    token = user_token_service.create_access_token(user_id)
     assert _read_admin(client, ADMIN_READS[0][1], {}, token).status_code == 200
 
     with authorization_session_factory.begin() as session:
         user = session.get(User, user_id)
         assert user is not None
-        user.role = UserRole.CUSTOMER
+        user.role = new_role
+        user.is_active = is_active
 
     response = _read_admin(client, ADMIN_READS[0][1], {}, token)
-    assert response.status_code == 403
-    assert response.json() == {"detail": "Administrator access required"}
+    assert response.status_code == expected_status
+    assert response.json() == {"detail": expected_detail}
 
 
 def test_database_failure_returns_safe_503(

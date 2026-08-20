@@ -6,6 +6,7 @@ from collections.abc import Generator
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
+import jwt
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import delete, event
@@ -17,8 +18,11 @@ from app.auth.dependencies import require_super_admin
 from app.auth.models import User
 from app.auth.roles import UserRole
 from app.auth.schemas import AdminPrincipal
-from app.auth.service import UserTokenService
-from app.auth.tokens import AdminTokenService
+from app.auth.service import (
+    ALGORITHM,
+    ISSUER,
+    UserTokenService,
+)
 from app.core.config import Settings
 from app.database.session import create_session_factory
 from app.main import create_app
@@ -30,6 +34,7 @@ ADMIN_ORDERS_PATH = "/api/v1/admin/orders"
 ME_PATH = "/api/v1/auth/me"
 SYNTHETIC_SECRET = "m" * 32
 FIXED_NOW = datetime(2026, 8, 12, 12, tzinfo=UTC)
+LEGACY_AUDIENCE = "restaurant-ordering-analytics-admin"
 SAFE_LIST_FIELDS = {
     "id",
     "email",
@@ -66,27 +71,19 @@ def user_token_service() -> UserTokenService:
 
 
 @pytest.fixture
-def legacy_token_service() -> AdminTokenService:
-    """Create deterministic legacy token validation for compatibility tests."""
-    return AdminTokenService(SYNTHETIC_SECRET, now_provider=lambda: FIXED_NOW)
-
-
-@pytest.fixture
 def application(
     user_session_factory: sessionmaker[Session],
     user_token_service: UserTokenService,
-    legacy_token_service: AdminTokenService,
 ):
-    """Build the API with isolated persistence and both strict token families."""
+    """Build the API with isolated persistence and canonical token validation."""
     return create_app(
         settings=Settings(
             _env_file=None,
             database_url=None,
-            admin_jwt_secret=None,
+            auth_jwt_secret=None,
         ),
         session_factory=user_session_factory,
         user_token_service=user_token_service,
-        admin_token_service=legacy_token_service,
     )
 
 
@@ -173,25 +170,32 @@ def test_canonical_token_uses_exact_current_super_admin_role(
 
 
 @pytest.mark.parametrize(
-    ("role", "expected_status"),
-    [
-        (UserRole.CUSTOMER, 403),
-        (UserRole.ADMIN, 403),
-        (UserRole.SUPER_ADMIN, 200),
-    ],
+    "role",
+    [UserRole.CUSTOMER, UserRole.ADMIN, UserRole.SUPER_ADMIN],
 )
-def test_legacy_token_uses_exact_current_super_admin_role(
+def test_legacy_admin_access_is_rejected_for_every_current_role(
     client: TestClient,
     user_session_factory: sessionmaker[Session],
-    legacy_token_service: AdminTokenService,
     role: UserRole,
-    expected_status: int,
 ) -> None:
-    """Accept strict admin_access only for a current super-administrator."""
+    """Reject signed admin_access before applying super-administrator RBAC."""
     user_id = _store_user(user_session_factory, role=role)
-    token = legacy_token_service.create_access_token(user_id)
+    issued_at = int(FIXED_NOW.timestamp())
+    token = jwt.encode(
+        {
+            "sub": str(user_id),
+            "type": "admin_access",
+            "iat": issued_at,
+            "exp": issued_at + 1800,
+            "iss": ISSUER,
+            "aud": LEGACY_AUDIENCE,
+        },
+        SYNTHETIC_SECRET,
+        algorithm=ALGORITHM,
+    )
     response = client.get(USERS_PATH, headers=_authorization(token))
-    assert response.status_code == expected_status
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Invalid authentication credentials"}
 
 
 @pytest.mark.parametrize("missing", [False, True])
@@ -489,7 +493,7 @@ def test_changed_role_is_immediately_visible_in_list_and_me(
     assert me.json()["role"] == "admin"
 
 
-def test_demotion_revokes_admin_access_with_same_token(
+def test_demotion_revokes_administrator_route_access_with_same_token(
     client: TestClient,
     user_session_factory: sessionmaker[Session],
     user_token_service: UserTokenService,
@@ -516,7 +520,7 @@ def test_demotion_revokes_admin_access_with_same_token(
     )
 
 
-def test_promotion_grants_admin_access_with_same_token(
+def test_promotion_grants_administrator_route_access_with_same_token(
     client: TestClient,
     user_session_factory: sessionmaker[Session],
     user_token_service: UserTokenService,

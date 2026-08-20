@@ -18,8 +18,13 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.auth.models import User
 from app.auth.roles import UserRole
-from app.auth.service import USER_AUDIENCE, USER_TOKEN_TYPE, UserTokenService
-from app.auth.tokens import ALGORITHM, ISSUER, AdminTokenService
+from app.auth.service import (
+    ALGORITHM,
+    ISSUER,
+    USER_AUDIENCE,
+    USER_TOKEN_TYPE,
+    UserTokenService,
+)
 from app.categories.models import Category
 from app.core.config import Settings
 from app.database.session import create_session_factory
@@ -43,6 +48,7 @@ SYNTHETIC_SECRET = "s" * 32
 OTHER_SYNTHETIC_SECRET = "o" * 32
 FIXED_NOW = datetime(2026, 8, 13, 12, tzinfo=UTC)
 ISSUED_AT = int(FIXED_NOW.timestamp())
+LEGACY_ADMIN_AUDIENCE = "restaurant-ordering-analytics-admin"
 
 
 @dataclass(frozen=True)
@@ -413,10 +419,6 @@ def test_invalid_present_authorization_never_falls_back_to_valid_capability(
     """Reject every unusable token family before evaluating guest capability."""
     user_id = _store_user(status_session_factory)
     stored = _store_order(status_session_factory, customer_user_id=user_id)
-    legacy_service = AdminTokenService(
-        SYNTHETIC_SECRET,
-        now_provider=lambda: FIXED_NOW,
-    )
     authorization_values = [
         "",
         "Bearer",
@@ -428,7 +430,7 @@ def test_invalid_present_authorization_never_falls_back_to_valid_capability(
         f"Bearer {_signed_canonical_token(user_id, iss='wrong-issuer')}",
         f"Bearer {_signed_canonical_token(user_id, aud='wrong-audience')}",
         f"Bearer {_signed_canonical_token(user_id, type='admin_access')}",
-        f"Bearer {legacy_service.create_access_token(user_id)}",
+        f"Bearer {_signed_canonical_token(user_id, type='admin_access', aud=LEGACY_ADMIN_AUDIENCE)}",
     ]
     application = _application(
         status_session_factory,
@@ -772,11 +774,7 @@ def test_openapi_documents_optional_owner_or_capability_status_access(
     status_schema_text = str(document["components"]["schemas"]["OrderStatusResponse"])
     assert "Payment" not in status_schema_text
     assert "Stripe" not in status_schema_text
-    assert document["components"]["securitySchemes"]["AdminBearer"] == {
-        "type": "http",
-        "scheme": "bearer",
-        "bearerFormat": "JWT",
-    }
+    assert set(document["components"]["securitySchemes"]) == {"UserBearer"}
 
 
 def test_post_order_creation_is_documented(client: TestClient) -> None:

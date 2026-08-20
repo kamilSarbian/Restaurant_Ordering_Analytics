@@ -1,4 +1,4 @@
-"""Unit tests for administrator authentication schemas."""
+"""Unit tests for canonical and operational authentication schemas."""
 
 from __future__ import annotations
 
@@ -8,13 +8,9 @@ import email_validator.deliverability
 import pytest
 from pydantic import SecretStr, ValidationError
 
-from app.auth.schemas import (
-    AdminLoginRequest,
-    AdminMeResponse,
-    AdminPrincipal,
-    AdminTokenResponse,
-    normalize_admin_email,
-)
+from app.auth.roles import UserRole
+from app.auth.schemas import AdminPrincipal, normalize_admin_email
+from app.auth.user_schemas import CurrentUserResponse, TokenResponse, UserLoginRequest
 
 ADMIN_ID = UUID("f47ac10b-58cc-4372-a567-0e02b2c3d479")
 
@@ -51,7 +47,7 @@ def test_normalize_admin_email_never_checks_dns(
 def test_login_password_accepts_approved_boundaries(length: int) -> None:
     """Accept the full 1 through 128 code-point login-input range."""
     password = "p" * length
-    request = AdminLoginRequest(email="admin@example.com", password=password)
+    request = UserLoginRequest(email="admin@example.com", password=password)
     assert request.password.get_secret_value() == password
 
 
@@ -59,26 +55,26 @@ def test_login_password_accepts_approved_boundaries(length: int) -> None:
 def test_login_password_rejects_values_outside_boundaries(password: str) -> None:
     """Reject empty and overlong login password inputs."""
     with pytest.raises(ValidationError):
-        AdminLoginRequest(email="admin@example.com", password=password)
+        UserLoginRequest(email="admin@example.com", password=password)
 
 
 def test_login_password_preserves_unicode_and_whitespace() -> None:
     """Preserve exact Unicode password input without trimming or normalization."""
     password = "  \N{LATIN SMALL LETTER E WITH ACUTE}\N{BULLET}  "
-    request = AdminLoginRequest(email="admin@example.com", password=password)
+    request = UserLoginRequest(email="admin@example.com", password=password)
     assert request.password.get_secret_value() == password
 
 
 def test_login_password_does_not_apply_bootstrap_minimum() -> None:
     """Keep login validation distinct from the 15-character bootstrap policy."""
-    request = AdminLoginRequest(email="admin@example.com", password="short")
+    request = UserLoginRequest(email="admin@example.com", password="short")
     assert request.password.get_secret_value() == "short"
 
 
 def test_login_request_uses_secretstr_without_repr_leakage() -> None:
     """Hide the raw login password from ordinary model representations."""
     password = "synthetic-login-password"
-    request = AdminLoginRequest(email="admin@example.com", password=password)
+    request = UserLoginRequest(email="admin@example.com", password=password)
     assert isinstance(request.password, SecretStr)
     assert password not in repr(request)
     assert password not in str(request)
@@ -88,11 +84,11 @@ def test_login_request_uses_secretstr_without_repr_leakage() -> None:
     ("model_type", "values"),
     [
         (
-            AdminLoginRequest,
+            UserLoginRequest,
             {"email": "admin@example.com", "password": "p", "role": "admin"},
         ),
         (
-            AdminTokenResponse,
+            TokenResponse,
             {
                 "access_token": "synthetic-token",
                 "token_type": "bearer",
@@ -101,13 +97,19 @@ def test_login_request_uses_secretstr_without_repr_leakage() -> None:
             },
         ),
         (
-            AdminMeResponse,
-            {"email": "admin@example.com", "is_active": True, "role": "admin"},
+            CurrentUserResponse,
+            {
+                "id": ADMIN_ID,
+                "email": "admin@example.com",
+                "role": "admin",
+                "is_active": True,
+                "extra": "forbidden",
+            },
         ),
     ],
 )
-def test_public_admin_schemas_forbid_extra_fields(
-    model_type: type[AdminLoginRequest | AdminTokenResponse | AdminMeResponse],
+def test_public_auth_schemas_forbid_extra_fields(
+    model_type: type[UserLoginRequest | TokenResponse | CurrentUserResponse],
     values: dict[str, object],
 ) -> None:
     """Reject fields outside each exact public authentication contract."""
@@ -117,12 +119,12 @@ def test_public_admin_schemas_forbid_extra_fields(
 
 def test_token_response_has_exact_fields_and_constraints() -> None:
     """Expose only a nonempty bearer token and positive relative lifetime."""
-    response = AdminTokenResponse(
+    response = TokenResponse(
         access_token="synthetic-token",
         token_type="bearer",
         expires_in=1800,
     )
-    assert set(AdminTokenResponse.model_fields) == {
+    assert set(TokenResponse.model_fields) == {
         "access_token",
         "token_type",
         "expires_in",
@@ -138,14 +140,29 @@ def test_token_response_has_exact_fields_and_constraints() -> None:
         {"access_token": "synthetic-token", "token_type": "bearer", "expires_in": 0},
     ):
         with pytest.raises(ValidationError):
-            AdminTokenResponse(**values)
+            TokenResponse(**values)
 
 
 def test_me_response_has_exact_fields_and_normalized_email() -> None:
-    """Expose only normalized email and active state for the current admin."""
-    response = AdminMeResponse(email=" Admin@EXAMPLE.COM ", is_active=True)
-    assert set(AdminMeResponse.model_fields) == {"email", "is_active"}
-    assert response.model_dump() == {"email": "admin@example.com", "is_active": True}
+    """Expose the exact database-authoritative current-user identity."""
+    response = CurrentUserResponse(
+        id=ADMIN_ID,
+        email=" Admin@EXAMPLE.COM ",
+        role=UserRole.ADMIN,
+        is_active=True,
+    )
+    assert set(CurrentUserResponse.model_fields) == {
+        "id",
+        "email",
+        "role",
+        "is_active",
+    }
+    assert response.model_dump() == {
+        "id": ADMIN_ID,
+        "email": "admin@example.com",
+        "role": UserRole.ADMIN,
+        "is_active": True,
+    }
 
 
 def test_admin_principal_is_exact_normalized_and_immutable() -> None:

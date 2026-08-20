@@ -18,12 +18,13 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.auth.models import User
 from app.auth.roles import UserRole
 from app.auth.service import (
+    ALGORITHM,
+    ISSUER,
     USER_AUDIENCE,
     USER_TOKEN_TYPE,
     UserTokenClaims,
     UserTokenService,
 )
-from app.auth.tokens import ALGORITHM, ISSUER, AdminTokenService
 from app.core.config import Settings
 from app.core.rate_limit import FixedWindowRateLimiter
 from app.database.session import create_session_factory
@@ -55,6 +56,7 @@ CHECKOUT_PATH = "/api/v1/orders/{public_order_number}/checkout-session"
 SYNTHETIC_SECRET = "s" * 32
 OTHER_SYNTHETIC_SECRET = "o" * 32
 ISSUED_AT = int(NOW.timestamp())
+LEGACY_ADMIN_AUDIENCE = "restaurant-ordering-analytics-admin"
 
 
 class FakeClock:
@@ -555,10 +557,6 @@ def test_invalid_or_legacy_token_never_falls_back_to_checkout_capability(
     """Reject strict canonical failures and the legacy token family first."""
     user_id = _store_user(api_session_factory)
     _, public_number, token = _store_order(api_session_factory)
-    legacy_service = AdminTokenService(
-        SYNTHETIC_SECRET,
-        now_provider=lambda: NOW,
-    )
     tokens = [
         "not-a-jwt",
         _signed_canonical_token(user_id, exp=ISSUED_AT),
@@ -566,7 +564,11 @@ def test_invalid_or_legacy_token_never_falls_back_to_checkout_capability(
         _signed_canonical_token(user_id, iss="wrong-issuer"),
         _signed_canonical_token(user_id, aud="wrong-audience"),
         _signed_canonical_token(user_id, type="admin_access"),
-        legacy_service.create_access_token(user_id),
+        _signed_canonical_token(
+            user_id,
+            type="admin_access",
+            aud=LEGACY_ADMIN_AUDIENCE,
+        ),
     ]
     fake = FakeStripeClient()
     application = _application(
@@ -1173,6 +1175,7 @@ def test_openapi_documents_the_complete_checkout_transport_contract(
     } <= set(operation["responses"])
     assert operation["security"] == [{"UserBearer": []}, {}]
     assert {"AdminBearer": []} not in operation["security"]
+    assert set(document["components"]["securitySchemes"]) == {"UserBearer"}
     assert response_schema["$ref"].endswith("/CheckoutSessionResponse")
     schema_text = str(document["components"]["schemas"]["CheckoutSessionResponse"])
     assert all(

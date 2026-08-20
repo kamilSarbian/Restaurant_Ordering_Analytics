@@ -18,12 +18,13 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.auth.models import User
 from app.auth.roles import UserRole
 from app.auth.service import (
+    ALGORITHM,
+    ISSUER,
     USER_AUDIENCE,
     USER_TOKEN_TYPE,
     UserTokenClaims,
     UserTokenService,
 )
-from app.auth.tokens import ALGORITHM, ISSUER, AdminTokenService
 from app.categories.models import Category
 from app.core.config import Settings
 from app.core.rate_limit import FixedWindowRateLimiter
@@ -46,6 +47,7 @@ SYNTHETIC_SECRET = "c" * 32
 OTHER_SYNTHETIC_SECRET = "o" * 32
 FIXED_NOW = datetime(2026, 8, 13, 12, tzinfo=UTC)
 ISSUED_AT = int(FIXED_NOW.timestamp())
+LEGACY_ADMIN_AUDIENCE = "restaurant-ordering-analytics-admin"
 
 
 @dataclass(frozen=True)
@@ -450,10 +452,6 @@ def test_invalid_canonical_and_legacy_tokens_create_no_order(
 ) -> None:
     """Reject malformed, expired, isolated-family, and forged Bearer tokens."""
     user_id = _store_user(creation_session_factory)
-    legacy_service = AdminTokenService(
-        SYNTHETIC_SECRET,
-        now_provider=lambda: FIXED_NOW,
-    )
     invalid_tokens = [
         "not-a-jwt",
         _signed_canonical_token(
@@ -464,7 +462,11 @@ def test_invalid_canonical_and_legacy_tokens_create_no_order(
         _signed_canonical_token(user_id, aud="wrong-audience"),
         _signed_canonical_token(user_id, type="admin_access"),
         _signed_canonical_token(user_id, secret=OTHER_SYNTHETIC_SECRET),
-        legacy_service.create_access_token(user_id),
+        _signed_canonical_token(
+            user_id,
+            type="admin_access",
+            aud=LEGACY_ADMIN_AUDIENCE,
+        ),
     ]
     application = _application(
         creation_session_factory,
@@ -1118,6 +1120,7 @@ def test_openapi_documents_creation_without_payment_or_internal_fields(
         "description": "Canonical registered-user access token",
         "bearerFormat": "JWT user_access",
     }
+    assert set(document["components"]["securitySchemes"]) == {"UserBearer"}
     assert "AdminBearer" not in operation["security"][0]
     request_schema = document["components"]["schemas"]["OrderCreateRequest"]
     assert request_schema["description"] == (

@@ -17,9 +17,9 @@ from sqlalchemy import delete, event, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.auth.models import AdminUser
+from app.auth.models import User
 from app.auth.roles import UserRole
-from app.auth.tokens import AdminTokenService
+from app.auth.service import UserTokenService
 from app.categories.models import Category
 from app.core.config import Settings
 from app.database.session import create_session_factory
@@ -139,7 +139,7 @@ def empty_export_tables(
             connection.execute(delete(RestaurantTable))
             connection.execute(delete(MenuItem))
             connection.execute(delete(Category))
-            connection.execute(delete(AdminUser))
+            connection.execute(delete(User))
 
     clear()
     try:
@@ -157,15 +157,15 @@ def export_session_factory(
 
 
 @pytest.fixture
-def token_service() -> AdminTokenService:
+def token_service() -> UserTokenService:
     """Create a deterministic synthetic administrator token service."""
-    return AdminTokenService(SYNTHETIC_SECRET, now_provider=lambda: FIXED_NOW)
+    return UserTokenService(SYNTHETIC_SECRET, now_provider=lambda: FIXED_NOW)
 
 
 @pytest.fixture
 def export_client(
     export_session_factory: sessionmaker[Session],
-    token_service: AdminTokenService,
+    token_service: UserTokenService,
 ) -> Generator[ExportClient, None, None]:
     """Run the export route with one active synthetic administrator."""
     admin_id = _store_admin(export_session_factory)
@@ -180,16 +180,16 @@ def export_client(
 
 def _application(
     session_factory: sessionmaker[Session],
-    token_service: AdminTokenService | None,
+    token_service: UserTokenService | None,
 ):
     return create_app(
         settings=Settings(
             _env_file=None,
             database_url=None,
-            admin_jwt_secret=None,
+            auth_jwt_secret=None,
         ),
         session_factory=session_factory,
-        admin_token_service=token_service,
+        user_token_service=token_service,
     )
 
 
@@ -199,7 +199,7 @@ def _store_admin(
     is_active: bool = True,
 ) -> UUID:
     with session_factory.begin() as session:
-        admin = AdminUser(
+        admin = User(
             email=f"export-{uuid.uuid4().hex}@example.com",
             password_hash="synthetic-password-hash",
             role=UserRole.SUPER_ADMIN,
@@ -433,7 +433,7 @@ def _assert_auth_failure(response) -> None:
 @pytest.mark.parametrize("authorization", [None, "Bearer malformed-token"])
 def test_orders_export_rejects_missing_or_malformed_token(
     export_session_factory: sessionmaker[Session],
-    token_service: AdminTokenService,
+    token_service: UserTokenService,
     authorization: str | None,
 ) -> None:
     application = _application(export_session_factory, token_service)
@@ -445,7 +445,7 @@ def test_orders_export_rejects_missing_or_malformed_token(
 
 def test_orders_export_rejects_inactive_admin(
     export_session_factory: sessionmaker[Session],
-    token_service: AdminTokenService,
+    token_service: UserTokenService,
 ) -> None:
     admin_id = _store_admin(export_session_factory, is_active=False)
     token = token_service.create_access_token(admin_id)
@@ -784,7 +784,7 @@ def test_analytics_exports_require_admin_and_accept_valid_admin(
 
 def test_analytics_exports_share_representative_auth_failures(
     export_session_factory: sessionmaker[Session],
-    token_service: AdminTokenService,
+    token_service: UserTokenService,
 ) -> None:
     application = _application(export_session_factory, token_service)
     with TestClient(application) as client:

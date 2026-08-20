@@ -126,10 +126,8 @@ only the race-sensitive check and insert. Customer and admin rows do not block
 the first super-admin, while any active or inactive super-admin does. Concurrent
 attempts therefore insert exactly one first super-admin.
 
-Canonical registration creates only a customer. Canonical login and the legacy
-administrator alias use exact User lookup plus real or dummy Argon2
-verification. The administrator alias rejects a customer with the same generic
-credential failure and production login routes issue only `user_access`.
+Canonical registration creates only a customer. Canonical login uses exact User
+lookup plus real or dummy Argon2 verification and issues only `user_access`.
 
 The protected-request flow is `strict JWT validation -> current active User
 SELECT -> database role check -> endpoint`. `get_current_user` accepts canonical
@@ -297,8 +295,8 @@ strict aware-range, uppercase-currency, order-status, and order-type query
 contracts and reject unknown parameters. CSV utilities own UTF-8-SIG encoding,
 the single BOM, comma/minimal-quoting/CRLF dialect, formula safety, NUL removal,
 deterministic filenames, and Europe/Oslo datetime formatting. The service owns
-set-based data retrieval and CSV row mapping. The router owns the existing
-AdminBearer boundary and the CSV HTTP response headers.
+set-based data retrieval and CSV row mapping. The router owns the canonical
+`UserBearer` boundary and the CSV HTTP response headers.
 
 The reports service reuses the analytics service's qualified
 succeeded-Payment source. Product aggregation is also shared: Stage 13 JSON
@@ -521,8 +519,9 @@ normalized lowercase email, nonblank Argon2id hash, active flag, aware
 timestamps, and exactly one constrained role: `customer`, `admin`, or
 `super_admin`. The role is a `VARCHAR`, is non-null, has a database `CHECK`, and
 has no server default. There is no Role table, join table, token version, reset,
-MFA, plaintext password, or relationship to guest orders. `AdminUser` is only a
-temporary Python import alias for this mapped User.
+MFA, plaintext password, or relationship to guest orders. The temporary
+`AdminUser` Python import alias used during the identity migration was removed
+by Stage 16G; runtime code uses `User` only.
 
 ### 5.10. Local Demonstration Seed
 
@@ -727,34 +726,31 @@ the normalized identity is absent. No static dummy credential or hash exists.
 
 The token service uses only HS256 and requires at least 32 UTF-8 bytes of key
 material. Tokens contain exactly `sub`, `type`, `iat`, `exp`, `iss`, and `aud`;
-the subject is a canonical User UUID. Canonical `user_access` and temporary
-legacy `admin_access` have strict distinct audiences. Production login routes
-issue only `user_access`; legacy tokens are validation-only compatibility. No
-token contains role authority. The default lifetime is 30 minutes and
-configuration permits 1 through 60 minutes. There is no refresh, revocation,
-logout, password reset/change, or MFA.
+the subject is a canonical User UUID. `user_access` is the only runtime token
+family, and `UserBearer` is the only OpenAPI bearer security scheme. No token
+contains role authority. The default lifetime is 30 minutes and configuration
+permits 1 through 60 minutes. There is no refresh, revocation, backend logout,
+password reset/change, or MFA.
 
 `POST /api/v1/auth/register`, `POST /api/v1/auth/login`, and
 `GET /api/v1/auth/me` are the canonical contracts. Registration always creates
-an active customer and rejects privilege fields. The existing
-`POST /api/v1/admin/auth/login` alias delegates to unified authentication,
-accepts only admin or super-admin, and issues `user_access`. The canonical and
-alias login endpoints share one app-scoped fixed-window limiter allowing five
-attempts per 60 seconds for each direct peer. Registration has a separate
-limiter. Both ignore `X-Forwarded-For`.
+an active customer and rejects privilege fields. The former
+`POST /api/v1/admin/auth/login` and `GET /api/v1/admin/auth/me` compatibility
+routes are intentionally not mounted and return 404. Canonical login uses an
+app-scoped fixed-window limiter allowing five attempts per 60 seconds for each
+direct peer. Registration has a separate limiter. Both ignore
+`X-Forwarded-For`.
 
-`GET /api/v1/admin/auth/me` remains a compatibility alias. Every protected auth
-request reloads the current User and active state. Missing, malformed, expired,
-or otherwise invalid tokens and missing or inactive identities share a
-Bearer-challenged 401; an authenticated insufficient role returns 403. The auth
-service is optional at general startup when no JWT secret is configured, but
-protected auth operations then return 503. The Stripe webhook remains hidden.
+Every protected auth request reloads the current User, role, and active state
+from PostgreSQL. Missing, malformed, expired, or otherwise invalid tokens and
+missing or inactive identities share a Bearer-challenged 401; an authenticated
+identity with an insufficient role returns 403. The auth service is optional at
+general startup when no JWT secret is configured, but protected auth operations
+then return 503. The Stripe webhook remains hidden.
 
-Canonical configuration uses `AUTH_JWT_SECRET` and
-`AUTH_ACCESS_TOKEN_EXPIRE_MINUTES`. `ADMIN_JWT_SECRET` and
-`ADMIN_ACCESS_TOKEN_EXPIRE_MINUTES` remain temporary input aliases. Either
-family alone works, equal dual values are accepted, and conflicting dual values
-fail safely without exposing the secret.
+Runtime authentication configuration uses only `AUTH_JWT_SECRET` and
+`AUTH_ACCESS_TOKEN_EXPIRE_MINUTES`; no legacy authentication configuration alias
+is read.
 
 ### 5.17. Implemented Administrator Operational API
 
@@ -968,8 +964,8 @@ JWT access tokens identify a User. PostgreSQL is authoritative for current role
 and `is_active` on every protected request. Implemented dependencies are:
 
 - `get_current_user` accepts canonical `user_access` only for any active User;
-- `require_admin` accepts strict `user_access` or temporary strict
-  `admin_access`, reloads the User, and permits `admin` or `super_admin`;
+- `require_admin` accepts canonical `user_access`, reloads the User, and permits
+  `admin` or `super_admin`;
 - `require_super_admin` uses the same current-User authority and permits only
   `super_admin` for role management;
 - no Bearer requirement for anonymous guest ordering.
@@ -981,7 +977,7 @@ Stage 16E public Order routes instead use optional canonical authentication:
 - a completely absent Authorization header selects the guest path before auth
   service or User database lookup;
 - a present valid canonical `user_access` resolves the current active User;
-- a present malformed, invalid, legacy `admin_access`, inactive, or missing-User
+- a present malformed, invalid, noncanonical, inactive, or missing-User
   credential returns 401 with no silent guest fallback;
 - auth configuration or User lookup failure returns a safe 503;
 - creation and Checkout run their existing rate limiters before optional User
@@ -1119,6 +1115,21 @@ confirmed the final build after FIX2 at 375x812, 768x1024, and 1280x800. The
 responsive fixes include long-email wrapping on the authenticated landing and
 User-role confirmation surfaces and direct Back to home navigation from login
 and registration. No manual QA blocker remains.
+
+### 5.22. Integrated Acceptance Isolation
+
+Destructive role, Order, account, and authorization acceptance runs only against
+the temporary `restaurant_ordering_analytics_stage16g` database on the project
+PostgreSQL listener at host port 5433. An exact local-host, port, and
+database-name allowlist is checked before creation. The database OID captured
+after creation must match immediately before cleanup; a mismatch aborts cleanup.
+
+Acceptance identities are synthetic and disposable, and payment acceptance uses
+an injected fake provider rather than a real Stripe charge. The harness is
+ephemeral and untracked. The development database is limited to read-only
+before-and-after fingerprint checks and receives no disposable acceptance data.
+After successful acceptance the isolated database is removed. Host PostgreSQL
+on port 5432 and the project named volume remain untouched.
 
 ## 6. Architecture Diagram
 
@@ -1271,18 +1282,19 @@ the path parameter is the returned public number, not an internal UUID.
 intentionally absent from OpenAPI.
 
 The implemented unified identity scope includes `POST /api/v1/auth/register`,
-`POST /api/v1/auth/login`, and `GET /api/v1/auth/me`. Administrator login and me
-aliases remain compatible. The administrator scope also includes order list and
-detail, fulfilment status changes, category and menu-item management, four
-protected analytics endpoints for the six basic KPIs, exactly three protected
-CSV exports, and super-admin-only `GET /api/v1/admin/users` and
-`PATCH /api/v1/admin/users/{user_id}/role`. Existing operational contracts now
-use database-backed unified User role checks.
+`POST /api/v1/auth/login`, and `GET /api/v1/auth/me`. The former backend
+administrator login and me aliases are not mounted and intentionally return 404.
+The administrator scope includes order list and detail, fulfilment status
+changes, category and menu-item management, four protected analytics endpoints
+for the six basic KPIs, exactly three protected CSV exports, and super-admin-only
+`GET /api/v1/admin/users` and `PATCH /api/v1/admin/users/{user_id}/role`. All
+operational contracts use database-backed unified User role checks and canonical
+`UserBearer`.
 
-The account scope contains exactly strict-UserBearer
+The account scope contains exactly strict-`UserBearer`
 `GET /api/v1/account/orders` and
 `GET /api/v1/account/orders/{public_order_number}`. It has no anonymous or
-AdminBearer alternative, ownership claim, mutation, or guest-capability bypass.
+alternate bearer scheme, ownership claim, mutation, or guest-capability bypass.
 No other Stage 16E route is introduced.
 
 Exact contracts, response codes, and the access policy will be defined in the

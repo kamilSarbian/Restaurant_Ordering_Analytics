@@ -14,9 +14,9 @@ from sqlalchemy import delete, event, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.auth.models import AdminUser
+from app.auth.models import User
 from app.auth.roles import UserRole
-from app.auth.tokens import AdminTokenService
+from app.auth.service import UserTokenService
 from app.categories.models import Category
 from app.core.config import Settings
 from app.database.session import create_session_factory
@@ -98,15 +98,15 @@ def analytics_session_factory(
 
 
 @pytest.fixture
-def token_service() -> AdminTokenService:
+def token_service() -> UserTokenService:
     """Create a deterministic synthetic administrator token service."""
-    return AdminTokenService(SYNTHETIC_SECRET, now_provider=lambda: FIXED_NOW)
+    return UserTokenService(SYNTHETIC_SECRET, now_provider=lambda: FIXED_NOW)
 
 
 @pytest.fixture
 def analytics_client(
     analytics_session_factory: sessionmaker[Session],
-    token_service: AdminTokenService,
+    token_service: UserTokenService,
 ) -> Generator[AnalyticsClient, None, None]:
     """Run the application with one active synthetic administrator."""
     admin_id = _store_admin(analytics_session_factory)
@@ -129,21 +129,21 @@ def _delete_analytics_rows(engine: Engine) -> None:
         connection.execute(delete(RestaurantTable))
         connection.execute(delete(MenuItem))
         connection.execute(delete(Category))
-        connection.execute(delete(AdminUser))
+        connection.execute(delete(User))
 
 
 def _application(
     session_factory: sessionmaker[Session],
-    token_service: AdminTokenService | None,
+    token_service: UserTokenService | None,
 ):
     return create_app(
         settings=Settings(
             _env_file=None,
             database_url=None,
-            admin_jwt_secret=None,
+            auth_jwt_secret=None,
         ),
         session_factory=session_factory,
-        admin_token_service=token_service,
+        user_token_service=token_service,
     )
 
 
@@ -154,7 +154,7 @@ def _store_admin(
     is_active: bool = True,
 ) -> uuid.UUID:
     with session_factory.begin() as session:
-        admin = AdminUser(
+        admin = User(
             email=email,
             password_hash="synthetic-argon2id-hash",
             role=UserRole.SUPER_ADMIN,
@@ -408,7 +408,7 @@ def _store_paid_order_with_lines(
 
 def test_overview_requires_active_admin_and_available_authentication(
     analytics_session_factory: sessionmaker[Session],
-    token_service: AdminTokenService,
+    token_service: UserTokenService,
 ) -> None:
     application = _application(analytics_session_factory, token_service)
     with TestClient(application) as client:
@@ -945,7 +945,7 @@ def test_breakdown_routes_require_admin_and_validate_shared_queries(
 
 def test_breakdown_routes_share_representative_auth_failures(
     analytics_session_factory: sessionmaker[Session],
-    token_service: AdminTokenService,
+    token_service: UserTokenService,
 ) -> None:
     application = _application(analytics_session_factory, token_service)
     with TestClient(application) as client:

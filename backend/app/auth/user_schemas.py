@@ -15,8 +15,17 @@ from pydantic import (
 )
 
 from app.auth.roles import UserRole
-from app.auth.schemas import AdminTokenResponse as TokenResponse
 from app.auth.schemas import normalize_admin_email
+
+
+class TokenResponse(BaseModel):
+    """Represent one successful canonical authentication response."""
+
+    access_token: str = Field(min_length=1, strict=True)
+    token_type: Literal["bearer"]
+    expires_in: int = Field(gt=0, strict=True)
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class UserRegisterRequest(BaseModel):

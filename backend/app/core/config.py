@@ -6,7 +6,6 @@ from pydantic import (
     PostgresDsn,
     SecretStr,
     field_validator,
-    model_validator,
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -31,8 +30,8 @@ class Settings(BaseSettings):
         repr=False,
         validation_alias=AliasChoices("AUTH_JWT_SECRET", "auth_jwt_secret"),
     )
-    auth_access_token_expire_minutes: int | None = Field(
-        default=None,
+    auth_access_token_expire_minutes: int = Field(
+        default=30,
         ge=1,
         le=60,
         validation_alias=AliasChoices(
@@ -40,24 +39,8 @@ class Settings(BaseSettings):
             "auth_access_token_expire_minutes",
         ),
     )
-    legacy_admin_jwt_secret_input: SecretStr | None = Field(
-        default=None,
-        repr=False,
-        exclude=True,
-        validation_alias=AliasChoices("ADMIN_JWT_SECRET", "admin_jwt_secret"),
-    )
-    legacy_admin_access_token_expire_minutes_input: int | None = Field(
-        default=None,
-        exclude=True,
-        ge=1,
-        le=60,
-        validation_alias=AliasChoices(
-            "ADMIN_ACCESS_TOKEN_EXPIRE_MINUTES",
-            "admin_access_token_expire_minutes",
-        ),
-    )
 
-    @field_validator("auth_jwt_secret", "legacy_admin_jwt_secret_input")
+    @field_validator("auth_jwt_secret")
     @classmethod
     def validate_auth_jwt_secret(
         cls, auth_jwt_secret: SecretStr | None
@@ -74,31 +57,6 @@ class Settings(BaseSettings):
                 "Authentication JWT secret must contain at least 32 UTF-8 bytes"
             )
         return auth_jwt_secret
-
-    @model_validator(mode="after")
-    def resolve_auth_compatibility_inputs(self) -> "Settings":
-        """Resolve canonical and legacy auth inputs without accepting conflicts."""
-        canonical_secret = self.auth_jwt_secret
-        legacy_secret = self.legacy_admin_jwt_secret_input
-        if canonical_secret is not None and legacy_secret is not None:
-            if canonical_secret.get_secret_value() != legacy_secret.get_secret_value():
-                raise ValueError("Authentication JWT secret settings conflict")
-        self.auth_jwt_secret = canonical_secret or legacy_secret
-
-        canonical_expiry = self.auth_access_token_expire_minutes
-        legacy_expiry = self.legacy_admin_access_token_expire_minutes_input
-        if (
-            canonical_expiry is not None
-            and legacy_expiry is not None
-            and canonical_expiry != legacy_expiry
-        ):
-            raise ValueError("Authentication access-token lifetime settings conflict")
-        self.auth_access_token_expire_minutes = (
-            canonical_expiry
-            if canonical_expiry is not None
-            else legacy_expiry if legacy_expiry is not None else 30
-        )
-        return self
 
     model_config = SettingsConfigDict(
         env_file=ENV_FILE,

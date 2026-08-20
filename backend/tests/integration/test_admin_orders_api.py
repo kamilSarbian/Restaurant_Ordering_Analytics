@@ -14,10 +14,10 @@ from sqlalchemy import delete, event, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.auth.models import AdminUser
+from app.auth.models import User
 from app.auth.passwords import hash_password
 from app.auth.roles import UserRole
-from app.auth.tokens import AdminTokenService
+from app.auth.service import UserTokenService
 from app.categories.models import Category
 from app.core.config import Settings
 from app.database.session import create_session_factory
@@ -108,7 +108,7 @@ def empty_admin_order_tables(
             connection.execute(delete(RestaurantTable))
             connection.execute(delete(MenuItem))
             connection.execute(delete(Category))
-            connection.execute(delete(AdminUser))
+            connection.execute(delete(User))
 
     clear()
     try:
@@ -126,9 +126,9 @@ def admin_session_factory(
 
 
 @pytest.fixture
-def token_service() -> AdminTokenService:
+def token_service() -> UserTokenService:
     """Create a deterministic synthetic administrator token service."""
-    return AdminTokenService(
+    return UserTokenService(
         SYNTHETIC_SECRET,
         access_token_expire_minutes=30,
         now_provider=lambda: FIXED_NOW,
@@ -138,7 +138,7 @@ def token_service() -> AdminTokenService:
 @pytest.fixture
 def admin_client(
     admin_session_factory: sessionmaker[Session],
-    token_service: AdminTokenService,
+    token_service: UserTokenService,
 ) -> Generator[AdminClient, None, None]:
     """Run the application with an isolated active synthetic administrator."""
     admin_id = _store_admin(admin_session_factory)
@@ -153,16 +153,16 @@ def admin_client(
 
 def _application(
     session_factory: sessionmaker[Session],
-    token_service: AdminTokenService | None,
+    token_service: UserTokenService | None,
 ):
     return create_app(
         settings=Settings(
             _env_file=None,
             database_url=None,
-            admin_jwt_secret=None,
+            auth_jwt_secret=None,
         ),
         session_factory=session_factory,
-        admin_token_service=token_service,
+        user_token_service=token_service,
     )
 
 
@@ -173,7 +173,7 @@ def _store_admin(
     is_active: bool = True,
 ) -> UUID:
     with session_factory.begin() as session:
-        admin = AdminUser(
+        admin = User(
             email=email,
             password_hash=hash_password(SYNTHETIC_PASSWORD),
             role=UserRole.SUPER_ADMIN,
@@ -187,7 +187,7 @@ def _store_admin(
 def _store_customer(session_factory: sessionmaker[Session]) -> tuple[UUID, str]:
     email = f"owned-order-{uuid.uuid4().hex}@example.com"
     with session_factory.begin() as session:
-        customer = AdminUser(
+        customer = User(
             email=email,
             password_hash="synthetic-owned-order-password-hash",
             role=UserRole.CUSTOMER,
@@ -518,7 +518,7 @@ def test_admin_order_routes_reject_missing_or_malformed_tokens(
     path: str,
     authorization: str | None,
 ) -> None:
-    """Protect both routes with the stable AdminBearer failure contract."""
+    """Protect both routes with the stable UserBearer failure contract."""
     headers = {"Authorization": authorization} if authorization is not None else {}
     response = admin_client.client.get(path, headers=headers)
     assert response.status_code == 401
@@ -532,7 +532,7 @@ def test_admin_order_routes_reject_missing_or_malformed_tokens(
 )
 def test_admin_order_routes_reject_inactive_admin(
     admin_client: AdminClient,
-    token_service: AdminTokenService,
+    token_service: UserTokenService,
     path: str,
 ) -> None:
     """Reject a valid token after its administrator becomes inactive."""
@@ -963,7 +963,7 @@ def test_admin_detail_uses_immutable_order_item_snapshots(
 
 def test_status_patch_requires_admin_and_validates_exact_body(
     admin_client: AdminClient,
-    token_service: AdminTokenService,
+    token_service: UserTokenService,
 ) -> None:
     """Protect the mutation route and reject every invalid request shape."""
     stored = _store_transition_order(admin_client.session_factory)
@@ -1386,7 +1386,7 @@ def test_openapi_documents_exact_status_patch_contract(
     operation = document["paths"][path]["patch"]
     assert operation["tags"] == ["admin-orders"]
     assert operation["summary"] == "Update administrator order status"
-    assert operation["security"] == [{"AdminBearer": []}]
+    assert operation["security"] == [{"UserBearer": []}]
     assert operation["requestBody"]["content"]["application/json"]["schema"][
         "$ref"
     ].endswith("/AdminOrderStatusUpdateRequest")

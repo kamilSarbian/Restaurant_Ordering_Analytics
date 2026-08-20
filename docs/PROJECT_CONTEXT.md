@@ -66,9 +66,9 @@ an ordinary `admin` cannot use the role-management API, and the ordinary API
 cannot assign or modify `super_admin`.
 
 An anonymous `guest` remains neither a User nor a role, and guest ordering is
-unchanged. `AdminUser` remains only as a temporary Python import alias for the
-same mapped User during compatibility work. Stage 16E links new Orders to a
-canonical active User when valid optional authentication is supplied and
+unchanged. Stage 16G removed the temporary historical `AdminUser` import alias,
+so `User` is the only current runtime identity model. Stage 16E links new Orders
+to a canonical active User when valid optional authentication is supplied and
 provides read-only personal Order history. Stage 16F completes the shared
 browser authentication, registration and login, authenticated ordering,
 personal account, and super-administrator User-management interfaces.
@@ -204,20 +204,21 @@ table is absent.
    activation, and unknown fields are rejected. `POST /api/v1/auth/login`
    authenticates any active role, and `GET /api/v1/auth/me` returns the current
    id, email, role, and active state.
-2. Production login routes issue only strict `user_access` JWTs. The temporary
-   strict `admin_access` family remains validation-only compatibility; the two
-   families retain distinct audiences and neither contains role authority.
-3. `get_current_user` accepts canonical tokens for any active User.
-   `require_admin` accepts either strict family and permits current `admin` or
-   `super_admin`; `require_super_admin` permits only current `super_admin`.
-   Missing or inactive identities return 401, while an authenticated
-   insufficient role returns 403.
-4. The backend `/api/v1/admin/auth/login` and `/api/v1/admin/auth/me` aliases
-   remain available for compatibility. The shared Stage 16F frontend no longer
-   has a separate administrator authentication silo: it uses the canonical
-   `/api/v1/auth/...` contracts for every role, and `/admin/login` redirects to
-   the unified `/login`. Both backend login aliases share one limiter;
-   registration uses a separate limiter.
+2. Production login issues only strict `user_access` JWTs through the sole
+   OpenAPI bearer scheme, `UserBearer`. No token contains role authority.
+3. `get_current_user` accepts only the canonical token, reloads the current
+   active User from PostgreSQL, and supplies database-authoritative role state.
+   `require_admin` permits current `admin` or `super_admin`, while
+   `require_super_admin` permits only current `super_admin`. Missing or inactive
+   identities return 401, while an authenticated insufficient role returns 403.
+4. The retired backend `/api/v1/admin/auth/login` and
+   `/api/v1/admin/auth/me` routes are intentionally absent and return 404.
+   Synthetic tokens using the historical `admin_access` type remain only in
+   negative tests and are rejected. The shared Stage 16F frontend uses the
+   canonical `/api/v1/auth/...` contracts for every role. Its `/admin/login`
+   redirect and one-time old session-key migration are client-side transitional
+   compatibility only and do not reintroduce backend legacy authentication.
+   Canonical login and registration use separate limiters.
 5. `GET /api/v1/admin/users` and
    `PATCH /api/v1/admin/users/{user_id}/role` are super-admin-only. The PATCH
    endpoint uses a row lock and permits only `customer <-> admin`; it cannot
@@ -227,8 +228,9 @@ table is absent.
    inactive existing super-admin blocks another, while customer/admin rows do
    not block the first.
 7. Canonical configuration uses `AUTH_JWT_SECRET` and
-   `AUTH_ACCESS_TOKEN_EXPIRE_MINUTES`. Temporary `ADMIN_*` inputs remain
-   compatible; conflicting dual values fail safely.
+   `AUTH_ACCESS_TOKEN_EXPIRE_MINUTES`. They are the only current runtime
+   authentication environment names; retired administrator-specific aliases
+   are not accepted.
 
 ### 4.5. Administrator Operations and Order Fulfilment
 
@@ -421,14 +423,37 @@ mutation, ownership reassignment, or retroactive guest-Order claim.
 The development database is now at `0008_add_order_ownership`. Its approved
 `0006 -> 0007 -> 0008` upgrade used an external backup, preserved the active
 historical administrator as `super_admin`, and verified the unified User and
-ownership schema. The project PostgreSQL container remains published from host
-5433 to container 5432, while the independent host PostgreSQL service on 5432
-was untouched.
+ownership schema. Its safe post-G4 fingerprint is one User with role counts
+`customer=0`, `admin=0`, and `super_admin=1`; five categories; fifteen menu
+items; two Orders; two OrderItems; and zero Payments.
 
-Stage 16F implementation, manual QA, and C1 documentation and cumulative
-pre-commit validation are complete. Stage 16F is PRE-COMMIT READY, with C2
-independent review and final commit next. Stage 16G integrated finalization and
-Stage 17 full-system Docker have not started and require their own approvals.
+Stage 16G integrated acceptance used in-process ASGI/TestClient checks against
+the isolated `restaurant_ordering_analytics_stage16g` database on the project
+PostgreSQL service and a fake payment provider. Exact local host, port, database
+name, and captured database OID guarded cleanup. The development database was
+not used for disposable acceptance identities or destructive role testing, its
+fingerprint was unchanged, the isolated database was removed, and no permanent
+acceptance harness was tracked. This was not browser E2E, and the optional G4
+browser smoke was skipped; the separately documented Stage 16F manual browser
+QA was performed by the developer/user.
+
+The project PostgreSQL container remains published from host 5433 to container
+5432, its named volume is preserved, and the independent host PostgreSQL service
+on 5432 was untouched. A local credential-hygiene issue was remediated by
+rotation without recording a credential value, database URL, or repository
+artifact.
+
+The current automated baseline is 1587/1587 passing backend tests, 890/890
+passing frontend tests across 31/31 files, and 8/8 passing Alembic migration
+round-trip/no-drift tests at the single `0008_add_order_ownership` head. Stage
+16G G4 final integrated acceptance is complete.
+
+Stage 16F is committed at current HEAD
+`dae2d8f12ed4f4de94337dfc730422504b2e528f`. Stage 16G implementation and
+acceptance are complete but are not yet committed during C1. C1 documentation
+and pre-commit validation are in progress, C2 independent review and final
+commit remain pending, and Stage 17 full-system Docker and deployment
+containerisation is the next implementation stage and has not started.
 
 ## 5. MVP Scope
 
@@ -582,10 +607,9 @@ discounts. Dine-in orders additionally preserve `table_number_snapshot`.
   generation and token identity prevent stale 401 responses from clearing a
   newer session; administrator 403 responses trigger an authoritative
   `/auth/me` role refresh.
-- Canonical and administrator-alias login share an app-scoped limiter of five
-  attempts per 60 seconds for each direct peer; registration has a separate
-  limiter. Forwarded identity headers remain ignored until a trusted-proxy
-  policy exists.
+- Canonical login uses an app-scoped limiter of five attempts per 60 seconds for
+  each direct peer; registration has a separate limiter. Forwarded identity
+  headers remain ignored until a trusted-proxy policy exists.
 - Secrets exist only in environment variables.
 - Local Stage 15 development uses the same-origin Vite `/api` proxy. A
   restricted production CORS policy is deferred to deployment and is not
@@ -616,16 +640,17 @@ discounts. Dine-in orders additionally preserve `table_number_snapshot`.
 
 ## 8. Expected Portfolio Value
 
-Stages 11 through 15 are complete and verified. Stage 16 implements the
-administrator operations, unified User/authentication/RBAC backend, Order
-ownership, mixed guest/authenticated ordering, personal account, and
-super-admin User-management frontend. Stage 16F adds the landing/menu route
+Stages 11 through 15 and Stage 16F are complete, verified, and committed. Stage
+16 implements the administrator operations, unified User/authentication/RBAC
+backend, Order ownership, mixed guest/authenticated ordering, personal account,
+and super-admin User-management frontend. Stage 16F adds the landing/menu route
 split, one canonical browser session, login and registration, personal account
-screens, and `/admin/users`. Automated validation is complete, and the
-developer/user completed the required manual local-browser verification after
-the final responsive and navigation fixes. Stage 16F passed its C1 pre-commit
-gate and is PRE-COMMIT READY; Stage 16G and Stage 17 remain future, separately
-approved work.
+screens, and `/admin/users`. The developer/user completed its required manual
+local-browser verification after the final responsive and navigation fixes.
+Stage 16G canonical-auth cleanup and integrated acceptance are complete but not
+yet committed while C1 validation is in progress; C2 independent review and
+final commit remain pending. Stage 17 containerisation is the next unstarted
+implementation stage.
 
 The project should demonstrate to a recruiter that its author can:
 

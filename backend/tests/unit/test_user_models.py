@@ -2,7 +2,8 @@
 
 from sqlalchemy import CheckConstraint, Enum
 
-from app.auth.models import AdminUser, User
+import app.auth.models as auth_models
+from app.auth.models import User
 from app.auth.roles import UserRole
 from app.database.model_registry import metadata
 
@@ -56,6 +57,6 @@ def test_user_metadata_has_canonical_constraints_and_one_mapping() -> None:
     assert {constraint.name for constraint in User.__table__.constraints} >= {
         "uq_users_email"
     }
-    assert AdminUser is User
+    assert not hasattr(auth_models, "AdminUser")
     assert "users" in metadata.tables
     assert "admin_users" not in metadata.tables

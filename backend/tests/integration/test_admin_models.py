@@ -10,7 +10,8 @@ from sqlalchemy.dialects.postgresql import UUID as PostgreSQLUUID
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.auth.models import AdminUser, User
+from app.auth import models as auth_models
+from app.auth.models import User
 from app.auth.roles import UserRole
 
 pytestmark = pytest.mark.integration
@@ -33,17 +34,17 @@ EXPECTED_CHECKS = {
 }
 
 
-def _admin(email: str = "admin@example.com", **values: object) -> AdminUser:
+def _admin(email: str = "admin@example.com", **values: object) -> User:
     defaults: dict[str, object] = {
         "email": email,
         "password_hash": SYNTHETIC_PASSWORD_HASH,
         "role": UserRole.SUPER_ADMIN,
     }
     defaults.update(values)
-    return AdminUser(**defaults)
+    return User(**defaults)
 
 
-def _assert_integrity_error(session: Session, admin: AdminUser) -> None:
+def _assert_integrity_error(session: Session, admin: User) -> None:
     session.add(admin)
     with pytest.raises(IntegrityError):
         session.flush()
@@ -84,25 +85,26 @@ def test_admin_table_has_exact_columns_types_defaults_and_constraints(
     } == EXPECTED_CHECKS
 
 
-def test_admin_alias_uses_the_canonical_user_model() -> None:
-    """Keep one mapped identity while legacy imports remain compatible."""
-    assert AdminUser is User
+def test_runtime_exposes_only_the_canonical_user_model() -> None:
+    """Keep one mapped User identity without a legacy runtime alias."""
+    assert not hasattr(auth_models, "AdminUser")
+    assert User.__name__ == "User"
     assert User.__tablename__ == "users"
-    assert set(AdminUser.__table__.columns.keys()) == EXPECTED_COLUMNS
+    assert set(User.__table__.columns.keys()) == EXPECTED_COLUMNS
     assert {
         "password",
         "username",
         "last_login_at",
         "token_version",
         "deleted_at",
-    }.isdisjoint(AdminUser.__table__.columns.keys())
+    }.isdisjoint(User.__table__.columns.keys())
 
 
 def test_admin_defaults_uuid_activity_and_aware_timestamps(
     db_session: Session,
 ) -> None:
     """Generate UUID in Python and populate activity and timestamps on insert."""
-    id_column = AdminUser.__table__.c.id
+    id_column = User.__table__.c.id
     assert id_column.default is not None
     assert id_column.default.is_callable
     assert id_column.server_default is None
@@ -129,7 +131,7 @@ def test_user_role_mapping_is_non_native_required_and_has_no_default() -> None:
 
 def test_admin_updated_at_uses_the_approved_orm_onupdate() -> None:
     """Apply the project func.now convention to administrator updates."""
-    onupdate = AdminUser.__table__.c.updated_at.onupdate
+    onupdate = User.__table__.c.updated_at.onupdate
     assert onupdate is not None
     assert str(onupdate.arg).lower() == "now()"
 

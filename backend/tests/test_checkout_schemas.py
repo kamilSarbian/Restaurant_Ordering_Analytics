@@ -199,62 +199,58 @@ def test_auth_settings_load_from_canonical_environment_names(
     assert settings.auth_access_token_expire_minutes == 45
 
 
-def test_auth_settings_load_from_legacy_environment_aliases(
+def test_legacy_auth_environment_names_do_not_configure_auth(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Resolve temporary ADMIN inputs into canonical effective properties."""
+    """Ignore removed ADMIN inputs instead of enabling authentication."""
     _clear_auth_environment(monkeypatch)
     raw_secret = "l" * 32
     monkeypatch.setenv("ADMIN_JWT_SECRET", raw_secret)
     monkeypatch.setenv("ADMIN_ACCESS_TOKEN_EXPIRE_MINUTES", "44")
     settings = Settings(_env_file=None)
-    assert settings.auth_jwt_secret is not None
-    assert settings.auth_jwt_secret.get_secret_value() == raw_secret
-    assert settings.auth_access_token_expire_minutes == 44
+    assert settings.auth_jwt_secret is None
+    assert settings.auth_access_token_expire_minutes == 30
 
 
-def test_equal_canonical_and_legacy_auth_inputs_are_allowed(
+def test_canonical_auth_inputs_ignore_removed_legacy_names(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Accept duplicate transition inputs only when both effective values match."""
+    """Use canonical values even when obsolete environment names are present."""
     _clear_auth_environment(monkeypatch)
     raw_secret = "e" * 32
     monkeypatch.setenv("AUTH_JWT_SECRET", raw_secret)
-    monkeypatch.setenv("ADMIN_JWT_SECRET", raw_secret)
+    monkeypatch.setenv("ADMIN_JWT_SECRET", "l" * 32)
     monkeypatch.setenv("AUTH_ACCESS_TOKEN_EXPIRE_MINUTES", "43")
-    monkeypatch.setenv("ADMIN_ACCESS_TOKEN_EXPIRE_MINUTES", "43")
+    monkeypatch.setenv("ADMIN_ACCESS_TOKEN_EXPIRE_MINUTES", "44")
     settings = Settings(_env_file=None)
     assert settings.auth_jwt_secret is not None
     assert settings.auth_jwt_secret.get_secret_value() == raw_secret
     assert settings.auth_access_token_expire_minutes == 43
 
 
-def test_conflicting_auth_secrets_fail_without_revealing_either_value(
+def test_removed_legacy_secret_cannot_create_a_conflict(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Reject unequal key aliases while hiding both synthetic inputs."""
+    """Treat a removed legacy secret as unrelated ignored configuration."""
     _clear_auth_environment(monkeypatch)
     canonical_secret = "c" * 32
     legacy_secret = "l" * 32
     monkeypatch.setenv("AUTH_JWT_SECRET", canonical_secret)
     monkeypatch.setenv("ADMIN_JWT_SECRET", legacy_secret)
-    with pytest.raises(ValidationError) as captured:
-        Settings(_env_file=None)
-    message = str(captured.value)
-    assert "settings conflict" in message
-    assert canonical_secret not in message
-    assert legacy_secret not in message
+    settings = Settings(_env_file=None)
+    assert settings.auth_jwt_secret is not None
+    assert settings.auth_jwt_secret.get_secret_value() == canonical_secret
+    assert legacy_secret not in repr(settings)
 
 
-def test_conflicting_auth_expiry_inputs_fail_safely(
+def test_removed_legacy_expiry_does_not_change_the_canonical_default(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Reject unequal canonical and compatibility token lifetimes."""
+    """Ignore the removed TTL name when no canonical TTL is configured."""
     _clear_auth_environment(monkeypatch)
-    monkeypatch.setenv("AUTH_ACCESS_TOKEN_EXPIRE_MINUTES", "30")
     monkeypatch.setenv("ADMIN_ACCESS_TOKEN_EXPIRE_MINUTES", "31")
-    with pytest.raises(ValidationError, match="lifetime settings conflict"):
-        Settings(_env_file=None)
+    settings = Settings(_env_file=None)
+    assert settings.auth_access_token_expire_minutes == 30
 
 
 def test_auth_jwt_secret_is_absent_from_settings_representations() -> None:

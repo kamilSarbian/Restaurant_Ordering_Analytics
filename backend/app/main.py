@@ -9,9 +9,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.analytics.router import router as analytics_router
 from app.api.health import router as health_router
 from app.auth.admin_router import router as admin_users_router
-from app.auth.router import router as auth_router
-from app.auth.service import UserTokenService, create_auth_token_services
-from app.auth.tokens import AdminTokenService
+from app.auth.service import UserTokenService, create_user_token_service
 from app.auth.users_router import router as users_router
 from app.core.config import Settings
 from app.core.rate_limit import FixedWindowRateLimiter
@@ -36,10 +34,8 @@ def create_app(
     session_factory: sessionmaker[Session] | None = None,
     order_creation_rate_limiter: FixedWindowRateLimiter | None = None,
     checkout_rate_limiter: FixedWindowRateLimiter | None = None,
-    admin_login_rate_limiter: FixedWindowRateLimiter | None = None,
     user_register_rate_limiter: FixedWindowRateLimiter | None = None,
     user_login_rate_limiter: FixedWindowRateLimiter | None = None,
-    admin_token_service: AdminTokenService | None = None,
     user_token_service: UserTokenService | None = None,
     stripe_checkout_client: StripeCheckoutClient | None = None,
     stripe_webhook_verifier: StripeWebhookVerifier | None = None,
@@ -52,10 +48,8 @@ def create_app(
         session_factory: Optional database session factory for dependency injection.
         order_creation_rate_limiter: Optional app-scoped limiter override.
         checkout_rate_limiter: Optional app-scoped checkout limiter override.
-        admin_login_rate_limiter: Optional administrator login limiter override.
         user_register_rate_limiter: Optional canonical registration limiter.
         user_login_rate_limiter: Optional canonical user-login limiter.
-        admin_token_service: Optional app-scoped administrator token service.
         user_token_service: Optional app-scoped canonical user token service.
         stripe_checkout_client: Optional app-scoped Stripe adapter override.
         stripe_webhook_verifier: Optional app-scoped webhook verifier override.
@@ -104,11 +98,6 @@ def create_app(
         if checkout_rate_limiter is not None
         else FixedWindowRateLimiter(limit=10, window_seconds=60)
     )
-    application.state.admin_login_rate_limiter = (
-        admin_login_rate_limiter
-        if admin_login_rate_limiter is not None
-        else FixedWindowRateLimiter(limit=5, window_seconds=60)
-    )
     application.state.user_register_rate_limiter = (
         user_register_rate_limiter
         if user_register_rate_limiter is not None
@@ -119,18 +108,9 @@ def create_app(
         if user_login_rate_limiter is not None
         else FixedWindowRateLimiter(limit=5, window_seconds=60)
     )
-    if resolved_settings.auth_access_token_expire_minutes is None:
-        raise RuntimeError("Effective authentication token lifetime is unavailable")
-    configured_user_token_service, configured_admin_token_service = (
-        create_auth_token_services(
-            resolved_settings.auth_jwt_secret,
-            resolved_settings.auth_access_token_expire_minutes,
-        )
-    )
-    application.state.admin_token_service = (
-        admin_token_service
-        if admin_token_service is not None
-        else configured_admin_token_service
+    configured_user_token_service = create_user_token_service(
+        resolved_settings.auth_jwt_secret,
+        resolved_settings.auth_access_token_expire_minutes,
     )
     application.state.user_token_service = (
         user_token_service
@@ -158,7 +138,6 @@ def create_app(
     application.state.stripe_success_url = resolved_settings.stripe_success_url
     application.state.stripe_cancel_url = resolved_settings.stripe_cancel_url
     application.state.checkout_now_provider = checkout_now_provider or utc_now
-    application.include_router(auth_router)
     application.include_router(users_router)
     application.include_router(health_router)
     application.include_router(menu_router)

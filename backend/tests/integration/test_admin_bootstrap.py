@@ -21,7 +21,7 @@ from app.auth.bootstrap import (
     AdminBootstrapInputError,
     create_admin,
 )
-from app.auth.models import AdminUser, User
+from app.auth.models import User
 from app.auth.passwords import verify_password
 from app.auth.roles import UserRole
 from app.auth.schemas import AdminPrincipal
@@ -42,12 +42,12 @@ def empty_admin_users(
 ) -> Generator[None, None, None]:
     """Keep bootstrap tests isolated from persisted administrator identities."""
     with test_database_engine.begin() as connection:
-        connection.execute(delete(AdminUser))
+        connection.execute(delete(User))
     try:
         yield
     finally:
         with test_database_engine.begin() as connection:
-            connection.execute(delete(AdminUser))
+            connection.execute(delete(User))
 
 
 @pytest.fixture
@@ -58,9 +58,9 @@ def admin_session_factory(
     return create_session_factory(test_database_engine)
 
 
-def _load_admin(session_factory: sessionmaker[Session]) -> AdminUser:
+def _load_admin(session_factory: sessionmaker[Session]) -> User:
     with session_factory() as session:
-        return session.scalars(select(AdminUser)).one()
+        return session.scalars(select(User)).one()
 
 
 def _store_existing_user(
@@ -95,7 +95,7 @@ def test_create_admin_normalizes_hashes_activates_and_returns_safe_principal(
     assert admin.email == ADMIN_EMAIL
     assert admin.is_active is True
     assert admin.role is UserRole.SUPER_ADMIN
-    assert AdminUser is User
+    assert type(admin) is User
     assert admin.__table__.name == "users"
     assert admin.password_hash
     assert admin.password_hash != SYNTHETIC_PASSWORD
@@ -123,7 +123,7 @@ def test_invalid_email_is_rejected_before_hash_or_database(
             create_admin(session, email="invalid", password=SYNTHETIC_PASSWORD)
     assert hash_calls == 0
     with admin_session_factory() as session:
-        assert session.scalar(select(func.count()).select_from(AdminUser)) == 0
+        assert session.scalar(select(func.count()).select_from(User)) == 0
 
 
 @pytest.mark.parametrize("length", [14, 129])
@@ -142,7 +142,7 @@ def test_invalid_password_boundaries_are_rejected_before_hash_or_database(
         with pytest.raises(AdminBootstrapInputError):
             create_admin(session, email=ADMIN_EMAIL, password="x" * length)
     with admin_session_factory() as session:
-        assert session.scalar(select(func.count()).select_from(AdminUser)) == 0
+        assert session.scalar(select(func.count()).select_from(User)) == 0
 
 
 @pytest.mark.parametrize(
@@ -183,7 +183,7 @@ def test_duplicate_normalized_identity_conflicts_without_overwrite(
             password=SYNTHETIC_PASSWORD,
         )
     with admin_session_factory.begin() as session:
-        existing = session.scalars(select(AdminUser)).one()
+        existing = session.scalars(select(User)).one()
         existing.is_active = False
     original = _load_admin(admin_session_factory)
     original_state = (
@@ -276,7 +276,7 @@ def test_unrelated_integrity_error_propagates_after_rollback(
         assert "password_hash_not_blank" in str(captured.value.orig)
         assert session.execute(select(1)).scalar_one() == 1
     with admin_session_factory() as session:
-        assert session.scalar(select(func.count()).select_from(AdminUser)) == 0
+        assert session.scalar(select(func.count()).select_from(User)) == 0
 
 
 def test_unexpected_programming_error_propagates_and_rolls_back(
@@ -287,7 +287,7 @@ def test_unexpected_programming_error_propagates_and_rolls_back(
     def fail_insert(*_args: object, **_kwargs: object) -> None:
         raise RuntimeError("controlled bootstrap insert failure")
 
-    event.listen(AdminUser, "before_insert", fail_insert)
+    event.listen(User, "before_insert", fail_insert)
     try:
         with admin_session_factory() as session:
             with pytest.raises(
@@ -300,9 +300,9 @@ def test_unexpected_programming_error_propagates_and_rolls_back(
                 )
             assert session.execute(select(1)).scalar_one() == 1
     finally:
-        event.remove(AdminUser, "before_insert", fail_insert)
+        event.remove(User, "before_insert", fail_insert)
     with admin_session_factory() as session:
-        assert session.scalar(select(func.count()).select_from(AdminUser)) == 0
+        assert session.scalar(select(func.count()).select_from(User)) == 0
 
 
 def test_create_admin_controls_one_commit_and_generates_no_jwt(
@@ -361,7 +361,7 @@ def test_concurrent_same_identity_allows_one_insert_and_one_safe_conflict(
         sum(isinstance(value, AdminBootstrapConflictError) for value in outcomes) == 1
     )
     with admin_session_factory() as session:
-        assert session.scalar(select(func.count()).select_from(AdminUser)) == 1
+        assert session.scalar(select(func.count()).select_from(User)) == 1
         assert session.execute(select(1)).scalar_one() == 1
 
 

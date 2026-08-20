@@ -16,9 +16,9 @@ from sqlalchemy import delete, event, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.auth.models import AdminUser
+from app.auth.models import User
 from app.auth.roles import UserRole
-from app.auth.tokens import AdminTokenService
+from app.auth.service import UserTokenService
 from app.categories.models import Category
 from app.core.config import Settings
 from app.database.session import create_session_factory
@@ -83,7 +83,7 @@ def empty_admin_menu_tables(
             connection.execute(delete(RestaurantTable))
             connection.execute(delete(MenuItem))
             connection.execute(delete(Category))
-            connection.execute(delete(AdminUser))
+            connection.execute(delete(User))
 
     clear()
     try:
@@ -101,9 +101,9 @@ def api_session_factory(
 
 
 @pytest.fixture
-def token_service() -> AdminTokenService:
+def token_service() -> UserTokenService:
     """Create a deterministic synthetic administrator token service."""
-    return AdminTokenService(
+    return UserTokenService(
         SYNTHETIC_SECRET,
         access_token_expire_minutes=30,
         now_provider=lambda: FIXED_NOW,
@@ -113,7 +113,7 @@ def token_service() -> AdminTokenService:
 @pytest.fixture
 def admin_client(
     api_session_factory: sessionmaker[Session],
-    token_service: AdminTokenService,
+    token_service: UserTokenService,
 ) -> Generator[AdminMenuClient, None, None]:
     """Run the application with one active synthetic administrator."""
     admin_id = _store_admin(api_session_factory)
@@ -128,16 +128,16 @@ def admin_client(
 
 def _application(
     factory: sessionmaker[Session],
-    token_service: AdminTokenService | None,
+    token_service: UserTokenService | None,
 ):
     return create_app(
         settings=Settings(
             _env_file=None,
             database_url=None,
-            admin_jwt_secret=None,
+            auth_jwt_secret=None,
         ),
         session_factory=factory,
-        admin_token_service=token_service,
+        user_token_service=token_service,
     )
 
 
@@ -148,7 +148,7 @@ def _store_admin(
     is_active: bool = True,
 ) -> UUID:
     with factory.begin() as session:
-        admin = AdminUser(
+        admin = User(
             email=email,
             password_hash="$argon2id$synthetic-menu-test-hash",
             role=UserRole.SUPER_ADMIN,
@@ -210,9 +210,9 @@ def _store(
         session.expunge_all()
 
 
-def test_all_six_routes_require_admin_bearer(
+def test_all_six_routes_require_user_bearer(
     api_session_factory: sessionmaker[Session],
-    token_service: AdminTokenService,
+    token_service: UserTokenService,
 ) -> None:
     application = _application(api_session_factory, token_service)
     paths = [
@@ -237,7 +237,7 @@ def test_all_six_routes_require_admin_bearer(
 
 def test_representative_invalid_inactive_and_unavailable_authentication(
     api_session_factory: sessionmaker[Session],
-    token_service: AdminTokenService,
+    token_service: UserTokenService,
 ) -> None:
     inactive_id = _store_admin(
         api_session_factory,

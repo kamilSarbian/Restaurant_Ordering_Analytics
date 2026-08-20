@@ -1292,6 +1292,57 @@ while preserving these financial concurrency rules.
   earlier statement that the `/admin/users` frontend was not implemented; all
   backend bootstrap and last-super-admin protections remain authoritative.
 
+## D-072 — Canonical Authentication Compatibility Finalization
+
+- **Status:** accepted on 2026-08-15
+- **Decision:** Stage 16G removes the legacy backend administrator-auth
+  compatibility surface. `UserBearer` is the only runtime bearer security
+  scheme, `user_access` is the only runtime JWT token family, and runtime
+  authentication configuration uses only `AUTH_JWT_SECRET` and
+  `AUTH_ACCESS_TOKEN_EXPIRE_MINUTES`. The former `AdminBearer` scheme and
+  `AdminUser` runtime import alias are removed.
+- **Route and token boundary:** `POST /api/v1/admin/auth/login` and
+  `GET /api/v1/admin/auth/me` are intentionally not mounted and return 404.
+  Synthetic `admin_access` tokens remain only as negative-test inputs and are
+  never accepted by runtime authorization.
+- **Authority:** JWT identifies the canonical User, while PostgreSQL remains
+  authoritative for the current `role` and `is_active` state on every protected
+  request.
+- **Client-side compatibility:** the accepted frontend `/admin/login` redirect
+  and one-time migration or cleanup of the former administrator session key may
+  remain. They are client-side compatibility only and do not restore a backend
+  route, token family, security scheme, model alias, or configuration alias.
+- **Tradeoff:** breaking callers of the removed backend compatibility surface is
+  intentional. No known current frontend or external runtime consumer depends
+  on it.
+- **Qualification:** D-050 through D-053 remain acceptance-time history. This
+  decision supersedes only the remaining backend compatibility clauses in
+  D-061, D-063, D-065 through D-067, and D-069; their other security invariants
+  and D-069 through D-071 frontend behavior remain unchanged.
+
+## D-073 — Integrated Acceptance Environment and Test-Data Isolation
+
+- **Status:** accepted on 2026-08-15
+- **Decision:** destructive or integrated role, Order, and account acceptance
+  uses an isolated temporary PostgreSQL database. The development database must
+  not receive disposable role, User, Order, or account acceptance data.
+- **Target and cleanup guards:** the harness requires an exact allowlisted local
+  host, project PostgreSQL port 5433, and the exact
+  `restaurant_ordering_analytics_stage16g` database name. It captures the
+  database OID immediately after creation and verifies the same OID and target
+  immediately before drop. A mismatch aborts cleanup.
+- **Data and integration boundary:** acceptance identities are synthetic and
+  disposable. Payment acceptance uses an injected fake provider and never
+  creates a real Stripe charge.
+- **Lifecycle and evidence:** acceptance harnesses are ephemeral and untracked.
+  The development database fingerprint is compared before and after the run,
+  and the isolated database must be removed after successful acceptance.
+- **Infrastructure boundary:** host PostgreSQL on port 5432 and the project
+  PostgreSQL named volume remain untouched.
+- **Consequences:** integrated acceptance requires explicit environment guards
+  and cleanup evidence, but it cannot pollute development data or create a
+  permanent repository harness.
+
 ## History of Decisions That Required Resolution
 
 ### O-002: Boundary Between Order Creation and Stripe Checkout Session

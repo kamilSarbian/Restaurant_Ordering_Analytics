@@ -193,19 +193,22 @@
 
 - **Status:** completed
 - **Goal:** protect all internal features.
-- **Outcome:** a minimal AdminUser model, explicit interactive administrator
-  creation command, Argon2id password hashing, sign-in, short-lived JWT,
-  `/auth/me`, reusable AdminBearer authorization, and sign-in rate limiting.
+- **Historical outcome at Stage 11 completion:** a minimal AdminUser model,
+  explicit interactive administrator creation command, Argon2id password
+  hashing, sign-in, short-lived JWT, `/auth/me`, reusable AdminBearer
+  authorization, and sign-in rate limiting.
 - **Dependencies:** Stage 3 and decisions about JWT lifetime and revocation.
 - **Completion criterion:** there is no public registration, the password is
   neither stored nor logged in plain text, and a protected endpoint rejects a
   missing or invalid token. Sign-in enforces the configured request limit.
 - **Test:** tests for successful and unsuccessful sign-in, password hashes, JWT
   expiration, authorization, and exceeding the sign-in limit.
-- **Verified outcome:** Stage 11 persists normalized administrator identities,
-  creates zero accounts through migration, supports race-safe interactive
-  bootstrap, resists login enumeration, validates active database identity on
-  every protected request, and leaves all public customer routes unauthenticated.
+- **Historical verified outcome:** Stage 11 persisted normalized administrator
+  identities, created zero accounts through migration, supported race-safe
+  interactive bootstrap, resisted login enumeration, validated active database
+  identity on every protected request, and left all public customer routes
+  unauthenticated. Stage 16G later removed the `AdminUser`, `AdminBearer`, and
+  dedicated backend administrator-auth compatibility from the current runtime.
 
 ## 12. Administrator Panel — Operational API
 
@@ -298,9 +301,10 @@
 
 ## 16. Administrator Frontend
 
-- **Status:** Stage 16F is PRE-COMMIT READY; implementation, ENV1, manual QA,
-  and C1 documentation and cumulative validation are complete, with C2 next.
-  Stage 16G remains not started.
+- **Status:** Stage 16F is committed. Stage 16G implementation and final
+  integrated acceptance are complete but uncommitted; Stage 16G-C1
+  documentation and pre-commit validation are in progress, and Stage 16G-C2
+  has not started.
 - **Goal:** provide staff with a simple operational panel and dashboard.
 - **Outcome:** sign-in, protected routes, order list and detail, status changes,
   menu management, charts, and CSV downloads.
@@ -366,11 +370,12 @@
 ### 16D — Unified User, Authentication, and Role Authorization Backend
 
 - **Status:** completed and committed on 2026-08-12.
-- **Outcome:** AdminUser is evolved into the unified User model with constrained
-  role; canonical register/login/me, database-backed current-user/admin/
-  super-admin authorization, secure first-super-admin bootstrap, minimum role
-  API, auth configuration transition, and existing administrator consumer
-  compatibility are implemented.
+- **Historical outcome at the Stage 16D boundary:** AdminUser was evolved into
+  the unified User model with constrained role; canonical register/login/me,
+  database-backed current-user/admin/super-admin authorization, secure
+  first-super-admin bootstrap, minimum role API, auth configuration transition,
+  and temporary administrator consumer compatibility were implemented. Stage
+  16G later removed that backend compatibility from the current runtime.
 - **Migration boundary:** this stage established migration 0007 while the
   development database deliberately remained at 0006. Stage 16E later advanced
   repository and Alembic head to 0008. Stage 16F ENV1 then backed up and safely
@@ -396,9 +401,7 @@
 
 ### 16F — Landing, Unified Authentication Frontend, Customer Account, and Super-Admin User Management
 
-- **Status:** PRE-COMMIT READY; implementation, ENV1, automated acceptance,
-  developer/user manual QA, and C1 documentation and cumulative pre-commit
-  validation are complete, with C2 next.
+- **Status:** completed, independently reviewed, and committed on 2026-08-14.
 - **Outcome:** the concise landing page, public menu at `/menu`, unified
   `/login` and `/register`, shared AuthContext, mixed guest/authenticated Order
   flows, `/account` and own-order UI, super-admin-only `/admin/users`, migration
@@ -418,15 +421,41 @@
   `0008_add_order_ownership`. The automated browser environment was unavailable,
   and accepted developer/user local-browser QA, including the final FIX2
   recheck, passed.
-- **Next gate:** run C2 independent review and the final Stage 16F commit.
-  Stage 16G and Stage 17 have not started.
+- **Commit state:** Stage 16F-C2 completed the independent review and final
+  commit. Stage 16G work followed; Stage 17 has not started.
 
 ### 16G — Integrated Security, Regression, Documentation, and Final Review
 
-- **Status:** not started.
-- **Outcome:** full backend/frontend regression, privilege-escalation and
-  cross-user privacy coverage, manual responsive QA, current documentation, and
-  independent review before Stage 17.
+- **Status:** implementation and final integrated acceptance are complete but
+  uncommitted. Stage 16G-1, Stage 16G-2, and Stage 16G-4 are complete; Stage
+  16G-2 is security-remediated, Stage 16G-3 was not required, Stage 16G-C1
+  documentation and pre-commit validation are in progress, and Stage 16G-C2
+  has not started. After the C1 gates pass, Stage 16G is PRE-COMMIT READY.
+- **Outcome:** the backend runtime now uses only unified `User` authentication,
+  the `user_access` token family, the `UserBearer` OpenAPI scheme, and canonical
+  `AUTH_JWT_SECRET` and `AUTH_ACCESS_TOKEN_EXPIRE_MINUTES` configuration. The
+  legacy backend administrator-auth endpoints, token family, scheme,
+  configuration aliases, token service, and `AdminUser` runtime alias are
+  removed. The accepted client-side `/admin/login` redirect and old session-key
+  migration remain transitional frontend compatibility and do not restore
+  backend legacy authentication.
+- **Integrated acceptance:** guest capability, authenticated ownership,
+  personal account privacy, customer/admin reconciliation with the same
+  canonical token, operational administrator authorization, and super-admin
+  User governance passed against an isolated temporary PostgreSQL database.
+  Exact local target and OID guards protected cleanup; the isolated database
+  was removed and the development database fingerprint remained unchanged.
+  Acceptance used in-process ASGI/TestClient, not browser E2E; the optional
+  Stage 16G-4 browser smoke was skipped.
+- **Validation state:** the high-risk backend suite passed 686 tests in 19
+  files, the full backend suite passed 1587 tests, and the frontend suite passed
+  890 tests in 31 files. Backend and frontend quality gates, dependency audits,
+  the single `0008_add_order_ownership` Alembic head, and eight migration
+  round-trip/no-drift tests passed. A local credential hygiene issue was
+  remediated without recording a credential or DSN.
+- **Next gate:** complete Stage 16G-C1 validation, then run Stage 16G-C2
+  independent review and final commit. Stage 17 remains the next implementation
+  stage and has not started.
 
 ## 17. Full-System Docker
 
@@ -494,14 +523,15 @@
 ## Next Recommended Stage
 
 Stage 1 through Stage 15, the Stage 16 administrator operational frontend,
-Stage 16D unified User/authentication/RBAC, and Stage 16E Order ownership and
-account API are complete and committed. Stage 16F implementation, ENV1, manual
-QA, and C1 documentation and cumulative pre-commit validation are complete;
-Stage 16F is PRE-COMMIT READY.
+Stage 16D unified User/authentication/RBAC, Stage 16E Order ownership and account
+API, and Stage 16F unified frontend/account/User-governance work are complete
+and committed. Stage 16G implementation and final integrated acceptance are
+complete but uncommitted. Stage 16G-C1 documentation and pre-commit validation
+are in progress; after those gates pass, Stage 16G is PRE-COMMIT READY.
 
-The immediate gate is **Stage 16F-C2 independent review and final commit**.
-After that separate gate, the next planned stage is **Stage 16G —
-Integrated Security, Regression, Documentation, and Final Review**. Stage 16G
-and Stage 17 have not started and require separate approval. Repository,
-Alembic, and the development database are at `0008_add_order_ownership` after
-the controlled Stage 16F ENV1 backup and `0006 -> 0007 -> 0008` upgrade.
+The immediate remaining gate is **Stage 16G-C2 independent review and final
+commit**, after successful C1 validation. The next implementation stage is
+**Stage 17 — Full-System Docker**, which has not started and requires separate
+approval. Repository, Alembic, and the development database are at
+`0008_add_order_ownership` after the controlled Stage 16F ENV1 backup and
+`0006 -> 0007 -> 0008` upgrade.

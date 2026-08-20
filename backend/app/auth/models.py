@@ -77,8 +77,4 @@ class User(Base):
     )
 
 
-# Transitional import compatibility for Stage 16D while legacy administrator
-# authentication modules move to the canonical User naming.
-AdminUser = User
-
-__all__ = ["AdminUser", "User"]
+__all__ = ["User"]

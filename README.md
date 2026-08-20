@@ -2,27 +2,39 @@
 
 ## Current status
 
-Stages 1 through 15 are complete and verified. Stage 16 now provides one
-integrated React application for guests, registered customers, administrators,
-and super-administrators. Its public landing, menu, cart, unified login and
-registration, mixed-auth ordering, personal account, operational administrator,
-analytics, CSV export, and super-administrator User-governance screens are
-implemented. Automated validation passes, and the developer/user completed the
-required local-browser responsive and keyboard QA after the final Stage 16F
+Stages 1 through 15 and Stage 16F are complete, verified, and committed. Stage
+16 now provides one integrated React application for guests, registered
+customers, administrators, and super-administrators. Its public landing, menu,
+cart, unified login and registration, mixed-auth ordering, personal account,
+operational administrator, analytics, CSV export, and super-administrator
+User-governance screens are implemented. The developer/user completed the
+required Stage 16F local-browser responsive and keyboard QA after its final
 fixes.
 
-Stage 16F is PRE-COMMIT READY after C1 documentation and cumulative validation;
-Stage 16F-C2 independent review and final commit are next.
+Stage 16G implementation and integrated acceptance are complete but remain
+uncommitted while C1 documentation and pre-commit validation are in progress;
+C2 independent review and final commit remain pending. The runtime now has one
+canonical User authentication contract, one `user_access` token family, and one
+OpenAPI bearer scheme, `UserBearer`. The legacy backend administrator-auth
+routes and runtime compatibility have been removed.
 
 The FastAPI backend provides public menu and quote APIs, anonymous or owned
 Order creation, owner-or-capability status and idempotent Stripe Checkout,
 signature-verified webhook processing, unified registered identities,
 database-authoritative role checks, read-only personal Order history, and
-administrator operations. Local development uses PostgreSQL 17, synchronous
-SQLAlchemy 2, Psycopg 3, Alembic, and an explicit demonstration menu seed. Code
-and the development database are both at migration
-`0008_add_order_ownership`. Full-system containerisation, CI, and deployment
-have not started; Stage 16G and Stage 17 remain future work.
+administrator operations. The current automated baseline is 1587/1587 passing
+backend tests and 890/890 passing frontend tests across 31/31 files. Stage 16G
+integrated acceptance passed through in-process ASGI/TestClient checks against
+an isolated PostgreSQL database that was removed afterward; it was not browser
+E2E, and the optional G4 browser smoke was skipped.
+
+Local development uses PostgreSQL 17, synchronous SQLAlchemy 2, Psycopg 3,
+Alembic, and an explicit demonstration menu seed. Code and the development
+database are both at migration `0008_add_order_ownership`. A local
+credential-hygiene issue was remediated by rotation without documenting or
+tracking any credential value. Full-system containerisation, CI, and deployment
+have not started. Stage 17 Docker and deployment containerisation is the next
+implementation stage and has not started.
 
 ## Unified identity, Order ownership, and account backend
 
@@ -43,16 +55,14 @@ The implemented canonical backend routes are:
 - `GET /api/v1/admin/users` for `super_admin` only;
 - `PATCH /api/v1/admin/users/{user_id}/role` for `super_admin` only.
 
-Canonical tokens use the strict `user_access` type and user audience. They do
-not contain a role authority claim: every protected request reloads the current
-User role and `is_active` from PostgreSQL. The frontend uses the canonical
-`/api/v1/auth/login` and `/api/v1/auth/me` contracts for every role. The backend
-`/api/v1/admin/auth/login` and `/api/v1/admin/auth/me` aliases remain
-compatibility contracts, but current frontend source does not call them. The
-login alias accepts only a current `admin` or `super_admin` and issues
-`user_access`; older strict `admin_access` tokens remain validation-only
-compatibility. Operational administrator routes allow a current `admin` or
-`super_admin`; a customer receives 403.
+Canonical tokens use the strict `user_access` type and user audience through
+the sole OpenAPI bearer scheme, `UserBearer`. They do not contain a role
+authority claim: every protected request reloads the current User role and
+`is_active` from PostgreSQL. The frontend uses the canonical
+`/api/v1/auth/login` and `/api/v1/auth/me` contracts for every role. The retired
+backend `/api/v1/admin/auth/login` and `/api/v1/admin/auth/me` routes are
+intentionally absent and return 404. Operational administrator routes allow a
+current `admin` or `super_admin`; a customer receives 403.
 
 Stage 16E extends this identity backend with nullable Order ownership while
 preserving the anonymous capability flow. `Order.customer_user_id` is a
@@ -137,9 +147,10 @@ without introducing infrastructure that is unnecessary for a single venue.
 - Durable StripeEvent receipts, raw-body signature verification, transactional
   webhook idempotency, and provider-authoritative Payment transitions.
 - Unified User identities with constrained customer, admin, and super-admin
-  roles; canonical registration/login/me; Argon2id password hashing; strict JWT
-  families; database-authoritative authorization; explicit first-super-admin
-  bootstrap; role management; and shared sign-in rate limiting.
+  roles; canonical registration/login/me; Argon2id password hashing; canonical
+  JWT bearer authentication; database-authoritative authorization; explicit
+  first-super-admin bootstrap; role management; and shared sign-in rate
+  limiting.
 - Authenticated administrator order list, detail, and transactional fulfilment
   status mutation endpoints with payment-aware acceptance and cancellation.
 - Authenticated administrator category and menu-item list, create, and partial
@@ -162,8 +173,7 @@ without introducing infrastructure that is unnecessary for a single venue.
   email-validator, Docker Compose, pytest, Ruff, Black, isort, React,
   TypeScript, Vite, React Router, CSS Modules, native `fetch`, `sessionStorage`,
   Vitest, and React Testing Library.
-- Planned: Stage 16G, Stage 17, full-system containers, GitHub Actions, and
-  deployment.
+- Planned: Stage 17 full-system containers, GitHub Actions, and deployment.
 
 ## Repository structure
 
@@ -290,13 +300,14 @@ on port 5432 was left untouched. Never run a downgrade against the development
 database or expose backup contents, credentials, or database URLs in project
 documentation.
 
-## Unified authentication and administrator compatibility
+## Canonical unified authentication
 
 Stage 16D evolves the Stage 11 identity into one `User` with an
 application-generated UUID, normalized lowercase email, Argon2id password hash,
-exact role, activation flag, and timestamps. `AdminUser` is now only a temporary
-Python import alias for `User`, not a second mapped table. Public registration
-creates only a customer; there is no public administrator registration.
+exact role, activation flag, and timestamps. Stage 16G removed the temporary
+historical `AdminUser` import alias, so `User` is the only current runtime model.
+Public registration creates only a customer; there is no public administrator
+registration.
 
 Bootstrap passwords contain 15 through 128 Unicode code points and are
 preserved exactly, including whitespace. pwdlib applies Argon2id with memory
@@ -323,37 +334,31 @@ create exactly one `super_admin`.
 
 Canonical register and login accept exact validated email/password bodies.
 Registration passwords contain 15 through 128 code points; login input permits
-1 through 128. Duplicate registration returns 409. The canonical and legacy
-login aliases share one five-attempt-per-60-second direct-peer limiter, while
-registration has a separate limiter. Unknown identities perform process-local
-dummy verification, and credential failures do not reveal identity state.
+1 through 128. Duplicate registration returns 409. Canonical login has one
+five-attempt-per-60-second direct-peer limiter, while registration has a
+separate limiter. Unknown identities perform process-local dummy verification,
+and credential failures do not reveal identity state.
 
-`get_current_user` accepts canonical `user_access` for any active User.
-`require_admin` accepts strict canonical `user_access` or temporary legacy
-`admin_access`, reloads the current User, and permits `admin` or `super_admin`.
-`require_super_admin` permits only `super_admin`. Missing, invalid, inactive, or
-missing identities return 401; an authenticated insufficient role returns 403.
-Role changes affect an existing token immediately because PostgreSQL state is
-authoritative.
+The sole `UserBearer` scheme accepts canonical `user_access` for any active
+User. `get_current_user` reloads that User from PostgreSQL, `require_admin`
+permits a current `admin` or `super_admin`, and `require_super_admin` permits
+only `super_admin`. Missing, invalid, inactive, or missing identities return
+401; an authenticated insufficient role returns 403. Role changes affect an
+existing token immediately because PostgreSQL state is authoritative.
 
 Tokens use only HS256 and contain `sub`, `type`, `iat`, `exp`, `iss`, and `aud`.
-Canonical `user_access` and legacy `admin_access` have strict distinct
-audiences. Production login routes issue only `user_access`; `admin_access` is
-validation-only compatibility. No token carries email, active state, or role
-authority. There are no refresh tokens, logout, revocation list, password
-reset/change, or MFA.
+Production login issues only the strict `user_access` family. No token carries
+email, active state, or role authority. There are no refresh tokens, logout,
+revocation list, password reset/change, or MFA.
 
 Authentication configuration uses:
 
 - `AUTH_JWT_SECRET`: canonical, no default, at least 32 UTF-8 bytes;
 - `AUTH_ACCESS_TOKEN_EXPIRE_MINUTES`: canonical integer from 1 through 60,
-  default 30;
-- `ADMIN_JWT_SECRET` and `ADMIN_ACCESS_TOKEN_EXPIRE_MINUTES`: temporary input
-  aliases for existing local environments.
+  default 30.
 
-Canonical-only and legacy-only configuration work, and equal dual values are
-allowed. Conflicting canonical and legacy values fail safely without displaying
-the secret. New configuration should use `AUTH_*`.
+These are the only current runtime authentication environment names; retired
+administrator-specific configuration aliases are not accepted.
 
 Keep configuration in an ignored local environment file and use HTTPS in any
 deployment because Bearer tokens must not cross an unencrypted connection.
@@ -393,9 +398,8 @@ compatibility redirect only.
 
 Stage 12 exposes authenticated order and menu operations under
 `/api/v1/admin`. The current frontend signs in through canonical
-`POST /api/v1/auth/login` and validates through `GET /api/v1/auth/me`; the old
-administrator auth endpoints remain backend compatibility aliases only. Every
-operational route below requires the OpenAPI `AdminBearer` security scheme:
+`POST /api/v1/auth/login` and validates through `GET /api/v1/auth/me`. Every
+operational route below requires the OpenAPI `UserBearer` security scheme:
 
 - `GET /api/v1/admin/orders`
 - `GET /api/v1/admin/orders/{public_order_number}`
@@ -454,7 +458,7 @@ audit-log endpoint.
 ## Administrator analytics API
 
 Stage 13 exposes exactly four routes protected by the existing `require_admin`
-dependency and the OpenAPI `AdminBearer` scheme:
+dependency and the OpenAPI `UserBearer` scheme:
 
 - `GET /api/v1/admin/analytics/overview`
 - `GET /api/v1/admin/analytics/products`
@@ -495,7 +499,7 @@ fulfilment-duration, CSV, or frontend analytics functionality.
 ## Administrator CSV export API
 
 Stage 14 exposes exactly three synchronous, buffered CSV routes protected by
-the existing `require_admin` dependency and OpenAPI `AdminBearer` scheme:
+the existing `require_admin` dependency and OpenAPI `UserBearer` scheme:
 
 - `GET /api/v1/admin/exports/orders.csv`
 - `GET /api/v1/admin/exports/product-sales.csv`
@@ -974,9 +978,10 @@ ownership. With a valid canonical `user_access`, it assigns the current active
 User in the initial aggregate transaction; `customer`, `admin`, and
 `super_admin` can all create personally owned Orders. The request schema has no
 client-supplied owner field and the response does not expose ownership. A
-present invalid, malformed, inactive, missing-User, or legacy `admin_access`
-Bearer is rejected with HTTP 401 when authentication is resolved and is never
-downgraded to guest creation.
+present invalid, malformed, inactive, or missing-User Bearer, including a
+synthetic token using the retired historical `admin_access` type, is rejected
+with HTTP 401 when authentication is resolved and is never downgraded to guest
+creation.
 
 Every successful response still contains a presentational
 `public_order_number` and one-time `order_access_token`, whether the Order is
@@ -988,7 +993,8 @@ guest token, while the capability remains independently valid for an anonymous
 or authenticated non-owner caller. A non-owner without it receives the same
 HTTP 404 as an unknown Order; there is no public ownership 403. A present
 invalid Bearer returns 401 before capability fallback when authentication is
-resolved, and legacy `admin_access` is rejected by this canonical flow.
+resolved, and a synthetic token using the retired historical `admin_access`
+type is rejected by this canonical flow.
 
 Order creation is limited to 10 attempts per 60 seconds for each direct
 `request.client.host`. A rejected request returns HTTP 429 with `Retry-After`

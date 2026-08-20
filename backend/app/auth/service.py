@@ -1,4 +1,4 @@
-"""Legacy administrator authentication and canonical user-token services."""
+"""Canonical user access-token service."""
 
 from __future__ import annotations
 
@@ -11,29 +11,15 @@ from uuid import UUID
 import jwt
 from jwt.exceptions import InvalidTokenError
 from pydantic import SecretStr
-from sqlalchemy import select
-from sqlalchemy.orm import Session
 
-from app.auth.models import AdminUser
-from app.auth.passwords import verify_dummy_password, verify_password
-from app.auth.schemas import AdminPrincipal
-from app.auth.tokens import (
-    ALGORITHM,
-    DEFAULT_ACCESS_TOKEN_EXPIRE_MINUTES,
-    ISSUER,
-    MAX_ACCESS_TOKEN_EXPIRE_MINUTES,
-    MIN_ACCESS_TOKEN_EXPIRE_MINUTES,
-    AdminTokenInvalidError,
-    AdminTokenService,
-)
-
+ALGORITHM = "HS256"
+ISSUER = "restaurant-ordering-analytics-api"
+DEFAULT_ACCESS_TOKEN_EXPIRE_MINUTES = 30
+MIN_ACCESS_TOKEN_EXPIRE_MINUTES = 1
+MAX_ACCESS_TOKEN_EXPIRE_MINUTES = 60
 USER_AUDIENCE = "restaurant-ordering-analytics-user"
 USER_TOKEN_TYPE = "user_access"
 USER_REQUIRED_CLAIMS = ("sub", "type", "iat", "exp", "iss", "aud")
-
-
-class AdminAuthenticationError(Exception):
-    """Report an administrator credential failure without distinguishing its cause."""
 
 
 class UserTokenConfigurationError(ValueError):
@@ -48,31 +34,24 @@ class UserTokenExpiredError(UserTokenInvalidError):
     """Report a correctly structured canonical token after expiration."""
 
 
-def create_auth_token_services(
+def create_user_token_service(
     auth_jwt_secret: str | SecretStr | None,
     auth_access_token_expire_minutes: int,
-) -> tuple[UserTokenService | None, AdminTokenService | None]:
-    """Build canonical and legacy validators from one effective auth config.
+) -> UserTokenService | None:
+    """Build the canonical validator from effective authentication config.
 
     Args:
-        auth_jwt_secret: Effective generic signing key or None when auth is off.
-        auth_access_token_expire_minutes: Shared access-token lifetime in minutes.
+        auth_jwt_secret: Canonical signing key or None when auth is unavailable.
+        auth_access_token_expire_minutes: Canonical token lifetime in minutes.
 
     Returns:
-        Canonical user service and transitional legacy validator, or two None
-        values when no signing key is configured.
+        Canonical user-token service, or None when no signing key is configured.
     """
     if auth_jwt_secret is None:
-        return None, None
-    return (
-        UserTokenService(
-            auth_jwt_secret,
-            auth_access_token_expire_minutes,
-        ),
-        AdminTokenService(
-            auth_jwt_secret,
-            auth_access_token_expire_minutes,
-        ),
+        return None
+    return UserTokenService(
+        auth_jwt_secret,
+        auth_access_token_expire_minutes,
     )
 
 
@@ -98,7 +77,7 @@ class UserTokenService:
         access_token_expire_minutes: int = DEFAULT_ACCESS_TOKEN_EXPIRE_MINUTES,
         now_provider: Callable[[], datetime] = _system_utc_now,
     ) -> None:
-        """Configure canonical signing with validated transitional key material."""
+        """Configure canonical signing with validated key material."""
         self._secret = self._validate_secret(secret)
         if (
             type(access_token_expire_minutes) is not int
@@ -222,75 +201,3 @@ class UserTokenService:
     @staticmethod
     def _raise_invalid() -> None:
         raise UserTokenInvalidError("User access token is invalid")
-
-
-def decode_admin_compatible_token(
-    token: str,
-    *,
-    user_token_service: UserTokenService | None,
-    legacy_token_service: AdminTokenService | None,
-) -> UUID:
-    """Validate either strict token family for transitional administrator auth.
-
-    Args:
-        token: Opaque Bearer JWT received from the administrator boundary.
-        user_token_service: Canonical user_access validator when configured.
-        legacy_token_service: Transitional admin_access validator when configured.
-
-    Returns:
-        The canonical User UUID identified by either valid token family.
-
-    Raises:
-        UserTokenConfigurationError: If neither validator is configured.
-        UserTokenInvalidError: If neither strict token contract accepts the token.
-        AdminTokenConfigurationError: If legacy validation configuration fails.
-    """
-    if user_token_service is not None:
-        try:
-            return user_token_service.decode_access_token(token).user_id
-        except UserTokenInvalidError:
-            pass
-
-    if legacy_token_service is not None:
-        try:
-            return legacy_token_service.decode_access_token(token).admin_id
-        except AdminTokenInvalidError:
-            pass
-
-    if user_token_service is None and legacy_token_service is None:
-        raise UserTokenConfigurationError(
-            "Administrator token validation service is unavailable"
-        )
-    raise UserTokenInvalidError("Administrator access token is invalid")
-
-
-def authenticate_admin(
-    session: Session,
-    *,
-    email: str,
-    password: str,
-) -> AdminPrincipal:
-    """Authenticate one administrator through an exact normalized email lookup.
-
-    Args:
-        session: Database session used only for the identity lookup.
-        email: Already-normalized administrator email address.
-        password: Exact submitted password without normalization.
-
-    Returns:
-        Immutable authenticated administrator identity.
-
-    Raises:
-        AdminAuthenticationError: If the identity is unknown, the password is
-            wrong, or the administrator is inactive.
-    """
-    admin = session.scalar(select(AdminUser).where(AdminUser.email == email))
-    if admin is None:
-        verify_dummy_password(password)
-        raise AdminAuthenticationError("Administrator credentials are invalid")
-
-    password_matches = verify_password(password, admin.password_hash)
-    if not password_matches or not admin.is_active:
-        raise AdminAuthenticationError("Administrator credentials are invalid")
-
-    return AdminPrincipal(id=admin.id, email=admin.email)

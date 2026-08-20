@@ -1,4 +1,4 @@
-"""Integration tests for administrator login and Bearer authorization."""
+"""Integration tests for canonical login and Bearer authorization."""
 
 from __future__ import annotations
 
@@ -13,25 +13,21 @@ from sqlalchemy import delete, event, func, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.auth import router as auth_router_module
-from app.auth import service as auth_service
 from app.auth import user_service as canonical_user_service
-from app.auth.models import AdminUser
+from app.auth import users_router as auth_router_module
+from app.auth.models import User
 from app.auth.passwords import hash_password
 from app.auth.roles import UserRole
 from app.auth.service import (
+    ALGORITHM,
+    ISSUER,
     USER_AUDIENCE,
     USER_TOKEN_TYPE,
-    AdminAuthenticationError,
     UserTokenService,
-    authenticate_admin,
 )
-from app.auth.tokens import (
-    ALGORITHM,
-    AUDIENCE,
-    ISSUER,
-    TOKEN_TYPE,
-    AdminTokenService,
+from app.auth.user_service import (
+    UserAuthenticationError,
+    authenticate_user,
 )
 from app.categories.models import Category
 from app.core.config import Settings
@@ -45,8 +41,10 @@ from app.payments.stripe_checkout import CheckoutSessionResult, StripeCheckoutRe
 
 pytestmark = pytest.mark.integration
 
-LOGIN_PATH = "/api/v1/admin/auth/login"
-ME_PATH = "/api/v1/admin/auth/me"
+LOGIN_PATH = "/api/v1/auth/login"
+ME_PATH = "/api/v1/auth/me"
+LEGACY_LOGIN_PATH = "/api/v1/admin/auth/login"
+LEGACY_ME_PATH = "/api/v1/admin/auth/me"
 CREATE_ORDER_PATH = "/api/v1/orders"
 ADMIN_EMAIL = "admin@example.com"
 SYNTHETIC_PASSWORD = "synthetic-admin-login-password"
@@ -56,6 +54,8 @@ OTHER_SYNTHETIC_SECRET = "o" * 32
 FIXED_NOW = datetime(2026, 8, 9, 12, tzinfo=UTC)
 ISSUED_AT = int(FIXED_NOW.timestamp())
 UNKNOWN_ADMIN_ID = UUID("2c1f7f68-19e0-45dc-a97e-7f0e6792e4e1")
+LEGACY_AUDIENCE = "restaurant-ordering-analytics-admin"
+LEGACY_TOKEN_TYPE = "admin_access"
 
 
 class MutableClock:
@@ -110,12 +110,12 @@ def empty_admin_users(
 ) -> Generator[None, None, None]:
     """Keep administrator authentication tests isolated from persisted identities."""
     with test_database_engine.begin() as connection:
-        connection.execute(delete(AdminUser))
+        connection.execute(delete(User))
     try:
         yield
     finally:
         with test_database_engine.begin() as connection:
-            connection.execute(delete(AdminUser))
+            connection.execute(delete(User))
 
 
 @pytest.fixture
@@ -127,9 +127,9 @@ def admin_session_factory(
 
 
 @pytest.fixture
-def token_service() -> AdminTokenService:
+def token_service() -> UserTokenService:
     """Create a deterministic token service with a custom seven-minute TTL."""
-    return AdminTokenService(
+    return UserTokenService(
         SYNTHETIC_SECRET,
         access_token_expire_minutes=7,
         now_provider=lambda: FIXED_NOW,
@@ -139,7 +139,7 @@ def token_service() -> AdminTokenService:
 @pytest.fixture
 def client(
     admin_session_factory: sessionmaker[Session],
-    token_service: AdminTokenService,
+    token_service: UserTokenService,
 ) -> Generator[TestClient, None, None]:
     """Run the auth router against real PostgreSQL and synthetic token signing."""
     application = _application(admin_session_factory, token_service=token_service)
@@ -150,17 +150,9 @@ def client(
 def _application(
     session_factory: sessionmaker[Session],
     *,
-    token_service: AdminTokenService | None,
+    token_service: UserTokenService | None,
     limiter: FixedWindowRateLimiter | None = None,
-    user_token_service: UserTokenService | None = None,
 ):
-    resolved_user_token_service = user_token_service
-    if resolved_user_token_service is None and token_service is not None:
-        resolved_user_token_service = UserTokenService(
-            SYNTHETIC_SECRET,
-            access_token_expire_minutes=7,
-            now_provider=lambda: FIXED_NOW,
-        )
     return create_app(
         settings=Settings(
             _env_file=None,
@@ -168,9 +160,7 @@ def _application(
             auth_jwt_secret=None,
         ),
         session_factory=session_factory,
-        admin_token_service=token_service,
-        admin_login_rate_limiter=limiter,
-        user_token_service=resolved_user_token_service,
+        user_token_service=token_service,
         user_login_rate_limiter=limiter,
     )
 
@@ -184,7 +174,7 @@ def _store_admin(
     role: UserRole = UserRole.SUPER_ADMIN,
 ) -> UUID:
     with session_factory.begin() as session:
-        admin = AdminUser(
+        admin = User(
             email=email,
             password_hash=hash_password(password),
             role=role,
@@ -222,11 +212,11 @@ def _assert_protected_failure(response) -> None:
 def _claims(**overrides: object) -> dict[str, object]:
     claims: dict[str, object] = {
         "sub": str(UNKNOWN_ADMIN_ID),
-        "type": TOKEN_TYPE,
+        "type": USER_TOKEN_TYPE,
         "iat": ISSUED_AT,
         "exp": ISSUED_AT + 420,
         "iss": ISSUER,
-        "aud": AUDIENCE,
+        "aud": USER_AUDIENCE,
     }
     claims.update(overrides)
     return claims
@@ -240,6 +230,16 @@ def _signed_token(
     return jwt.encode(claims, secret, algorithm=ALGORITHM)
 
 
+def _legacy_admin_token(admin_id: UUID) -> str:
+    return _signed_token(
+        _claims(
+            sub=str(admin_id),
+            type=LEGACY_TOKEN_TYPE,
+            aud=LEGACY_AUDIENCE,
+        )
+    )
+
+
 def test_successful_login_normalizes_email_returns_exact_token_contract_and_is_read_only(
     client: TestClient,
     admin_session_factory: sessionmaker[Session],
@@ -248,7 +248,7 @@ def test_successful_login_normalizes_email_returns_exact_token_contract_and_is_r
     admin_id = _store_admin(admin_session_factory)
     with admin_session_factory() as session:
         original_updated_at = session.scalar(
-            select(AdminUser.updated_at).where(AdminUser.id == admin_id)
+            select(User.updated_at).where(User.id == admin_id)
         )
 
     response = client.post(
@@ -270,15 +270,15 @@ def test_successful_login_normalizes_email_returns_exact_token_contract_and_is_r
 
     with admin_session_factory() as session:
         current_updated_at = session.scalar(
-            select(AdminUser.updated_at).where(AdminUser.id == admin_id)
+            select(User.updated_at).where(User.id == admin_id)
         )
     assert current_updated_at == original_updated_at
 
 
-def test_legacy_login_uses_canonical_auth_config_and_shared_legacy_validator(
+def test_canonical_auth_config_wires_one_service_and_removes_legacy_routes(
     admin_session_factory: sessionmaker[Session],
 ) -> None:
-    """Wire both strict token families from only canonical AUTH settings."""
+    """Wire one strict token family and expose no legacy auth endpoints."""
     admin_id = _store_admin(admin_session_factory)
     application = create_app(
         settings=Settings(
@@ -305,16 +305,17 @@ def test_legacy_login_uses_canonical_auth_config_and_shared_legacy_validator(
             ).user_id
             == admin_id
         )
+        assert not hasattr(application.state, "admin_token_service")
 
-        legacy_token = application.state.admin_token_service.create_access_token(
-            admin_id
+        legacy_token = _legacy_admin_token(admin_id)
+        _assert_protected_failure(
+            client.get(ME_PATH, headers=_authorization(legacy_token))
         )
-        legacy_me = client.get(ME_PATH, headers=_authorization(legacy_token))
-        assert legacy_me.status_code == 200
-        assert legacy_me.json() == {"email": ADMIN_EMAIL, "is_active": True}
+        assert client.post(LEGACY_LOGIN_PATH, json=_login_payload()).status_code == 404
+        assert client.get(LEGACY_ME_PATH).status_code == 404
 
 
-def test_authenticate_admin_uses_one_exact_email_select(
+def test_authenticate_user_uses_one_exact_email_select(
     admin_session_factory: sessionmaker[Session],
     test_database_engine: Engine,
 ) -> None:
@@ -335,7 +336,7 @@ def test_authenticate_admin_uses_one_exact_email_select(
     event.listen(test_database_engine, "before_cursor_execute", capture_statement)
     try:
         with admin_session_factory() as session:
-            principal = authenticate_admin(
+            principal = authenticate_user(
                 session,
                 email=ADMIN_EMAIL,
                 password=SYNTHETIC_PASSWORD,
@@ -405,8 +406,8 @@ def test_authentication_failure_paths_use_dummy_or_real_verification_structurall
         calls.append(("real", password))
         return password == SYNTHETIC_PASSWORD
 
-    monkeypatch.setattr(auth_service, "verify_dummy_password", fake_dummy)
-    monkeypatch.setattr(auth_service, "verify_password", fake_verify)
+    monkeypatch.setattr(canonical_user_service, "verify_dummy_password", fake_dummy)
+    monkeypatch.setattr(canonical_user_service, "verify_password", fake_verify)
 
     attempts = [
         ("unknown@example.com", "unknown-candidate"),
@@ -416,8 +417,8 @@ def test_authentication_failure_paths_use_dummy_or_real_verification_structurall
     ]
     with admin_session_factory() as session:
         for email, password in attempts:
-            with pytest.raises(AdminAuthenticationError):
-                authenticate_admin(session, email=email, password=password)
+            with pytest.raises(UserAuthenticationError):
+                authenticate_user(session, email=email, password=password)
 
     assert calls == [
         ("dummy", "unknown-candidate"),
@@ -429,7 +430,7 @@ def test_authentication_failure_paths_use_dummy_or_real_verification_structurall
 
 def test_invalid_login_schemas_return_422_without_consuming_limiter_or_sql(
     admin_session_factory: sessionmaker[Session],
-    token_service: AdminTokenService,
+    token_service: UserTokenService,
     test_database_engine: Engine,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -547,12 +548,8 @@ def test_sixth_login_attempt_is_denied_before_sql_verification_or_token_creation
     limiter = FixedWindowRateLimiter(limit=5, window_seconds=60, clock=lambda: 0.0)
     application = _application(
         admin_session_factory,
-        token_service=AdminTokenService(
-            SYNTHETIC_SECRET,
-            now_provider=lambda: FIXED_NOW,
-        ),
+        token_service=counting_service,
         limiter=limiter,
-        user_token_service=counting_service,
     )
 
     def fake_dummy(_password: str) -> None:
@@ -596,7 +593,7 @@ def test_sixth_login_attempt_is_denied_before_sql_verification_or_token_creation
         event.remove(test_database_engine, "before_cursor_execute", capture_statement)
 
     assert denied.status_code == 429
-    assert denied.json() == {"detail": "Too many sign-in attempts"}
+    assert denied.json() == {"detail": "Too many authentication attempts"}
     assert int(denied.headers["Retry-After"]) > 0
     assert len(statements) == 5
     assert dummy_calls == 5
@@ -606,7 +603,7 @@ def test_sixth_login_attempt_is_denied_before_sql_verification_or_token_creation
 
 def test_login_limiter_ignores_xff_and_keeps_direct_peers_independent(
     admin_session_factory: sessionmaker[Session],
-    token_service: AdminTokenService,
+    token_service: UserTokenService,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Bucket by direct peer while ignoring forwarded identities."""
@@ -648,7 +645,7 @@ def test_login_limiter_ignores_xff_and_keeps_direct_peers_independent(
 
 def test_login_limiter_window_resets_with_injected_clock(
     admin_session_factory: sessionmaker[Session],
-    token_service: AdminTokenService,
+    token_service: UserTokenService,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Reach authentication again after the deterministic minute window."""
@@ -692,7 +689,7 @@ def test_login_limiter_window_resets_with_injected_clock(
 def test_me_returns_exact_active_principal_with_one_database_query(
     client: TestClient,
     admin_session_factory: sessionmaker[Session],
-    token_service: AdminTokenService,
+    token_service: UserTokenService,
     test_database_engine: Engine,
 ) -> None:
     """Authorize once in the dependency and avoid a second router lookup."""
@@ -717,7 +714,12 @@ def test_me_returns_exact_active_principal_with_one_database_query(
         event.remove(test_database_engine, "before_cursor_execute", capture_statement)
 
     assert response.status_code == 200
-    assert response.json() == {"email": ADMIN_EMAIL, "is_active": True}
+    assert response.json() == {
+        "id": str(admin_id),
+        "email": ADMIN_EMAIL,
+        "role": "super_admin",
+        "is_active": True,
+    }
     assert len(statements) == 1
     assert statements[0].lstrip().upper().startswith("SELECT")
 
@@ -784,7 +786,7 @@ def test_clearly_invalid_token_executes_no_admin_query(
 def test_me_rejects_valid_token_for_unknown_or_inactive_admin(
     client: TestClient,
     admin_session_factory: sessionmaker[Session],
-    token_service: AdminTokenService,
+    token_service: UserTokenService,
 ) -> None:
     """Require a current active database identity for every valid token."""
     unknown_response = client.get(
@@ -816,18 +818,18 @@ def test_deactivation_immediately_invalidates_an_unexpired_login_token(
     assert client.get(ME_PATH, headers=_authorization(token)).status_code == 200
 
     with admin_session_factory.begin() as session:
-        admin = session.get(AdminUser, admin_id)
+        admin = session.get(User, admin_id)
         assert admin is not None
         admin.is_active = False
 
     _assert_protected_failure(client.get(ME_PATH, headers=_authorization(token)))
 
 
-def test_admin_role_uses_legacy_login_alias_and_canonical_token_on_admin_routes(
+def test_admin_role_uses_canonical_login_and_token_on_admin_routes(
     client: TestClient,
     admin_session_factory: sessionmaker[Session],
 ) -> None:
-    """Keep the legacy frontend contract while issuing unified user_access."""
+    """Use canonical login and user_access for administrator operations."""
     admin_id = _store_admin(admin_session_factory, role=UserRole.ADMIN)
     response = client.post(LOGIN_PATH, json=_login_payload())
     assert response.status_code == 200
@@ -842,13 +844,12 @@ def test_admin_role_uses_legacy_login_alias_and_canonical_token_on_admin_routes(
     assert client.get("/api/v1/admin/orders", headers=headers).status_code == 200
 
 
-def test_legacy_login_canonical_token_owns_order_but_admin_access_is_rejected(
+def test_canonical_login_token_owns_order_but_admin_access_is_rejected(
     client: TestClient,
     admin_session_factory: sessionmaker[Session],
-    token_service: AdminTokenService,
     test_database_engine: Engine,
 ) -> None:
-    """Keep legacy login canonical while isolating legacy tokens from ownership."""
+    """Keep canonical ownership isolated from removed legacy token credentials."""
     admin_id = _store_admin(admin_session_factory, role=UserRole.ADMIN)
     category = Category(name=f"Admin ownership {uuid4().hex}")
     item = MenuItem(
@@ -914,7 +915,7 @@ def test_legacy_login_canonical_token_owns_order_but_admin_access_is_rejected(
         assert owner_checkout.status_code == 201
         assert len(stripe_client.requests) == 1
 
-        legacy_token = token_service.create_access_token(admin_id)
+        legacy_token = _legacy_admin_token(admin_id)
         capability_headers = {
             **_authorization(legacy_token),
             "X-Order-Access-Token": guest_capability,
@@ -960,80 +961,101 @@ def test_legacy_login_canonical_token_owns_order_but_admin_access_is_rejected(
             connection.execute(delete(Category).where(Category.id == category_id))
 
 
-def test_customer_credentials_on_legacy_login_match_invalid_credentials(
+def test_customer_credentials_use_canonical_login_but_not_admin_operations(
     client: TestClient,
     admin_session_factory: sessionmaker[Session],
 ) -> None:
-    """Hide a valid customer's existence and insufficient administrator role."""
-    _store_admin(admin_session_factory, role=UserRole.CUSTOMER)
+    """Authenticate a customer while enforcing the current database role."""
+    customer_id = _store_admin(admin_session_factory, role=UserRole.CUSTOMER)
     customer = client.post(LOGIN_PATH, json=_login_payload())
+    assert customer.status_code == 200
+    token = customer.json()["access_token"]
+    current_user = client.get(ME_PATH, headers=_authorization(token))
+    assert current_user.status_code == 200
+    assert current_user.json() == {
+        "id": str(customer_id),
+        "email": ADMIN_EMAIL,
+        "role": "customer",
+        "is_active": True,
+    }
+    admin_orders = client.get(
+        "/api/v1/admin/orders",
+        headers=_authorization(token),
+    )
+    assert admin_orders.status_code == 403
+    assert admin_orders.json() == {"detail": "Administrator access required"}
+
     invalid = client.post(
         LOGIN_PATH,
         json=_login_payload(password=WRONG_SYNTHETIC_PASSWORD),
     )
-    _assert_login_failure(customer)
     _assert_login_failure(invalid)
-    assert customer.json() == invalid.json()
 
 
-def test_customer_canonical_and_demoted_legacy_tokens_receive_403(
+def test_role_demotion_affects_canonical_token_while_legacy_token_stays_rejected(
     client: TestClient,
     admin_session_factory: sessionmaker[Session],
-    token_service: AdminTokenService,
+    token_service: UserTokenService,
 ) -> None:
-    """Use current database role for both canonical and legacy admin boundaries."""
+    """Reload canonical role state without admitting the removed token family."""
     admin_id = _store_admin(admin_session_factory, role=UserRole.ADMIN)
-    canonical = UserTokenService(
-        SYNTHETIC_SECRET,
-        access_token_expire_minutes=7,
-        now_provider=lambda: FIXED_NOW,
-    ).create_access_token(admin_id)
-    legacy = token_service.create_access_token(admin_id)
+    canonical = token_service.create_access_token(admin_id)
+    legacy = _legacy_admin_token(admin_id)
     assert client.get(ME_PATH, headers=_authorization(canonical)).status_code == 200
-    assert client.get(ME_PATH, headers=_authorization(legacy)).status_code == 200
+    _assert_protected_failure(client.get(ME_PATH, headers=_authorization(legacy)))
 
     with admin_session_factory.begin() as session:
-        admin = session.get(AdminUser, admin_id)
+        admin = session.get(User, admin_id)
         assert admin is not None
         admin.role = UserRole.CUSTOMER
 
-    for token in (canonical, legacy):
-        response = client.get(ME_PATH, headers=_authorization(token))
-        assert response.status_code == 403
-        assert response.json() == {"detail": "Administrator access required"}
+    current_user = client.get(ME_PATH, headers=_authorization(canonical))
+    assert current_user.status_code == 200
+    assert current_user.json()["role"] == "customer"
+    admin_orders = client.get(
+        "/api/v1/admin/orders",
+        headers=_authorization(canonical),
+    )
+    assert admin_orders.status_code == 403
+    assert admin_orders.json() == {"detail": "Administrator access required"}
+    _assert_protected_failure(client.get(ME_PATH, headers=_authorization(legacy)))
 
 
-def test_openapi_documents_exact_admin_auth_contract_and_keeps_public_routes_open(
+def test_openapi_documents_canonical_auth_and_keeps_public_routes_open(
     client: TestClient,
 ) -> None:
-    """Expose administrator operations without securing public routes globally."""
+    """Expose one auth scheme without securing public routes globally."""
     document = client.get("/openapi.json").json()
     assert "/api/v1/stripe/webhook" not in document["paths"]
     assert "/api/v1/admin/auth/register" not in document["paths"]
+    assert LEGACY_LOGIN_PATH not in document["paths"]
+    assert LEGACY_ME_PATH not in document["paths"]
 
     login = document["paths"][LOGIN_PATH]["post"]
-    assert login["tags"] == ["admin-auth"]
-    assert login["summary"] == "Sign in an administrator"
+    assert login["tags"] == ["auth"]
+    assert login["summary"] == "Sign in a registered user"
     assert "security" not in login
     assert login["requestBody"]["content"]["application/json"]["schema"][
         "$ref"
-    ].endswith("/AdminLoginRequest")
+    ].endswith("/UserLoginRequest")
     assert login["responses"]["200"]["content"]["application/json"]["schema"][
         "$ref"
-    ].endswith("/AdminTokenResponse")
+    ].endswith("/TokenResponse")
 
     me = document["paths"][ME_PATH]["get"]
-    assert me["tags"] == ["admin-auth"]
-    assert me["summary"] == "Get current administrator"
-    assert me["security"] == [{"AdminBearer": []}]
+    assert me["tags"] == ["auth"]
+    assert me["summary"] == "Get the current registered user"
+    assert me["security"] == [{"UserBearer": []}]
     assert me["responses"]["200"]["content"]["application/json"]["schema"][
         "$ref"
-    ].endswith("/AdminMeResponse")
-    assert document["components"]["securitySchemes"]["AdminBearer"] == {
+    ].endswith("/CurrentUserResponse")
+    assert document["components"]["securitySchemes"]["UserBearer"] == {
         "type": "http",
         "scheme": "bearer",
-        "bearerFormat": "JWT",
+        "description": "Canonical registered-user access token",
+        "bearerFormat": "JWT user_access",
     }
+    assert set(document["components"]["securitySchemes"]) == {"UserBearer"}
 
     admin_order_operations = [
         document["paths"]["/api/v1/admin/orders"]["get"],
@@ -1049,7 +1071,7 @@ def test_openapi_documents_exact_admin_auth_contract_and_keeps_public_routes_ope
         operation["tags"] == ["admin-orders"] for operation in admin_order_operations
     )
     assert all(
-        operation["security"] == [{"AdminBearer": []}]
+        operation["security"] == [{"UserBearer": []}]
         for operation in admin_order_operations
     )
 
@@ -1073,7 +1095,7 @@ def test_openapi_documents_exact_admin_auth_contract_and_keeps_public_routes_ope
         operation["tags"] == ["admin-menu"] for operation in admin_menu_operations
     )
     assert all(
-        operation["security"] == [{"AdminBearer": []}]
+        operation["security"] == [{"UserBearer": []}]
         for operation in admin_menu_operations
     )
 
@@ -1093,7 +1115,7 @@ def test_openapi_documents_exact_admin_auth_contract_and_keeps_public_routes_ope
         operation["tags"] == ["admin-analytics"] for operation in analytics_operations
     )
     assert all(
-        operation["security"] == [{"AdminBearer": []}]
+        operation["security"] == [{"UserBearer": []}]
         for operation in analytics_operations
     )
     response_schemas = [
@@ -1129,8 +1151,7 @@ def test_openapi_documents_exact_admin_auth_contract_and_keeps_public_routes_ope
         operation["tags"] == ["admin-exports"] for operation in export_operations
     )
     assert all(
-        operation["security"] == [{"AdminBearer": []}]
-        for operation in export_operations
+        operation["security"] == [{"UserBearer": []}] for operation in export_operations
     )
     assert all(
         set(operation["responses"]["200"]["content"]) == {"text/csv"}
@@ -1162,9 +1183,4 @@ def test_openapi_documents_exact_admin_auth_contract_and_keeps_public_routes_ope
     assert all(
         operation["security"] == [{"UserBearer": []}, {}]
         for operation in owner_aware_operations
-    )
-    assert all(
-        "AdminBearer" not in requirement
-        for operation in owner_aware_operations
-        for requirement in operation["security"]
     )

@@ -14,16 +14,16 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.auth import user_service as canonical_user_service
 from app.auth.models import User
 from app.auth.passwords import hash_password, verify_password
 from app.auth.roles import UserRole
 from app.auth.service import (
+    ALGORITHM,
+    ISSUER,
     USER_AUDIENCE,
     USER_TOKEN_TYPE,
     UserTokenService,
 )
-from app.auth.tokens import AUDIENCE, TOKEN_TYPE, AdminTokenService
 from app.core.config import Settings
 from app.core.rate_limit import FixedWindowRateLimiter
 from app.database.session import create_session_factory
@@ -36,11 +36,14 @@ LOGIN_PATH = "/api/v1/auth/login"
 ME_PATH = "/api/v1/auth/me"
 LEGACY_LOGIN_PATH = "/api/v1/admin/auth/login"
 LEGACY_ME_PATH = "/api/v1/admin/auth/me"
-LEGACY_ORDERS_PATH = "/api/v1/admin/orders"
+ADMIN_ORDERS_PATH = "/api/v1/admin/orders"
 SYNTHETIC_SECRET = "u" * 32
 SYNTHETIC_PASSWORD = "synthetic-user-password"
 WRONG_PASSWORD = "wrong-synthetic-password"
 FIXED_NOW = datetime(2026, 8, 12, 12, tzinfo=UTC)
+ISSUED_AT = int(FIXED_NOW.timestamp())
+LEGACY_ADMIN_AUDIENCE = "restaurant-ordering-analytics-admin"
+LEGACY_ADMIN_TOKEN_TYPE = "admin_access"
 
 
 @pytest.fixture(autouse=True)
@@ -72,26 +75,14 @@ def user_token_service() -> UserTokenService:
 
 
 @pytest.fixture
-def admin_token_service() -> AdminTokenService:
-    """Create deterministic legacy signing from the same transitional key."""
-    return AdminTokenService(
-        SYNTHETIC_SECRET,
-        access_token_expire_minutes=7,
-        now_provider=lambda: FIXED_NOW,
-    )
-
-
-@pytest.fixture
 def client(
     user_session_factory: sessionmaker[Session],
     user_token_service: UserTokenService,
-    admin_token_service: AdminTokenService,
 ) -> Generator[TestClient, None, None]:
-    """Run both auth boundaries against isolated PostgreSQL and synthetic JWTs."""
+    """Run canonical authentication against isolated PostgreSQL and synthetic JWTs."""
     application = _application(
         user_session_factory,
         user_token_service=user_token_service,
-        admin_token_service=admin_token_service,
     )
     with TestClient(application) as test_client:
         yield test_client
@@ -101,7 +92,6 @@ def _application(
     factory: sessionmaker[Session],
     *,
     user_token_service: UserTokenService | None,
-    admin_token_service: AdminTokenService | None = None,
     register_limiter: FixedWindowRateLimiter | None = None,
     login_limiter: FixedWindowRateLimiter | None = None,
 ):
@@ -113,7 +103,6 @@ def _application(
         ),
         session_factory=factory,
         user_token_service=user_token_service,
-        admin_token_service=admin_token_service,
         user_register_rate_limiter=register_limiter,
         user_login_rate_limiter=login_limiter,
     )
@@ -141,6 +130,18 @@ def _store_user(
 
 def _authorization(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
+
+
+def _signed_legacy_admin_token(user_id: UUID) -> str:
+    claims = {
+        "sub": str(user_id),
+        "type": LEGACY_ADMIN_TOKEN_TYPE,
+        "iat": ISSUED_AT,
+        "exp": ISSUED_AT + 420,
+        "iss": ISSUER,
+        "aud": LEGACY_ADMIN_AUDIENCE,
+    }
+    return jwt.encode(claims, SYNTHETIC_SECRET, algorithm=ALGORITHM)
 
 
 def _registration_payload(
@@ -523,17 +524,16 @@ def test_me_rejects_expired_user_token(
     assert response.status_code == 401
 
 
-def test_legacy_admin_access_token_is_rejected_by_canonical_me(
+def test_synthetic_admin_access_token_is_rejected_by_canonical_me(
     client: TestClient,
     user_session_factory: sessionmaker[Session],
-    admin_token_service: AdminTokenService,
 ) -> None:
-    """Keep legacy type and audience outside the canonical Bearer boundary."""
+    """Keep the removed token family outside the canonical Bearer boundary."""
     user_id = _store_user(user_session_factory, role=UserRole.SUPER_ADMIN)
-    token = admin_token_service.create_access_token(user_id)
+    token = _signed_legacy_admin_token(user_id)
     unverified = jwt.decode(token, options={"verify_signature": False})
-    assert unverified["type"] == TOKEN_TYPE
-    assert unverified["aud"] == AUDIENCE
+    assert unverified["type"] == LEGACY_ADMIN_TOKEN_TYPE
+    assert unverified["aud"] == LEGACY_ADMIN_AUDIENCE
     assert client.get(ME_PATH, headers=_authorization(token)).status_code == 401
 
 
@@ -639,7 +639,7 @@ def test_canonical_auth_maps_database_failures_to_safe_503(
         (UserRole.SUPER_ADMIN, 200),
     ],
 )
-def test_user_access_role_controls_legacy_operational_admin_api(
+def test_user_access_role_controls_operational_admin_api(
     client: TestClient,
     user_session_factory: sessionmaker[Session],
     user_token_service: UserTokenService,
@@ -649,88 +649,81 @@ def test_user_access_role_controls_legacy_operational_admin_api(
     """Apply current unified role policy to the unchanged admin route."""
     user_id = _store_user(user_session_factory, role=role)
     token = user_token_service.create_access_token(user_id)
-    response = client.get(LEGACY_ORDERS_PATH, headers=_authorization(token))
+    response = client.get(ADMIN_ORDERS_PATH, headers=_authorization(token))
     assert response.status_code == expected_status
 
 
-def test_legacy_admin_login_and_me_remain_unchanged(
+def test_legacy_admin_login_and_me_are_removed_without_token_issuance(
     client: TestClient,
     user_session_factory: sessionmaker[Session],
+    user_token_service: UserTokenService,
 ) -> None:
-    """Preserve the legacy admin_access login and current-admin contract."""
-    _store_user(user_session_factory, role=UserRole.SUPER_ADMIN)
+    """Return exact 404s and issue no credential from removed auth routes."""
+    user_id = _store_user(user_session_factory, role=UserRole.SUPER_ADMIN)
     login = client.post(
         LEGACY_LOGIN_PATH,
         json={"email": "user@example.com", "password": SYNTHETIC_PASSWORD},
     )
-    assert login.status_code == 200
-    claims = jwt.decode(
-        login.json()["access_token"], options={"verify_signature": False}
-    )
-    assert claims["type"] == USER_TOKEN_TYPE
-    assert claims["aud"] == USER_AUDIENCE
+    assert login.status_code == 404
+    assert login.json() == {"detail": "Not Found"}
+    assert "access_token" not in login.text
     me = client.get(
         LEGACY_ME_PATH,
-        headers=_authorization(login.json()["access_token"]),
+        headers=_authorization(user_token_service.create_access_token(user_id)),
     )
-    assert me.status_code == 200
-    assert me.json() == {"email": "user@example.com", "is_active": True}
+    assert me.status_code == 404
+    assert me.json() == {"detail": "Not Found"}
 
 
 @pytest.mark.parametrize(
-    "attempt_paths",
+    ("method", "path"),
     [
-        [LOGIN_PATH, LOGIN_PATH, LOGIN_PATH, LEGACY_LOGIN_PATH, LEGACY_LOGIN_PATH],
-        [
-            LEGACY_LOGIN_PATH,
-            LEGACY_LOGIN_PATH,
-            LEGACY_LOGIN_PATH,
-            LOGIN_PATH,
-            LOGIN_PATH,
-        ],
+        ("post", LEGACY_LOGIN_PATH),
+        ("get", LEGACY_ME_PATH),
     ],
 )
-def test_canonical_and_legacy_login_aliases_share_one_bucket(
+def test_removed_legacy_auth_routes_do_not_consume_canonical_login_limit(
     user_session_factory: sessionmaker[Session],
     user_token_service: UserTokenService,
-    admin_token_service: AdminTokenService,
-    monkeypatch: pytest.MonkeyPatch,
-    attempt_paths: list[str],
+    method: str,
+    path: str,
 ) -> None:
-    """Prevent either login alias from doubling the same peer's allowance."""
+    """Keep removed paths outside the surviving canonical login limiter."""
     user_id = _store_user(user_session_factory)
-    limiter = FixedWindowRateLimiter(limit=5, window_seconds=60, clock=lambda: 0.0)
+    limiter = FixedWindowRateLimiter(limit=1, window_seconds=60, clock=lambda: 0.0)
     application = _application(
         user_session_factory,
         user_token_service=user_token_service,
-        admin_token_service=admin_token_service,
         login_limiter=limiter,
     )
-    monkeypatch.setattr(
-        canonical_user_service,
-        "verify_dummy_password",
-        lambda _password: None,
-    )
-    payload = {"email": "missing@example.com", "password": WRONG_PASSWORD}
+    payload = {"email": "user@example.com", "password": SYNTHETIC_PASSWORD}
     with TestClient(application, client=("shared-peer", 50000)) as client:
-        for path in attempt_paths:
-            assert client.post(path, json=payload).status_code == 401
-        assert client.post(attempt_paths[0], json=payload).status_code == 429
-
-        me_token = user_token_service.create_access_token(user_id)
-        assert client.get(ME_PATH, headers=_authorization(me_token)).status_code == 200
+        if method == "post":
+            removed = client.post(path, json=payload)
+        else:
+            removed = client.get(
+                path,
+                headers=_authorization(user_token_service.create_access_token(user_id)),
+            )
+        accepted = client.post(LOGIN_PATH, json=payload)
+        blocked = client.post(LOGIN_PATH, json=payload)
         registration = client.post(
             REGISTER_PATH,
             json=_registration_payload(email="isolated-register@example.com"),
         )
-        assert registration.status_code == 201
+    assert removed.status_code == 404
+    assert removed.json() == {"detail": "Not Found"}
+    assert accepted.status_code == 200
+    assert blocked.status_code == 429
+    assert int(blocked.headers["Retry-After"]) > 0
+    assert registration.status_code == 201
 
 
-def test_openapi_contains_only_three_new_canonical_auth_operations(
+def test_openapi_contains_only_three_canonical_auth_operations(
     user_session_factory: sessionmaker[Session],
     user_token_service: UserTokenService,
 ) -> None:
-    """Expose the canonical routes and distinct Bearer schemes without conflicts."""
+    """Expose only canonical auth routes and the single UserBearer scheme."""
     application = _application(
         user_session_factory,
         user_token_service=user_token_service,
@@ -747,11 +740,15 @@ def test_openapi_contains_only_three_new_canonical_auth_operations(
         ("POST", LOGIN_PATH),
         ("GET", ME_PATH),
     }
-    assert LEGACY_LOGIN_PATH in document["paths"]
-    assert LEGACY_ME_PATH in document["paths"]
-    assert set(document["components"]["securitySchemes"]) >= {
-        "AdminBearer",
-        "UserBearer",
+    assert LEGACY_LOGIN_PATH not in document["paths"]
+    assert LEGACY_ME_PATH not in document["paths"]
+    assert document["components"]["securitySchemes"] == {
+        "UserBearer": {
+            "type": "http",
+            "description": "Canonical registered-user access token",
+            "scheme": "bearer",
+            "bearerFormat": "JWT user_access",
+        }
     }
     assert application.state.user_register_rate_limiter.limit == 5
     assert application.state.user_register_rate_limiter.window_seconds == 60
@@ -763,3 +760,9 @@ def test_openapi_contains_only_three_new_canonical_auth_operations(
     )
     assert set(document["paths"]["/api/v1/admin/users"]) == {"get"}
     assert set(document["paths"]["/api/v1/admin/users/{user_id}/role"]) == {"patch"}
+    assert document["paths"]["/api/v1/admin/users"]["get"]["security"] == [
+        {"UserBearer": []}
+    ]
+    assert document["paths"]["/api/v1/admin/users/{user_id}/role"]["patch"][
+        "security"
+    ] == [{"UserBearer": []}]

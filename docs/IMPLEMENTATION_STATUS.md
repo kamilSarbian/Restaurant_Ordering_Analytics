@@ -16,9 +16,10 @@
 - **Stage 13:** completed
 - **Stage 14:** completed
 - **Stage 15:** completed
-- **Current stage:** Stage 16F PRE-COMMIT READY; F1 through F6, FIX1, FIX2,
-  ENV1, developer/user manual browser QA, and C1 documentation and cumulative
-  validation are complete, with C2 still pending
+- **Current stage:** Stage 16G-C1 documentation finalization and pre-commit
+  validation are in progress. Stage 16G implementation and final integrated
+  acceptance are complete but uncommitted; after the C1 gates pass, Stage 16G
+  is PRE-COMMIT READY. Stage 16G-C2 and Stage 17 have not started
 - **Backend:** FastAPI, database foundation, menu models, local seed data,
   public menu, transient quoting, persistent order creation, and secure public
   order status, Payment persistence, Stripe Checkout, and verified Stripe
@@ -60,16 +61,20 @@
 - **Provider-authoritative Payment transitions:** completed and verified
 - **Webhook/Checkout Phase 3 race:** completed and verified
 - **Unified User persistence and constrained roles:** completed and verified;
-  `AdminUser` remains a temporary Python import alias only
+  the temporary `AdminUser` runtime alias has been removed
 - **Argon2id password hashing:** completed and verified through pwdlib
-- **Unified authentication:** canonical register/login/me, strict HS256 token
-  families, legacy administrator aliases, and database-authoritative active and
-  role checks completed and verified
+- **Unified authentication:** canonical `/api/v1/auth/register`,
+  `/api/v1/auth/login`, and `/api/v1/auth/me`; the single `user_access` HS256
+  token family; the single `UserBearer` OpenAPI scheme; canonical
+  `AUTH_JWT_SECRET` and `AUTH_ACCESS_TOKEN_EXPIRE_MINUTES` runtime
+  configuration; and database-authoritative role and active-state checks
+  completed and verified. The legacy backend administrator auth routes and
+  runtime aliases are intentionally absent
 - **Role authorization:** reusable current-user, admin, and super-admin
   dependencies plus super-admin-only User list and ordinary role transition API
   completed and verified
-- **Authentication limiters:** shared canonical/administrator login limiter and
-  separate registration limiter completed and verified
+- **Authentication limiters:** canonical login limiter and separate
+  registration limiter completed and verified
 - **Super-admin bootstrap CLI:** explicit interactive Argon2id bootstrap with a
   PostgreSQL advisory lock completed and verified; no development identity was
   created by migration or automated tests
@@ -89,19 +94,24 @@
   payments; deterministic UTF-8-SIG, BOM, CSV dialect, filename, query,
   time-source, formula-safety, and exposure contracts completed and verified;
   one report SELECT per route and no migration required
-- **Application tests:** the Stage 16F-C1 backend rerun passed 1584 health,
-  database, migration, model, constraint, seed, schema, public API, quoting,
-  order creation, payment, security, rate-limit, rollback, and concurrency
-  tests. The Stage 16F-C1 frontend rerun passed 890 tests in 31 files
+- **Application tests:** the Stage 16G final acceptance backend rerun passed
+  1587 health, database, migration, model, constraint, seed, schema, public API,
+  quoting, order creation, payment, security, rate-limit, rollback, and
+  concurrency tests; the high-risk targeted suite passed 686 tests in 19
+  files. The frontend rerun passed 890 tests in 31 files
 - **Stage 16 frontend:** the committed B1 through B6 operational administrator
   interface remains complete. Stage 16F F1 through F6 plus FIX1 and FIX2 add
   the landing route, shared auth, registration, authenticated ordering,
   personal account, and super-admin User-management UI; automated acceptance
   and developer/user manual responsive QA are complete
-- **Stage 16D backend:** committed; D1 through D5 implement unified User persistence,
-  migration 0007, public registration/login/me, compatibility auth aliases,
-  database-backed RBAC, secure super-admin bootstrap, role management, and
-  canonical AUTH configuration
+- **Stage 16D:** committed on 2026-08-12
+- **Stage 16E:** committed on 2026-08-13
+- **Stage 16F:** committed on 2026-08-14
+- **Stage 16D backend:** committed. At the historical Stage 16D commit boundary,
+  D1 through D5 implemented unified User persistence, migration 0007, public
+  registration/login/me, compatibility auth aliases, database-backed RBAC,
+  secure super-admin bootstrap, role management, and canonical AUTH
+  configuration. Stage 16G later removed the backend compatibility aliases
 - **Stage 16D-1:** complete
 - **Stage 16D-2:** complete
 - **Stage 16D-3:** complete
@@ -140,9 +150,22 @@
   unavailable, and the developer/user completed the required local-browser QA,
   including the final FIX2 recheck
 - **Stage 16F-C1:** complete — documentation and cumulative pre-commit
-  validation passed; C2 is next
-- **Remaining Stage 16 direction:** Stage 16G has not started and requires
-  separate approval after the Stage 16F commit
+  validation passed
+- **Stage 16F-C2:** complete — Stage 16F was independently reviewed and
+  committed on 2026-08-14
+- **Stage 16G-1:** complete — canonical authentication compatibility cleanup;
+  uncommitted
+- **Stage 16G-2:** complete — isolated integrated acceptance;
+  security-remediated
+- **Stage 16G-3:** not required
+- **Stage 16G-4:** FINAL ACCEPTANCE COMPLETE
+- **Stage 16G-C1:** in progress — documentation finalization and pre-commit
+  validation
+- **Stage 16G-C2:** not started
+- **Overall Stage 16G:** implementation and final acceptance are complete but
+  uncommitted; PRE-COMMIT READY only after the C1 gates pass
+- **Remaining direction:** Stage 16G-C2 is the next gate after successful C1
+  validation. Stage 17 is the next implementation stage and has not started
 - **Deployment:** not started
 
 ## Known limitations
@@ -187,8 +210,45 @@
 
 ## Last verification
 
-Stage 16F-C1 documentation and cumulative pre-commit validation completed on
-2026-08-14:
+Stage 16G implementation and final integrated acceptance completed on
+2026-08-15; Stage 16G-C1 documentation and pre-commit validation are in
+progress:
+
+- Stage 16G-1 removed the legacy backend administrator-auth compatibility in
+  exactly 31 uncommitted physical paths: 27 modified, three deleted, and one
+  new. Stage 16G-C1 is restricted to the six authoritative documentation files
+- Runtime authentication is canonical-only: `User`, `user_access`,
+  `UserBearer`, `AUTH_JWT_SECRET`, and
+  `AUTH_ACCESS_TOKEN_EXPIRE_MINUTES`. The old administrator auth endpoints are
+  intentionally absent, and production runtime searches found no legacy auth
+  URLs, token family, OpenAPI scheme, environment alias, token service, or
+  `AdminUser` runtime alias
+- The high-risk backend suite passed 686 tests in 19 files. The full backend
+  suite passed 1587 tests; Ruff, Black check, and isort check passed
+- The full frontend suite passed 890 tests in 31 files. ESLint, Prettier check,
+  TypeScript/Vite build, and both npm audits passed; the accepted approximately
+  502 kB chunk warning remains
+- Alembic exposes the single `0008_add_order_ownership` head, and the isolated
+  round-trip/no-drift suite passed eight tests
+- Isolated in-process ASGI/TestClient acceptance verified guest capability,
+  authenticated ownership and account privacy, customer/admin role changes
+  with one canonical token, operational administrator authorization, and
+  super-admin User governance. This was not browser E2E; the optional Stage
+  16G-4 browser smoke was skipped
+- The isolated acceptance database was guarded by exact local target and OID,
+  then removed. The development database was not used for destructive
+  acceptance, and its fingerprint remained revision 0008 with one User
+  (`customer` 0, `admin` 0, `super_admin` 1), five categories, 15 menu items,
+  two orders, two order items, and zero payments
+- A local PostgreSQL credential hygiene issue was remediated by rotation without
+  recording a credential or DSN. The ignored local `.env` now uses canonical
+  auth names only. Host PostgreSQL on port 5432 and project PostgreSQL on port
+  5433, including its named volume, were preserved
+- Stage 16G-C1 has not yet been declared complete. After all C1 gates pass,
+  Stage 16G is PRE-COMMIT READY. Stage 16G-C2 and Stage 17 have not started
+
+Historical Stage 16F-C1 documentation and cumulative pre-commit validation
+completed on 2026-08-14:
 
 - Stage 16F slices F1 through F6 plus FIX1, FIX2, and ENV1: complete in exactly
   74 physical paths and 119 cumulative slice-counted paths before C1
@@ -216,7 +276,7 @@ Stage 16F-C1 documentation and cumulative pre-commit validation completed on
 - Git whitespace validation passed. Stage 16F-C2 has not started; Stage 16G and
   Stage 17 have not started
 
-Stage 16E-C1 documentation and pre-commit validation on 2026-08-13:
+Historical Stage 16E-C1 documentation and pre-commit validation on 2026-08-13:
 
 - Stage 16E slices E1 through E5 plus FIX1: implemented in exactly 30 physical
   paths and 34 cumulative slice-counted paths before C1
@@ -236,7 +296,7 @@ Stage 16E-C1 documentation and pre-commit validation on 2026-08-13:
   approved `0006 -> 0007 -> 0008` operation
 - Stage 16E-C2 has not started; Stages 16F, 16G, and 17 have not started
 
-Stage 16D-C1 documentation and pre-commit validation on 2026-08-12:
+Historical Stage 16D-C1 documentation and pre-commit validation on 2026-08-12:
 
 - Stage 16D slices D1 through D5: implemented in 38 physical paths and 55
   cumulative slice-counted paths before C1

@@ -100,13 +100,13 @@ def get_client_bucket_key(request: Request) -> str:
 
 
 def get_auth_login_rate_limiter(request: Request) -> FixedWindowRateLimiter:
-    """Return the one app-scoped limiter shared by both login route aliases.
+    """Return the app-scoped limiter for canonical user login.
 
     Args:
         request: Current request containing application authentication state.
 
     Returns:
-        The canonical login limiter used by unified and legacy login routes.
+        The canonical user-login limiter.
 
     Raises:
         RuntimeError: If the application has no configured login limiter.
