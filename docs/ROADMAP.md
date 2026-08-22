@@ -301,10 +301,9 @@
 
 ## 16. Administrator Frontend
 
-- **Status:** Stage 16F is committed. Stage 16G implementation and final
-  integrated acceptance are complete but uncommitted; Stage 16G-C1
-  documentation and pre-commit validation are in progress, and Stage 16G-C2
-  has not started.
+- **Status:** Stage 16F and Stage 16G are complete and committed. Stage 16G-C2
+  completed its independent review, security sign-off, and final commit on
+  2026-08-20.
 - **Goal:** provide staff with a simple operational panel and dashboard.
 - **Outcome:** sign-in, protected routes, order list and detail, status changes,
   menu management, charts, and CSV downloads.
@@ -422,15 +421,13 @@
   and accepted developer/user local-browser QA, including the final FIX2
   recheck, passed.
 - **Commit state:** Stage 16F-C2 completed the independent review and final
-  commit. Stage 16G work followed; Stage 17 has not started.
+  commit. At that historical boundary, Stage 16G and Stage 17 had not started.
 
 ### 16G — Integrated Security, Regression, Documentation, and Final Review
 
-- **Status:** implementation and final integrated acceptance are complete but
-  uncommitted. Stage 16G-1, Stage 16G-2, and Stage 16G-4 are complete; Stage
-  16G-2 is security-remediated, Stage 16G-3 was not required, Stage 16G-C1
-  documentation and pre-commit validation are in progress, and Stage 16G-C2
-  has not started. After the C1 gates pass, Stage 16G is PRE-COMMIT READY.
+- **Status:** completed and committed on 2026-08-20; independent review and
+  security sign-off are complete. Stage 16G-1, security-remediated Stage 16G-2,
+  Stage 16G-4, C1, and C2 are complete; Stage 16G-3 was not required.
 - **Outcome:** the backend runtime now uses only unified `User` authentication,
   the `user_access` token family, the `UserBearer` OpenAPI scheme, and canonical
   `AUTH_JWT_SECRET` and `AUTH_ACCESS_TOKEN_EXPIRE_MINUTES` configuration. The
@@ -453,27 +450,82 @@
   the single `0008_add_order_ownership` Alembic head, and eight migration
   round-trip/no-drift tests passed. A local credential hygiene issue was
   remediated without recording a credential or DSN.
-- **Next gate:** complete Stage 16G-C1 validation, then run Stage 16G-C2
-  independent review and final commit. Stage 17 remains the next implementation
-  stage and has not started.
+- **Final gate:** Stage 16G-C2 completed independent review, security sign-off,
+  and the final commit. Stage 17 work followed this committed boundary.
 
 ## 17. Full-System Docker
 
-- **Status:** not started.
+- **Status:** Stage 17-1 through Stage 17-5 are complete, and the overall
+  implementation and isolated Docker acceptance are complete but uncommitted.
+  Stage 17-C1 documentation and cumulative pre-commit validation are in
+  progress; Stage 17 is PRE-COMMIT READY only after every C1 gate passes. Stage
+  17-C2 has not started.
 - **Goal:** provide repeatable local startup of the entire system.
-- **Outcome:** extension of the minimal Compose configuration from Stage 3 with
-  backend and frontend images, health checks, volumes, and documented
+- **Outcome:** a production-only backend image, static Nginx frontend image,
+  same-origin proxy, four-service Compose stack, explicit migration boundary,
+  readiness and startup gating, persistent PostgreSQL volume, and documented
   environment variables.
+- **Topology:** Browser -> frontend Nginx on container port 8080 -> private
+  backend on port 8000 -> PostgreSQL on container port 5432. The exact services
+  are `postgres`, one-shot `migrate`, `backend`, and `frontend`. Frontend is the
+  sole application ingress at `127.0.0.1:5173`; PostgreSQL is loopback-only at
+  `127.0.0.1:5433`; backend and migrate publish no host ports. Separate app and
+  data networks prevent frontend-to-database access.
+- **Runtime boundary:** Nginx serves the SPA, preserves deep links, and proxies
+  `/api` on the same origin without wildcard CORS. Backend runs one Uvicorn
+  worker. Backend, migrate, and frontend run non-root with read-only root
+  filesystems, writable tmpfs, `cap_drop: ALL`, and `no-new-privileges`.
+- **Migration and readiness:** migrate remains the explicit one-shot
+  `python -m alembic upgrade head`. Backend performs read-only
+  `python -m alembic current --check-heads` before Uvicorn. `/health` remains
+  process liveness, `/ready` performs a lightweight `SELECT 1`, and frontend
+  exposes `/healthz`. Startup is PostgreSQL healthy -> migrate success ->
+  backend head check and readiness -> frontend. No seed, bootstrap, reset,
+  downgrade, or application-lifespan migration runs at startup.
 - **Dependencies:** working applications, migrations, and frontend from
   Stages 1–16.
-- **Completion criterion:** a new person can start the entire system by
-  following the README, migrations are controlled, and secrets do not enter
-  images or the repository.
-- **Test:** clean Compose build and startup, PostgreSQL, backend, and frontend
-  health checks, migration, and a critical API and UI smoke test.
+- **Completion criterion:** a new person can start the full local system by
+  following the README, migrations remain explicit and controlled, secrets do
+  not enter images or the repository, and isolated acceptance preserves the
+  development environment.
+- **Test:** clean isolated image builds and Compose startup; PostgreSQL,
+  migration, backend readiness, and frontend health gates; critical API and SPA
+  smoke; regression, dependency, security, topology, persistence, shutdown, and
+  development-environment preservation checks.
+- **Completed slices:** Stage 17-1 backend runtime, Stage 17-2 static frontend
+  and same-origin proxy, Stage 17-3 Compose topology, Stage 17-4 readiness and
+  startup gating, and Stage 17-5 isolated Docker acceptance.
+- **Acceptance evidence:** a unique isolated Compose project used separate
+  synthetic environment values, loopback ports, networks, and volume. Two
+  explicit migrations and the managed startup migration all ended at revision
+  `0008_add_order_ownership`. Canonical register/login/me, legacy-auth 404s, the
+  X-Forwarded-For spoof negative test, restart persistence, hardening, and
+  secret/image/log audits passed. Programmatic frontend-only HTTP smoke verified
+  SPA deep links, API JSON routing, and non-SPA unknown API responses. Browser
+  automation was unavailable, so this is not a browser E2E claim.
+- **Shutdown and safety:** acceptance containers and networks were removed with
+  `docker compose down` without `-v`; the separate
+  `roa-stage17-accept-7975ee-postgres-data` volume remains intentionally
+  retained. The real `.env`, host PostgreSQL on port 5432 and PID 6120, healthy
+  development PostgreSQL on port 5433, development named volume, and exact
+  development database fingerprint remained unchanged.
+- **Validation state:** backend and frontend images built successfully. The
+  backend suite passed 1590 tests, the frontend suite passed 890 tests, all
+  language and dependency gates passed, Alembic exposes one
+  `0008_add_order_ownership` head, and eight migration round-trip/no-drift tests
+  passed.
+- **C1 scope and next gate:** C1 changes exactly six authoritative documents.
+  The expected cumulative Stage 17 union is exactly 17 physical paths,
+  `A6 / M11 / D0`, with an empty index. After every C1 gate passes, Stage 17 is
+  PRE-COMMIT READY for Stage 17-C2 independent review and final commit.
+- **Deployment boundary:** this is a loopback-only local container contract, not
+  a public deployment. The current local database role is accepted only for
+  Stage 17. HTTPS, public ingress, a secret manager, and a least-privilege
+  production database role remain future Stage 20 work.
 
 ## 18. End-to-End Test
 
+- **Status:** not started.
 - **Goal:** verify the critical flow across the entire system.
 - **Outcome:** an automated menu → cart → order → Checkout → mock/test webhook →
   panel → status scenario and a negative scenario.
@@ -482,6 +534,8 @@
   detects regression in the most important business path.
 - **Test:** run the complete E2E suite at least twice on clean data and run the
   full backend/frontend suite in Compose.
+- **Current boundary:** Stage 17 completed programmatic SPA/API acceptance, not
+  browser E2E. Stage 18 requires separate approval after Stage 17-C2.
 
 ## 19. CI
 
@@ -525,13 +579,13 @@
 Stage 1 through Stage 15, the Stage 16 administrator operational frontend,
 Stage 16D unified User/authentication/RBAC, Stage 16E Order ownership and account
 API, and Stage 16F unified frontend/account/User-governance work are complete
-and committed. Stage 16G implementation and final integrated acceptance are
-complete but uncommitted. Stage 16G-C1 documentation and pre-commit validation
-are in progress; after those gates pass, Stage 16G is PRE-COMMIT READY.
+and committed. Stage 16G security remediation, final acceptance, independent
+review, security sign-off, and final commit are complete.
 
-The immediate remaining gate is **Stage 16G-C2 independent review and final
-commit**, after successful C1 validation. The next implementation stage is
-**Stage 17 — Full-System Docker**, which has not started and requires separate
-approval. Repository, Alembic, and the development database are at
-`0008_add_order_ownership` after the controlled Stage 16F ENV1 backup and
-`0006 -> 0007 -> 0008` upgrade.
+Stage 17-1 through Stage 17-5 and isolated Docker acceptance are complete but
+uncommitted. The immediate gate is to finish **Stage 17-C1 documentation and
+cumulative pre-commit validation**. Stage 17 becomes PRE-COMMIT READY only if
+every C1 gate passes; the next gate is then **Stage 17-C2 independent review and
+final commit**. Stage 18 browser end-to-end testing has not started and requires
+separate approval after Stage 17-C2. Repository, Alembic, and the development
+database remain at `0008_add_order_ownership`.

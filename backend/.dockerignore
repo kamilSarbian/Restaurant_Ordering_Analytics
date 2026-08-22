@@ -1,0 +1,66 @@
+# Credentials and local configuration
+.env
+.env.*
+
+# Version-control metadata
+.git
+.git/**
+.hg
+.hg/**
+.svn
+.svn/**
+
+# Virtual environments and dependency artifacts
+.venv
+venv
+env
+ENV
+__pypackages__
+*.egg-info
+build
+dist
+pyproject.toml
+
+# Python bytecode and tool caches
+__pycache__
+**/__pycache__
+*.py[cod]
+*$py.class
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.hypothesis
+.tox
+.nox
+
+# Tests and coverage output
+tests
+.coverage
+.coverage.*
+coverage
+htmlcov
+coverage.xml
+
+# Logs, temporary files, and database exports
+*.log
+logs
+tmp
+temp
+*.tmp
+*.temp
+*.sql
+*.dump
+*.backup
+*.bak
+*.db
+*.sqlite
+*.sqlite3
+
+# Editor and operating-system metadata
+.idea
+.vscode
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db

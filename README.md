@@ -2,27 +2,31 @@
 
 ## Current status
 
-Stages 1 through 15 and Stage 16F are complete, verified, and committed. Stage
-16 now provides one integrated React application for guests, registered
-customers, administrators, and super-administrators. Its public landing, menu,
-cart, unified login and registration, mixed-auth ordering, personal account,
+Stages 1 through 16G are complete, verified, and committed. Stage 16 provides
+one integrated React application for guests, registered customers,
+administrators, and super-administrators. Its public landing, menu, cart,
+unified login and registration, mixed-auth ordering, personal account,
 operational administrator, analytics, CSV export, and super-administrator
 User-governance screens are implemented. The developer/user completed the
 required Stage 16F local-browser responsive and keyboard QA after its final
-fixes.
+fixes. Stage 16G canonical-auth cleanup, integrated acceptance, independent
+review, final commit, and post-commit security sign-off are complete. The
+runtime has one canonical User authentication contract, one `user_access`
+token family, and one OpenAPI bearer scheme, `UserBearer`; the legacy backend
+administrator-auth routes and runtime compatibility are removed.
 
-Stage 16G implementation and integrated acceptance are complete but remain
-uncommitted while C1 documentation and pre-commit validation are in progress;
-C2 independent review and final commit remain pending. The runtime now has one
-canonical User authentication contract, one `user_access` token family, and one
-OpenAPI bearer scheme, `UserBearer`. The legacy backend administrator-auth
-routes and runtime compatibility have been removed.
+Stage 17-1 through Stage 17-5 are complete. The backend image, static frontend
+image, four-service Compose topology, readiness/startup gating, and isolated
+Docker acceptance all passed. Stage 17 is therefore implementation- and
+acceptance-complete, but its changes remain uncommitted while C1 documentation
+and pre-commit validation are in progress; C2 independent review and final
+commit remain pending. Stage 18 end-to-end testing has not started.
 
 The FastAPI backend provides public menu and quote APIs, anonymous or owned
 Order creation, owner-or-capability status and idempotent Stripe Checkout,
 signature-verified webhook processing, unified registered identities,
 database-authoritative role checks, read-only personal Order history, and
-administrator operations. The current automated baseline is 1587/1587 passing
+administrator operations. The current automated baseline is 1590/1590 passing
 backend tests and 890/890 passing frontend tests across 31/31 files. Stage 16G
 integrated acceptance passed through in-process ASGI/TestClient checks against
 an isolated PostgreSQL database that was removed afterward; it was not browser
@@ -32,9 +36,9 @@ Local development uses PostgreSQL 17, synchronous SQLAlchemy 2, Psycopg 3,
 Alembic, and an explicit demonstration menu seed. Code and the development
 database are both at migration `0008_add_order_ownership`. A local
 credential-hygiene issue was remediated by rotation without documenting or
-tracking any credential value. Full-system containerisation, CI, and deployment
-have not started. Stage 17 Docker and deployment containerisation is the next
-implementation stage and has not started.
+tracking any credential value. Stage 17 now provides repeatable local
+full-system containers. It is not a public deployment: Stage 18 E2E, Stage 19
+CI, and Stage 20 deployment have not started.
 
 ## Unified identity, Order ownership, and account backend
 
@@ -162,6 +166,11 @@ without introducing infrastructure that is unnecessary for a single venue.
 - One React application with a landing page, unified authentication, guest and
   authenticated ordering, personal Order history, administrator operations,
   analytics and exports, and super-administrator User governance.
+- A locked, multi-stage backend image and a static Nginx frontend image with no
+  development server in either runtime.
+- A four-service local Compose topology with explicit one-shot migrations,
+  database-aware readiness, same-origin API proxying, persistent PostgreSQL
+  data, and hardened non-root application containers.
 - Isolated PostgreSQL integration tests for models, constraints, and migration
   upgrades, downgrades, seed idempotency, and data protection.
 - Ruff, Black, and isort quality configuration.
@@ -172,8 +181,10 @@ without introducing infrastructure that is unnecessary for a single venue.
   Alembic, Psycopg 3, Stripe Python SDK, pwdlib with Argon2, PyJWT,
   email-validator, Docker Compose, pytest, Ruff, Black, isort, React,
   TypeScript, Vite, React Router, CSS Modules, native `fetch`, `sessionStorage`,
-  Vitest, and React Testing Library.
-- Planned: Stage 17 full-system containers, GitHub Actions, and deployment.
+  Vitest, React Testing Library, multi-stage container builds, and an
+  unprivileged static Nginx runtime.
+- Planned: Stage 18 end-to-end testing, Stage 19 GitHub Actions CI, and Stage 20
+  public deployment.
 
 ## Repository structure
 
@@ -197,6 +208,89 @@ without introducing infrastructure that is unnecessary for a single venue.
 ├── AGENTS.md
 └── README.md
 ```
+
+## Local full-system Docker Compose
+
+Stage 17 implements the accepted local runtime as four Compose services:
+`postgres`, one-shot `migrate`, `backend`, and `frontend`. The request path and
+container ports are:
+
+```text
+Browser -> frontend Nginx:8080 -> backend Uvicorn:8000 -> PostgreSQL:5432
+```
+
+The frontend is the sole application ingress and publishes
+`127.0.0.1:5173 -> frontend:8080`. PostgreSQL publishes
+`127.0.0.1:${POSTGRES_HOST_PORT:-5433} -> postgres:5432` for local developer
+tools. `backend` and `migrate` publish no host ports. The frontend joins only
+the `app` network, PostgreSQL and the migration job join only `data`, and the
+backend bridges those two networks. Nginx serves the compiled SPA, applies the
+deep-link fallback, and proxies `/api`, `/health`, and `/ready` to the private
+backend. Browser API calls therefore remain same-origin, and FastAPI has no
+wildcard CORS policy.
+
+Startup is deliberately gated:
+
+```text
+postgres healthy
+-> migrate completes `alembic upgrade head`
+-> backend passes `alembic current --check-heads` and `/ready`
+-> frontend starts and serves `/healthz`
+```
+
+`/health` remains process liveness and does not query PostgreSQL. `/ready`
+performs `SELECT 1` and returns 503 when the database boundary is unavailable.
+The backend runs one Uvicorn worker. The backend/migration runtime uses UID/GID
+10001, and the frontend Nginx runtime uses UID/GID 101. The application
+services use a read-only root filesystem, a bounded `/tmp` tmpfs, dropped Linux
+capabilities, and `no-new-privileges`. The PostgreSQL named volume persists
+across ordinary shutdowns. Startup never runs the menu seed, privileged-user
+bootstrap, reset, downgrade, or destructive database operation.
+
+After creating the ignored `.env` as described below, build and start the full
+local stack from the repository root:
+
+```powershell
+docker compose --env-file .env up --build
+```
+
+Open <http://127.0.0.1:5173>, and use
+<http://127.0.0.1:5173/healthz> for the frontend health endpoint. Stop the
+stack without deleting PostgreSQL data:
+
+```powershell
+docker compose --env-file .env down
+```
+
+Do not add `-v` unless deletion of the local named volume and its data is
+intentional. The current Compose contract is for loopback-only local use. Its
+single application database role is acceptable only at that boundary; public
+deployment still requires HTTPS, managed secret storage, and a least-privilege
+production database role.
+
+### Stage 17 isolated acceptance evidence
+
+Stage 17-5 built and exercised the current images under the unique isolated
+Compose project `roa-stage17-accept-7975ee`, using a synthetic environment,
+separate loopback ports, and a volume distinct from development. The real
+`.env`, host PostgreSQL on port 5432, development container, development
+database, and development volume were unchanged. Two explicit migration runs
+and the migration used by managed startup all finished at
+`0008_add_order_ownership`.
+
+Programmatic HTTP smoke through the frontend-only ingress verified the SPA
+shell and deep links, API JSON/non-SPA separation, canonical
+register/login/me, legacy administrator-auth 404 responses, rate-limit
+resistance to attacker-supplied `X-Forwarded-For`, and persistence after a
+PostgreSQL/backend restart. Runtime hardening and sanitized secret, image, and
+log audits passed, and the development database fingerprint remained
+unchanged. Browser automation was unavailable, so this evidence is
+programmatic SPA/API smoke, not browser E2E or a rendered-DOM claim.
+
+Shutdown used `docker compose down` without `-v`; acceptance containers and
+networks were removed. The isolated data volume is intentionally retained as
+`roa-stage17-accept-7975ee-postgres-data` and requires separate explicit
+approval before deletion.
 
 ## Local backend setup
 
@@ -1063,8 +1157,7 @@ The endpoint has no request body. It permits the matching canonical owner or a
 caller with the independent guest capability, then uses only the durable
 `Order.total_amount` and `Order.currency`. Its authentication boundary matches
 public status: a present invalid Bearer never falls back to a valid capability,
-and a non-owner without the capability receives 404 rather than an ownership
-403. Stripe receives one hosted Checkout line item in
+and a non-owner without the capability receives 404 rather than an ownership 403. Stripe receives one hosted Checkout line item in
 `mode=payment`. A new attempt returns HTTP 201; replay of the same completed
 operation returns HTTP 200. The public response contains only the public order
 number, Payment attempt status, sensitive hosted Checkout URL, and expiration
@@ -1359,10 +1452,11 @@ npm run dev
 ```
 
 Vite serves the UI at <http://localhost:5173>. In local development its `/api`
-proxy targets `http://127.0.0.1:8000`. `VITE_API_BASE_URL` is intentionally
-empty for same-origin paths through that proxy; a deployment may set a public
-HTTP(S) API base URL without a trailing slash. The application does not add or
-depend on local FastAPI CORS middleware.
+proxy targets `http://127.0.0.1:8000`. `VITE_API_BASE_URL` remains empty for
+same-origin paths through that proxy and through the accepted Stage 17 Nginx
+runtime. The application does not add or depend on local FastAPI CORS
+middleware. Any future cross-origin public API configuration requires a
+separately approved deployment and CORS contract.
 
 Frontend verification commands are:
 
@@ -1397,6 +1491,7 @@ From the `backend` directory, start Uvicorn without auto-reload:
 Available endpoints:
 
 - Health: <http://127.0.0.1:8000/health>
+- Database readiness: <http://127.0.0.1:8000/ready>
 - Public menu: <http://127.0.0.1:8000/api/v1/menu>
 - Public menu item: `http://127.0.0.1:8000/api/v1/menu/items/{item_id}`
 - Order quote: <http://127.0.0.1:8000/api/v1/orders/quote>

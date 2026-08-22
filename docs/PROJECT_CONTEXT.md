@@ -26,6 +26,15 @@ The goal is to build a secure web application that:
 - provides basic KPIs, reports, and CSV exports;
 - can run locally through Docker Compose and be deployed as a demo.
 
+Stages 1 through 16G are complete, verified, and committed. Stage 16G's
+canonical-auth cleanup, integrated acceptance, independent review, final
+commit, and post-commit security sign-off are complete. Stage 17-1 through
+Stage 17-5 are also complete: the backend and frontend images, four-service
+Compose runtime, readiness/startup gates, and isolated container acceptance all
+passed. Stage 17 is complete but remains uncommitted while C1 documentation
+and pre-commit validation are in progress; C2 independent review and final
+commit remain pending. Stage 18 end-to-end testing has not started.
+
 ## 3. Users
 
 ### 3.1. Anonymous Restaurant Guest
@@ -127,8 +136,8 @@ table is absent.
    `Idempotency-Key` or request fingerprint, so a network retry may create a
    duplicate order.
 10. The in-memory, app-scoped creation limiter permits 10 attempts per 60
-   seconds for each direct client host and returns HTTP 429 with `Retry-After`
-   before any SQL when the limit is exceeded.
+    seconds for each direct client host and returns HTTP 429 with `Retry-After`
+    before any SQL when the limit is exceeded.
 11. Order creation still creates neither a `Payment` record nor a Stripe
     session. The separate Stage 9 Checkout flow owns that boundary.
 
@@ -443,17 +452,76 @@ on 5432 was untouched. A local credential-hygiene issue was remediated by
 rotation without recording a credential value, database URL, or repository
 artifact.
 
-The current automated baseline is 1587/1587 passing backend tests, 890/890
+The current automated baseline is 1590/1590 passing backend tests, 890/890
 passing frontend tests across 31/31 files, and 8/8 passing Alembic migration
 round-trip/no-drift tests at the single `0008_add_order_ownership` head. Stage
 16G G4 final integrated acceptance is complete.
 
-Stage 16F is committed at current HEAD
-`dae2d8f12ed4f4de94337dfc730422504b2e528f`. Stage 16G implementation and
-acceptance are complete but are not yet committed during C1. C1 documentation
-and pre-commit validation are in progress, C2 independent review and final
-commit remain pending, and Stage 17 full-system Docker and deployment
-containerisation is the next implementation stage and has not started.
+Stage 16F was committed at
+`dae2d8f12ed4f4de94337dfc730422504b2e528f`. Stage 16G implementation,
+acceptance, independent review, and security sign-off are committed at current
+HEAD `8f50374759574fe7f7fea80c2eb7229cf12d3a0f`. Stage 17 implementation and
+isolated acceptance are complete but remain uncommitted during C1. C2
+independent review and final commit remain pending, and Stage 18 has not
+started.
+
+### 4.9. Local Full-System Container Runtime
+
+Stage 17 implements exactly four local Compose services: `postgres`, one-shot
+`migrate`, `backend`, and `frontend`. The accepted request path is:
+
+```text
+Browser -> frontend Nginx:8080 -> backend Uvicorn:8000 -> PostgreSQL:5432
+```
+
+The frontend is the sole application ingress and publishes
+`127.0.0.1:5173 -> frontend:8080`. PostgreSQL publishes
+`127.0.0.1:${POSTGRES_HOST_PORT:-5433} -> postgres:5432` for host-side local
+tools. The backend and migration job publish no ports. The frontend is isolated
+to the `app` network, PostgreSQL and migrations to `data`, and the backend
+bridges the two. Nginx serves the compiled React SPA, provides deep-link
+fallback, and proxies `/api`, `/health`, and `/ready` to the backend. Browser
+traffic is therefore same-origin, and the backend has no wildcard CORS policy.
+
+Startup follows one explicit dependency chain. Healthy PostgreSQL permits the
+one-shot `alembic upgrade head` migration. Only successful migration permits
+the backend startup command, which first runs the read-only
+`alembic current --check-heads` check and then starts one Uvicorn worker. The
+backend must pass `/ready` before the frontend starts; frontend health is
+reported by `/healthz`. `/health` remains process liveness without a database
+query, while `/ready` executes `SELECT 1` and returns 503 if the database is not
+ready. Startup never seeds data, bootstraps a privileged User, resets or
+downgrades the schema, or removes the persistent PostgreSQL volume.
+
+The backend and migration image runs as UID/GID 10001, and the static Nginx
+frontend runs as UID/GID 101; neither runtime contains a development server.
+The application services have read-only root filesystems, bounded `/tmp`
+tmpfs mounts, all Linux capabilities dropped, and
+`no-new-privileges`. Nginx overwrites client forwarding headers at the trusted
+proxy hop, while Uvicorn disables proxy-header trust. These controls and the
+loopback host bindings define a local runtime, not a public deployment. HTTPS,
+managed secret storage, and a least-privilege production database role remain
+future Stage 20 deployment work. The current single database role is accepted
+only for the loopback Stage 17 environment.
+
+Stage 17-5 validated the runtime under the unique isolated Compose project
+`roa-stage17-accept-7975ee`, with synthetic configuration, separate loopback
+ports, and a dedicated volume. The real `.env`, host PostgreSQL on port 5432,
+development container, development database, and development volume were not
+modified. Two explicit migrations and the managed-startup migration all ended
+at `0008_add_order_ownership`. Canonical register/login/me, legacy
+administrator-auth 404 responses, protection against an attacker-supplied
+`X-Forwarded-For` limiter bypass, persisted synthetic data after restart, and
+the hardening plus sanitized secret/image/log audits all passed. The
+development database fingerprint was unchanged.
+
+Browser automation was unavailable, so Stage 17-5 made no browser-E2E or
+rendered-DOM claim. Programmatic HTTP smoke through the frontend-only ingress
+verified the SPA shell and deep links plus API JSON/non-SPA separation. Final
+shutdown used `docker compose down` without `-v`, removed the isolated
+containers and networks, and intentionally retained
+`roa-stage17-accept-7975ee-postgres-data`. Deleting that volume requires a
+separate explicit approval.
 
 ## 5. MVP Scope
 
@@ -611,9 +679,10 @@ discounts. Dine-in orders additionally preserve `table_number_snapshot`.
   each direct peer; registration has a separate limiter. Forwarded identity
   headers remain ignored until a trusted-proxy policy exists.
 - Secrets exist only in environment variables.
-- Local Stage 15 development uses the same-origin Vite `/api` proxy. A
-  restricted production CORS policy is deferred to deployment and is not
-  currently active in FastAPI.
+- Local browser requests use same-origin `/api` paths through either the Vite
+  development proxy or the Stage 17 Nginx proxy. FastAPI has no wildcard CORS
+  policy; any public cross-origin or HTTPS ingress policy remains deployment
+  work.
 - Sign-in, order creation, and Stripe session creation are rate-limited.
 - Logs do not contain passwords, tokens, keys, or card data.
 - The public order view reveals only necessary information and permits either
@@ -647,10 +716,12 @@ and super-admin User-management frontend. Stage 16F adds the landing/menu route
 split, one canonical browser session, login and registration, personal account
 screens, and `/admin/users`. The developer/user completed its required manual
 local-browser verification after the final responsive and navigation fixes.
-Stage 16G canonical-auth cleanup and integrated acceptance are complete but not
-yet committed while C1 validation is in progress; C2 independent review and
-final commit remain pending. Stage 17 containerisation is the next unstarted
-implementation stage.
+Stage 16G canonical-auth cleanup, integrated acceptance, independent review,
+final commit, and security sign-off are complete. Stage 17 local full-system
+containerisation and isolated acceptance are complete but remain uncommitted
+while C1 validation is in progress; C2 independent review and final commit
+remain pending. Stage 18 end-to-end testing has not started, and no public
+deployment is claimed.
 
 The project should demonstrate to a recruiter that its author can:
 

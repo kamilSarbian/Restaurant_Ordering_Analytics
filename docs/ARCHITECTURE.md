@@ -72,7 +72,7 @@ details where doing so improves testability.
 | ------------------- | -------------------------------------------------------------------------------------------- |
 | `core`              | configuration, security, shared errors, and cross-cutting concerns                           |
 | `database`          | engine, sessions, model base, and migration integration                                      |
-| `auth`              | unified User persistence, bootstrap, registration, sign-in, JWT, and role authorization       |
+| `auth`              | unified User persistence, bootstrap, registration, sign-in, JWT, and role authorization      |
 | `categories`        | categories and their order in the menu                                                       |
 | `menu`              | menu items, prices, allergens, activity, and availability                                    |
 | `restaurant_tables` | tables and dine-in order validation                                                          |
@@ -1075,13 +1075,13 @@ session, allowing current database role state to drive the route guard.
 
 The route and guard matrix is:
 
-| Boundary | Routes | Allowed identity |
-| --- | --- | --- |
-| public | `/`, `/menu`, `/cart`, `/login`, `/register`, `/orders/:publicOrderNumber/...`, `*` | anonymous or authenticated as the feature permits |
-| account | `/account`, `/account/orders/:publicOrderNumber` | every authenticated role, personal scope only |
-| operational admin | `/admin`, `/admin/orders...`, `/admin/menu`, `/admin/analytics`, `/admin/exports`, `/admin/*` | `admin` or `super_admin` |
-| User governance | `/admin/users` | `super_admin` only |
-| compatibility | `/admin/login` | redirect to `/login?next=%2Fadmin` |
+| Boundary          | Routes                                                                                        | Allowed identity                                  |
+| ----------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| public            | `/`, `/menu`, `/cart`, `/login`, `/register`, `/orders/:publicOrderNumber/...`, `*`           | anonymous or authenticated as the feature permits |
+| account           | `/account`, `/account/orders/:publicOrderNumber`                                              | every authenticated role, personal scope only     |
+| operational admin | `/admin`, `/admin/orders...`, `/admin/menu`, `/admin/analytics`, `/admin/exports`, `/admin/*` | `admin` or `super_admin`                          |
+| User governance   | `/admin/users`                                                                                | `super_admin` only                                |
+| compatibility     | `/admin/login`                                                                                | redirect to `/login?next=%2Fadmin`                |
 
 An unauthenticated protected-route visit goes to unified `/login` with a safe
 continuation. Customers rejected from administrator routes go to `/account`; an
@@ -1094,13 +1094,13 @@ capabilities never enter a URL or Router state.
 
 The customer credential matrix is:
 
-| Operation | Guest | Authenticated User |
-| --- | --- | --- |
-| menu and quote | no credential | no credential |
-| Order creation | no credential | Bearer |
-| public status | capability | Bearer plus optional capability |
-| Checkout | capability plus idempotency key | Bearer plus optional capability and idempotency key |
-| Stripe redirect | no application header | no application header |
+| Operation       | Guest                           | Authenticated User                                  |
+| --------------- | ------------------------------- | --------------------------------------------------- |
+| menu and quote  | no credential                   | no credential                                       |
+| Order creation  | no credential                   | Bearer                                              |
+| public status   | capability                      | Bearer plus optional capability                     |
+| Checkout        | capability plus idempotency key | Bearer plus optional capability and idempotency key |
+| Stripe redirect | no application header           | no application header                               |
 
 The account list and detail use strict canonical Bearer and never accept the
 guest capability. List pagination and detail authorization are owner-scoped in
@@ -1130,6 +1130,79 @@ ephemeral and untracked. The development database is limited to read-only
 before-and-after fingerprint checks and receives no disposable acceptance data.
 After successful acceptance the isolated database is removed. Host PostgreSQL
 on port 5432 and the project named volume remain untouched.
+
+### 5.23. Implemented Stage 17 Container Runtime and Readiness Boundary
+
+The Stage 17 local Compose application has exactly four services: `postgres`,
+the one-shot `migrate` job, `backend`, and `frontend`. Its request path is:
+
+```text
+Browser -> frontend Nginx :8080 -> backend :8000 -> PostgreSQL :5432
+```
+
+The `app` network contains only frontend and backend traffic. The `data`
+network connects PostgreSQL, migrate, and backend. Frontend is the sole
+application ingress and publishes container port 8080 on
+`127.0.0.1:5173`; backend and migrate publish no host port. PostgreSQL is
+available to local tools only through the loopback binding
+`127.0.0.1:${POSTGRES_HOST_PORT:-5433}` to container port 5432. The persistent
+`postgres_data` volume is preserved across ordinary Compose restarts and
+shutdowns.
+
+Nginx serves the static React application and forwards same-origin `/api`
+requests to the private backend without changing the request URI. `/health`
+and `/ready` are also routed to the backend, while frontend owns the distinct
+`/healthz` endpoint; none of these operational paths can fall through to the
+SPA. Incoming forwarded-header chains are overwritten at Nginx, Uvicorn does
+not trust proxy headers, and the application has no wildcard CORS policy. A
+future public proxy trust policy remains a deployment concern.
+
+Startup is explicit and ordered. PostgreSQL must first become healthy. The
+non-restarting migrate service then runs only `alembic upgrade head` and must
+complete successfully. Backend independently performs the read-only
+`alembic current --check-heads` guard before it replaces the shell with one
+Uvicorn worker. Its health check calls `/ready`; only a healthy backend permits
+frontend startup. `/health` remains process liveness and performs no database
+operation, whereas `/ready` executes `SELECT 1` and returns a safe 503 when the
+database session or probe is unavailable. Frontend health is the Nginx-owned
+`/healthz` response.
+
+The backend and migration image runs as fixed user and group `10001:10001`, and
+the frontend runtime runs as `101:101`. Migrate, backend, and frontend use a
+read-only root filesystem, a size-limited `/tmp` tmpfs with
+`nosuid,nodev,noexec`, all Linux capabilities dropped, and
+`no-new-privileges`. Runtime secrets are supplied through the environment and
+are not embedded in either image. Compose startup performs no seed, account
+bootstrap, reset, downgrade, or implicit schema mutation outside the explicit
+migration job.
+
+The current database role and loopback bindings are accepted only for the local
+Stage 17 environment. This architecture is not a claim of public deployment.
+HTTPS, externally managed secrets, a least-privilege production database role,
+and an explicit trusted-proxy boundary remain required work for a later public
+deployment stage.
+
+#### Stage 17 Isolated Docker Acceptance
+
+Final acceptance used the unique Compose project
+`roa-stage17-accept-7975ee`, a separate synthetic environment, alternate
+loopback ports `127.0.0.1:15173` for frontend and `127.0.0.1:15433` for
+PostgreSQL, and its own PostgreSQL volume. The real `.env` was untouched, and
+the development database was not used for disposable acceptance data; its
+fingerprint was unchanged after the run.
+
+Two explicit migration executions and the dependency-managed startup migration
+all ended at Alembic head `0008_add_order_ownership`. Canonical registration,
+login, and `/auth/me` passed; removed legacy administrator-auth routes returned
+404; the forwarded-header spoof check passed; and persisted data survived an
+application restart. Image, runtime-hardening, secret, and log audits also
+passed without recording synthetic credentials, tokens, or database URLs.
+
+Browser automation was unavailable, so no browser E2E result is claimed.
+Programmatic SPA deep-link and API smoke checks passed through the frontend
+ingress. Acceptance containers and networks were removed with Compose `down`
+without `-v`; the intentionally retained volume is
+`roa-stage17-accept-7975ee-postgres-data`.
 
 ## 6. Architecture Diagram
 

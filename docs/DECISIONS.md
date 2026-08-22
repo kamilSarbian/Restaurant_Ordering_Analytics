@@ -1343,6 +1343,51 @@ while preserving these financial concurrency rules.
   and cleanup evidence, but it cannot pollute development data or create a
   permanent repository harness.
 
+## D-074 — Container Topology, Explicit Migration, and Readiness Boundary
+
+- **Status:** accepted on 2026-08-22
+- **Topology:** the Stage 17 Compose application has exactly four services:
+  `postgres`, a one-shot `migrate` job, `backend`, and `frontend`. Frontend Nginx
+  is the sole application ingress and serves the SPA while forwarding
+  same-origin `/api` requests to the private backend. Backend and migrate have no
+  host port. PostgreSQL is published only on a configurable loopback port for
+  local tooling. The `app` network connects frontend to backend, while the
+  `data` network connects backend and migrate to PostgreSQL.
+- **Migration and startup:** PostgreSQL health gates the explicit, non-restarting
+  `alembic upgrade head` migration job. Backend may start only after that job
+  succeeds and must independently pass the read-only
+  `alembic current --check-heads` guard before starting one Uvicorn worker.
+  Backend readiness then gates frontend startup. Startup performs no seed,
+  bootstrap, reset, downgrade, or migration hidden inside the application
+  process.
+- **Readiness boundary:** `/health` remains a database-independent liveness
+  response. `/ready` is the backend readiness contract and succeeds only after a
+  `SELECT 1` database probe; predictable database failures return a safe 503.
+  Frontend exposes its separate Nginx `/healthz` check, and operational health
+  paths never use the SPA fallback.
+- **Hardening and persistence:** backend and migrate run as fixed non-root user
+  and group `10001:10001`, and frontend runs as `101:101`. Application
+  containers use read-only root filesystems, a constrained `/tmp` tmpfs, all
+  capabilities dropped, and `no-new-privileges`. PostgreSQL data remains in a
+  named volume across ordinary shutdowns. Secrets enter at runtime through the
+  environment and are not baked into images.
+- **Local and public deployment boundary:** the current local database role is
+  acceptable only for the loopback-only Stage 17 environment. This decision
+  does not approve a public deployment. A later deployment stage must provide
+  HTTPS, a secret manager, a least-privilege production database role, and an
+  explicit trusted-proxy boundary before exposing the application publicly.
+- **Rationale:** a separate migration job makes schema mutation visible and
+  fail-closed, while independent head and readiness checks prevent an outdated
+  schema or unavailable database from being presented as a healthy application.
+  One same-origin ingress keeps the browser-to-API trust boundary small.
+- **Consequences:** the accepted startup chain is PostgreSQL healthy, migration
+  successful, backend head check and readiness successful, then frontend. The
+  backend remains private, no wildcard CORS policy is required, and the
+  persistent database volume is never reset implicitly. This decision completes
+  D-015's full-system Docker direction without changing the modular-monolith
+  decision or making the one-shot migration job a long-running application
+  tier.
+
 ## History of Decisions That Required Resolution
 
 ### O-002: Boundary Between Order Creation and Stripe Checkout Session
