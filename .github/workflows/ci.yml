@@ -1,0 +1,301 @@
+name: Backend CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: postgresql+psycopg://roa_ci:ci-${{ github.run_id }}-${{ github.run_attempt }}@127.0.0.1:5433/restaurant_ordering_analytics_dev
+      TEST_DATABASE_URL: postgresql+psycopg://roa_ci:ci-${{ github.run_id }}-${{ github.run_attempt }}@127.0.0.1:5433/restaurant_ordering_analytics_test
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: restaurant_ordering_analytics_dev
+          POSTGRES_USER: roa_ci
+          POSTGRES_PASSWORD: ci-${{ github.run_id }}-${{ github.run_attempt }}
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U roa_ci -d restaurant_ordering_analytics_dev"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12.14"
+          check-latest: false
+          cache: pip
+          cache-dependency-path: backend/requirements-ci.lock
+
+      - name: Verify environment boundary
+        shell: bash
+        run: |
+          test ! -e .env
+          test ! -e backend/.env
+
+      - name: Install hash-locked dependencies
+        shell: bash
+        run: |
+          python -m pip install --isolated --only-binary=:all: --require-hashes -r backend/requirements-ci.lock
+          python -m pip check
+
+      - name: Run Ruff
+        shell: bash
+        working-directory: backend
+        run: python -m ruff check --no-cache .
+
+      - name: Check Black formatting
+        shell: bash
+        working-directory: backend
+        run: python -m black --check --no-cache --workers 1 .
+
+      - name: Check import ordering
+        shell: bash
+        working-directory: backend
+        run: python -m isort --check-only .
+
+      - name: Run backend tests
+        shell: bash
+        working-directory: backend
+        run: python -m pytest -p no:cacheprovider
+
+  migrations:
+    name: Migrations
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      DATABASE_URL: postgresql+psycopg://roa_ci:ci-${{ github.run_id }}-${{ github.run_attempt }}@127.0.0.1:5433/restaurant_ordering_analytics_test
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: restaurant_ordering_analytics_test
+          POSTGRES_USER: roa_ci
+          POSTGRES_PASSWORD: ci-${{ github.run_id }}-${{ github.run_attempt }}
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U roa_ci -d restaurant_ordering_analytics_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12.14"
+          check-latest: false
+
+      - name: Verify environment boundary
+        shell: bash
+        run: |
+          test ! -e .env
+          test ! -e backend/.env
+
+      - name: Install hash-locked runtime dependencies
+        shell: bash
+        run: |
+          python -m pip install --isolated --only-binary=:all: --require-hashes -r backend/requirements.lock
+          python -m pip check
+
+      - name: Verify migration target and graph
+        shell: bash
+        working-directory: backend
+        run: |
+          python - <<'PY'
+          import os
+          import re
+
+          from alembic.config import Config
+          from alembic.script import ScriptDirectory
+          from sqlalchemy.engine import make_url
+
+          database_url = make_url(os.environ["DATABASE_URL"])
+          if (
+              database_url.drivername != "postgresql+psycopg"
+              or database_url.host != "127.0.0.1"
+              or database_url.port != 5433
+              or database_url.database != "restaurant_ordering_analytics_test"
+              or database_url.username != "roa_ci"
+              or re.fullmatch(r"ci-[0-9]+-[0-9]+", database_url.password or "")
+              is None
+              or database_url.query
+          ):
+              raise SystemExit("CI migration database target rejected")
+
+          heads = tuple(
+              ScriptDirectory.from_config(Config("alembic.ini")).get_heads()
+          )
+          if heads != ("0008_add_order_ownership",):
+              raise SystemExit("Alembic head validation failed")
+          PY
+
+      - name: Upgrade migration database
+        shell: bash
+        working-directory: backend
+        run: python -m alembic upgrade head
+
+      - name: Verify migration database head
+        shell: bash
+        working-directory: backend
+        run: python -m alembic current --check-heads
+
+      - name: Check migration drift
+        shell: bash
+        working-directory: backend
+        run: python -m alembic check
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24.19.0"
+          check-latest: false
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Verify environment boundary
+        shell: bash
+        run: |
+          test ! -e .env
+          test ! -e frontend/.env
+
+      - name: Install frontend dependencies
+        shell: bash
+        working-directory: frontend
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Type-check browser E2E sources
+        shell: bash
+        working-directory: frontend
+        run: npm run typecheck:e2e
+
+      - name: Run ESLint
+        shell: bash
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Check Prettier formatting
+        shell: bash
+        working-directory: frontend
+        run: >-
+          npm run format:check --
+          ../.github/workflows/ci.yml
+          ../README.md
+          ../docs/PROJECT_CONTEXT.md
+          ../docs/ARCHITECTURE.md
+          ../docs/ROADMAP.md
+          ../docs/DECISIONS.md
+          ../docs/IMPLEMENTATION_STATUS.md
+
+      - name: Run frontend tests
+        shell: bash
+        working-directory: frontend
+        run: npm run test:run -- --retry=0
+
+      - name: Build production frontend
+        shell: bash
+        working-directory: frontend
+        run: npm run build
+
+      - name: Audit production dependencies
+        shell: bash
+        working-directory: frontend
+        run: npm audit --omit=dev --audit-level=low
+
+      - name: Audit all dependencies
+        shell: bash
+        working-directory: frontend
+        run: npm audit --audit-level=low
+
+  e2e:
+    name: Browser E2E
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    needs:
+      - backend
+      - migrations
+      - frontend
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24.19.0"
+          check-latest: false
+
+      - name: Verify environment boundary
+        shell: bash
+        run: |
+          test ! -e .env
+          test ! -e backend/.env
+          test ! -e frontend/.env
+
+      - name: Install frontend dependencies
+        shell: bash
+        working-directory: frontend
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Install Chromium
+        shell: bash
+        working-directory: frontend
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ms-playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Run isolated browser acceptance
+        shell: bash
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ms-playwright
+        run: bash .github/scripts/run-browser-e2e.sh
