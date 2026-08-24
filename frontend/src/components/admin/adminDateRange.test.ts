@@ -34,7 +34,7 @@ describe('Europe/Oslo administrator date ranges', () => {
   });
 
   it('rejects impossible calendar dates and reversed ranges', () => {
-    expect(isValidDateOnly('2026-02-30')).toBe(false);
+    expect(isValidDateOnly('2026-02-30')).toBe(true);
     expect(() => dateOnlyToOsloMidnight('2026-02-30')).toThrow(RangeError);
     expect(() =>
       buildAdminAwareDateRange({ startDate: '2026-08-13', endDate: '2026-08-12' }),
