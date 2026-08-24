@@ -31,6 +31,7 @@ const VIEWPORTS = [
   { height: 1024, label: 'tablet', width: 768 },
   { height: 800, label: 'desktop', width: 1280 },
 ] as const;
+const OVERFLOW_TOLERANCE_PX = 1;
 const SAFE_SYNTHETIC_ENVIRONMENT_NAMES = new Set([
   'E2E_ADMIN_EMAIL',
   'E2E_ADMIN_PASSWORD',
@@ -56,9 +57,12 @@ interface RuntimeBox {
 
 interface RuntimeElement {
   readonly disabled?: boolean;
+  readonly parentElement: RuntimeElement | null;
+  readonly previousElementSibling: RuntimeElement | null;
   readonly scrollWidth?: number;
   scrollLeft?: number;
   readonly clientWidth?: number;
+  readonly tagName: string;
   blur?: () => void;
   closest: (selector: string) => RuntimeElement | null;
   focus?: () => void;
@@ -78,6 +82,15 @@ interface BrowserRuntime {
       readonly clientWidth: number;
       readonly scrollWidth: number;
     };
+    readonly fonts: {
+      readonly ready: Promise<unknown>;
+    };
+    readonly scrollingElement:
+      | (RuntimeElement & {
+          readonly clientWidth: number;
+          readonly scrollWidth: number;
+        })
+      | null;
     querySelectorAll: (selector: string) => Iterable<RuntimeElement>;
   };
   getComputedStyle: (element: RuntimeElement) => {
@@ -92,11 +105,56 @@ interface BrowserRuntime {
     readonly wordBreak: string;
   };
   readonly innerWidth: number;
+  readonly scrollX: number;
+  readonly scrollY: number;
   readonly location: {
     readonly hash: string;
     readonly pathname: string;
     readonly search: string;
   };
+  requestAnimationFrame: (callback: () => void) => number;
+  scrollTo: (x: number, y: number) => void;
+}
+
+interface OverflowBoxDiagnostic {
+  readonly bottom: number;
+  readonly left: number;
+  readonly right: number;
+  readonly top: number;
+  readonly width: number;
+}
+
+interface OverflowElementDiagnostic {
+  readonly box: OverflowBoxDiagnostic;
+  readonly role: string | null;
+  readonly selector: string;
+}
+
+interface OverflowScrollerDiagnostic {
+  readonly box: Pick<OverflowBoxDiagnostic, 'left' | 'right' | 'width'>;
+  readonly clientWidth: number;
+  readonly scrollWidth: number;
+  readonly selector: string;
+}
+
+interface OverflowSnapshot {
+  readonly body: {
+    readonly clientWidth: number;
+    readonly delta: number;
+    readonly scrollWidth: number;
+  };
+  readonly localTableOffenderCount: number;
+  readonly localTableScrollers: readonly OverflowScrollerDiagnostic[];
+  readonly nonLocalOffenderCount: number;
+  readonly offenders: readonly OverflowElementDiagnostic[];
+  readonly pathname: string;
+  readonly scrollingElement: {
+    readonly clientWidth: number;
+    readonly delta: number;
+    readonly maximumScrollX: number;
+    readonly scrollWidth: number;
+  };
+  readonly viewportWidth: number;
 }
 
 function safeInvariant(condition: unknown, code: string): asserts condition {
@@ -309,17 +367,224 @@ async function tabTo(page: Page, target: Locator, maximumTabs = 24): Promise<voi
   throw new Error('KEYBOARD_TARGET_NOT_REACHED');
 }
 
-async function assertNoMaterialOverflow(page: Page): Promise<void> {
-  const noOverflow = await page.evaluate(() => {
+async function waitForSettledLayout(page: Page): Promise<void> {
+  await page.evaluate(async () => {
     const runtime = globalThis as typeof globalThis & BrowserRuntime;
-    return (
-      runtime.document.documentElement.scrollWidth <= runtime.innerWidth + 1 &&
-      runtime.document.body.scrollWidth <= runtime.innerWidth + 1 &&
-      runtime.document.documentElement.clientWidth <= runtime.innerWidth + 1 &&
-      runtime.document.body.clientWidth <= runtime.innerWidth + 1
-    );
+    await runtime.document.fonts.ready;
+    const waitForFrame = () =>
+      new Promise<void>((resolve) => {
+        runtime.requestAnimationFrame(() => resolve());
+      });
+    await waitForFrame();
+    await waitForFrame();
   });
-  safeInvariant(noOverflow, 'MATERIAL_HORIZONTAL_OVERFLOW');
+}
+
+async function captureOverflowSnapshot(page: Page): Promise<OverflowSnapshot> {
+  return page.evaluate((tolerance) => {
+    const runtime = globalThis as typeof globalThis & BrowserRuntime;
+    const root = runtime.document.scrollingElement ?? runtime.document.documentElement;
+    const body = runtime.document.body;
+    const originalScrollX = runtime.scrollX;
+    const originalScrollY = runtime.scrollY;
+    runtime.scrollTo(root.scrollWidth, originalScrollY);
+    const maximumScrollX = runtime.scrollX;
+    runtime.scrollTo(originalScrollX, originalScrollY);
+
+    const safePathnames = new Set([
+      '/',
+      '/account',
+      '/admin',
+      '/admin/orders',
+      '/admin/users',
+      '/login',
+      '/menu',
+      '/register',
+    ]);
+    const safeRoles = new Set([
+      'alert',
+      'button',
+      'complementary',
+      'dialog',
+      'form',
+      'heading',
+      'link',
+      'list',
+      'main',
+      'navigation',
+      'region',
+      'status',
+      'table',
+    ]);
+    const roundGeometry = (value: number) => Math.round(value * 100) / 100;
+    const safeSelector = (element: RuntimeElement) => {
+      const parts: string[] = [];
+      let current: RuntimeElement | null = element;
+      for (
+        let depth = 0;
+        depth < 5 && current !== null && current !== body;
+        depth += 1
+      ) {
+        const tagName = current.tagName.toLowerCase();
+        let position = 1;
+        let sibling = current.previousElementSibling;
+        while (sibling !== null) {
+          if (sibling.tagName === current.tagName) position += 1;
+          sibling = sibling.previousElementSibling;
+        }
+        parts.unshift(`${tagName}:nth-of-type(${position})`);
+        current = current.parentElement;
+      }
+      return parts.join(' > ');
+    };
+    const safeRole = (element: RuntimeElement) => {
+      const role = element.getAttribute('role');
+      return role !== null && safeRoles.has(role) ? role : null;
+    };
+    const boxDiagnostic = (box: RuntimeBox): OverflowBoxDiagnostic => ({
+      bottom: roundGeometry(box.bottom),
+      left: roundGeometry(box.left),
+      right: roundGeometry(box.right),
+      top: roundGeometry(box.top),
+      width: roundGeometry(box.width),
+    });
+    const localScrollerFor = (element: RuntimeElement) => {
+      const table = element.closest('table');
+      const wrapper = table?.parentElement ?? null;
+      if (
+        wrapper === null ||
+        wrapper.clientWidth === undefined ||
+        wrapper.scrollWidth === undefined
+      ) {
+        return null;
+      }
+      const style = runtime.getComputedStyle(wrapper);
+      const box = wrapper.getBoundingClientRect();
+      const bounded =
+        box.left >= -tolerance && box.right <= runtime.innerWidth + tolerance;
+      const scrollable =
+        (style.overflowX === 'auto' || style.overflowX === 'scroll') &&
+        wrapper.scrollWidth > wrapper.clientWidth + tolerance;
+      return bounded && scrollable ? wrapper : null;
+    };
+
+    const offenders: OverflowElementDiagnostic[] = [];
+    const localTableScrollers: OverflowScrollerDiagnostic[] = [];
+    const recordedScrollers = new Set<RuntimeElement>();
+    let localTableOffenderCount = 0;
+    let nonLocalOffenderCount = 0;
+
+    for (const element of runtime.document.querySelectorAll('body *')) {
+      const style = runtime.getComputedStyle(element);
+      const box = element.getBoundingClientRect();
+      const rendered =
+        style.display !== 'none' &&
+        style.visibility !== 'hidden' &&
+        Number(style.opacity) > 0 &&
+        Number.isFinite(box.left) &&
+        Number.isFinite(box.right) &&
+        box.width > 0 &&
+        box.height > 0 &&
+        box.bottom > 0;
+      const exceedsViewport =
+        box.left < -tolerance || box.right > runtime.innerWidth + tolerance;
+      if (!rendered || !exceedsViewport) continue;
+
+      const localScroller = localScrollerFor(element);
+      if (localScroller !== null) {
+        localTableOffenderCount += 1;
+        if (!recordedScrollers.has(localScroller) && localTableScrollers.length < 5) {
+          recordedScrollers.add(localScroller);
+          const scrollerBox = localScroller.getBoundingClientRect();
+          localTableScrollers.push({
+            box: {
+              left: roundGeometry(scrollerBox.left),
+              right: roundGeometry(scrollerBox.right),
+              width: roundGeometry(scrollerBox.width),
+            },
+            clientWidth: localScroller.clientWidth ?? 0,
+            scrollWidth: localScroller.scrollWidth ?? 0,
+            selector: safeSelector(localScroller),
+          });
+        }
+        continue;
+      }
+
+      nonLocalOffenderCount += 1;
+      if (offenders.length < 8) {
+        offenders.push({
+          box: boxDiagnostic(box),
+          role: safeRole(element),
+          selector: safeSelector(element),
+        });
+      }
+    }
+
+    const pathname = safePathnames.has(runtime.location.pathname)
+      ? runtime.location.pathname
+      : 'unrecognized';
+    const rootDelta = Math.max(0, root.scrollWidth - root.clientWidth);
+    const bodyDelta = Math.max(0, body.scrollWidth - body.clientWidth);
+    return {
+      body: {
+        clientWidth: body.clientWidth,
+        delta: bodyDelta,
+        scrollWidth: body.scrollWidth,
+      },
+      localTableOffenderCount,
+      localTableScrollers,
+      nonLocalOffenderCount,
+      offenders,
+      pathname,
+      scrollingElement: {
+        clientWidth: root.clientWidth,
+        delta: rootDelta,
+        maximumScrollX,
+        scrollWidth: root.scrollWidth,
+      },
+      viewportWidth: runtime.innerWidth,
+    };
+  }, OVERFLOW_TOLERANCE_PX);
+}
+
+function stableOverflowSignature(snapshot: OverflowSnapshot): string {
+  return JSON.stringify(snapshot);
+}
+
+function safeOverflowDiagnostics(snapshot: OverflowSnapshot): string {
+  return JSON.stringify(snapshot);
+}
+
+async function captureStableOverflowSnapshot(page: Page): Promise<OverflowSnapshot> {
+  await waitForSettledLayout(page);
+  let previous = await captureOverflowSnapshot(page);
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) => {
+          const runtime = globalThis as typeof globalThis & BrowserRuntime;
+          runtime.requestAnimationFrame(() => resolve());
+        }),
+    );
+    const current = await captureOverflowSnapshot(page);
+    if (stableOverflowSignature(previous) === stableOverflowSignature(current)) {
+      return current;
+    }
+    previous = current;
+  }
+  throw new Error(`RESPONSIVE_LAYOUT_UNSTABLE ${safeOverflowDiagnostics(previous)}`);
+}
+
+async function assertNoMaterialOverflow(page: Page): Promise<void> {
+  const snapshot = await captureStableOverflowSnapshot(page);
+  const pageCanScrollHorizontally =
+    snapshot.scrollingElement.delta > OVERFLOW_TOLERANCE_PX ||
+    snapshot.scrollingElement.maximumScrollX > OVERFLOW_TOLERANCE_PX;
+  if (pageCanScrollHorizontally || snapshot.nonLocalOffenderCount > 0) {
+    throw new Error(
+      `MATERIAL_HORIZONTAL_OVERFLOW ${safeOverflowDiagnostics(snapshot)}`,
+    );
+  }
 }
 
 async function assertVisibleControlsWithinViewport(page: Page): Promise<void> {
