@@ -17,13 +17,18 @@ administrator-auth routes and runtime compatibility are removed.
 
 Stage 17-1 through Stage 17-5 are complete, verified, and committed. The
 backend image, static frontend image, four-service Compose topology,
-readiness/startup gating, and isolated Docker acceptance all passed. Stage
-18-1 Playwright tooling, Stage 18-2 isolated authentication/account E2E, Stage
-18-3 guest/payment/administrator E2E, Stage 18-4 responsive/accessibility/
-runtime E2E, and Stage 18-5 final acceptance are complete. Stage 18 is therefore
-implementation- and acceptance-complete, but its changes remain uncommitted
-during C1 documentation and pre-commit validation. Stage 18-C2 independent
-review and final commit have not started.
+readiness/startup gating, and isolated Docker acceptance all passed. Stage 18,
+including Playwright tooling, isolated authentication/account and
+guest/payment/administrator E2E, responsive/accessibility/runtime coverage,
+final acceptance, independent review, and final commit, is complete and
+committed at `a1999f9ce22d92876c38a71e24ad9ff8c43075d2`.
+
+Stage 19-1 through Stage 19-4 are complete. The GitHub Actions foundation,
+migration and frontend gates, isolated Browser E2E job, live
+GREEN -> RED -> GREEN acceptance, hosted responsive fixes, and `main` branch
+protection are implemented and verified. The cumulative Stage 19 changes
+remain uncommitted during Stage 19-C1 documentation and pre-commit validation;
+Stage 19-C2 independent review and final commit have not started.
 
 The FastAPI backend provides public menu and quote APIs, anonymous or owned
 Order creation, owner-or-capability status and idempotent Stripe Checkout,
@@ -40,8 +45,9 @@ Alembic, and an explicit demonstration menu seed. Code and the development
 database are both at migration `0008_add_order_ownership`. A local
 credential-hygiene issue was remediated by rotation without documenting or
 tracking any credential value. Stage 17 provides repeatable local full-system
-containers, and Stage 18 provides isolated browser E2E. This is not a public
-deployment: Stage 19 CI and Stage 20 deployment have not started.
+containers, Stage 18 provides isolated browser E2E, and Stage 19 provides
+deterministic GitHub Actions CI. This is not a public deployment: Stage 20
+Deployment and Stage 21 Portfolio Documentation have not started.
 
 ## Unified identity, Order ownership, and account backend
 
@@ -176,6 +182,8 @@ without introducing infrastructure that is unnecessary for a single venue.
   data, and hardened non-root application containers.
 - Playwright Test browser E2E using Chromium, a per-run isolated Compose
   database and volume, and a test-only fake Checkout/webhook harness.
+- GitHub Actions CI with independent backend, migration, and frontend gates and
+  a dependent isolated Browser E2E gate.
 - Isolated PostgreSQL integration tests for models, constraints, and migration
   upgrades, downgrades, seed idempotency, and data protection.
 - Ruff, Black, and isort quality configuration.
@@ -187,9 +195,9 @@ without introducing infrastructure that is unnecessary for a single venue.
   email-validator, Docker Compose, pytest, Ruff, Black, isort, React,
   TypeScript, Vite, React Router, CSS Modules, native `fetch`, `sessionStorage`,
   Vitest, React Testing Library, multi-stage container builds, and an
-  unprivileged static Nginx runtime, Playwright Test 1.62.1, and Chromium
-  browser E2E.
-- Planned: Stage 19 GitHub Actions CI and Stage 20 public deployment.
+  unprivileged static Nginx runtime, Playwright Test 1.62.1, Chromium browser
+  E2E, and GitHub Actions CI.
+- Planned: Stage 20 public deployment and Stage 21 Portfolio Documentation.
 
 ## Repository structure
 
@@ -344,6 +352,45 @@ development database fingerprint, host and development Docker state, and real
 Seven detached Stage 17/18 acceptance volumes are intentionally retained
 because deleting them requires separate explicit approval. No acceptance
 containers or networks remain running.
+
+## Stage 19 GitHub Actions CI
+
+The CI workflow runs on GitHub-hosted `ubuntu-24.04` for pull requests, pushes
+to `main`, and manual `workflow_dispatch` runs. Workflow-scoped concurrency
+cancels an older in-progress run for the same pull request or ref. It exposes
+four stable job names: `Backend`, `Migrations`, `Frontend`, and `Browser E2E`.
+The first three jobs are independent; `Browser E2E` has explicit `needs` on all
+three and runs only after they succeed.
+
+The workflow is least-privilege and deterministic. It declares only
+`permissions: contents: read`, pins third-party actions to immutable full commit
+SHAs, disables persisted checkout credentials, and installs hash-locked Python
+dependencies. PostgreSQL credentials, authentication values, and the webhook
+value are synthetic and CI-only. Current CI requires no GitHub Secrets, never
+reads a real `.env`, and makes no real Stripe request. It does not use
+`pull_request_target` or expose workflow secrets to fork pull requests.
+
+Live GitHub acceptance completed the required GREEN -> RED -> GREEN sequence.
+GREEN #1 passed all four jobs and Playwright 8/8. The controlled RED made
+`Frontend` fail exactly as intended, kept `Backend` and `Migrations`
+independent, and skipped `Browser E2E` through its dependency gate. GREEN #2
+again passed all four jobs and Playwright 8/8. Count-only log and artifact
+audits found no real secret or credentialed DSN exposure and no uploaded
+artifact. The temporary pull request, branch, and worktree were cleaned without
+merge while the `main` HEAD remained unchanged.
+
+Hosted Chromium exposed two genuine responsive product defects. The `/menu` card
+grid is now constrained in `MenuPage.module.css` with `minmax(0, 1fr)`, and the
+mobile `/admin/users` definition value resets the user-agent margin with
+`.cardDetails dd { margin: 0; }` in `AdminUsersPage.module.css`. The production
+CSS was fixed; the Playwright horizontal-overflow assertion remains strict.
+
+After acceptance, classic branch protection on `main` was configured to require
+the exact `Backend`, `Migrations`, `Frontend`, and `Browser E2E` checks with
+strict status checks enabled. Admin enforcement is intentionally disabled at
+this stage, and force pushes and deletions are disabled. Stage 19 is complete
+but remains uncommitted until the Stage 19-C2 independent review and final
+commit.
 
 ## Local backend setup
 

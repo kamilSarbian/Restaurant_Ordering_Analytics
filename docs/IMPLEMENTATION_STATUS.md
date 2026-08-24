@@ -16,10 +16,11 @@
 - **Stage 13:** completed
 - **Stage 14:** completed
 - **Stage 15:** completed
-- **Current stage:** Stage 18-C1 documentation and pre-commit validation are in
-  progress. Stage 17 is complete and committed. Stage 18-1 through Stage 18-5,
-  including two-run final browser acceptance, are complete; Stage 18 remains
-  uncommitted during C1, and Stage 18-C2 has not started.
+- **Current stage:** Stage 18 is complete and committed at
+  `a1999f9ce22d92876c38a71e24ad9ff8c43075d2`. Stage 19-1 through Stage 19-4,
+  including live `GREEN -> RED -> GREEN` GitHub Actions acceptance and `main`
+  branch protection, are complete but uncommitted during Stage 19-C1. Stage
+  19-C2 has not started.
 - **Backend:** FastAPI, database foundation, menu models, local seed data,
   public menu, transient quoting, persistent order creation, and secure public
   order status, Payment persistence, Stripe Checkout, and verified Stripe
@@ -98,12 +99,12 @@
   payments; deterministic UTF-8-SIG, BOM, CSV dialect, filename, query,
   time-source, formula-safety, and exposure contracts completed and verified;
   one report SELECT per route and no migration required
-- **Application tests:** the current Stage 18 baseline passed 1654 backend
-  tests and 890 frontend tests. Backend Ruff, Black, and isort checks and
-  frontend ESLint, Prettier, build, and both dependency audits passed. The
-  complete eight-test Playwright suite passed in each of two fresh isolated
-  Chromium runs. Alembic exposes the single `0008_add_order_ownership` head,
-  and the eight-test migration round-trip/no-drift suite passed
+- **Application tests:** the current Stage 19 baseline passed 1654 backend
+  tests and 890 frontend tests. Backend Ruff, Black, and isort checks; browser
+  E2E type checking; frontend ESLint, Prettier, build; and both dependency
+  audits passed. Each live GREEN workflow passed all four jobs, including the
+  complete eight-test Playwright suite. Alembic exposes the single
+  `0008_add_order_ownership` head, and migration round-trip/no-drift passed 8/8
 - **Stage 16 frontend:** the committed B1 through B6 operational administrator
   interface remains complete. Stage 16F F1 through F6 plus FIX1 and FIX2 add
   the landing route, shared auth, registration, authenticated ordering,
@@ -191,14 +192,25 @@
   browser E2E
 - **Stage 18-5:** FINAL ACCEPTANCE COMPLETE — two fresh isolated runs passed
   the complete Playwright suite, 8/8 in each run
-- **Stage 18-C1:** in progress — documentation and cumulative pre-commit
-  validation
-- **Stage 18-C2:** not started
-- **Overall Stage 18:** implementation and final acceptance are complete but
-  uncommitted during C1
-- **Remaining direction:** finish every Stage 18-C1 gate, then run Stage 18-C2
-  independent review and final commit. Stage 19 requires separate approval
-- **Deployment:** not started
+- **Stage 18-C1:** complete — documentation and cumulative pre-commit
+  validation passed
+- **Stage 18-C2:** complete — independent review and final commit completed at
+  `a1999f9ce22d92876c38a71e24ad9ff8c43075d2`
+- **Overall Stage 18:** complete and committed
+- **Stage 19-1:** complete — CI foundation and independent Backend job
+- **Stage 19-2:** complete — independent Migrations and Frontend jobs
+- **Stage 19-3:** complete — dependency-gated, isolated Docker Browser E2E job
+- **Stage 19-4:** complete — live `GREEN -> RED -> GREEN` GitHub Actions
+  acceptance, responsive production fixes, and `main` branch protection
+- **Stage 19-C1:** in progress — exactly six authoritative documents and
+  cumulative pre-commit validation
+- **Stage 19-C2:** not started
+- **Overall Stage 19:** implementation and live acceptance are complete but
+  uncommitted before C2
+- **Remaining direction:** finish every Stage 19-C1 gate, then run Stage 19-C2
+  independent review and final commit
+- **Deployment (Stage 20):** not started
+- **Portfolio documentation (Stage 21):** not started
 
 ## Known limitations
 
@@ -248,12 +260,63 @@
 - Unified User persistence, customer registration/authentication, role
   management, Order ownership, read-only own-order API and frontend, and
   `/admin/users` UI are implemented. Refresh tokens, password recovery, MFA,
-  refunds, continuous integration, and deployment have not started.
+  and refunds have not started. Continuous integration is implemented and live
+  acceptance-verified. Deployment and portfolio documentation have not started.
 
 ## Last verification
 
-Stage 18-1 through Stage 18-5 completed by 2026-08-23; Stage 18-C1 documentation
-and cumulative pre-commit validation are in progress:
+Stage 19-1 through Stage 19-4 completed by 2026-08-24. Stage 19 is complete but
+uncommitted during C1, and Stage 19-C2 has not started:
+
+- The GitHub Actions workflow runs on `ubuntu-24.04` for pull requests, pushes
+  to `main`, and manual dispatch. Concurrency cancels superseded runs, and
+  workflow permissions are limited to `contents: read`
+- The exact job and required-check names are `Backend`, `Migrations`,
+  `Frontend`, and `Browser E2E`. The first three jobs are independent;
+  `Browser E2E` declares all three in `needs` and runs only after their success
+- Third-party actions use immutable full-commit SHA pins. Python CI dependencies
+  are hash-locked, and the workflow uses only synthetic CI-specific PostgreSQL,
+  authentication, and webhook values. It requires no GitHub Secrets, real
+  Stripe traffic, or real `.env` file; it uses `pull_request`, never
+  `pull_request_target`
+- Live GREEN #1 passed all four jobs, including Playwright 8/8. The controlled
+  RED made `Frontend` fail exactly as intended, `Browser E2E` was skipped by its
+  dependency gate, and `Backend` and `Migrations` remained independent. After
+  the one-assertion regression was reverted, live GREEN #2 passed all four jobs,
+  including Playwright 8/8
+- The temporary acceptance pull request, branch, and worktree were cleaned
+  without merge. Count-only log and artifact audits found no real secret or
+  credentialed DSN exposure and no uploaded artifact, and `main` remained at
+  the committed Stage 18 hash
+  `a1999f9ce22d92876c38a71e24ad9ff8c43075d2` throughout acceptance
+- Hosted Chromium exposed intrinsic grid overflow in `/menu` cards and the user
+  agent `<dd>` margin overflowing `/admin/users` at the mobile viewport.
+  `MenuPage.module.css` now constrains the card grid with
+  `grid-template-columns: minmax(0, 1fr)`, and `AdminUsersPage.module.css`
+  applies `.cardDetails dd { margin: 0; }`. The strict Playwright overflow
+  assertion remains strict; production CSS was fixed instead of weakening the
+  test
+- After live acceptance, `main` branch protection was configured to require
+  exactly `Backend`, `Migrations`, `Frontend`, and `Browser E2E`, with strict
+  status checks enabled. Administrator enforcement is intentionally disabled at
+  this stage; force pushes and branch deletion are disabled
+- The backend baseline remains 1654/1654 tests plus Ruff, Black, and isort. The
+  frontend baseline remains 890/890 tests plus browser E2E type checking,
+  ESLint, Prettier, the production build, and zero vulnerabilities in both npm
+  audits. Alembic has the single `0008_add_order_ownership` head, and migration
+  round-trip/no-drift passed 8/8
+- C1 touches exactly six authoritative documents. The cumulative post-C1 Stage
+  19 union is exactly 12 physical paths, `A3 / M9 / D0`, with an empty index.
+  Stage 19 remains uncommitted, and Stage 19-C2 has not started
+- The real `.env`, host and development PostgreSQL instances, development
+  database fingerprint, and retained acceptance volumes remain unchanged. No
+  acceptance container or network is running. Stage 20 deployment and Stage 21
+  portfolio documentation have not started; there is no public deployment
+  claim
+
+Historical Stage 18 verification completed by 2026-08-23. Stage 18-C2 then
+completed independent review and the final commit at
+`a1999f9ce22d92876c38a71e24ad9ff8c43075d2`:
 
 - Stage 18 uses Playwright Test 1.62.1 with real Chromium as its sole browser
   E2E framework. The deterministic configuration uses `workers=1`,
@@ -301,10 +364,10 @@ and cumulative pre-commit validation are in progress:
 - No acceptance container or network remains running. Seven detached Stage
   17/18 acceptance volumes are retained intentionally because their deletion
   requires separate explicit approval; C1 does not delete them
-- Stage 18-C1 changes exactly six authoritative documents. After those updates
+- Stage 18-C1 changed exactly six authoritative documents. After those updates
   and the one-file C2-FIX1 stabilization, the cumulative Stage 18 union is
-  exactly 22 physical paths, `A10 / M12 / D0`, with an empty index. Stage 18
-  remains uncommitted during C1; Stage 18-C2 has not started
+  exactly 22 physical paths, `A10 / M12 / D0`, with an empty index. Stage 18-C2
+  subsequently completed independent review and the final commit
 
 Historical Stage 17 verification completed on 2026-08-22; Stage 17-C2 then
 completed independent review and the final commit:

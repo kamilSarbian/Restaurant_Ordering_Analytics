@@ -26,15 +26,21 @@ The goal is to build a secure web application that:
 - provides basic KPIs, reports, and CSV exports;
 - can run locally through Docker Compose and be deployed as a demo.
 
-Stages 1 through 17 are complete, verified, and committed. Stage 17's backend
+Stages 1 through 18 are complete, verified, and committed. Stage 17's backend
 and frontend images, four-service Compose runtime, readiness/startup gates, and
-isolated container acceptance all passed. Stage 18-1 Playwright tooling, Stage
-18-2 isolated authentication/account E2E, Stage 18-3 guest/payment/
-administrator E2E, Stage 18-4 responsive/accessibility/runtime E2E, and Stage
-18-5 final acceptance are complete. Stage 18 is implementation- and
-acceptance-complete but remains uncommitted during C1 documentation and
-pre-commit validation. Stage 18-C2 independent review and final commit and
-Stage 19 CI have not started.
+isolated container acceptance all passed. Stage 18's Playwright tooling,
+isolated authentication/account and guest/payment/administrator E2E,
+responsive/accessibility/runtime coverage, final acceptance, independent
+review, and final commit are complete at
+`a1999f9ce22d92876c38a71e24ad9ff8c43075d2`.
+
+Stage 19-1 through Stage 19-4 are complete. Deterministic GitHub Actions CI,
+the migration and frontend gates, isolated Browser E2E, live
+GREEN -> RED -> GREEN acceptance, hosted responsive fixes, and `main` branch
+protection are implemented and verified. Stage 19 remains uncommitted during
+Stage 19-C1 documentation and pre-commit validation; Stage 19-C2 independent
+review and final commit have not started. Stage 20 Deployment and Stage 21
+Portfolio Documentation have not started, and no public deployment is claimed.
 
 ## 3. Users
 
@@ -463,10 +469,11 @@ Stage 16F was committed at
 `dae2d8f12ed4f4de94337dfc730422504b2e528f`. Stage 16G implementation,
 acceptance, independent review, and security sign-off were committed at
 `8f50374759574fe7f7fea80c2eb7229cf12d3a0f`. Stage 17 implementation and
-isolated acceptance are committed at current HEAD
-`7c7595aed2aa0571248a867d34386c72c71f3024`. Stage 18 implementation and final
-acceptance are complete but remain uncommitted during C1; Stage 18-C2
-independent review and final commit have not started.
+isolated acceptance were committed at
+`7c7595aed2aa0571248a867d34386c72c71f3024`. Stage 18 implementation, final
+acceptance, independent review, and final commit are complete at current HEAD
+`a1999f9ce22d92876c38a71e24ad9ff8c43075d2`. Stage 19-1 through Stage 19-4 are
+complete but remain uncommitted during Stage 19-C1; Stage 19-C2 has not started.
 
 ### 4.9. Local Full-System Container Runtime
 
@@ -581,6 +588,59 @@ remained after either successful run.
 Seven detached Stage 17/18 acceptance volumes are intentionally retained;
 deletion requires separate explicit approval. No acceptance containers or
 networks remain running.
+
+### 4.11. Deterministic GitHub Actions CI
+
+Stage 19 implements one GitHub Actions workflow on GitHub-hosted
+`ubuntu-24.04`. It runs for pull requests, pushes to `main`, and manual
+`workflow_dispatch` events. Per-pull-request or per-ref concurrency cancels an
+older in-progress run. Its four stable job names are `Backend`, `Migrations`,
+`Frontend`, and `Browser E2E`. The first three jobs are independent, while
+`Browser E2E` explicitly depends on all three and therefore cannot run after a
+failed prerequisite.
+
+`Backend` installs the hash-locked CI dependency set and runs Ruff, Black,
+isort, and pytest against an isolated PostgreSQL service. `Migrations` installs
+the hash-locked runtime dependency set and verifies the target, migration
+graph, upgrade, current head, and drift. `Frontend` type-checks the E2E sources,
+runs ESLint and Prettier, executes Vitest, builds the production bundle, and
+audits both production and complete dependency graphs. `Browser E2E` installs
+Chromium and invokes the isolated Compose runner only after all three earlier
+jobs pass.
+
+The workflow declares only `permissions: contents: read`, pins every
+third-party action to an immutable full commit SHA, and disables persisted
+checkout credentials. PostgreSQL credentials, authentication values, and the
+webhook value are synthetic and CI-only. It needs no GitHub Secrets, reads no
+real `.env`, contacts no real Stripe service, and does not use
+`pull_request_target` or workflow secrets from fork pull requests. The Browser
+E2E runner creates a unique Compose project and retained labeled database
+volume, scans protected runner-local logs for forbidden values and patterns,
+and removes its containers, networks, temporary configuration, and Playwright
+output.
+
+Live GitHub validation completed GREEN -> RED -> GREEN. GREEN #1 passed all four
+jobs, including Playwright 8/8. During the controlled RED, `Frontend` failed
+exactly as intended, `Browser E2E` was skipped through its dependency gate, and
+`Backend` plus `Migrations` remained independent. GREEN #2 again passed all four
+jobs and Playwright 8/8. Count-only log and artifact audits found no real secret
+or credentialed DSN exposure and no uploaded artifact. The temporary pull
+request, branch, and worktree were cleaned without merge, and the `main` HEAD
+was preserved.
+
+Hosted Chromium also revealed two real responsive defects. The `/menu` card
+grid now uses `minmax(0, 1fr)` in `MenuPage.module.css`, and the mobile
+`/admin/users` definition value uses `.cardDetails dd { margin: 0; }` in
+`AdminUsersPage.module.css` to neutralize the browser's default `<dd>` margin.
+Production CSS was corrected instead of weakening the strict Playwright
+horizontal-overflow assertion.
+
+After acceptance, classic protection on `main` was configured to require the
+exact `Backend`, `Migrations`, `Frontend`, and `Browser E2E` status checks with
+strict mode enabled. Admin enforcement is intentionally false at this stage;
+force pushes and deletions are disabled. This completes Stage 19-4, but the
+cumulative Stage 19 changes remain uncommitted until Stage 19-C2 independent
+review and final commit.
 
 ## 5. MVP Scope
 
@@ -779,10 +839,13 @@ Stage 16G canonical-auth cleanup, integrated acceptance, independent review,
 final commit, and security sign-off are complete. Stage 17 local full-system
 containerisation and isolated acceptance are complete, verified, and committed.
 Stage 18's Playwright tooling, isolated authentication/account, guest payment,
-administrator, responsive/accessibility/runtime coverage, and two-run final
-acceptance are complete but remain uncommitted during C1. Stage 18-C2
-independent review and final commit and Stage 19 CI have not started, and no
-public deployment is claimed.
+administrator, responsive/accessibility/runtime coverage, two-run final
+acceptance, independent review, and final commit are complete at
+`a1999f9ce22d92876c38a71e24ad9ff8c43075d2`. Stage 19-1 through Stage 19-4 add
+deterministic least-privilege CI, four required gates, isolated hosted browser
+acceptance, and branch protection; they are complete but uncommitted during
+Stage 19-C1. Stage 19-C2, Stage 20 Deployment, and Stage 21 Portfolio
+Documentation have not started, and no public deployment is claimed.
 
 The project should demonstrate to a recruiter that its author can:
 

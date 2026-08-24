@@ -1419,6 +1419,60 @@ while preserving these financial concurrency rules.
   while keeping disposable data, fake-provider state, and sensitive test
   material outside development and production boundaries.
 
+## D-076 — Deterministic Least-Privilege CI and Isolated Browser Validation
+
+- **Status:** accepted on 2026-08-24
+- **Decision:** Stage 19 uses one GitHub Actions workflow with exactly four
+  required checks: `Backend`, `Migrations`, `Frontend`, and `Browser E2E`.
+  Backend, Migrations, and Frontend run independently on `ubuntu-24.04`;
+  Browser E2E has explicit `needs` edges to all three and runs only after all
+  succeed. The workflow is triggered by `pull_request`, pushes to `main`, and
+  `workflow_dispatch`, and concurrent runs for the same pull request or ref
+  cancel superseded work.
+- **Least-privilege and supply-chain boundary:** workflow permissions are
+  limited to `contents: read`, checkout does not persist credentials, and every
+  third-party action is pinned to a full immutable commit SHA. Python CI
+  dependencies are installed with hashes: Backend uses the dedicated full CI
+  lock and Migrations uses the runtime lock. Frontend uses the committed npm
+  lock through `npm ci`.
+- **Credential and pull-request boundary:** current CI requires no GitHub
+  Secrets. PostgreSQL, authentication, webhook, and browser identities use only
+  synthetic CI-scoped values. The workflow uses `pull_request`, never
+  `pull_request_target`, and references no repository or environment secret, so
+  a fork pull request cannot receive a workflow secret. Current CI loads no real
+  `.env`, never uses the development database, and makes no real Stripe request.
+- **Browser isolation:** Browser E2E creates a unique Compose project, database,
+  volume, loopback port, and runner-temporary files for each run. The tracked
+  test-only fake payment provider sends a synthetic signed callback through the
+  real webhook path, while the Stripe API key remains empty. The runner audits
+  logs, removes Playwright output and temporary files, removes its containers
+  and networks, and uploads no artifact containing test state or credentials.
+- **Live failure evidence:** hosted GitHub acceptance completed a deliberate
+  GREEN -> RED -> GREEN sequence. Both GREEN runs passed all four jobs and
+  Playwright 8/8. The controlled RED made Frontend fail exactly as intended;
+  Backend and Migrations remained successful, and the dependency graph blocked
+  Browser E2E, which was skipped without running a step. Count-only audits
+  found no real secret, credentialed DSN, JWT, Order capability, webhook
+  secret, real Stripe endpoint, private key, or uploaded artifact. The
+  temporary pull request, branch, and worktree were cleaned without merge, and
+  `main` was preserved.
+- **Responsive regression handling:** hosted Chromium exposed intrinsic card
+  overflow on `/menu` and a mobile user-agent `dd` margin overflow on
+  `/admin/users`. Production CSS now constrains the menu card track with
+  `minmax(0, 1fr)` and resets `.cardDetails dd` to `margin: 0`. The strict
+  Playwright overflow assertion was retained rather than weakened or given a
+  product-specific exemption.
+- **Branch protection:** `main` requires the exact four workflow checks with
+  strict status checks enabled. Force pushes and branch deletion are disabled.
+  Administrator enforcement is intentionally false at this stage, so
+  repository administrators remain exempt from the protection rule; no ruleset
+  adds an unexpected policy.
+- **Consequences:** changes must satisfy the three independent quality jobs
+  before isolated browser validation can run, and the protected branch requires
+  all four successful contexts. CI remains synthetic and least-privilege; it
+  does not approve a public deployment. HTTPS, managed secrets, public ingress,
+  and a least-privilege production database role remain Stage 20 work.
+
 ## History of Decisions That Required Resolution
 
 ### O-002: Boundary Between Order Creation and Stripe Checkout Session

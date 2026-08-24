@@ -1249,6 +1249,76 @@ round-trip/no-drift checks. Before-and-after checks also confirmed an unchanged
 development-database fingerprint, unchanged host and development Docker state,
 and a byte-identical real `.env`.
 
+### 5.25. Implemented Stage 19 Deterministic Continuous Integration
+
+Stage 19 adds one GitHub Actions workflow on `ubuntu-24.04`. It runs for every
+`pull_request`, every push to `main`, and explicit `workflow_dispatch`. The
+workflow has top-level `permissions: contents: read` and concurrency grouped by
+workflow plus pull request or ref, with `cancel-in-progress: true`. Every
+third-party action reference is pinned to a full immutable commit SHA, and
+checkout does not persist credentials.
+
+The workflow exposes this fixed job graph:
+
+```text
+Backend ----\
+Migrations ---+--> Browser E2E
+Frontend ----/
+```
+
+`Backend`, `Migrations`, and `Frontend` are independent jobs. Backend installs
+the full Python CI environment from the hash-locked
+`backend/requirements-ci.lock` file and runs Ruff, Black, isort, and pytest
+against a synthetic PostgreSQL service. Migrations installs the hash-locked
+runtime set, validates the exact database target and single Alembic graph,
+upgrades to head, verifies the current head, and checks drift against a separate
+synthetic PostgreSQL service. Frontend uses `npm ci`, type-checks the browser
+E2E sources, and runs ESLint, Prettier, Vitest, the production build, and both
+dependency audits.
+
+`Browser E2E` has explicit `needs` edges to all three independent jobs and can
+start only after all succeed. Its runner installs Chromium and invokes the
+tracked fail-closed shell orchestrator. The orchestrator creates a unique
+Compose project, loopback frontend port, PostgreSQL volume, and runner-temporary
+configuration from run-scoped synthetic PostgreSQL, authentication, webhook,
+and identity values. It disables implicit Compose environment files, requires
+the real `.env` files to be absent, keeps the Stripe API key empty, uses the
+test-only fake payment boundary, and makes no real Stripe request. Runtime logs
+are audited before cleanup, Playwright output is removed, and no CI artifact is
+uploaded.
+
+The workflow requires no GitHub Secrets. It deliberately uses `pull_request`,
+not `pull_request_target`, and no workflow step references repository or
+environment secrets; fork pull requests therefore execute only with the
+read-only token boundary and synthetic CI values. The real `.env`, development
+database, host PostgreSQL, and retained development volumes are not CI inputs
+or acceptance targets.
+
+Live GitHub acceptance proved the dependency graph with a complete
+GREEN -> RED -> GREEN sequence. GREEN #1 and GREEN #2 each completed all four
+jobs and passed Playwright 8/8. In the controlled RED run, the intentional
+Frontend test failure left Backend and Migrations successful and caused Browser
+E2E to be skipped without executing a step. Count-only log and artifact audits
+found no real secret, credentialed DSN, JWT, Order capability, webhook secret,
+real Stripe endpoint, private key, or uploaded artifact. The temporary pull
+request, branch, and worktree were removed without merge, and `main` remained
+at its pre-acceptance commit.
+
+Hosted Chromium also detected two real responsive product defects. The `/menu`
+card grid is now constrained with `grid-template-columns: minmax(0, 1fr)`, and
+the `/admin/users` card definition list resets the user-agent offset with
+`.cardDetails dd { margin: 0; }`. The Playwright material-overflow assertion
+remains strict; production CSS was corrected instead of exempting either
+failure.
+
+After acceptance, classic branch protection was configured on `main` with the
+exact required checks `Backend`, `Migrations`, `Frontend`, and `Browser E2E`,
+and with strict status checks enabled. Force pushes and deletion are disabled.
+Administrator enforcement is intentionally disabled at this stage, and no
+repository ruleset adds another policy. This CI and branch-protection boundary
+does not constitute public deployment: HTTPS, managed secrets, public ingress,
+and a least-privilege production database role remain Stage 20 work.
+
 ## 6. Architecture Diagram
 
 ```mermaid

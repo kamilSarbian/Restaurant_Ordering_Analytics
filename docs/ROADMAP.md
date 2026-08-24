@@ -522,10 +522,10 @@
 
 ## 18. End-to-End Test
 
-- **Status:** Stage 18-1 through Stage 18-5 are complete, including final
-  acceptance. The implementation is complete but uncommitted while Stage 18-C1
-  documentation and cumulative pre-commit validation are in progress. Stage
-  18-C2 has not started.
+- **Status:** completed, independently reviewed, and committed at
+  `a1999f9ce22d92876c38a71e24ad9ff8c43075d2`. Stage 18-1 through Stage 18-5,
+  C1 documentation and cumulative pre-commit validation, the C2-FIX1 test
+  stabilization, C2 independent review, and the final commit are complete.
 - **Goal:** verify the critical flow across the entire system.
 - **Outcome:** deterministic real-Chromium coverage for landing and deep links,
   authentication and logout, protected routes, account ownership and privacy,
@@ -578,25 +578,62 @@
   capabilities, DSNs, webhook secrets, and trusted payment state must not be
   logged or persisted. Retained acceptance volumes must not be deleted without
   explicit approval.
-- **C1 scope and next gate:** C1 changes exactly six authoritative documents.
+- **Historical C1/C2 gate:** C1 changed exactly six authoritative documents.
   Including the one-file C2-FIX1 stabilization, the cumulative Stage 18 union
-  is exactly 22 physical paths, `A10 / M12 / D0`, with an empty index. After
-  every C1 gate passes, Stage 18 is PRE-COMMIT READY for Stage 18-C2 independent
-  review and final commit.
+  was exactly 22 physical paths, `A10 / M12 / D0`, with an empty index. C2
+  completed independent review and the final commit at the hash recorded
+  above.
 
 ## 19. CI
 
+- **Status:** Stage 19-1 through Stage 19-4 are complete. Live GitHub Actions
+  `GREEN -> RED -> GREEN` acceptance and `main` branch protection are complete.
+  Stage 19 is complete but uncommitted during C1; Stage 19-C2 has not started.
 - **Goal:** automatically block quality and functional regressions.
-- **Outcome:** GitHub Actions for linting, formatting, backend tests,
-  migrations, type checking, and frontend builds.
+- **Outcome:** one GitHub Actions workflow on `ubuntu-24.04` exposes exactly
+  four jobs and required checks: `Backend`, `Migrations`, `Frontend`, and
+  `Browser E2E`. The first three jobs are independent; `Browser E2E` depends on
+  all three. The workflow runs for pull requests, pushes to `main`, and manual
+  dispatch, with concurrency cancellation for superseded runs.
+- **Security and reproducibility:** workflow permissions are limited to
+  `contents: read`; third-party actions use immutable full-commit SHA pins;
+  Python CI dependencies are hash-locked; and all PostgreSQL, authentication,
+  and webhook values are synthetic and CI-only. The workflow requires no
+  GitHub Secrets, real Stripe traffic, or real `.env` file, and it uses
+  `pull_request` rather than `pull_request_target`.
 - **Dependencies:** stable local commands and Stage 18.
 - **Completion criterion:** the pipeline runs on a clean runner, does not use
   real Stripe secrets, and fails after a deliberately introduced regression.
 - **Test:** a successful full workflow run and a controlled failure attempt on
   a working branch.
+- **Completed slices:** Stage 19-1 CI foundation and backend job; Stage 19-2
+  migrations and frontend jobs; Stage 19-3 isolated Docker-backed Browser E2E
+  job; and Stage 19-4 live GitHub Actions acceptance.
+- **Live acceptance:** the first GREEN run passed all four jobs and Playwright
+  8/8. A temporary, one-assertion controlled RED made `Frontend` fail exactly
+  as intended, caused `Browser E2E` to be skipped through its dependency gate,
+  and left `Backend` and `Migrations` independent. After the assertion was
+  reverted, the second GREEN run passed all four jobs and Playwright 8/8.
+  Count-only log and artifact audits found no real secret or credentialed DSN
+  exposure and no uploaded artifact. The temporary pull request, branch, and
+  worktree were removed without merge, and the `main` commit was preserved.
+- **Hosted responsive fixes:** hosted Chromium exposed intrinsic card-grid
+  overflow on `/menu` and the user-agent `<dd>` margin overflowing mobile
+  `/admin/users`. Production CSS now constrains the menu card grid with
+  `minmax(0, 1fr)` and resets `.cardDetails dd` to `margin: 0`. The strict
+  Playwright overflow assertion was retained rather than weakened.
+- **Branch protection:** after live acceptance, `main` was configured to require
+  exactly `Backend`, `Migrations`, `Frontend`, and `Browser E2E`, with strict
+  status checks enabled. Administrator enforcement is intentionally disabled at
+  this stage; force pushes and branch deletion remain disabled.
+- **C1 scope and next gate:** C1 touches exactly six authoritative documents.
+  The cumulative post-C1 Stage 19 union is exactly 12 physical paths,
+  `A3 / M9 / D0`, with an empty index. Stage 19 remains uncommitted, and the
+  next gate is Stage 19-C2 independent review and final commit.
 
 ## 20. Deployment
 
+- **Status:** not started.
 - **Goal:** make a secure demo version available.
 - **Outcome:** frontend, backend, and PostgreSQL on approved services, HTTPS,
   restricted CORS, migrations, test-mode Stripe, and basic error monitoring.
@@ -611,6 +648,7 @@
 
 ## 21. Portfolio Documentation
 
+- **Status:** not started.
 - **Goal:** prepare the project for independent review by a recruiter.
 - **Outcome:** current README, ERD, diagrams, and descriptions of security, API,
   tests, Stripe, deployment, decisions, limitations, and sample screens.
@@ -629,11 +667,16 @@ API, and Stage 16F unified frontend/account/User-governance work are complete
 and committed. Stage 16G security remediation, final acceptance, independent
 review, security sign-off, and final commit are complete.
 
-Stage 17 full-system Docker work, documentation, independent review, and final
-commit are complete. Stage 18-1 through Stage 18-5 and two-run Chromium final
-acceptance are complete but uncommitted. The immediate gate is to finish
-**Stage 18-C1 documentation and cumulative pre-commit validation**. Stage 18
-becomes PRE-COMMIT READY only if every C1 gate passes; the next gate is then
-**Stage 18-C2 independent review and final commit**. Stage 19 CI has not started
-and requires separate approval after Stage 18-C2. Repository, Alembic, and the
-development database remain at `0008_add_order_ownership`.
+Stage 17 full-system Docker work and Stage 18 browser E2E work are complete,
+independently reviewed, and committed. Stage 18 is committed at
+`a1999f9ce22d92876c38a71e24ad9ff8c43075d2`.
+
+Stage 19-1 through Stage 19-4, live `GREEN -> RED -> GREEN` GitHub Actions
+acceptance, hosted-Chromium responsive fixes, and `main` branch protection are
+complete but uncommitted. The cumulative post-C1 union is exactly 12 paths,
+`A3 / M9 / D0`; Stage 19-C2 has not started. The next gate is **Stage 19-C2
+independent review and final commit** after every C1 validation gate passes.
+Stages 20 and 21 have not started. There is no public deployment claim; HTTPS,
+a secret manager, and a least-privilege production database role remain Stage
+20 work. Repository, Alembic, and the development database remain at
+`0008_add_order_ownership`.
