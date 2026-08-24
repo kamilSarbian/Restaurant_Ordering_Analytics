@@ -1388,6 +1388,37 @@ while preserving these financial concurrency rules.
   decision or making the one-shot migration job a long-running application
   tier.
 
+## D-075 — Isolated Browser E2E, Fake Payment Provider, and Artifact Boundary
+
+- **Status:** accepted on 2026-08-23
+- **Browser framework:** Playwright Test 1.62.1 with Chromium is the sole
+  browser-E2E framework. Runs use one worker and zero retries. The required
+  browser proof is a real Playwright-controlled Chromium run; no in-app-browser
+  result is claimed, and no Axe, Cypress, or second browser-E2E framework is
+  introduced.
+- **Isolation:** every browser-E2E run uses a unique Compose project with its
+  own PostgreSQL database and named volume plus synthetic credentials. The
+  development database is never used for disposable E2E data, and the real
+  `.env` and development volume remain outside the acceptance boundary.
+- **Fake payment boundary:** the fake provider exists only in the isolated
+  test-only `backend/e2e_harness.py` process. The browser receives only an
+  opaque Checkout handle. A process-local server registry retains the trusted
+  payment and internal-ID facts. Amount, status, internal identifiers, Order
+  capability, and webhook secret are never accepted from the browser; status
+  and the signed synthetic event are derived server-side and delivered through
+  the real webhook endpoint. The flow makes no real Stripe request and adds no
+  production E2E backdoor.
+- **Artifact boundary:** trace, video, HAR, and `storageState` capture remain
+  disabled; screenshots are failure-only. Synthetic credentials, JWTs, Order
+  capabilities, DSNs, and webhook secrets must not be logged or persisted as
+  artifacts.
+- **Retention:** acceptance containers and networks are removed after a run.
+  Retained E2E volumes are not deleted without separate explicit approval.
+- **Consequences:** browser acceptance exercises the real ingress, API,
+  database, signature-verification, authorization, and financial state paths
+  while keeping disposable data, fake-provider state, and sensitive test
+  material outside development and production boundaries.
+
 ## History of Decisions That Required Resolution
 
 ### O-002: Boundary Between Order Creation and Stripe Checkout Session

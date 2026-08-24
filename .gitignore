@@ -36,6 +36,16 @@ coverage/
 vite.config.*.timestamp-*
 *.local
 
+# Browser end-to-end artifacts
+frontend/test-results/
+frontend/playwright-report/
+frontend/blob-report/
+frontend/.playwright/
+frontend/.e2e-tmp/
+frontend/screenshots/
+frontend/traces/
+frontend/videos/
+
 # IDE and operating system
 .idea/
 .vscode/

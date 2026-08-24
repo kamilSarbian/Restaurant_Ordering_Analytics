@@ -26,14 +26,15 @@ The goal is to build a secure web application that:
 - provides basic KPIs, reports, and CSV exports;
 - can run locally through Docker Compose and be deployed as a demo.
 
-Stages 1 through 16G are complete, verified, and committed. Stage 16G's
-canonical-auth cleanup, integrated acceptance, independent review, final
-commit, and post-commit security sign-off are complete. Stage 17-1 through
-Stage 17-5 are also complete: the backend and frontend images, four-service
-Compose runtime, readiness/startup gates, and isolated container acceptance all
-passed. Stage 17 is complete but remains uncommitted while C1 documentation
-and pre-commit validation are in progress; C2 independent review and final
-commit remain pending. Stage 18 end-to-end testing has not started.
+Stages 1 through 17 are complete, verified, and committed. Stage 17's backend
+and frontend images, four-service Compose runtime, readiness/startup gates, and
+isolated container acceptance all passed. Stage 18-1 Playwright tooling, Stage
+18-2 isolated authentication/account E2E, Stage 18-3 guest/payment/
+administrator E2E, Stage 18-4 responsive/accessibility/runtime E2E, and Stage
+18-5 final acceptance are complete. Stage 18 is implementation- and
+acceptance-complete but remains uncommitted during C1 documentation and
+pre-commit validation. Stage 18-C2 independent review and final commit and
+Stage 19 CI have not started.
 
 ## 3. Users
 
@@ -452,18 +453,20 @@ on 5432 was untouched. A local credential-hygiene issue was remediated by
 rotation without recording a credential value, database URL, or repository
 artifact.
 
-The current automated baseline is 1590/1590 passing backend tests, 890/890
-passing frontend tests across 31/31 files, and 8/8 passing Alembic migration
-round-trip/no-drift tests at the single `0008_add_order_ownership` head. Stage
-16G G4 final integrated acceptance is complete.
+The current automated baseline is 1654/1654 passing backend tests, 890/890
+passing frontend tests, and 8/8 passing Alembic migration round-trip/no-drift
+tests at the single `0008_add_order_ownership` head. Stage 16G G4 final
+integrated acceptance remains complete as a historical in-process acceptance
+snapshot.
 
 Stage 16F was committed at
 `dae2d8f12ed4f4de94337dfc730422504b2e528f`. Stage 16G implementation,
-acceptance, independent review, and security sign-off are committed at current
-HEAD `8f50374759574fe7f7fea80c2eb7229cf12d3a0f`. Stage 17 implementation and
-isolated acceptance are complete but remain uncommitted during C1. C2
-independent review and final commit remain pending, and Stage 18 has not
-started.
+acceptance, independent review, and security sign-off were committed at
+`8f50374759574fe7f7fea80c2eb7229cf12d3a0f`. Stage 17 implementation and
+isolated acceptance are committed at current HEAD
+`7c7595aed2aa0571248a867d34386c72c71f3024`. Stage 18 implementation and final
+acceptance are complete but remain uncommitted during C1; Stage 18-C2
+independent review and final commit have not started.
 
 ### 4.9. Local Full-System Container Runtime
 
@@ -522,6 +525,62 @@ shutdown used `docker compose down` without `-v`, removed the isolated
 containers and networks, and intentionally retained
 `roa-stage17-accept-7975ee-postgres-data`. Deleting that volume requires a
 separate explicit approval.
+
+### 4.10. Isolated Browser End-to-End Acceptance
+
+Stage 18 uses Playwright Test 1.62.1 and real Chromium as the sole browser-E2E
+framework. It runs with one worker and zero retries. Trace, video, HAR, and
+`storageState` capture are disabled; screenshots are failure-only, and a
+successful run removes its Playwright runtime output. Axe, Cypress, and a
+second E2E framework are not part of the project. The in-app browser was
+unavailable during final acceptance and is not claimed; the required browser
+proof comes from Chromium Playwright.
+
+Each run creates a unique Compose project, PostgreSQL database, and named
+volume from synthetic run-scoped configuration. Disposable E2E identities and
+payment data never use the development database. The real `.env`, development
+database, development container and volume, and independent host PostgreSQL
+service remain outside the run boundary.
+
+The tracked `backend/e2e_harness.py` is test-only and is mounted and selected
+only by the E2E Compose overlay. It constructs the normal application with an
+injected fake Checkout provider and synthetic webhook verifier, then registers
+test-only fake Checkout routes on that application. Production startup neither
+imports the harness nor exposes those routes, so there is no production E2E
+backdoor.
+
+The fake provider stores trusted payment-state and internal-identifier facts in
+a process-local server registry. The normal Order capability remains
+browser-held under the established authorization contract, but the fake
+Checkout completion request accepts only a random opaque handle and neither
+accepts nor uses that capability. The webhook secret is separate server
+configuration and is never browser-supplied or exposed. Completing fake
+Checkout produces a
+signed synthetic callback and sends it through the real
+`/api/v1/stripe/webhook` endpoint, exercising the normal transactional Payment
+path without real Stripe traffic. Synthetic credentials and secrets must not
+be logged or persisted.
+
+Stage 18-5 ran two fresh isolated final-acceptance stacks, and both complete
+Playwright runs passed 8/8. The covered flows include landing/menu navigation
+and deep links; canonical authentication, logout, protected routes, personal
+account ownership, and cross-user privacy; guest Order creation, fake Checkout,
+the signed webhook, succeeded-payment gating, and unpaid denial;
+administrator fulfilment through `completed`, `customer -> admin` User role
+promotion and super-admin RBAC; and responsive layouts, keyboard navigation,
+and visible focus. There were zero unexpected console, page, or network
+failures.
+
+The same acceptance baseline records 1654/1654 backend tests, 890/890 frontend
+tests, both npm audits at zero vulnerabilities, one Alembic head at
+`0008_add_order_ownership`, and 8/8 migration round-trip/no-drift tests. The
+development database fingerprint, host and development Docker state, real
+`.env`, and development volume remained unchanged. No browser artifacts
+remained after either successful run.
+
+Seven detached Stage 17/18 acceptance volumes are intentionally retained;
+deletion requires separate explicit approval. No acceptance containers or
+networks remain running.
 
 ## 5. MVP Scope
 
@@ -718,10 +777,12 @@ screens, and `/admin/users`. The developer/user completed its required manual
 local-browser verification after the final responsive and navigation fixes.
 Stage 16G canonical-auth cleanup, integrated acceptance, independent review,
 final commit, and security sign-off are complete. Stage 17 local full-system
-containerisation and isolated acceptance are complete but remain uncommitted
-while C1 validation is in progress; C2 independent review and final commit
-remain pending. Stage 18 end-to-end testing has not started, and no public
-deployment is claimed.
+containerisation and isolated acceptance are complete, verified, and committed.
+Stage 18's Playwright tooling, isolated authentication/account, guest payment,
+administrator, responsive/accessibility/runtime coverage, and two-run final
+acceptance are complete but remain uncommitted during C1. Stage 18-C2
+independent review and final commit and Stage 19 CI have not started, and no
+public deployment is claimed.
 
 The project should demonstrate to a recruiter that its author can:
 

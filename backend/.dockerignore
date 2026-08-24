@@ -35,6 +35,7 @@ __pycache__
 
 # Tests and coverage output
 tests
+e2e_harness.py
 .coverage
 .coverage.*
 coverage

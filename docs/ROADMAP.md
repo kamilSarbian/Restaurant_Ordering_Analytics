@@ -455,11 +455,9 @@
 
 ## 17. Full-System Docker
 
-- **Status:** Stage 17-1 through Stage 17-5 are complete, and the overall
-  implementation and isolated Docker acceptance are complete but uncommitted.
-  Stage 17-C1 documentation and cumulative pre-commit validation are in
-  progress; Stage 17 is PRE-COMMIT READY only after every C1 gate passes. Stage
-  17-C2 has not started.
+- **Status:** completed, independently reviewed, and committed on 2026-08-22.
+  Stage 17-1 through Stage 17-5, C1 documentation and cumulative pre-commit
+  validation, and C2 independent review and final commit are complete.
 - **Goal:** provide repeatable local startup of the entire system.
 - **Outcome:** a production-only backend image, static Nginx frontend image,
   same-origin proxy, four-service Compose stack, explicit migration boundary,
@@ -504,20 +502,19 @@
   SPA deep links, API JSON routing, and non-SPA unknown API responses. Browser
   automation was unavailable, so this is not a browser E2E claim.
 - **Shutdown and safety:** acceptance containers and networks were removed with
-  `docker compose down` without `-v`; the separate
-  `roa-stage17-accept-7975ee-postgres-data` volume remains intentionally
-  retained. The real `.env`, host PostgreSQL on port 5432 and PID 6120, healthy
-  development PostgreSQL on port 5433, development named volume, and exact
-  development database fingerprint remained unchanged.
+  `docker compose down` without `-v`; the detached Stage 17 acceptance volume
+  remains intentionally retained. The real `.env`, host PostgreSQL on port
+  5432 and PID 6120, healthy development PostgreSQL on port 5433, development
+  named volume, and exact development database fingerprint remained unchanged.
 - **Validation state:** backend and frontend images built successfully. The
   backend suite passed 1590 tests, the frontend suite passed 890 tests, all
   language and dependency gates passed, Alembic exposes one
   `0008_add_order_ownership` head, and eight migration round-trip/no-drift tests
   passed.
-- **C1 scope and next gate:** C1 changes exactly six authoritative documents.
-  The expected cumulative Stage 17 union is exactly 17 physical paths,
-  `A6 / M11 / D0`, with an empty index. After every C1 gate passes, Stage 17 is
-  PRE-COMMIT READY for Stage 17-C2 independent review and final commit.
+- **Historical C1/C2 gate:** C1 changed exactly six authoritative documents;
+  the cumulative Stage 17 union was exactly 17 physical paths,
+  `A6 / M11 / D0`, with an empty index. All C1 gates passed, and C2 completed
+  independent review and the final commit.
 - **Deployment boundary:** this is a loopback-only local container contract, not
   a public deployment. The current local database role is accepted only for
   Stage 17. HTTPS, public ingress, a secret manager, and a least-privilege
@@ -525,17 +522,67 @@
 
 ## 18. End-to-End Test
 
-- **Status:** not started.
+- **Status:** Stage 18-1 through Stage 18-5 are complete, including final
+  acceptance. The implementation is complete but uncommitted while Stage 18-C1
+  documentation and cumulative pre-commit validation are in progress. Stage
+  18-C2 has not started.
 - **Goal:** verify the critical flow across the entire system.
-- **Outcome:** an automated menu → cart → order → Checkout → mock/test webhook →
-  panel → status scenario and a negative scenario.
+- **Outcome:** deterministic real-Chromium coverage for landing and deep links,
+  authentication and logout, protected routes, account ownership and privacy,
+  guest ordering, fake Checkout and payment confirmation, administrator order
+  lifecycle, `customer -> admin` User role promotion, super-admin RBAC, and
+  responsive, keyboard, focus, and runtime-error behavior.
 - **Dependencies:** Stages 15–17 and a stable Compose environment.
-- **Completion criterion:** the test is deterministic, isolates data, and
-  detects regression in the most important business path.
-- **Test:** run the complete E2E suite at least twice on clean data and run the
-  full backend/frontend suite in Compose.
-- **Current boundary:** Stage 17 completed programmatic SPA/API acceptance, not
-  browser E2E. Stage 18 requires separate approval after Stage 17-C2.
+- **Framework and execution:** Playwright Test 1.62.1 with Chromium is the sole
+  browser-E2E framework. Configuration fixes `workers=1` and `retries=0`.
+  Trace, video, HAR, and `storageState` capture are disabled; screenshots are
+  failure-only. The required proof uses Playwright-driven real Chromium. The
+  unavailable in-app browser is not claimed, and there is no Axe, Cypress,
+  second E2E framework, cross-browser claim, or real Stripe traffic.
+- **Isolation:** every run uses a unique Compose project, PostgreSQL database,
+  and named volume with synthetic credentials. Disposable E2E data never uses
+  the development database, and the real `.env` and development stack remain
+  outside the run.
+- **Fake payment boundary:** the test-only `backend/e2e_harness.py` returns only
+  an opaque fake Checkout handle to the browser. A process-local registry keeps
+  trusted Checkout and payment facts, including amount, status, and internal
+  identifiers. The normal application contract keeps the Order capability in
+  the browser, but fake completion accepts only the opaque handle and neither
+  accepts nor uses that capability. The synthetic webhook secret is separate
+  server configuration and is never browser-supplied or exposed. A signed
+  synthetic webhook traverses the real webhook endpoint. The harness performs
+  no Stripe request and creates no production E2E backdoor.
+- **Completed slices:** Stage 18-1 Playwright and isolated Compose tooling;
+  Stage 18-2 authentication, account, privacy, and protected routes; Stage 18-3
+  guest ordering, payment, webhook, administrator lifecycle,
+  `customer -> admin` User role promotion, and RBAC; Stage 18-4 responsive,
+  accessibility, and runtime-failure coverage; and Stage 18-5 two-run final
+  acceptance.
+- **Acceptance evidence:** two fresh isolated Stage 18-5 runs each passed the
+  complete Playwright suite, 8/8, with zero unexpected console errors, page
+  errors, or failed network responses. Coverage includes unpaid-order denial,
+  successful signed-webhook payment, lifecycle completion, cross-user 404
+  privacy, and responsive keyboard/focus behavior. Both successful runs left no
+  browser artifacts or temporary environment file.
+- **Cumulative gates:** the backend passed 1654/1654 tests, Ruff, Black, and
+  isort. The frontend passed 890/890 tests, ESLint, Prettier, and the production
+  build. Both npm audits reported zero vulnerabilities. Alembic has the single
+  `0008_add_order_ownership` head, and migration round-trip/no-drift passed 8/8.
+- **Environment and retention:** the real `.env` remained byte-identical; host
+  PostgreSQL on port 5432 and PID 6120, healthy development PostgreSQL on port
+  5433, its named volume, and the development database fingerprint remained
+  unchanged. No acceptance container or network is running. Seven detached
+  Stage 17/18 acceptance volumes remain intentionally retained because deletion
+  requires separate explicit approval.
+- **Artifact and secret policy:** synthetic credentials and secrets, JWTs,
+  capabilities, DSNs, webhook secrets, and trusted payment state must not be
+  logged or persisted. Retained acceptance volumes must not be deleted without
+  explicit approval.
+- **C1 scope and next gate:** C1 changes exactly six authoritative documents.
+  Including the one-file C2-FIX1 stabilization, the cumulative Stage 18 union
+  is exactly 22 physical paths, `A10 / M12 / D0`, with an empty index. After
+  every C1 gate passes, Stage 18 is PRE-COMMIT READY for Stage 18-C2 independent
+  review and final commit.
 
 ## 19. CI
 
@@ -582,10 +629,11 @@ API, and Stage 16F unified frontend/account/User-governance work are complete
 and committed. Stage 16G security remediation, final acceptance, independent
 review, security sign-off, and final commit are complete.
 
-Stage 17-1 through Stage 17-5 and isolated Docker acceptance are complete but
-uncommitted. The immediate gate is to finish **Stage 17-C1 documentation and
-cumulative pre-commit validation**. Stage 17 becomes PRE-COMMIT READY only if
-every C1 gate passes; the next gate is then **Stage 17-C2 independent review and
-final commit**. Stage 18 browser end-to-end testing has not started and requires
-separate approval after Stage 17-C2. Repository, Alembic, and the development
-database remain at `0008_add_order_ownership`.
+Stage 17 full-system Docker work, documentation, independent review, and final
+commit are complete. Stage 18-1 through Stage 18-5 and two-run Chromium final
+acceptance are complete but uncommitted. The immediate gate is to finish
+**Stage 18-C1 documentation and cumulative pre-commit validation**. Stage 18
+becomes PRE-COMMIT READY only if every C1 gate passes; the next gate is then
+**Stage 18-C2 independent review and final commit**. Stage 19 CI has not started
+and requires separate approval after Stage 18-C2. Repository, Alembic, and the
+development database remain at `0008_add_order_ownership`.

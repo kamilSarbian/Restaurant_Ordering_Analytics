@@ -1,0 +1,113 @@
+name: roa-stage18-e2e-${E2E_RUN_ID:?E2E_RUN_ID is required}
+
+# Use only with an explicit synthetic --env-file stored outside the repository.
+# The run identifier isolates every mutable resource created by this overlay.
+services:
+  postgres:
+    environment:
+      POSTGRES_DB: restaurant_ordering_analytics_e2e
+      POSTGRES_USER: e2e_app
+      POSTGRES_PASSWORD: ${E2E_POSTGRES_PASSWORD:?E2E_POSTGRES_PASSWORD is required}
+    ports: !reset []
+    labels:
+      com.restaurant-ordering-analytics.environment: e2e
+      com.restaurant-ordering-analytics.e2e-run-id: ${E2E_RUN_ID:?E2E_RUN_ID is required}
+
+  migrate:
+    image: roa-stage18-backend:${E2E_RUN_ID:?E2E_RUN_ID is required}
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        python -m alembic upgrade head
+        exec python e2e_harness.py setup
+    environment:
+      DATABASE_URL: "postgresql+psycopg://e2e_app:${E2E_POSTGRES_PASSWORD:?E2E_POSTGRES_PASSWORD is required}@postgres:5432/restaurant_ordering_analytics_e2e"
+      E2E_MODE: isolated
+      E2E_PROJECT_NAME: roa-stage18-e2e-${E2E_RUN_ID:?E2E_RUN_ID is required}
+      E2E_FRONTEND_PORT: ${E2E_FRONTEND_PORT:?E2E_FRONTEND_PORT is required}
+      E2E_PUBLIC_ORIGIN: "http://127.0.0.1:${E2E_FRONTEND_PORT:?E2E_FRONTEND_PORT is required}"
+      E2E_POSTGRES_PASSWORD: ${E2E_POSTGRES_PASSWORD:?E2E_POSTGRES_PASSWORD is required}
+      E2E_AUTH_JWT_SECRET: ${E2E_AUTH_JWT_SECRET:?E2E_AUTH_JWT_SECRET is required}
+      E2E_STRIPE_WEBHOOK_SECRET: ${E2E_STRIPE_WEBHOOK_SECRET:?E2E_STRIPE_WEBHOOK_SECRET is required}
+      E2E_RUN_ID: ${E2E_RUN_ID:?E2E_RUN_ID is required}
+      E2E_ADMIN_EMAIL: ${E2E_ADMIN_EMAIL:?E2E_ADMIN_EMAIL is required}
+      E2E_ADMIN_PASSWORD: ${E2E_ADMIN_PASSWORD:?E2E_ADMIN_PASSWORD is required}
+    volumes:
+      - type: bind
+        source: ./backend/e2e_harness.py
+        target: /opt/restaurant/backend/e2e_harness.py
+        read_only: true
+        bind:
+          create_host_path: false
+    labels:
+      com.restaurant-ordering-analytics.environment: e2e
+      com.restaurant-ordering-analytics.e2e-run-id: ${E2E_RUN_ID:?E2E_RUN_ID is required}
+
+  backend:
+    image: roa-stage18-backend:${E2E_RUN_ID:?E2E_RUN_ID is required}
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        if ! python -m alembic current --check-heads >/dev/null 2>&1; then
+          printf '%s\n' 'Backend startup aborted: Alembic head check failed.' >&2
+          exit 1
+        fi
+        exec python -m uvicorn e2e_harness:create_e2e_app --factory --host 0.0.0.0 --port 8000 --workers 1 --no-proxy-headers --no-server-header
+    environment:
+      APP_ENVIRONMENT: e2e
+      APP_DEBUG: "false"
+      DATABASE_URL: "postgresql+psycopg://e2e_app:${E2E_POSTGRES_PASSWORD:?E2E_POSTGRES_PASSWORD is required}@postgres:5432/restaurant_ordering_analytics_e2e"
+      STRIPE_SECRET_KEY: ""
+      STRIPE_WEBHOOK_SECRET: ${E2E_STRIPE_WEBHOOK_SECRET:?E2E_STRIPE_WEBHOOK_SECRET is required}
+      STRIPE_SUCCESS_URL: "http://127.0.0.1:${E2E_FRONTEND_PORT:?E2E_FRONTEND_PORT is required}/orders/{public_order_number}/payment-return"
+      STRIPE_CANCEL_URL: "http://127.0.0.1:${E2E_FRONTEND_PORT:?E2E_FRONTEND_PORT is required}/orders/{public_order_number}/checkout-cancelled"
+      AUTH_JWT_SECRET: ${E2E_AUTH_JWT_SECRET:?E2E_AUTH_JWT_SECRET is required}
+      AUTH_ACCESS_TOKEN_EXPIRE_MINUTES: "30"
+      E2E_MODE: isolated
+      E2E_PROJECT_NAME: roa-stage18-e2e-${E2E_RUN_ID:?E2E_RUN_ID is required}
+      E2E_FRONTEND_PORT: ${E2E_FRONTEND_PORT:?E2E_FRONTEND_PORT is required}
+      E2E_PUBLIC_ORIGIN: "http://127.0.0.1:${E2E_FRONTEND_PORT:?E2E_FRONTEND_PORT is required}"
+      E2E_POSTGRES_PASSWORD: ${E2E_POSTGRES_PASSWORD:?E2E_POSTGRES_PASSWORD is required}
+      E2E_AUTH_JWT_SECRET: ${E2E_AUTH_JWT_SECRET:?E2E_AUTH_JWT_SECRET is required}
+      E2E_STRIPE_WEBHOOK_SECRET: ${E2E_STRIPE_WEBHOOK_SECRET:?E2E_STRIPE_WEBHOOK_SECRET is required}
+      E2E_RUN_ID: ${E2E_RUN_ID:?E2E_RUN_ID is required}
+    volumes:
+      - type: bind
+        source: ./backend/e2e_harness.py
+        target: /opt/restaurant/backend/e2e_harness.py
+        read_only: true
+        bind:
+          create_host_path: false
+    labels:
+      com.restaurant-ordering-analytics.environment: e2e
+      com.restaurant-ordering-analytics.e2e-run-id: ${E2E_RUN_ID:?E2E_RUN_ID is required}
+
+  frontend:
+    image: roa-stage18-frontend:${E2E_RUN_ID:?E2E_RUN_ID is required}
+    ports: !override
+      - "127.0.0.1:${E2E_FRONTEND_PORT:?E2E_FRONTEND_PORT is required}:8080"
+    labels:
+      com.restaurant-ordering-analytics.environment: e2e
+      com.restaurant-ordering-analytics.e2e-run-id: ${E2E_RUN_ID:?E2E_RUN_ID is required}
+
+volumes:
+  postgres_data:
+    name: roa-stage18-e2e-${E2E_RUN_ID:?E2E_RUN_ID is required}-postgres-data
+    labels:
+      com.restaurant-ordering-analytics.environment: e2e
+      com.restaurant-ordering-analytics.e2e-run-id: ${E2E_RUN_ID:?E2E_RUN_ID is required}
+
+networks:
+  app:
+    name: roa-stage18-e2e-${E2E_RUN_ID:?E2E_RUN_ID is required}-app
+    labels:
+      com.restaurant-ordering-analytics.environment: e2e
+      com.restaurant-ordering-analytics.e2e-run-id: ${E2E_RUN_ID:?E2E_RUN_ID is required}
+  data:
+    name: roa-stage18-e2e-${E2E_RUN_ID:?E2E_RUN_ID is required}-data
+    internal: true
+    labels:
+      com.restaurant-ordering-analytics.environment: e2e
+      com.restaurant-ordering-analytics.e2e-run-id: ${E2E_RUN_ID:?E2E_RUN_ID is required}

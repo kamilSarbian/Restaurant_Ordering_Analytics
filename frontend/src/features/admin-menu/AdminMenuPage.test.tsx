@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { afterEach, vi } from 'vitest';
@@ -21,6 +21,27 @@ const ME = {
   role: 'admin',
 };
 const CUSTOMER_ME = { ...ME, role: 'customer' };
+
+interface Deferred<Value> {
+  readonly promise: Promise<Value>;
+  readonly resolve: (value: Value | PromiseLike<Value>) => void;
+}
+
+function createDeferred<Value>(): Deferred<Value> {
+  let resolveValue: Deferred<Value>['resolve'] = () => {
+    throw new Error('Deferred test value was not initialized');
+  };
+  const promise = new Promise<Value>((resolve) => {
+    resolveValue = resolve;
+  });
+  return { promise, resolve: resolveValue };
+}
+
+function jsonResponse(payload: unknown): Response {
+  return new Response(JSON.stringify(payload), {
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
 
 function category(
   overrides: Partial<Record<string, unknown>> = {},
@@ -116,16 +137,41 @@ afterEach(() => {
 
 describe('administrator category management', () => {
   it('refreshes canonical identity after a menu 403 and applies the customer guard', async () => {
+    const categoryResponse = createDeferred<Response>();
+    const itemResponse = createDeferred<Response>();
+    const initialRequestsStarted = createDeferred<void>();
     const stub = installFetchStub(
       { json: ME },
-      { json: categoryPage() },
-      { json: itemPage([]) },
+      { responsePromise: categoryResponse.promise },
+      { responsePromise: itemResponse.promise },
       { status: 403 },
       { json: CUSTOMER_ME },
     );
+    const queuedFetch = stub.fetch;
+    const fetchWithInitialRequestBarrier: typeof fetch = (input, init) => {
+      const response = queuedFetch(input, init);
+      if (stub.calls.length === 3) {
+        initialRequestsStarted.resolve(undefined);
+      }
+      return response;
+    };
+    vi.stubGlobal('fetch', fetchWithInitialRequestBarrier);
     const router = renderMenu();
     const user = userEvent.setup();
-    await screen.findByRole('heading', { name: 'No menu items yet' });
+    await initialRequestsStarted.promise;
+    expect(stub.calls.slice(0, 3).map((call) => call.url)).toEqual([
+      '/api/v1/auth/me',
+      '/api/v1/admin/menu/categories?limit=50&offset=0',
+      '/api/v1/admin/menu/items?limit=50&offset=0',
+    ]);
+    await act(async () => {
+      categoryResponse.resolve(jsonResponse(categoryPage()));
+      itemResponse.resolve(jsonResponse(itemPage([])));
+      await Promise.all([categoryResponse.promise, itemResponse.promise]);
+    });
+    expect(
+      screen.getByRole('heading', { name: 'No menu items yet' }),
+    ).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Add menu item' }));
     await user.type(screen.getByLabelText('Name'), 'Forbidden item');
     await user.type(screen.getByLabelText('Price (minor units)'), '100');

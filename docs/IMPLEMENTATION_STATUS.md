@@ -16,10 +16,10 @@
 - **Stage 13:** completed
 - **Stage 14:** completed
 - **Stage 15:** completed
-- **Current stage:** Stage 17-C1 documentation and pre-commit validation are in
-  progress. Stage 17-1 through Stage 17-5 and isolated Docker acceptance are
-  complete but uncommitted; Stage 17 is PRE-COMMIT READY only after every C1
-  gate passes. Stage 17-C2 and Stage 18 have not started.
+- **Current stage:** Stage 18-C1 documentation and pre-commit validation are in
+  progress. Stage 17 is complete and committed. Stage 18-1 through Stage 18-5,
+  including two-run final browser acceptance, are complete; Stage 18 remains
+  uncommitted during C1, and Stage 18-C2 has not started.
 - **Backend:** FastAPI, database foundation, menu models, local seed data,
   public menu, transient quoting, persistent order creation, and secure public
   order status, Payment persistence, Stripe Checkout, and verified Stripe
@@ -34,7 +34,8 @@
   administrator operational interface are implemented and acceptance-verified
 - **Container runtime:** the production-only backend image, static Nginx
   frontend image and same-origin proxy, four-service Compose stack, readiness
-  and migration startup gates, and isolated full-stack acceptance are complete
+  and migration startup gates, isolated full-stack acceptance, and isolated
+  browser-E2E Compose overlay are complete
 - **Database:** PostgreSQL, Alembic, menu, order, Payment, StripeEvent, and User
   models and deterministic menu seed completed; repository and development
   database are both at `0008_add_order_ownership`. The controlled ENV1 upgrade
@@ -97,11 +98,12 @@
   payments; deterministic UTF-8-SIG, BOM, CSV dialect, filename, query,
   time-source, formula-safety, and exposure contracts completed and verified;
   one report SELECT per route and no migration required
-- **Application tests:** the current Stage 17 baseline passed 1590 backend tests
-  and 890 frontend tests. Backend Ruff, Black, and isort checks and frontend
-  ESLint, Prettier, build, and both dependency audits passed. Alembic exposes
-  the single `0008_add_order_ownership` head, and the eight-test migration
-  round-trip/no-drift suite passed
+- **Application tests:** the current Stage 18 baseline passed 1654 backend
+  tests and 890 frontend tests. Backend Ruff, Black, and isort checks and
+  frontend ESLint, Prettier, build, and both dependency audits passed. The
+  complete eight-test Playwright suite passed in each of two fresh isolated
+  Chromium runs. Alembic exposes the single `0008_add_order_ownership` head,
+  and the eight-test migration round-trip/no-drift suite passed
 - **Stage 16 frontend:** the committed B1 through B6 operational administrator
   interface remains complete. Stage 16F F1 through F6 plus FIX1 and FIX2 add
   the landing route, shared auth, registration, authenticated ordering,
@@ -174,14 +176,28 @@
 - **Stage 17-4:** complete — database readiness and deterministic migration,
   head-check, backend-health, and frontend-health startup gating
 - **Stage 17-5:** complete — isolated full-stack Docker acceptance
-- **Stage 17-C1:** in progress — documentation and cumulative pre-commit
-  validation; Stage 17 becomes PRE-COMMIT READY only if all C1 gates pass
-- **Stage 17-C2:** not started
-- **Overall Stage 17:** implementation and isolated acceptance are complete but
+- **Stage 17-C1:** complete — documentation and cumulative pre-commit
+  validation passed
+- **Stage 17-C2:** complete — independent review and final commit completed on
+  2026-08-22
+- **Overall Stage 17:** complete and committed
+- **Stage 18-1:** complete — Playwright Test 1.62.1, Chromium, deterministic
+  single-worker configuration, and isolated E2E Compose tooling
+- **Stage 18-2:** complete — authentication, account ownership, privacy, and
+  protected-route browser E2E
+- **Stage 18-3:** complete — guest order, fake Checkout, signed webhook,
+  administrator lifecycle, and RBAC browser E2E
+- **Stage 18-4:** complete — responsive, keyboard, focus, and runtime-failure
+  browser E2E
+- **Stage 18-5:** FINAL ACCEPTANCE COMPLETE — two fresh isolated runs passed
+  the complete Playwright suite, 8/8 in each run
+- **Stage 18-C1:** in progress — documentation and cumulative pre-commit
+  validation
+- **Stage 18-C2:** not started
+- **Overall Stage 18:** implementation and final acceptance are complete but
   uncommitted during C1
-- **Stage 18:** not started
-- **Remaining direction:** finish every Stage 17-C1 gate, then run Stage 17-C2
-  independent review and final commit. Stage 18 requires separate approval
+- **Remaining direction:** finish every Stage 18-C1 gate, then run Stage 18-C2
+  independent review and final commit. Stage 19 requires separate approval
 - **Deployment:** not started
 
 ## Known limitations
@@ -215,8 +231,9 @@
   or frontend analytics. Stage 14 CSV exports are synchronous and buffered in
   memory; streaming and background exports are deferred until measured scale
   justifies them.
-- A real Stripe CLI smoke remains optional and manual; automated tests use
-  injected adapters or synthetic local signatures and perform no Stripe calls.
+- A real Stripe CLI smoke remains optional and manual. Automated tests use
+  injected adapters or the test-only fake provider and synthetic signed
+  webhooks; Stage 18 performs no real Stripe traffic.
 - The seed is restricted to the exact local development database and is not a
   production bootstrap process.
 - Stage 17 provides a repeatable loopback-only local container stack, not a
@@ -224,16 +241,73 @@
   least-privilege production database role remain Stage 20 deployment work; the
   current local database role is accepted only for the loopback Stage 17 scope.
 - Stage 17 acceptance used programmatic SPA and API HTTP smoke, not browser E2E.
-  Browser automation was unavailable, and Stage 18 has not started.
+  Stage 18 now supplies the required browser proof through Playwright Test
+  1.62.1 and real Chromium only. The in-app browser was unavailable and is not
+  claimed; Axe, Cypress, cross-browser coverage, and any second E2E framework
+  are outside the implemented scope.
 - Unified User persistence, customer registration/authentication, role
   management, Order ownership, read-only own-order API and frontend, and
   `/admin/users` UI are implemented. Refresh tokens, password recovery, MFA,
-  refunds, browser E2E, continuous integration, and deployment have not started.
+  refunds, continuous integration, and deployment have not started.
 
 ## Last verification
 
-Stage 17-1 through Stage 17-5 completed by 2026-08-22; Stage 17-C1 documentation
+Stage 18-1 through Stage 18-5 completed by 2026-08-23; Stage 18-C1 documentation
 and cumulative pre-commit validation are in progress:
+
+- Stage 18 uses Playwright Test 1.62.1 with real Chromium as its sole browser
+  E2E framework. The deterministic configuration uses `workers=1`,
+  `retries=0`, no trace, video, HAR, or `storageState`, and screenshots only on
+  failure
+- Every run uses a unique isolated Compose project, PostgreSQL database, and
+  named volume with synthetic credentials. Disposable browser-E2E data never
+  targets the development database, and the real `.env` is not loaded or
+  modified
+- The test-only `backend/e2e_harness.py` supplies an opaque fake Checkout
+  handle to the browser. A process-local registry retains the trusted Checkout
+  and payment facts, including amount, status, and internal identifiers. The
+  normal application contract keeps the Order capability in the browser, but
+  fake completion accepts only the opaque handle and neither accepts nor uses
+  that capability. The synthetic webhook secret is separate server
+  configuration and is never browser-supplied or exposed. The harness signs a
+  synthetic webhook, sends it through the real webhook endpoint, makes no real
+  Stripe request, and adds no production E2E backdoor
+- Stage 18-2 verified landing, navigation and deep links, unified
+  authentication and logout, protected routes, account ownership, and
+  cross-user privacy. Stage 18-3 verified guest ordering, fake Checkout, signed
+  webhook payment success, unpaid-order denial, the administrator lifecycle to
+  completion, `customer -> admin` User role promotion, and super-admin RBAC.
+  Stage 18-4 verified the required responsive viewports plus keyboard and focus
+  behavior
+- Stage 18-5 ran the complete suite twice on two fresh isolated stacks. Run A
+  passed 8/8 and Run B passed 8/8, with zero unexpected console errors, page
+  errors, or failed network responses. The required proof is Playwright-driven
+  Chromium; the unavailable in-app browser is not claimed, and no Axe, Cypress,
+  second E2E framework, or real Stripe was used
+- Trace, video, HAR, and `storageState` capture remained disabled, screenshots
+  remained failure-only, and both successful runs left no browser artifact or
+  temporary environment file. Synthetic secrets, credentials, JWTs,
+  capabilities, DSNs, and webhook secrets were neither logged nor persisted
+- The backend passed 1654/1654 tests plus Ruff, Black, and isort. The frontend
+  passed 890/890 tests plus ESLint, Prettier, and the production build. Both
+  `npm audit --omit=dev` and the full `npm audit` reported zero
+  vulnerabilities. Alembic exposed the single `0008_add_order_ownership` head,
+  and the migration round-trip/no-drift suite passed 8/8
+- Read-only before/after checks preserved the real `.env` byte-for-byte, host
+  PostgreSQL on port 5432 and PID 6120, healthy development PostgreSQL on port
+  5433, the development named volume, and the exact development fingerprint:
+  revision 0008, one User with roles `0/0/1`, five categories, 15 menu items,
+  two orders, two order items, and zero Payment or StripeEvent rows
+- No acceptance container or network remains running. Seven detached Stage
+  17/18 acceptance volumes are retained intentionally because their deletion
+  requires separate explicit approval; C1 does not delete them
+- Stage 18-C1 changes exactly six authoritative documents. After those updates
+  and the one-file C2-FIX1 stabilization, the cumulative Stage 18 union is
+  exactly 22 physical paths, `A10 / M12 / D0`, with an empty index. Stage 18
+  remains uncommitted during C1; Stage 18-C2 has not started
+
+Historical Stage 17 verification completed on 2026-08-22; Stage 17-C2 then
+completed independent review and the final commit:
 
 - Stage 17-1 created the non-root Python 3.12 backend image with a
   production-only, hash-locked dependency set and one Uvicorn worker. Stage
@@ -269,19 +343,20 @@ and cumulative pre-commit validation are in progress:
 - Programmatic HTTP acceptance through the frontend verified `/`, `/menu`, and
   `/login` SPA/deep-link behavior, `/healthz`, API JSON routing, and non-SPA
   unknown API responses. Browser automation was unavailable, so this evidence
-  is not a browser E2E claim; Stage 18 has not started
+  is not a browser E2E claim; at that Stage 17 boundary, Stage 18 had not
+  started
 - Shutdown used `docker compose down` without `-v`. Acceptance containers and
-  networks were removed, while the separate
-  `roa-stage17-accept-7975ee-postgres-data` volume was retained intentionally
+  networks were removed, while the detached Stage 17 acceptance volume was
+  retained intentionally
 - Read-only before/after checks preserved host PostgreSQL on port 5432 and PID
   6120, healthy development PostgreSQL on port 5433, the development named
   volume, the real `.env`, and the exact development fingerprint: revision
   0008, one User with roles `0/0/1`, five categories, 15 menu items, two orders,
   two order items, and zero payments
-- Stage 17-C1 touches exactly six authoritative documents. After those updates,
-  the expected cumulative Stage 17 union is exactly 17 physical paths,
-  `A6 / M11 / D0`, with an empty index. Stage 17 is PRE-COMMIT READY only after
-  every C1 gate passes; Stage 17-C2 has not started
+- At the historical C1 boundary, Stage 17 changed exactly six authoritative
+  documents and the cumulative union was exactly 17 physical paths,
+  `A6 / M11 / D0`, with an empty index. All C1 gates subsequently passed, and
+  Stage 17-C2 completed independent review and the final commit on 2026-08-22
 
 Stage 16G final security sign-off and commit completed on 2026-08-20:
 

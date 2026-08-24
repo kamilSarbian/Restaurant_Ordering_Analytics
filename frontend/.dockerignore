@@ -8,6 +8,15 @@ dist
 coverage
 test-results
 playwright-report
+blob-report
+.playwright
+.e2e-tmp
+screenshots
+traces
+videos
+e2e
+playwright.config.ts
+tsconfig.e2e.json
 tests
 src/test
 **/*.test.ts

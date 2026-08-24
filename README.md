@@ -15,30 +15,33 @@ runtime has one canonical User authentication contract, one `user_access`
 token family, and one OpenAPI bearer scheme, `UserBearer`; the legacy backend
 administrator-auth routes and runtime compatibility are removed.
 
-Stage 17-1 through Stage 17-5 are complete. The backend image, static frontend
-image, four-service Compose topology, readiness/startup gating, and isolated
-Docker acceptance all passed. Stage 17 is therefore implementation- and
-acceptance-complete, but its changes remain uncommitted while C1 documentation
-and pre-commit validation are in progress; C2 independent review and final
-commit remain pending. Stage 18 end-to-end testing has not started.
+Stage 17-1 through Stage 17-5 are complete, verified, and committed. The
+backend image, static frontend image, four-service Compose topology,
+readiness/startup gating, and isolated Docker acceptance all passed. Stage
+18-1 Playwright tooling, Stage 18-2 isolated authentication/account E2E, Stage
+18-3 guest/payment/administrator E2E, Stage 18-4 responsive/accessibility/
+runtime E2E, and Stage 18-5 final acceptance are complete. Stage 18 is therefore
+implementation- and acceptance-complete, but its changes remain uncommitted
+during C1 documentation and pre-commit validation. Stage 18-C2 independent
+review and final commit have not started.
 
 The FastAPI backend provides public menu and quote APIs, anonymous or owned
 Order creation, owner-or-capability status and idempotent Stripe Checkout,
 signature-verified webhook processing, unified registered identities,
 database-authoritative role checks, read-only personal Order history, and
-administrator operations. The current automated baseline is 1590/1590 passing
-backend tests and 890/890 passing frontend tests across 31/31 files. Stage 16G
-integrated acceptance passed through in-process ASGI/TestClient checks against
-an isolated PostgreSQL database that was removed afterward; it was not browser
-E2E, and the optional G4 browser smoke was skipped.
+administrator operations. The current automated baseline is 1654/1654 passing
+backend tests and 890/890 passing frontend tests. Stage 18-5 added two fresh
+isolated final-acceptance runs, each with 8/8 real Chromium Playwright tests
+passing. The earlier Stage 16G integrated acceptance remains an in-process
+ASGI/TestClient historical check rather than browser E2E.
 
 Local development uses PostgreSQL 17, synchronous SQLAlchemy 2, Psycopg 3,
 Alembic, and an explicit demonstration menu seed. Code and the development
 database are both at migration `0008_add_order_ownership`. A local
 credential-hygiene issue was remediated by rotation without documenting or
-tracking any credential value. Stage 17 now provides repeatable local
-full-system containers. It is not a public deployment: Stage 18 E2E, Stage 19
-CI, and Stage 20 deployment have not started.
+tracking any credential value. Stage 17 provides repeatable local full-system
+containers, and Stage 18 provides isolated browser E2E. This is not a public
+deployment: Stage 19 CI and Stage 20 deployment have not started.
 
 ## Unified identity, Order ownership, and account backend
 
@@ -171,6 +174,8 @@ without introducing infrastructure that is unnecessary for a single venue.
 - A four-service local Compose topology with explicit one-shot migrations,
   database-aware readiness, same-origin API proxying, persistent PostgreSQL
   data, and hardened non-root application containers.
+- Playwright Test browser E2E using Chromium, a per-run isolated Compose
+  database and volume, and a test-only fake Checkout/webhook harness.
 - Isolated PostgreSQL integration tests for models, constraints, and migration
   upgrades, downgrades, seed idempotency, and data protection.
 - Ruff, Black, and isort quality configuration.
@@ -182,9 +187,9 @@ without introducing infrastructure that is unnecessary for a single venue.
   email-validator, Docker Compose, pytest, Ruff, Black, isort, React,
   TypeScript, Vite, React Router, CSS Modules, native `fetch`, `sessionStorage`,
   Vitest, React Testing Library, multi-stage container builds, and an
-  unprivileged static Nginx runtime.
-- Planned: Stage 18 end-to-end testing, Stage 19 GitHub Actions CI, and Stage 20
-  public deployment.
+  unprivileged static Nginx runtime, Playwright Test 1.62.1, and Chromium
+  browser E2E.
+- Planned: Stage 19 GitHub Actions CI and Stage 20 public deployment.
 
 ## Repository structure
 
@@ -291,6 +296,54 @@ Shutdown used `docker compose down` without `-v`; acceptance containers and
 networks were removed. The isolated data volume is intentionally retained as
 `roa-stage17-accept-7975ee-postgres-data` and requires separate explicit
 approval before deletion.
+
+## Stage 18 isolated browser E2E
+
+Stage 18 uses Playwright Test 1.62.1 with real Chromium as the sole browser-E2E
+framework. The suite runs serially with one worker and zero retries. Trace,
+video, HAR, and `storageState` capture are disabled; screenshots are created
+only on failure, and successful runs leave no Playwright runtime artifacts.
+There is no Axe, Cypress, or second E2E framework. The required proof is the
+Chromium Playwright run: the in-app browser was unavailable during final
+acceptance and is not claimed as additional evidence.
+
+Every browser run uses a unique Compose project with its own PostgreSQL
+database and named volume. Configuration and credentials are synthetic and
+run-scoped. The real `.env`, development database, development container and
+volume, and the independent host PostgreSQL service are outside this disposable
+boundary and remain untouched.
+
+`backend/e2e_harness.py` is a test-only application factory mounted only by the
+E2E Compose overlay; production startup does not import or register its routes.
+Its fake Checkout provider keeps trusted payment-state and internal-identifier
+facts in a process-local server registry. The normal Order capability remains
+browser-held under the established authorization contract, but the fake
+Checkout completion request accepts only a random opaque handle and neither
+accepts nor uses that capability. The webhook secret is separate server
+configuration and is never browser-supplied or exposed. Completion creates a
+signed synthetic webhook and sends it through the real webhook endpoint, so
+the production payment transition path is exercised without real Stripe
+traffic. Synthetic credentials and secrets must not be logged or persisted,
+and the harness creates no production E2E backdoor.
+
+Stage 18-5 ran the complete eight-test suite twice on fresh isolated stacks;
+both runs passed 8/8. Together they cover landing/menu navigation and deep
+links, canonical authentication and logout, protected routes, personal account
+ownership and cross-user privacy, guest ordering, fake Checkout, the signed
+webhook and succeeded-payment gate, unpaid denial, the administrator lifecycle
+through `completed`, `customer -> admin` User role promotion and super-admin
+RBAC, responsive layouts, keyboard navigation, and visible focus. Both runs
+reported zero unexpected console, page, or network failures.
+
+The accompanying acceptance baseline is 1654/1654 backend tests and 890/890
+frontend tests, both npm audits at zero vulnerabilities, one Alembic head at
+`0008_add_order_ownership`, and 8/8 migration round-trip/no-drift tests. The
+development database fingerprint, host and development Docker state, and real
+`.env` remained unchanged, and successful browser runs left no artifacts.
+
+Seven detached Stage 17/18 acceptance volumes are intentionally retained
+because deleting them requires separate explicit approval. No acceptance
+containers or networks remain running.
 
 ## Local backend setup
 

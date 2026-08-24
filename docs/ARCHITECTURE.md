@@ -1204,6 +1204,51 @@ ingress. Acceptance containers and networks were removed with Compose `down`
 without `-v`; the intentionally retained volume is
 `roa-stage17-accept-7975ee-postgres-data`.
 
+### 5.24. Implemented Stage 18 Isolated Browser E2E
+
+Stage 18 uses Playwright Test 1.62.1 with Chromium as the sole browser-E2E
+framework. The complete suite runs with one worker and zero retries. Trace,
+video, HAR, and `storageState` capture are disabled, while screenshots are
+created only on failure. No Axe, Cypress, second browser-E2E framework, or real
+Stripe integration is part of this acceptance boundary. The required proof is
+the real Playwright-controlled Chromium run; the in-app browser was unavailable
+and no result from it is claimed.
+
+Every browser-E2E run creates a unique Compose project with its own PostgreSQL
+database and named volume. All identities and credentials are synthetic. The
+real `.env`, the development database, and its persistent volume are outside
+the disposable test-data boundary and remain untouched. Acceptance cleanup
+removes the run's containers and networks but does not delete retained volumes
+without separate explicit approval. The current environment therefore retains
+seven detached Stage 17/18 acceptance volumes intentionally, with no acceptance
+containers or networks still running.
+
+The isolated backend process enables the test-only `backend/e2e_harness.py`.
+Its fake payment provider gives the browser only an opaque Checkout handle. A
+process-local server registry keeps the authoritative payment and internal-ID
+facts. Fake completion derives the status and webhook payload server-side and
+accepts no amount, status, internal identifier, Order capability, or webhook
+secret from the browser. The synthetic secret also remains server-side. Fake
+completion creates a signed synthetic event and sends it through the real Stripe
+webhook endpoint, so the real endpoint plus the normal correlation,
+idempotency, and Payment transition path remain under test without any real
+Stripe traffic. The harness is not mounted in the production application and
+creates no production E2E backdoor.
+
+Final Stage 18 acceptance used two fresh isolated runs, and both complete suites
+passed 8/8. Together they cover landing, authentication, account ownership and
+privacy, guest ordering, fake Checkout and the signed webhook, payment and
+administrator lifecycle/RBAC, responsive layouts, keyboard navigation, and
+focus behavior. Both runs had zero unexpected console, page, or network
+failures. Successful cleanup left no Playwright browser artifacts.
+
+The accompanying acceptance evidence records 1654/1654 backend tests,
+890/890 frontend tests, zero vulnerabilities in both production-only and full
+npm audits, Alembic head `0008_add_order_ownership`, and 8/8 migration
+round-trip/no-drift checks. Before-and-after checks also confirmed an unchanged
+development-database fingerprint, unchanged host and development Docker state,
+and a byte-identical real `.env`.
+
 ## 6. Architecture Diagram
 
 ```mermaid
