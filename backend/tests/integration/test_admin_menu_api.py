@@ -484,7 +484,7 @@ def test_item_create_allows_inactive_category_defaults_and_scoped_names(
     )
     other_category = admin_client.client.post(
         ITEMS_PATH,
-        json=payload | {"category_id": str(second.id)},
+        json=payload | {"category_id": str(second.id), "currency": "NOK"},
         headers=admin_client.headers,
     )
 
@@ -525,6 +525,8 @@ def test_item_create_unknown_category_and_validation_contract(
         {"price_amount": "100"},
         {"price_amount": 100, "cost_amount": -1},
         {"price_amount": 100, "currency": "nok"},
+        {"price_amount": 100, "currency": "EUR"},
+        {"price_amount": 100, "currency": "USD"},
         {"price_amount": 100, "allergens": [""]},
         {"price_amount": 100, "unexpected": True},
     ]
@@ -558,7 +560,7 @@ def test_item_patch_updates_every_field_reassigns_and_preserves_unspecified_valu
             "image_url": "https://example.invalid/item.png",
             "price_amount": 12000,
             "cost_amount": None,
-            "currency": "EUR",
+            "currency": "NOK",
             "allergens": [" gluten "],
             "display_order": 9,
             "is_active": False,
@@ -576,7 +578,7 @@ def test_item_patch_updates_every_field_reassigns_and_preserves_unspecified_valu
     assert body["image_url"] == "https://example.invalid/item.png"
     assert body["price_amount"] == 12000
     assert body["cost_amount"] is None
-    assert body["currency"] == "EUR"
+    assert body["currency"] == "NOK"
     assert body["allergens"] == ["gluten"]
     assert body["display_order"] == 9
     assert body["is_active"] is False
@@ -591,6 +593,28 @@ def test_item_patch_updates_every_field_reassigns_and_preserves_unspecified_valu
     assert partial.json()["is_active"] is True
     assert partial.json()["is_available"] is False
     assert partial.json()["price_amount"] == 12000
+
+
+@pytest.mark.parametrize("currency", ["nok", "EUR", "USD"])
+def test_item_patch_rejects_non_nok_currency_without_mutating_the_item(
+    admin_client: AdminMenuClient,
+    currency: str,
+) -> None:
+    category = _category(name="Currency boundary")
+    item = _item(category, name="NOK item")
+    _store(admin_client.session_factory, category, item)
+
+    response = admin_client.client.patch(
+        f"{ITEMS_PATH}/{item.id}",
+        json={"currency": currency},
+        headers=admin_client.headers,
+    )
+
+    assert response.status_code == 422
+    with admin_client.session_factory() as session:
+        stored = session.get(MenuItem, item.id)
+        assert stored is not None
+        assert stored.currency == "NOK"
 
 
 def test_item_patch_not_found_category_conflict_empty_and_malformed_contract(

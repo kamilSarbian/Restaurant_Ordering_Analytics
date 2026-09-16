@@ -1,11 +1,33 @@
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { useEffect, useRef } from 'react';
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 
 import { useAuth } from '../../features/auth/AuthContext';
+import BrandMark from '../branding/BrandMark';
+import Button from '../ui/Button';
 import styles from './AdminShell.module.css';
 
+/** Render the protected administrator navigation and active workspace route. */
 export default function AdminShell() {
   const { logout, user } = useAuth();
+  const location = useLocation();
   const navigate = useNavigate();
+  const mainRef = useRef<HTMLElement>(null);
+  const initialLocationKeyRef = useRef(location.key);
+  const isFirstRouteEffectRef = useRef(true);
+  const previousPathnameRef = useRef(location.pathname);
+
+  useEffect(() => {
+    const isFirstRouteEffect = isFirstRouteEffectRef.current;
+    const pathnameChanged = previousPathnameRef.current !== location.pathname;
+    const mountedAfterClientNavigation =
+      isFirstRouteEffect && initialLocationKeyRef.current !== 'default';
+    isFirstRouteEffectRef.current = false;
+    previousPathnameRef.current = location.pathname;
+
+    if (pathnameChanged || mountedAfterClientNavigation) {
+      mainRef.current?.focus({ preventScroll: true });
+    }
+  }, [location.pathname]);
 
   const handleLogout = () => {
     logout();
@@ -19,21 +41,21 @@ export default function AdminShell() {
       </a>
       <header className={styles.header}>
         <div className={styles.headerContent}>
-          <NavLink className={styles.brand} to="/admin" end>
-            <span className={styles.brandMark} aria-hidden="true">
-              R
-            </span>
-            <span>Restaurant Administration</span>
-          </NavLink>
+          <Link className={styles.brand} to="/admin">
+            <BrandMark className={styles.brandMark} size={24} />
+            <span className={styles.brandText}>Nordic Hearth</span>
+          </Link>
           <div className={styles.identity}>
             {user !== null ? <span className={styles.email}>{user.email}</span> : null}
-            <button
+            <Button
               className={styles.logoutButton}
+              size="md"
               type="button"
+              variant="secondary"
               onClick={handleLogout}
             >
               Log out
-            </button>
+            </Button>
           </div>
         </div>
       </header>
@@ -92,7 +114,7 @@ export default function AdminShell() {
           ) : null}
         </div>
       </nav>
-      <main id="admin-main-content" className={styles.main} tabIndex={-1}>
+      <main ref={mainRef} id="admin-main-content" className={styles.main} tabIndex={-1}>
         <Outlet />
       </main>
     </div>

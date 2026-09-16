@@ -1,4 +1,11 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createMemoryRouter, Navigate, RouterProvider } from 'react-router-dom';
 import { afterEach, vi } from 'vitest';
@@ -237,6 +244,18 @@ describe('super-administrator users page', () => {
     expect(
       screen.getByRole('list', { name: 'Registered users, oldest first' }),
     ).toBeInTheDocument();
+    const table = screen.getByRole('table', {
+      name: 'Registered users, oldest first',
+    });
+    const orderedEmails = within(table)
+      .getAllByRole('rowheader')
+      .map((rowHeader) =>
+        [SUPER_ADMIN.email, CUSTOMER.email, ADMIN.email].find((email) =>
+          rowHeader.textContent?.includes(email),
+        ),
+      );
+    expect(orderedEmails).toEqual([SUPER_ADMIN.email, CUSTOMER.email, ADMIN.email]);
+    expect(screen.getAllByText('You', { exact: true })).toHaveLength(2);
     expect(screen.getAllByText('Super administrator')).toHaveLength(2);
     expect(screen.getAllByText('Customer')).toHaveLength(2);
     expect(screen.getAllByText('Administrator')).toHaveLength(2);
@@ -266,6 +285,45 @@ describe('super-administrator users page', () => {
     expect(stub.calls[1]?.headers.get('Authorization')).toBe(`Bearer ${TOKEN}`);
   });
 
+  it('identifies the current account strictly by id and fails closed for an inconsistent self row', async () => {
+    const selfRoleMismatch = {
+      ...CUSTOMER,
+      email: 'self-contract-mismatch@example.invalid',
+      id: SUPER_ADMIN_ID,
+    };
+    const emailOnlyMatch = {
+      ...CUSTOMER,
+      email: SUPER_ADMIN_ME.email,
+      id: CUSTOMER_ID,
+    };
+    renderUsers(
+      { json: SUPER_ADMIN_ME },
+      { json: listResponse([selfRoleMismatch, emailOnlyMatch]) },
+    );
+
+    const table = await screen.findByRole('table', {
+      name: 'Registered users, oldest first',
+    });
+    const rows = within(table).getAllByRole('row').slice(1);
+    const selfRow = rows[0];
+    const emailOnlyRow = rows[1];
+    expect(selfRow).toBeDefined();
+    expect(emailOnlyRow).toBeDefined();
+    if (selfRow === undefined || emailOnlyRow === undefined) {
+      throw new Error('Expected two authoritative user rows');
+    }
+
+    expect(within(selfRow).getByText('You', { exact: true })).toBeVisible();
+    expect(within(selfRow).getByText('Read only', { exact: true })).toBeVisible();
+    expect(within(selfRow).queryByRole('button')).toBeNull();
+    expect(within(emailOnlyRow).queryByText('You', { exact: true })).toBeNull();
+    expect(
+      within(emailOnlyRow).getByRole('button', {
+        name: `Promote to admin for ${SUPER_ADMIN_ME.email}`,
+      }),
+    ).toBeEnabled();
+  });
+
   it('paginates deterministically and preserves the current offset on retry', async () => {
     const { stub } = renderUsers(
       { json: SUPER_ADMIN_ME },
@@ -279,7 +337,7 @@ describe('super-administrator users page', () => {
     await screen.findByText('Showing 1–1 of 51');
     await user.click(screen.getByRole('button', { name: 'Next' }));
     expect(
-      await screen.findByRole('heading', { name: 'Unable to load users' }),
+      await screen.findByText('Unable to load users', { selector: 'strong' }),
     ).toBeVisible();
     expect(stub.calls[2]?.url).toBe('/api/v1/admin/users?limit=50&offset=50');
 
@@ -304,7 +362,7 @@ describe('super-administrator users page', () => {
     renderUsers({ json: SUPER_ADMIN_ME }, failure);
 
     expect(
-      await screen.findByRole('heading', { name: 'Unable to load users' }),
+      await screen.findByText('Unable to load users', { selector: 'strong' }),
     ).toBeVisible();
     expect(screen.getByText(message)).toBeVisible();
     expect(document.body).not.toHaveTextContent('offline');
@@ -338,7 +396,7 @@ describe('super-administrator users page', () => {
     },
   );
 
-  it('locks an open confirmation after list 403 until reconciliation succeeds', async () => {
+  it('guards an open confirmation and locks role actions after list 403 until reconciliation succeeds', async () => {
     const { router, stub } = renderUsers(
       { json: SUPER_ADMIN_ME },
       { json: listResponse([CUSTOMER], { total: 51 }) },
@@ -351,8 +409,14 @@ describe('super-administrator users page', () => {
     const actionName = new RegExp(`Promote to admin for ${CUSTOMER.email}`);
 
     await screen.findByText('Showing 1–1 of 51');
-    await openConfirmation(actionName);
-    await user.click(screen.getByRole('button', { name: 'Refresh' }));
+    const initiatingAction = await openConfirmation(actionName);
+    const refreshButton = screen.getByRole('button', { name: 'Refresh' });
+    expect(refreshButton).toBeDisabled();
+    fireEvent.click(refreshButton);
+    expect(stub.calls).toHaveLength(2);
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(initiatingAction).toHaveFocus());
+    await user.click(refreshButton);
 
     expect(
       await screen.findByText(/super-administrator access was confirmed/i),
@@ -362,19 +426,13 @@ describe('super-administrator users page', () => {
     expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toContain(TOKEN);
     expect(screen.getByText('Refresh required')).toBeVisible();
 
-    const confirmButton = screen.getByRole('button', { name: 'Confirm' });
-    expect(confirmButton).toBeDisabled();
-    fireEvent.click(confirmButton);
     expect(stub.calls.filter((call) => call.method === 'PATCH')).toHaveLength(0);
     expect(getActionButton(actionName)).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled();
 
     await user.click(screen.getByRole('button', { name: 'Refresh' }));
-    expect(
-      await screen.findByRole('heading', { name: 'Unable to refresh users' }),
-    ).toBeVisible();
+    expect(await screen.findByText(/temporarily unavailable/i)).toBeVisible();
     expect(screen.getByText('Refresh required')).toBeVisible();
-    expect(confirmButton).toBeDisabled();
     expect(stub.calls.filter((call) => call.method === 'PATCH')).toHaveLength(0);
 
     await user.click(screen.getByRole('button', { name: 'Retry' }));
@@ -395,7 +453,19 @@ describe('super-administrator users page', () => {
 
     await screen.findByText('Showing 1–1 of 1');
     const initiatingAction = await openConfirmation(actionName);
-    expect(screen.getByText(CUSTOMER.email, { selector: 'strong' })).toBeVisible();
+    const confirmation = screen.getByRole('group', { name: 'Confirm role change' });
+    expect(within(confirmation).getByText('Account')).toBeVisible();
+    expect(
+      within(confirmation).getByText(CUSTOMER.email, { selector: 'dd' }),
+    ).toBeVisible();
+    expect(within(confirmation).getByText('Current role')).toBeVisible();
+    expect(
+      within(confirmation).getByText('Customer', { selector: 'dd' }),
+    ).toBeVisible();
+    expect(within(confirmation).getByText('Requested role')).toBeVisible();
+    expect(
+      within(confirmation).getByText('Administrator', { selector: 'dd' }),
+    ).toBeVisible();
     expect(stub.calls).toHaveLength(2);
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(initiatingAction).toHaveFocus());
@@ -407,6 +477,34 @@ describe('super-administrator users page', () => {
     });
     await waitFor(() => expect(initiatingAction).toHaveFocus());
     expect(screen.queryByRole('heading', { name: 'Confirm role change' })).toBeNull();
+    expect(stub.calls).toHaveLength(2);
+  });
+
+  it('does not let another row, refresh, or pagination replace an open confirmation', async () => {
+    const { stub } = renderUsers(
+      { json: SUPER_ADMIN_ME },
+      { json: listResponse([CUSTOMER, ADMIN], { total: 51 }) },
+    );
+    const actionName = new RegExp(`Promote to admin for ${CUSTOMER.email}`);
+
+    await screen.findByText('Showing 1–2 of 51');
+    await openConfirmation(actionName);
+
+    const competingAction = getActionButton(
+      new RegExp(`Demote to customer for ${ADMIN.email}`),
+    );
+    const refreshButton = screen.getByRole('button', { name: 'Refresh' });
+    const nextButton = screen.getByRole('button', { name: 'Next' });
+    expect(competingAction).toBeDisabled();
+    expect(refreshButton).toBeDisabled();
+    expect(nextButton).toBeDisabled();
+    fireEvent.click(competingAction);
+    fireEvent.click(refreshButton);
+    fireEvent.click(nextButton);
+
+    const confirmation = screen.getByRole('group', { name: 'Confirm role change' });
+    expect(within(confirmation).getByText(CUSTOMER.email)).toBeVisible();
+    expect(within(confirmation).queryByText(ADMIN.email)).toBeNull();
     expect(stub.calls).toHaveLength(2);
   });
 
@@ -454,6 +552,9 @@ describe('super-administrator users page', () => {
     expect(
       await screen.findByText(/authoritative user list was loaded/i),
     ).toBeVisible();
+    await waitFor(() =>
+      expect(screen.getByLabelText('User management feedback')).toHaveFocus(),
+    );
     expect(stub.calls).toHaveLength(4);
     expect(stub.calls[3]?.method).toBe('GET');
     expect(screen.getAllByText('Administrator', { selector: 'span' })).toHaveLength(2);
@@ -522,6 +623,9 @@ describe('super-administrator users page', () => {
     await user.click(screen.getByRole('button', { name: 'Confirm' }));
 
     expect(await screen.findByText(/transition was not valid/i)).toBeVisible();
+    await waitFor(() =>
+      expect(screen.getByLabelText('User management feedback')).toHaveFocus(),
+    );
     expect(stub.calls).toHaveLength(3);
     expect(screen.getByText('Refresh required')).toBeVisible();
     expect(getActionButton(/Promote to admin/)).toBeDisabled();
@@ -545,6 +649,9 @@ describe('super-administrator users page', () => {
     expect(
       screen.getByText(/could not confirm whether the role changed/i),
     ).toBeVisible();
+    await waitFor(() =>
+      expect(screen.getByLabelText('User management feedback')).toHaveFocus(),
+    );
     expect(getActionButton(/Promote to admin/)).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled();
     expect(stub.calls.filter((call) => call.method === 'PATCH')).toHaveLength(1);
@@ -553,9 +660,7 @@ describe('super-administrator users page', () => {
     expect(stub.calls).toHaveLength(3);
 
     await user.click(screen.getByRole('button', { name: 'Refresh' }));
-    expect(
-      await screen.findByRole('heading', { name: 'Unable to refresh users' }),
-    ).toBeVisible();
+    expect(await screen.findByText(/temporarily unavailable/i)).toBeVisible();
     expect(screen.getByText('Refresh required')).toBeVisible();
     expect(getActionButton(/Promote to admin/)).toBeDisabled();
 
@@ -566,11 +671,7 @@ describe('super-administrator users page', () => {
     expect(stub.calls.filter((call) => call.method === 'PATCH')).toHaveLength(1);
   });
 
-  it('serializes list refreshes and mutations before explicit reconciliation', async () => {
-    let resolveOldList: ((response: Response) => void) | undefined;
-    const oldListPromise = new Promise<Response>((resolve) => {
-      resolveOldList = resolve;
-    });
+  it('blocks competing refreshes during confirmation and mutation before reconciliation', async () => {
     let resolvePatch: ((response: Response) => void) | undefined;
     const patchPromise = new Promise<Response>((resolve) => {
       resolvePatch = resolve;
@@ -579,7 +680,6 @@ describe('super-administrator users page', () => {
     const { stub } = renderUsers(
       { json: SUPER_ADMIN_ME },
       { json: listResponse([CUSTOMER]) },
-      { responsePromise: oldListPromise },
       { responsePromise: patchPromise },
       { json: listResponse([promotedCustomer]) },
     );
@@ -588,34 +688,25 @@ describe('super-administrator users page', () => {
 
     await screen.findByText(/Showing 1.*1 of 1/);
     await openConfirmation(actionName);
-    await user.click(screen.getByRole('button', { name: 'Refresh' }));
-    await waitFor(() => expect(stub.calls).toHaveLength(3));
-
+    const refreshButton = screen.getByRole('button', { name: 'Refresh' });
+    expect(refreshButton).toBeDisabled();
+    fireEvent.click(refreshButton);
+    expect(stub.calls).toHaveLength(2);
     const confirmButton = screen.getByRole('button', { name: 'Confirm' });
-    expect(confirmButton).toBeDisabled();
-    fireEvent.click(confirmButton);
-    expect(stub.calls.filter((call) => call.method === 'PATCH')).toHaveLength(0);
-
-    await act(async () => {
-      resolveOldList?.(
-        new Response(JSON.stringify(listResponse([CUSTOMER])), {
-          headers: { 'Content-Type': 'application/json' },
-        }),
-      );
-      await oldListPromise;
-    });
-
-    expect(screen.queryByRole('heading', { name: 'Confirm role change' })).toBeNull();
-    await openConfirmation(actionName);
-    await user.click(screen.getByRole('button', { name: 'Confirm' }));
+    await user.click(confirmButton);
     await waitFor(() =>
       expect(stub.calls.filter((call) => call.method === 'PATCH')).toHaveLength(1),
     );
 
-    const refreshButton = screen.getByRole('button', { name: 'Refresh' });
+    expect(screen.getByRole('group', { name: 'Confirm role change' })).toHaveAttribute(
+      'aria-busy',
+      'true',
+    );
+    expect(screen.getByRole('button', { name: 'Updating role' })).toBeDisabled();
     expect(refreshButton).toBeDisabled();
     fireEvent.click(refreshButton);
-    expect(stub.calls).toHaveLength(4);
+    expect(stub.calls).toHaveLength(3);
+    expect(screen.getAllByText('Customer', { selector: 'span' })).toHaveLength(2);
 
     await act(async () => {
       resolvePatch?.(new Response(null, { status: 503 }));
@@ -624,7 +715,7 @@ describe('super-administrator users page', () => {
 
     expect(await screen.findByText('Refresh required')).toBeVisible();
     expect(getActionButton(actionName)).toBeDisabled();
-    expect(stub.calls).toHaveLength(4);
+    expect(stub.calls).toHaveLength(3);
 
     await user.click(screen.getByRole('button', { name: 'Refresh' }));
     expect(await screen.findByText(/Role actions are available again/i)).toBeVisible();
@@ -632,7 +723,7 @@ describe('super-administrator users page', () => {
     expect(
       getActionButton(new RegExp(`Demote to customer for ${CUSTOMER.email}`)),
     ).toBeEnabled();
-    expect(stub.calls).toHaveLength(5);
+    expect(stub.calls).toHaveLength(4);
   });
 
   it('treats a mutation 503 as ambiguous and blocks another PATCH', async () => {
@@ -805,6 +896,9 @@ describe('super-administrator users page', () => {
     await user.click(screen.getByRole('button', { name: 'Confirm' }));
 
     expect(await screen.findByText(/role update was denied/i)).toBeVisible();
+    await waitFor(() =>
+      expect(screen.getByLabelText('User management feedback')).toHaveFocus(),
+    );
     expect(router.state.location.pathname).toBe('/admin/users');
     expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toContain(TOKEN);
     expect(stub.calls[3]?.url).toBe('/api/v1/auth/me');

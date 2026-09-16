@@ -1,5 +1,7 @@
 import { type FormEvent, useEffect, useRef, useState } from 'react';
 
+import Button from '../../components/ui/Button';
+import Notice from '../../components/ui/Notice';
 import type {
   AdminCategory,
   AdminCategoryCreatePayload,
@@ -38,17 +40,54 @@ export default function CategoryForm({
   onSubmit,
   submitLocked,
 }: CategoryFormProps) {
-  const [name, setName] = useState(category?.name ?? '');
-  const [description, setDescription] = useState(category?.description ?? '');
-  const [displayOrder, setDisplayOrder] = useState(String(category?.displayOrder ?? 0));
-  const [isActive, setIsActive] = useState(category?.isActive ?? true);
+  const initialName = category?.name ?? '';
+  const initialDescription = category?.description ?? '';
+  const initialDisplayOrder = String(category?.displayOrder ?? 0);
+  const initialIsActive = category?.isActive ?? true;
+  const [name, setName] = useState(initialName);
+  const [description, setDescription] = useState(initialDescription);
+  const [displayOrder, setDisplayOrder] = useState(initialDisplayOrder);
+  const [isActive, setIsActive] = useState(initialIsActive);
   const [errors, setErrors] = useState<CategoryErrors>({});
+  const [showDiscardConfirmation, setShowDiscardConfirmation] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
   const displayOrderRef = useRef<HTMLInputElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const keepEditingRef = useRef<HTMLButtonElement>(null);
+  const restoreCancelFocusRef = useRef(false);
+  const isDirty =
+    name !== initialName ||
+    description !== initialDescription ||
+    displayOrder !== initialDisplayOrder ||
+    isActive !== initialIsActive;
 
   useEffect(() => {
     nameRef.current?.focus();
   }, []);
+
+  useEffect(() => {
+    if (showDiscardConfirmation) {
+      keepEditingRef.current?.focus();
+      return;
+    }
+    if (restoreCancelFocusRef.current) {
+      restoreCancelFocusRef.current = false;
+      cancelRef.current?.focus();
+    }
+  }, [showDiscardConfirmation]);
+
+  const handleCancel = () => {
+    if (!isDirty) {
+      onCancel();
+      return;
+    }
+    setShowDiscardConfirmation(true);
+  };
+
+  const keepEditing = () => {
+    restoreCancelFocusRef.current = true;
+    setShowDiscardConfirmation(false);
+  };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -107,10 +146,20 @@ export default function CategoryForm({
   };
 
   return (
-    <form className={styles.formPanel} noValidate onSubmit={handleSubmit}>
+    <form
+      aria-busy={busy}
+      className={styles.formPanel}
+      noValidate
+      onSubmit={handleSubmit}
+    >
       <div>
         <p className="eyebrow">Category editor</p>
         <h3>{category === null ? 'Add category' : 'Edit category'}</h3>
+        {isDirty ? (
+          <p className={styles.dirtyIndicator} role="status">
+            Unsaved changes
+          </p>
+        ) : null}
       </div>
       {errors.form !== undefined ? (
         <p className={styles.fieldError} role="alert">
@@ -174,23 +223,50 @@ export default function CategoryForm({
         />
         Active — visible in the public catalog when applicable
       </label>
-      <div className={styles.formActions}>
-        <button
-          className={styles.primaryButton}
-          type="submit"
-          disabled={busy || submitLocked}
+      {showDiscardConfirmation ? (
+        <Notice
+          className={styles.discardConfirmation}
+          title="Discard category changes?"
+          variant="warning"
         >
-          {busy ? 'Saving…' : category === null ? 'Create category' : 'Save changes'}
-        </button>
-        <button
-          className={styles.secondaryButton}
-          type="button"
-          disabled={busy}
-          onClick={onCancel}
-        >
-          Cancel
-        </button>
-      </div>
+          <p>Your unsaved changes will be lost.</p>
+          <div className={styles.formActions}>
+            <Button type="button" size="sm" variant="danger" onClick={onCancel}>
+              Discard changes
+            </Button>
+            <Button
+              ref={keepEditingRef}
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={keepEditing}
+            >
+              Keep editing
+            </Button>
+          </div>
+        </Notice>
+      ) : null}
+      {!showDiscardConfirmation ? (
+        <div className={styles.formActions}>
+          <Button
+            loading={busy}
+            loadingLabel="Saving…"
+            type="submit"
+            disabled={submitLocked}
+          >
+            {category === null ? 'Create category' : 'Save changes'}
+          </Button>
+          <Button
+            ref={cancelRef}
+            type="button"
+            variant="secondary"
+            disabled={busy}
+            onClick={handleCancel}
+          >
+            Cancel
+          </Button>
+        </div>
+      ) : null}
     </form>
   );
 }

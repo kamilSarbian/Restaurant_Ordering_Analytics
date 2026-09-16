@@ -1,5 +1,8 @@
-import { type FormEvent, useEffect, useRef, useState } from 'react';
+import { type FormEvent, type RefObject, useEffect, useRef, useState } from 'react';
 
+import Button from '../../components/ui/Button';
+import Notice from '../../components/ui/Notice';
+import { getSafeMenuImageUrl } from '../menu/menuImageCatalog';
 import type {
   AdminCategory,
   AdminMenuItem,
@@ -7,6 +10,12 @@ import type {
   AdminMenuItemUpdatePayload,
 } from './adminMenuApi';
 import styles from './AdminMenuPage.module.css';
+
+const MAX_MENU_MONEY_MINOR_UNITS = 2_147_483_647;
+const MAX_MENU_MONEY_MINOR_UNITS_BIGINT = BigInt(MAX_MENU_MONEY_MINOR_UNITS);
+const NOK_MINOR_UNIT_FACTOR = 100n;
+const MAX_NOK_MAJOR_INPUT_LENGTH = 11;
+const NOK_MAJOR_PATTERN = /^(0|[1-9]\d*)(?:\.(\d{1,2}))?$/;
 
 interface MenuItemFormProps {
   busy: boolean;
@@ -20,15 +29,44 @@ interface MenuItemFormProps {
 }
 
 type FieldName =
-  | 'category'
-  | 'cost'
-  | 'currency'
-  | 'displayOrder'
-  | 'form'
-  | 'imageUrl'
-  | 'name'
-  | 'price';
+  'category' | 'cost' | 'displayOrder' | 'form' | 'imageUrl' | 'name' | 'price';
 type ItemErrors = Partial<Record<FieldName, string>>;
+
+/** Format a validated NOK minor-unit integer as an exact major-unit string. */
+export function formatNokMinorUnits(amount: number): string {
+  if (
+    !Number.isSafeInteger(amount) ||
+    amount < 0 ||
+    amount > MAX_MENU_MONEY_MINOR_UNITS
+  ) {
+    throw new RangeError('NOK minor units must fit the menu integer contract.');
+  }
+  const digits = String(amount).padStart(3, '0');
+  return digits.slice(0, -2) + '.' + digits.slice(-2);
+}
+
+/** Parse an exact NOK major-unit string into bounded integer minor units. */
+export function parseNokMajorUnits(value: string): number | null {
+  if (value.length > MAX_NOK_MAJOR_INPUT_LENGTH) {
+    return null;
+  }
+  const match = NOK_MAJOR_PATTERN.exec(value);
+  if (match === null) {
+    return null;
+  }
+  const wholeDigits = match[1];
+  if (wholeDigits === undefined) {
+    return null;
+  }
+  const whole = BigInt(wholeDigits);
+  const fraction = BigInt((match[2] ?? '').padEnd(2, '0'));
+  const minorUnits = whole * NOK_MINOR_UNIT_FACTOR + fraction;
+  if (minorUnits > MAX_MENU_MONEY_MINOR_UNITS_BIGINT) {
+    return null;
+  }
+  const amount = Number(minorUnits);
+  return Number.isSafeInteger(amount) ? amount : null;
+}
 
 function parseInteger(value: string, minimum: number): number | null {
   if (!/^\d+$/.test(value)) {
@@ -59,57 +97,116 @@ export default function MenuItemForm({
   onSubmit,
   submitLocked,
 }: MenuItemFormProps) {
-  const [categoryId, setCategoryId] = useState(
-    item?.categoryId ?? categories[0]?.id ?? '',
-  );
-  const [name, setName] = useState(item?.name ?? '');
-  const [description, setDescription] = useState(item?.description ?? '');
-  const [imageUrl, setImageUrl] = useState(item?.imageUrl ?? '');
-  const [price, setPrice] = useState(item === null ? '' : String(item.priceAmount));
-  const [cost, setCost] = useState(
-    item?.costAmount === null || item === null ? '' : String(item.costAmount),
-  );
-  const [currency, setCurrency] = useState(item?.currency ?? 'NOK');
-  const [allergens, setAllergens] = useState(item?.allergens.join('\n') ?? '');
-  const [displayOrder, setDisplayOrder] = useState(String(item?.displayOrder ?? 0));
-  const [isActive, setIsActive] = useState(item?.isActive ?? true);
-  const [isAvailable, setIsAvailable] = useState(item?.isAvailable ?? true);
+  const initialCategoryId = item?.categoryId ?? categories[0]?.id ?? '';
+  const initialName = item?.name ?? '';
+  const initialDescription = item?.description ?? '';
+  const initialImageUrl = item?.imageUrl ?? '';
+  const initialPrice =
+    item === null || item.currency !== 'NOK'
+      ? ''
+      : formatNokMinorUnits(item.priceAmount);
+  const initialCost =
+    item === null || item.costAmount === null || item.currency !== 'NOK'
+      ? ''
+      : formatNokMinorUnits(item.costAmount);
+  const initialAllergens = item?.allergens.join('\n') ?? '';
+  const initialDisplayOrder = String(item?.displayOrder ?? 0);
+  const initialIsActive = item?.isActive ?? true;
+  const initialIsAvailable = item?.isAvailable ?? true;
+  const unsupportedCurrency = item !== null && item.currency !== 'NOK';
+
+  const [categoryId, setCategoryId] = useState(initialCategoryId);
+  const [name, setName] = useState(initialName);
+  const [description, setDescription] = useState(initialDescription);
+  const [imageUrl, setImageUrl] = useState(initialImageUrl);
+  const [price, setPrice] = useState(initialPrice);
+  const [cost, setCost] = useState(initialCost);
+  const [allergens, setAllergens] = useState(initialAllergens);
+  const [displayOrder, setDisplayOrder] = useState(initialDisplayOrder);
+  const [isActive, setIsActive] = useState(initialIsActive);
+  const [isAvailable, setIsAvailable] = useState(initialIsAvailable);
   const [errors, setErrors] = useState<ItemErrors>({});
+  const [showDiscardConfirmation, setShowDiscardConfirmation] = useState(false);
+  const [failedPreviewUrl, setFailedPreviewUrl] = useState<string | null>(null);
   const categoryRef = useRef<HTMLSelectElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const priceRef = useRef<HTMLInputElement>(null);
   const costRef = useRef<HTMLInputElement>(null);
-  const currencyRef = useRef<HTMLInputElement>(null);
   const displayOrderRef = useRef<HTMLInputElement>(null);
   const imageUrlRef = useRef<HTMLInputElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const keepEditingRef = useRef<HTMLButtonElement>(null);
+  const restoreCancelFocusRef = useRef(false);
+
+  const isDirty =
+    categoryId !== initialCategoryId ||
+    name !== initialName ||
+    description !== initialDescription ||
+    imageUrl !== initialImageUrl ||
+    price !== initialPrice ||
+    cost !== initialCost ||
+    allergens !== initialAllergens ||
+    displayOrder !== initialDisplayOrder ||
+    isActive !== initialIsActive ||
+    isAvailable !== initialIsAvailable;
+  const safePreviewUrl = getSafeMenuImageUrl(imageUrl === '' ? null : imageUrl);
+  const previewFailed = safePreviewUrl !== null && failedPreviewUrl === safePreviewUrl;
 
   useEffect(() => {
     nameRef.current?.focus();
   }, []);
 
+  useEffect(() => {
+    if (showDiscardConfirmation) {
+      keepEditingRef.current?.focus();
+      return;
+    }
+    if (restoreCancelFocusRef.current) {
+      restoreCancelFocusRef.current = false;
+      cancelRef.current?.focus();
+    }
+  }, [showDiscardConfirmation]);
+
   const focusFirstError = (nextErrors: ItemErrors) => {
-    const refs: Array<[FieldName, React.RefObject<HTMLElement | null>]> = [
+    const refs: Array<[FieldName, RefObject<HTMLElement | null>]> = [
       ['category', categoryRef],
       ['name', nameRef],
       ['price', priceRef],
       ['cost', costRef],
-      ['currency', currencyRef],
       ['displayOrder', displayOrderRef],
       ['imageUrl', imageUrlRef],
     ];
     refs.find(([field]) => nextErrors[field] !== undefined)?.[1].current?.focus();
   };
 
+  const handleCancel = () => {
+    if (!isDirty) {
+      onCancel();
+      return;
+    }
+    setShowDiscardConfirmation(true);
+  };
+
+  const keepEditing = () => {
+    restoreCancelFocusRef.current = true;
+    setShowDiscardConfirmation(false);
+  };
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (busy || submitLocked) return;
+    if (unsupportedCurrency) {
+      setErrors({
+        form: 'This menu item cannot be edited because its currency is not NOK.',
+      });
+      return;
+    }
 
     const normalizedName = name.trim();
     const normalizedDescription = description === '' ? null : description;
     const normalizedImageUrl = imageUrl === '' ? null : imageUrl;
-    const parsedPrice = parseInteger(price, 1);
-    const parsedCost = cost === '' ? null : parseInteger(cost, 0);
-    const normalizedCurrency = currency.toUpperCase();
+    const parsedPrice = parseNokMajorUnits(price);
+    const parsedCost = cost === '' ? null : parseNokMajorUnits(cost);
     const parsedAllergens = parseAllergens(allergens);
     const parsedDisplayOrder = parseInteger(displayOrder, 0);
     const nextErrors: ItemErrors = {};
@@ -121,14 +218,13 @@ export default function MenuItemForm({
     else if (normalizedName.length > 120) {
       nextErrors.name = 'Menu-item name must contain at most 120 characters.';
     }
-    if (parsedPrice === null)
-      nextErrors.price = 'Price must be a positive safe integer.';
-    if (cost !== '' && parsedCost === null) {
-      nextErrors.cost = 'Cost must be blank or a non-negative safe integer.';
+    if (parsedPrice === null || parsedPrice < 1) {
+      nextErrors.price =
+        'Price must be 0.01–21474836.47 NOK with at most two decimal places.';
     }
-    if (!/^[A-Z]{3}$/.test(normalizedCurrency)) {
-      nextErrors.currency =
-        'Currency must contain exactly three uppercase ASCII letters.';
+    if (cost !== '' && parsedCost === null) {
+      nextErrors.cost =
+        'Cost must be blank or 0.00–21474836.47 NOK with at most two decimal places.';
     }
     if (parsedDisplayOrder === null) {
       nextErrors.displayOrder = 'Display order must be a non-negative safe integer.';
@@ -146,7 +242,7 @@ export default function MenuItemForm({
       allergens: parsedAllergens,
       category_id: categoryId,
       cost_amount: parsedCost,
-      currency: normalizedCurrency,
+      currency: 'NOK',
       description: normalizedDescription,
       display_order: parsedDisplayOrder as number,
       image_url: normalizedImageUrl,
@@ -172,7 +268,6 @@ export default function MenuItemForm({
       payload.price_amount = values.price_amount;
     if (values.cost_amount !== item.costAmount)
       payload.cost_amount = values.cost_amount;
-    if (values.currency !== item.currency) payload.currency = values.currency;
     if (!arraysEqual(values.allergens, item.allergens))
       payload.allergens = values.allergens;
     if (values.display_order !== item.displayOrder) {
@@ -191,10 +286,20 @@ export default function MenuItemForm({
   };
 
   return (
-    <form className={styles.formPanel} noValidate onSubmit={handleSubmit}>
+    <form
+      aria-busy={busy}
+      className={styles.formPanel}
+      noValidate
+      onSubmit={handleSubmit}
+    >
       <div>
         <p className="eyebrow">Menu-item editor</p>
         <h3>{item === null ? 'Add menu item' : 'Edit menu item'}</h3>
+        {isDirty ? (
+          <p className={styles.dirtyIndicator} role="status">
+            Unsaved changes
+          </p>
+        ) : null}
       </div>
       {errors.form !== undefined ? (
         <p className={styles.fieldError} role="alert">
@@ -260,7 +365,10 @@ export default function MenuItemForm({
             aria-describedby={errors.imageUrl ? 'item-image-error' : undefined}
             aria-invalid={errors.imageUrl !== undefined}
             value={imageUrl}
-            onChange={(event) => setImageUrl(event.target.value)}
+            onChange={(event) => {
+              setImageUrl(event.target.value);
+              setFailedPreviewUrl(null);
+            }}
           />
           {errors.imageUrl !== undefined ? (
             <span className={styles.fieldError} id="item-image-error">
@@ -268,16 +376,48 @@ export default function MenuItemForm({
             </span>
           ) : null}
         </label>
+        <div className={[styles.imagePreview, styles.fullWidthField].join(' ')}>
+          <p className={styles.imagePreviewLabel}>Image preview</p>
+          <div className={styles.imagePreviewFrame}>
+            {safePreviewUrl !== null && !previewFailed ? (
+              <img
+                alt={'Preview for ' + (name.trim() || 'menu item')}
+                className={styles.imagePreviewImage}
+                decoding="async"
+                loading="lazy"
+                referrerPolicy="no-referrer"
+                src={safePreviewUrl}
+                onError={() => setFailedPreviewUrl(safePreviewUrl)}
+              />
+            ) : (
+              <p className={styles.imagePreviewPlaceholder}>
+                {previewFailed
+                  ? 'Image preview could not be loaded.'
+                  : imageUrl === ''
+                    ? 'Add an HTTP(S) or approved local menu image URL to preview it.'
+                    : 'Preview unavailable for an unsafe or invalid image URL.'}
+              </p>
+            )}
+          </div>
+        </div>
         <label>
-          Price (minor units)
+          Price (NOK)
           <input
             ref={priceRef}
-            inputMode="numeric"
-            aria-describedby={errors.price ? 'item-price-error' : undefined}
+            aria-label="Price (NOK)"
+            inputMode="decimal"
+            placeholder="129.00"
+            aria-describedby={
+              errors.price ? 'item-price-hint item-price-error' : 'item-price-hint'
+            }
             aria-invalid={errors.price !== undefined}
+            maxLength={MAX_NOK_MAJOR_INPUT_LENGTH}
             value={price}
             onChange={(event) => setPrice(event.target.value)}
           />
+          <span className={styles.fieldHint} id="item-price-hint">
+            Major units; up to two decimal places.
+          </span>
           {errors.price !== undefined ? (
             <span className={styles.fieldError} id="item-price-error">
               {errors.price}
@@ -285,34 +425,26 @@ export default function MenuItemForm({
           ) : null}
         </label>
         <label>
-          Cost (minor units, optional)
+          Cost (NOK)
           <input
             ref={costRef}
-            inputMode="numeric"
-            aria-describedby={errors.cost ? 'item-cost-error' : undefined}
+            aria-label="Cost (NOK)"
+            inputMode="decimal"
+            placeholder="Optional"
+            aria-describedby={
+              errors.cost ? 'item-cost-hint item-cost-error' : 'item-cost-hint'
+            }
             aria-invalid={errors.cost !== undefined}
+            maxLength={MAX_NOK_MAJOR_INPUT_LENGTH}
             value={cost}
             onChange={(event) => setCost(event.target.value)}
           />
+          <span className={styles.fieldHint} id="item-cost-hint">
+            Optional; blank means unknown.
+          </span>
           {errors.cost !== undefined ? (
             <span className={styles.fieldError} id="item-cost-error">
               {errors.cost}
-            </span>
-          ) : null}
-        </label>
-        <label>
-          Currency
-          <input
-            ref={currencyRef}
-            maxLength={3}
-            aria-describedby={errors.currency ? 'item-currency-error' : undefined}
-            aria-invalid={errors.currency !== undefined}
-            value={currency}
-            onChange={(event) => setCurrency(event.target.value.toUpperCase())}
-          />
-          {errors.currency !== undefined ? (
-            <span className={styles.fieldError} id="item-currency-error">
-              {errors.currency}
             </span>
           ) : null}
         </label>
@@ -349,7 +481,7 @@ export default function MenuItemForm({
             checked={isActive}
             onChange={(event) => setIsActive(event.target.checked)}
           />
-          Active — catalog record enabled
+          Active — visible in the menu lifecycle
         </label>
         <label className={styles.checkboxLabel}>
           <input
@@ -360,23 +492,50 @@ export default function MenuItemForm({
           Available — currently orderable
         </label>
       </fieldset>
-      <div className={styles.formActions}>
-        <button
-          className={styles.primaryButton}
-          type="submit"
-          disabled={busy || submitLocked}
+      {showDiscardConfirmation ? (
+        <Notice
+          className={styles.discardConfirmation}
+          title="Discard menu-item changes?"
+          variant="warning"
         >
-          {busy ? 'Saving…' : item === null ? 'Create menu item' : 'Save changes'}
-        </button>
-        <button
-          className={styles.secondaryButton}
-          type="button"
-          disabled={busy}
-          onClick={onCancel}
-        >
-          Cancel
-        </button>
-      </div>
+          <p>Your unsaved changes will be lost.</p>
+          <div className={styles.formActions}>
+            <Button type="button" size="sm" variant="danger" onClick={onCancel}>
+              Discard changes
+            </Button>
+            <Button
+              ref={keepEditingRef}
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={keepEditing}
+            >
+              Keep editing
+            </Button>
+          </div>
+        </Notice>
+      ) : null}
+      {!showDiscardConfirmation ? (
+        <div className={styles.formActions}>
+          <Button
+            loading={busy}
+            loadingLabel="Saving…"
+            type="submit"
+            disabled={submitLocked || unsupportedCurrency}
+          >
+            {item === null ? 'Create menu item' : 'Save changes'}
+          </Button>
+          <Button
+            ref={cancelRef}
+            type="button"
+            variant="secondary"
+            disabled={busy}
+            onClick={handleCancel}
+          >
+            Cancel
+          </Button>
+        </div>
+      ) : null}
     </form>
   );
 }

@@ -1,0 +1,503 @@
+.page,
+.pageHeader,
+.attentionSection,
+.summarySection,
+.panel,
+.shortcutsSection {
+    display: grid;
+    min-width: 0;
+}
+
+.page {
+    gap: var(--space-8);
+    animation: dashboard-reveal var(--duration-standard) var(--easing-standard) both;
+}
+
+.pageHeader {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-3);
+    padding-bottom: var(--space-5);
+    border-bottom: var(--border-width-strong) solid var(--color-primary);
+}
+
+.pageHeader > div {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-2);
+}
+
+.pageHeader :global(.eyebrow) {
+    margin-bottom: 0;
+    color: var(--color-primary);
+}
+
+.pageHeader h1 {
+    max-width: none;
+    color: var(--color-surface-inverse);
+    font-size: clamp(1.8rem, 5vw, 2.65rem);
+    letter-spacing: -0.035em;
+    line-height: var(--line-height-tight);
+}
+
+.pageHeader > p {
+    max-width: 68ch;
+    color: var(--color-text-secondary);
+}
+
+.attentionSection,
+.summarySection,
+.shortcutsSection,
+.panel {
+    gap: var(--space-4);
+}
+
+.attentionSection {
+    padding: clamp(var(--space-4), 3vw, var(--space-5));
+    border: var(--border-width-hairline) solid var(--color-control-border);
+    border-left: var(--border-width-accent) solid var(--color-warning);
+    border-radius: var(--radius-control);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-elevation-1);
+}
+
+.sectionHeading {
+    display: flex;
+    min-width: 0;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-3);
+}
+
+.sectionHeading > div {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-1);
+}
+
+.sectionHeading h2 {
+    margin: 0;
+    color: var(--color-surface-inverse);
+    font-size: clamp(1.2rem, 3vw, 1.5rem);
+    line-height: var(--line-height-heading);
+}
+
+.sectionKicker {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-bold);
+    letter-spacing: var(--letter-spacing-label);
+    text-transform: uppercase;
+}
+
+.errorGrid,
+.kpiGrid,
+.detailGrid,
+.shortcutGrid {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-3);
+}
+
+.errorBody {
+    display: flex;
+    min-width: 0;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+}
+
+.errorBody p {
+    min-width: min(100%, 20rem);
+    flex: 1 1 20rem;
+}
+
+.attentionList,
+.orderList,
+.shortcutGrid,
+.currencyValues {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.attentionList {
+    display: grid;
+    gap: var(--space-2);
+}
+
+.attentionList li {
+    display: flex;
+    min-width: 0;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: var(--space-3);
+    border: var(--border-width-hairline) solid var(--color-border-subtle);
+    border-radius: var(--radius-control);
+    background: var(--color-warning-surface);
+}
+
+.attentionList li > div {
+    display: grid;
+    min-width: min(100%, 16rem);
+    flex: 1 1 20rem;
+    gap: var(--space-1);
+}
+
+.attentionList strong,
+.attentionList span {
+    overflow-wrap: anywhere;
+}
+
+.attentionList span {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-label);
+}
+
+.attentionList a,
+.sectionLink {
+    display: inline-flex;
+    min-height: 2.75rem;
+    align-items: center;
+    border-radius: var(--radius-control);
+    font-size: var(--font-size-label);
+    font-weight: var(--font-weight-semibold);
+}
+
+.attentionList a {
+    flex: none;
+    padding-inline: var(--space-3);
+}
+
+.kpiGrid {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.kpiCard {
+    display: grid;
+    min-width: 0;
+    align-content: space-between;
+    gap: var(--space-3);
+    padding: var(--space-4);
+    border: var(--border-width-hairline) solid var(--color-border-subtle);
+    border-radius: var(--radius-control);
+    background: var(--color-surface);
+}
+
+.kpiCard dl,
+.kpiCard dl > div {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-2);
+    margin: 0;
+}
+
+.kpiCard dt {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-label);
+    font-weight: var(--font-weight-semibold);
+}
+
+.kpiCard dd {
+    min-width: 0;
+    margin: 0;
+    color: var(--color-surface-inverse);
+    font-size: clamp(1.55rem, 4vw, 2rem);
+    font-variant-numeric: tabular-nums;
+    font-weight: var(--font-weight-bold);
+    line-height: var(--line-height-heading);
+    overflow-wrap: anywhere;
+}
+
+.kpiCard > p {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    overflow-wrap: anywhere;
+}
+
+.currencyValues {
+    display: grid;
+    gap: var(--space-1);
+}
+
+.currencyValues li {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: baseline;
+    gap: var(--space-2);
+}
+
+.currencyValues span {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-bold);
+    letter-spacing: 0.08em;
+}
+
+.currencyValues strong {
+    min-width: 0;
+    font-size: clamp(1.15rem, 3vw, 1.45rem);
+    overflow-wrap: anywhere;
+}
+
+.emptyValue {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-body);
+    font-weight: var(--font-weight-semibold);
+}
+
+.detailGrid {
+    align-items: start;
+}
+
+.panel {
+    padding: clamp(var(--space-4), 3vw, var(--space-5));
+    border: var(--border-width-hairline) solid var(--color-border-subtle);
+    border-radius: var(--radius-control);
+    background: var(--color-surface);
+}
+
+.sectionLink {
+    margin: calc(var(--space-2) * -1);
+    padding: var(--space-2);
+}
+
+.orderList {
+    display: grid;
+    gap: var(--space-2);
+}
+
+.orderRow {
+    min-width: 0;
+    border: var(--border-width-hairline) solid var(--color-border-subtle);
+    border-radius: var(--radius-control);
+    background: var(--color-surface);
+    transition:
+        border-color var(--duration-fast) var(--easing-standard),
+        background-color var(--duration-fast) var(--easing-standard),
+        box-shadow var(--duration-fast) var(--easing-standard);
+}
+
+.orderRow:hover,
+.orderRow:focus-within {
+    border-color: var(--color-primary);
+    background: color-mix(in srgb, var(--color-sage-support) 16%, var(--color-surface));
+    box-shadow: var(--shadow-elevation-1);
+}
+
+.orderRow article {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-3);
+    padding: var(--space-3);
+}
+
+.orderIdentity {
+    display: flex;
+    min-width: 0;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+}
+
+.orderIdentity a {
+    display: inline-flex;
+    min-width: 0;
+    min-height: 2.75rem;
+    align-items: center;
+    border-radius: var(--radius-control);
+    font-size: var(--font-size-label);
+    font-weight: var(--font-weight-bold);
+    overflow-wrap: anywhere;
+}
+
+.orderFacts {
+    display: grid;
+    min-width: 0;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-2) var(--space-3);
+    margin: 0;
+}
+
+.orderFacts > div {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-1);
+}
+
+.orderFacts dt {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-semibold);
+}
+
+.orderFacts dd {
+    min-width: 0;
+    margin: 0;
+    font-size: var(--font-size-label);
+    font-variant-numeric: tabular-nums;
+    font-weight: var(--font-weight-medium);
+    overflow-wrap: anywhere;
+}
+
+.availabilitySummary {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-3);
+    align-items: start;
+}
+
+.availabilitySummary > span {
+    justify-self: start;
+}
+
+.availabilitySummary p,
+.mutedCopy,
+.emptyPanel {
+    color: var(--color-text-secondary);
+    overflow-wrap: anywhere;
+}
+
+.emptyPanel {
+    padding: var(--space-4);
+    border: var(--border-width-hairline) dashed var(--color-control-border);
+    border-radius: var(--radius-control);
+}
+
+.shortcutGrid {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.shortcutGrid li {
+    display: flex;
+    min-width: 0;
+}
+
+.shortcutGrid a {
+    display: grid;
+    min-width: 0;
+    min-height: 4.5rem;
+    flex: 1;
+    align-content: center;
+    gap: var(--space-1);
+    padding: var(--space-3) var(--space-4);
+    border: var(--border-width-hairline) solid var(--color-border-subtle);
+    border-radius: var(--radius-control);
+    background: var(--color-surface);
+    color: var(--color-text-primary);
+    text-decoration: none;
+    transition:
+        border-color var(--duration-fast) var(--easing-standard),
+        box-shadow var(--duration-fast) var(--easing-standard),
+        transform var(--duration-fast) var(--easing-standard);
+}
+
+.shortcutGrid a:hover,
+.shortcutGrid a:focus-visible {
+    border-color: var(--color-primary);
+    box-shadow: var(--shadow-elevation-1);
+    color: var(--color-primary-hover);
+    transform: translateY(-2px);
+}
+
+.shortcutGrid a:active {
+    transform: translateY(0);
+}
+
+.shortcutGrid strong,
+.shortcutGrid span {
+    overflow-wrap: anywhere;
+}
+
+.shortcutGrid span {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+}
+
+@keyframes dashboard-reveal {
+    from {
+        opacity: 0;
+        transform: translateY(4px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@media (min-width: 40rem) {
+    .pageHeader {
+        grid-template-columns: minmax(0, 1.35fr) minmax(16rem, 0.65fr);
+        align-items: end;
+    }
+
+    .kpiGrid,
+    .shortcutGrid,
+    .errorGrid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .orderRow article {
+        grid-template-columns: minmax(12rem, 0.8fr) minmax(16rem, 1.2fr);
+        align-items: center;
+    }
+}
+
+@media (min-width: 64rem) {
+    .page {
+        gap: var(--space-6);
+    }
+
+    .kpiGrid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .detailGrid {
+        grid-template-columns: minmax(0, 1.55fr) minmax(17rem, 0.75fr);
+    }
+
+    .shortcutGrid {
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+    }
+}
+
+@media (forced-colors: active) {
+    .attentionSection,
+    .attentionList li,
+    .kpiCard,
+    .panel,
+    .orderRow,
+    .shortcutGrid a {
+        border-color: CanvasText;
+    }
+
+    .attentionSection {
+        border-left-color: Highlight;
+    }
+
+    .orderRow:hover,
+    .orderRow:focus-within,
+    .shortcutGrid a:hover,
+    .shortcutGrid a:focus-visible {
+        border-color: Highlight;
+        box-shadow: none;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .page {
+        animation: none;
+    }
+
+    .shortcutGrid a,
+    .shortcutGrid a:hover,
+    .shortcutGrid a:focus-visible,
+    .shortcutGrid a:active {
+        transform: none;
+    }
+}

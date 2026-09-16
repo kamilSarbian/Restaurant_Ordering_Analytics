@@ -1,5 +1,6 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { StrictMode } from 'react';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { afterEach, beforeEach, vi } from 'vitest';
 
@@ -76,12 +77,35 @@ function renderAnalytics(): ReturnType<typeof createMemoryRouter> {
     ],
     { initialEntries: ['/admin/analytics'] },
   );
-  render(<RouterProvider router={router} />);
+  render(
+    <StrictMode>
+      <RouterProvider router={router} />
+    </StrictMode>,
+  );
   return router;
 }
 
 function queryFor(url: string): URLSearchParams {
   return new URL(url, 'http://analytics.test').searchParams;
+}
+
+function deferredJsonResponse(): {
+  promise: Promise<Response>;
+  resolve: (body: unknown) => void;
+} {
+  let resolveResponse!: (response: Response) => void;
+  const promise = new Promise<Response>((resolve) => {
+    resolveResponse = resolve;
+  });
+  return {
+    promise,
+    resolve: (body) =>
+      resolveResponse(
+        new Response(JSON.stringify(body), {
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      ),
+  };
 }
 
 async function waitForInitialAnalytics(): Promise<void> {
@@ -113,7 +137,11 @@ describe('administrator analytics filters and transport', () => {
       screen.getByRole('heading', { name: 'Checking your session' }),
     ).toBeVisible();
     await waitForInitialAnalytics();
-    expect(screen.getByText(/Europe\/Oslo/)).toBeVisible();
+    expect(
+      within(
+        screen.getByRole('region', { name: 'Applied analytics context' }),
+      ).getByText('Europe/Oslo'),
+    ).toBeVisible();
     expect(stub.calls).toHaveLength(5);
     expect(
       stub.calls.slice(1).map((call) => new URL(call.url, 'http://x').pathname),
@@ -177,6 +205,202 @@ describe('administrator analytics filters and transport', () => {
     }
   });
 
+  it('changes draft presets without requesting or changing the applied indicator', async () => {
+    const stub = installFetchStub({ json: ME }, ...emptyAnalyticsSteps());
+    const user = userEvent.setup();
+    renderAnalytics();
+    await waitForInitialAnalytics();
+
+    const endDate = (screen.getByLabelText('End date') as HTMLInputElement).value;
+    const sevenDays = screen.getByRole('button', { name: '7 days' });
+    const thirtyDays = screen.getByRole('button', { name: '30 days' });
+    const ninetyDays = screen.getByRole('button', { name: '90 days' });
+    expect(sevenDays).toHaveAttribute('aria-pressed', 'true');
+    expect(thirtyDays).toHaveAttribute('aria-pressed', 'false');
+
+    await user.click(thirtyDays);
+    expect(screen.getByLabelText('Start date')).toHaveValue(
+      addCalendarDays(endDate, -29),
+    );
+    expect(thirtyDays).toHaveAttribute('aria-pressed', 'false');
+    expect(sevenDays).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getAllByText('Changes not applied').length).toBeGreaterThan(0);
+    expect(stub.calls).toHaveLength(5);
+
+    await user.click(ninetyDays);
+    expect(screen.getByLabelText('Start date')).toHaveValue(
+      addCalendarDays(endDate, -89),
+    );
+    expect(ninetyDays).toHaveAttribute('aria-pressed', 'false');
+    expect(stub.calls).toHaveLength(5);
+
+    await user.click(sevenDays);
+    expect(screen.queryByText('Changes not applied')).not.toBeInTheDocument();
+    expect(stub.calls).toHaveLength(5);
+  });
+
+  it('keeps old applied data visible and commits a successful Apply atomically', async () => {
+    const nextOverview = deferredJsonResponse();
+    const nextProducts = deferredJsonResponse();
+    const nextCategories = deferredJsonResponse();
+    const nextOrderTypes = deferredJsonResponse();
+    const stub = installFetchStub(
+      { json: ME },
+      {
+        json: overview([
+          {
+            average_order_value_amount: 700,
+            collected_revenue_amount: 700,
+            currency: 'EUR',
+            succeeded_orders_count: 1,
+          },
+        ]),
+      },
+      {
+        json: products([
+          {
+            currency: 'EUR',
+            item_name: 'Previous product',
+            menu_item_id: PRODUCT_ID,
+            quantity_sold: 1,
+            sales_amount: 700,
+          },
+        ]),
+      },
+      { json: categories() },
+      { json: orderTypes() },
+      { responsePromise: nextOverview.promise },
+      { responsePromise: nextProducts.promise },
+      { responsePromise: nextCategories.promise },
+      { responsePromise: nextOrderTypes.promise },
+    );
+    const user = userEvent.setup();
+    renderAnalytics();
+    expect((await screen.findAllByText('Previous product'))[0]).toBeVisible();
+    const context = screen.getByRole('region', {
+      name: 'Applied analytics context',
+    });
+    expect(within(context).getByText(/All returned currencies/)).toBeVisible();
+
+    await user.type(screen.getByLabelText('Currency (optional)'), 'nok');
+    expect(screen.getAllByText('Changes not applied').length).toBeGreaterThan(0);
+    await user.click(screen.getByRole('button', { name: 'Apply filters' }));
+    expect(
+      screen.getByRole('button', { name: 'Applying analytics filters' }),
+    ).toBeDisabled();
+    expect(screen.getAllByText('Previous product')[0]).toBeVisible();
+    expect(within(context).getByText(/All returned currencies/)).toBeVisible();
+
+    nextOverview.resolve(
+      overview([
+        {
+          average_order_value_amount: 900,
+          collected_revenue_amount: 900,
+          currency: 'NOK',
+          succeeded_orders_count: 1,
+        },
+      ]),
+    );
+    nextProducts.resolve(
+      products([
+        {
+          currency: 'NOK',
+          item_name: 'New product',
+          menu_item_id: '00000000-0000-4000-8000-000000000302',
+          quantity_sold: 1,
+          sales_amount: 900,
+        },
+      ]),
+    );
+    nextCategories.resolve(categories());
+    nextOrderTypes.resolve(orderTypes());
+
+    expect((await screen.findAllByText('New product'))[0]).toBeVisible();
+    await waitFor(() => expect(context).toHaveFocus());
+    expect(within(context).getByText('NOK')).toBeVisible();
+    expect(screen.queryByText('Previous product')).not.toBeInTheDocument();
+    expect(screen.queryByText('Changes not applied')).not.toBeInTheDocument();
+    expect(stub.calls).toHaveLength(9);
+    for (const call of stub.calls.slice(5, 9)) {
+      expect(queryFor(call.url).get('currency')).toBe('NOK');
+    }
+  });
+
+  it('preserves previous applied context and data when a changed Apply partly fails', async () => {
+    const previousOverview = overview([
+      {
+        average_order_value_amount: 700,
+        collected_revenue_amount: 700,
+        currency: 'EUR',
+        succeeded_orders_count: 1,
+      },
+    ]);
+    const previousProducts = products([
+      {
+        currency: 'EUR',
+        item_name: 'Preserved product',
+        menu_item_id: PRODUCT_ID,
+        quantity_sold: 1,
+        sales_amount: 700,
+      },
+    ]);
+    const stub = installFetchStub(
+      { json: ME },
+      { json: previousOverview },
+      { json: previousProducts },
+      { json: categories() },
+      { json: orderTypes() },
+      {
+        json: overview([
+          {
+            average_order_value_amount: 900,
+            collected_revenue_amount: 900,
+            currency: 'NOK',
+            succeeded_orders_count: 1,
+          },
+        ]),
+      },
+      { json: { ...products(), unexpected: true } },
+      { json: categories() },
+      { json: orderTypes() },
+      { json: previousOverview },
+      { json: previousProducts },
+      { json: categories() },
+      { json: orderTypes() },
+    );
+    const user = userEvent.setup();
+    renderAnalytics();
+    expect((await screen.findAllByText('Preserved product'))[0]).toBeVisible();
+
+    await user.type(screen.getByLabelText('Currency (optional)'), 'nok');
+    await user.click(screen.getByRole('button', { name: 'Apply filters' }));
+    const failureTitle = await screen.findByText('Filters not applied');
+    expect(failureTitle).toBeVisible();
+    const failureFeedback = failureTitle.closest('[tabindex]');
+    expect(failureFeedback).not.toBeNull();
+    expect(failureFeedback).toHaveAttribute('tabindex', '-1');
+    await waitFor(() => expect(failureFeedback).toHaveFocus());
+    expect(
+      screen.getByText(/Previous results and applied context are unchanged/),
+    ).toBeVisible();
+    expect(screen.getByText(/unexpected response/i)).toBeVisible();
+
+    const context = screen.getByRole('region', {
+      name: 'Applied analytics context',
+    });
+    expect(within(context).getByText(/All returned currencies/)).toBeVisible();
+    expect(within(context).queryByText('NOK')).not.toBeInTheDocument();
+    expect(screen.getAllByText('Preserved product')[0]).toBeVisible();
+    expect(screen.getAllByText('Changes not applied').length).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole('button', { name: 'Refresh' }));
+    await waitFor(() => expect(stub.calls).toHaveLength(13));
+    for (const call of stub.calls.slice(9, 13)) {
+      expect(queryFor(call.url).has('currency')).toBe(false);
+    }
+    expect(screen.queryByText('Filters not applied')).not.toBeInTheDocument();
+  });
+
   it('blocks reversed dates, invalid currency, and invalid limit without API calls and focuses first errors', async () => {
     const stub = installFetchStub({ json: ME }, ...emptyAnalyticsSteps());
     const user = userEvent.setup();
@@ -222,7 +446,8 @@ describe('administrator analytics filters and transport', () => {
     );
     renderAnalytics();
     await screen.findByRole('heading', { level: 1, name: 'Analytics' });
-    expect(screen.getByText('Loading analytics…')).toBeVisible();
+    expect(await screen.findByRole('status')).toHaveTextContent('Loading analytics…');
+    expect(screen.getAllByRole('status')).toHaveLength(1);
     expect(screen.getByRole('heading', { name: 'Loading overview' })).toBeVisible();
     expect(
       screen.getByRole('heading', { name: 'Loading product sales' }),
@@ -317,6 +542,16 @@ describe('administrator analytics results and resilience', () => {
     expect((await screen.findAllByText('Dine-in'))[0]).toBeVisible();
     expect(screen.getAllByText('EUR').length).toBeGreaterThan(1);
     expect(screen.getAllByText('NOK').length).toBeGreaterThan(1);
+    const overviewRegion = screen.getByRole('region', { name: 'Overview' });
+    expect(within(overviewRegion).getAllByRole('heading', { level: 3 })).toHaveLength(
+      3,
+    );
+    expect(
+      within(overviewRegion).getByRole('heading', {
+        level: 3,
+        name: 'Collected revenue',
+      }),
+    ).toBeVisible();
     expect(screen.queryByText(PRODUCT_ID)).not.toBeInTheDocument();
     expect(
       screen.queryByText(/cost|margin|profit|market share/i),
@@ -461,52 +696,31 @@ describe('administrator analytics results and resilience', () => {
     );
   });
 
-  it('ignores a late previous generation after newer applied results render', async () => {
-    let resolveOld!: (response: Response) => void;
-    const oldResponse = new Promise<Response>((resolve) => {
-      resolveOld = resolve;
-    });
-    const freshOverview = overview([
-      {
-        average_order_value_amount: 100,
-        collected_revenue_amount: 100,
-        currency: 'NOK',
-        succeeded_orders_count: 1,
-      },
-    ]);
+  it('blocks duplicate Apply and Refresh requests while one batch is pending', async () => {
+    const pending = new Promise<Response>(() => undefined);
     const stub = installFetchStub(
       { json: ME },
       ...emptyAnalyticsSteps(),
-      { responsePromise: oldResponse },
-      { responsePromise: oldResponse },
-      { responsePromise: oldResponse },
-      { responsePromise: oldResponse },
-      { json: freshOverview },
-      { json: products() },
-      { json: categories() },
-      { json: orderTypes() },
+      { responsePromise: pending },
+      { responsePromise: pending },
+      { responsePromise: pending },
+      { responsePromise: pending },
     );
     const user = userEvent.setup();
     renderAnalytics();
     await waitForInitialAnalytics();
 
-    await user.click(screen.getByRole('button', { name: 'Apply filters' }));
-    await waitFor(() => expect(stub.calls).toHaveLength(9));
-    await user.clear(screen.getByLabelText('Currency (optional)'));
     await user.type(screen.getByLabelText('Currency (optional)'), 'nok');
     await user.click(screen.getByRole('button', { name: 'Apply filters' }));
-    await waitFor(() => expect(stub.calls).toHaveLength(13));
-    expect((await screen.findAllByText(/1,00\s+kr/))[0]).toBeVisible();
+    await waitFor(() => expect(stub.calls).toHaveLength(9));
 
-    resolveOld(
-      new Response(JSON.stringify(overview()), {
-        headers: { 'Content-Type': 'application/json' },
-      }),
-    );
-    await act(async () => Promise.resolve());
-    expect(screen.getAllByText(/1,00\s+kr/)[0]).toBeVisible();
-    expect(
-      screen.queryByText('No paid orders in this period.'),
-    ).not.toBeInTheDocument();
+    const applying = screen.getByRole('button', {
+      name: 'Applying analytics filters',
+    });
+    expect(applying).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Refresh' })).toBeDisabled();
+    await user.click(applying);
+    await user.click(screen.getByRole('button', { name: 'Refresh' }));
+    expect(stub.calls).toHaveLength(9);
   });
 });

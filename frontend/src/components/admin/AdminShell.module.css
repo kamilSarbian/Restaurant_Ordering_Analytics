@@ -1,8 +1,7 @@
 .shell {
     min-height: 100vh;
-    background:
-        linear-gradient(180deg, rgb(36 97 70 / 8%), transparent 18rem),
-        var(--color-background);
+    overflow-x: clip;
+    background: var(--color-canvas);
 }
 
 .skipLink {
@@ -10,12 +9,18 @@
     z-index: 10;
     top: var(--space-3);
     left: var(--space-3);
+    min-height: 2.75rem;
     padding: var(--space-2) var(--space-4);
-    border-radius: var(--radius-small);
-    background: var(--color-accent);
-    color: var(--color-surface);
-    font-weight: 800;
+    border-radius: var(--radius-control);
+    background: var(--color-brand-accent);
+    color: var(--color-text-inverse);
+    font-weight: var(--font-weight-bold);
     transform: translateY(-200%);
+}
+
+.skipLink:hover {
+    background: var(--color-brand-accent-hover);
+    color: var(--color-text-inverse);
 }
 
 .skipLink:focus {
@@ -23,8 +28,8 @@
 }
 
 .header {
-    border-bottom: 1px solid var(--color-border);
-    background: var(--color-surface);
+    border-bottom: var(--border-width-hairline) solid var(--color-border-subtle);
+    background: var(--color-surface-inverse);
 }
 
 .headerContent,
@@ -35,72 +40,82 @@
 }
 
 .headerContent {
-    display: grid;
-    gap: var(--space-4);
-    padding: var(--space-4);
+    display: flex;
+    min-height: 4rem;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
 }
 
 .brand {
     display: inline-flex;
     min-width: 0;
+    min-height: 2.75rem;
     align-items: center;
-    gap: var(--space-3);
-    color: var(--color-primary-hover);
-    font-weight: 850;
+    gap: var(--space-2);
+    color: var(--color-text-inverse);
+    font-weight: var(--font-weight-semibold);
     text-decoration: none;
 }
 
+.brand:hover {
+    color: var(--color-text-inverse);
+}
+
 .brandMark {
-    display: inline-grid;
-    width: 2.75rem;
-    height: 2.75rem;
     flex: 0 0 auto;
-    place-items: center;
-    border-radius: 50%;
-    background: var(--color-primary);
-    color: var(--color-surface);
+    color: var(--color-sage-support);
+}
+
+.brandText {
+    min-width: 0;
 }
 
 .identity {
     display: flex;
     min-width: 0;
+    flex: 1 1 18rem;
     flex-wrap: wrap;
     align-items: center;
+    justify-content: flex-end;
     gap: var(--space-3);
 }
 
 .email {
     min-width: 0;
     overflow-wrap: anywhere;
-    color: var(--color-muted);
-    font-size: 0.95rem;
+    color: var(--color-surface-muted);
+    font-size: var(--font-size-label);
 }
 
-.logoutButton,
+.logoutButton {
+    flex: none;
+}
+
 .secondaryButton {
     min-height: 2.75rem;
     padding: var(--space-2) var(--space-4);
-    border: 1px solid var(--color-primary);
-    border-radius: var(--radius-small);
+    border: var(--border-width-hairline) solid var(--color-primary);
+    border-radius: var(--radius-control);
     background: transparent;
     color: var(--color-primary-hover);
     cursor: pointer;
-    font-weight: 750;
+    font-weight: var(--font-weight-semibold);
 }
 
-.logoutButton:hover,
 .secondaryButton:hover {
-    background: rgb(36 97 70 / 9%);
+    background: var(--color-surface-muted);
 }
 
 .navigation {
-    border-bottom: 1px solid var(--color-border);
-    background: rgb(255 252 247 / 82%);
+    border-bottom: var(--border-width-hairline) solid var(--color-border-subtle);
+    background: var(--color-surface);
 }
 
 .navigationContent {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: var(--space-1);
     padding: var(--space-2) var(--space-4);
 }
@@ -109,20 +124,34 @@
     display: inline-flex;
     min-height: 2.75rem;
     align-items: center;
+    justify-content: center;
     padding: var(--space-2) var(--space-3);
-    border-radius: var(--radius-small);
-    color: var(--color-text);
-    font-weight: 750;
+    border-radius: var(--radius-control);
+    color: var(--color-text-primary);
+    font-size: var(--font-size-label);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-heading);
+    text-align: center;
     text-decoration: none;
+    overflow-wrap: anywhere;
+}
+
+.navigationLink:hover {
+    background: var(--color-surface-muted);
+    color: var(--color-primary-hover);
 }
 
 .navigationLinkActive {
     background: var(--color-primary);
-    color: var(--color-surface);
+    color: var(--color-text-inverse);
+    text-decoration: underline;
+    text-decoration-thickness: var(--border-width-strong);
+    text-underline-offset: var(--space-1);
 }
 
 .navigationLinkActive:hover {
-    color: var(--color-surface);
+    background: var(--color-primary-hover);
+    color: var(--color-text-inverse);
 }
 
 .main {
@@ -135,10 +164,10 @@
     width: min(100%, 48rem);
     gap: var(--space-4);
     padding: clamp(var(--space-6), 5vw, var(--space-10));
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-medium);
+    border: var(--border-width-hairline) solid var(--color-border);
+    border-radius: var(--radius-card);
     background: var(--color-surface);
-    box-shadow: var(--shadow-small);
+    box-shadow: var(--shadow-elevation-1);
 }
 
 .workspace h1,
@@ -149,7 +178,7 @@
 .workspace p,
 .statePanel p {
     max-width: 62ch;
-    color: var(--color-muted);
+    color: var(--color-text-secondary);
 }
 
 .stateScreen {
@@ -167,13 +196,12 @@
 
 @media (min-width: 48rem) {
     .headerContent {
-        grid-template-columns: minmax(0, 1fr) auto;
-        align-items: center;
         padding-inline: var(--space-6);
     }
 
-    .identity {
-        justify-content: flex-end;
+    .navigationContent {
+        display: flex;
+        flex-wrap: wrap;
     }
 
     .navigationContent,

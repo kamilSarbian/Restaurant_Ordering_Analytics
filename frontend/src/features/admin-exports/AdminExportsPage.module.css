@@ -1,36 +1,119 @@
 .page,
-.heading,
-.filters,
-.card,
+.pageHeader,
+.headingCopy,
+.parameterPanel,
+.sectionHeading > div,
+.commonFilters,
 .currencyField,
+.inventoryHeading > div,
+.card,
+.cardHeader > div,
+.exportFacts,
+.exportFacts > div,
 .orderFilters,
 .orderFilters label {
     display: grid;
+    min-width: 0;
 }
 
 .page {
-    gap: var(--space-6);
+    gap: var(--space-8);
 }
 
-.heading {
+.pageHeader {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-3);
+    animation: exports-enter 180ms ease-out both;
+}
+
+.headingCopy {
     gap: var(--space-2);
 }
 
-.heading p,
-.card p,
-.hint {
-    color: var(--color-muted);
+.pageHeader :global(.eyebrow) {
+    margin-bottom: 0;
+    color: var(--color-primary);
 }
 
-.filters,
-.card {
+.headingCopy h1 {
+    max-width: 16ch;
+    font-size: clamp(var(--font-size-heading), 5vw, var(--font-size-display));
+}
+
+.headingCopy > p:not(:first-child),
+.parameterExplanation,
+.inventoryHeading > p,
+.card > p:not(.nextContext) {
+    max-width: 68ch;
+    color: var(--color-text-secondary);
+}
+
+.inventorySummary {
+    display: flex;
     min-width: 0;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-label);
+    font-weight: var(--font-weight-semibold);
+}
+
+.parameterPanel {
     gap: var(--space-4);
-    padding: clamp(var(--space-4), 4vw, var(--space-6));
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-medium);
+    padding: clamp(var(--space-4), 3vw, var(--space-6));
+    border: var(--border-width-hairline) solid var(--color-border-subtle);
+    border-block-start: var(--border-width-accent) solid var(--color-primary);
+    border-radius: var(--radius-card);
     background: var(--color-surface);
-    box-shadow: var(--shadow-small);
+    box-shadow: var(--shadow-elevation-1);
+    animation: exports-enter 200ms 20ms ease-out both;
+}
+
+.sectionHeading,
+.inventoryHeading,
+.cardHeader {
+    display: flex;
+    min-width: 0;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+}
+
+.sectionHeading > div,
+.inventoryHeading > div,
+.cardHeader > div {
+    gap: var(--space-1);
+}
+
+.sectionHeading h2,
+.inventoryHeading h2,
+.cardHeader h3 {
+    margin: 0;
+    color: var(--color-primary-hover);
+}
+
+.sectionEyebrow,
+.cardEyebrow {
+    margin: 0;
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-bold);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.parameterExplanation,
+.inventoryHeading > p {
+    margin: 0;
+    font-size: var(--font-size-label);
+}
+
+.commonFilters {
+    gap: var(--space-4);
+    align-items: end;
 }
 
 .currencyField,
@@ -39,9 +122,9 @@
     gap: var(--space-2);
 }
 
-.currencyField {
-    max-width: 24rem;
-    font-weight: 750;
+.currencyField,
+.orderFilters label {
+    font-weight: var(--font-weight-semibold);
 }
 
 .currencyField input,
@@ -49,75 +132,237 @@
     width: 100%;
     min-height: 2.75rem;
     padding: var(--space-2) var(--space-3);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-small);
+    border: var(--border-width-hairline) solid var(--color-control-border);
+    border-radius: var(--radius-control);
     background: var(--color-surface);
-    color: var(--color-text);
+    color: var(--color-text-primary);
+    font: inherit;
+}
+
+.currencyField input[aria-invalid='true'] {
+    border-color: var(--color-danger);
+}
+
+.currencyField input:focus-visible,
+.orderFilters select:focus-visible {
+    outline: var(--border-width-strong) solid var(--color-focus-ring);
+    outline-offset: var(--space-1);
 }
 
 .hint {
-    font-size: 0.9rem;
-    font-weight: 500;
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-medium);
+}
+
+.fieldError {
+    color: var(--color-danger);
+    font-size: var(--font-size-label);
+}
+
+.inventoryHeading {
+    align-items: end;
+    padding-block-start: var(--space-2);
+    border-block-start: var(--border-width-hairline) solid var(--color-border-subtle);
+    animation: exports-enter 180ms 30ms ease-out both;
 }
 
 .cards {
     display: grid;
+    min-width: 0;
     gap: var(--space-4);
 }
 
 .card {
     align-content: start;
+    gap: var(--space-4);
+    padding: clamp(var(--space-4), 2.4vw, var(--space-5));
+    border: var(--border-width-hairline) solid var(--color-border-subtle);
+    border-block-start: var(--border-width-accent) solid var(--color-primary);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-elevation-1);
+    overflow-wrap: anywhere;
+    transition:
+        border-color 180ms ease-out,
+        background-color 180ms ease-out,
+        transform 180ms ease-out;
+    animation: exports-enter 180ms 40ms ease-out both;
+}
+
+.card:nth-child(2) {
+    animation-delay: 60ms;
+}
+
+.card:nth-child(3) {
+    animation-delay: 80ms;
+}
+
+.card:hover {
+    border-color: var(--color-control-border);
+    transform: translateY(-1px);
+}
+
+.cardHeader {
+    align-items: center;
+}
+
+.card > p {
+    margin: 0;
+}
+
+.exportFacts {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 8.5rem), 1fr));
+    gap: var(--space-3);
+    margin: 0;
+}
+
+.exportFacts > div {
+    gap: var(--space-1);
+    padding-block-start: var(--space-2);
+    border-block-start: var(--border-width-hairline) solid var(--color-border-subtle);
+}
+
+.exportFacts dt {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-semibold);
+}
+
+.exportFacts dd {
+    margin: 0;
+    font-size: var(--font-size-label);
+    font-weight: var(--font-weight-semibold);
     overflow-wrap: anywhere;
 }
 
-.card button {
+.orderFilters {
+    gap: var(--space-3);
+    padding-block-start: var(--space-3);
+    border-block-start: var(--border-width-hairline) solid var(--color-border-subtle);
+}
+
+.nextContext {
+    min-width: 0;
+    padding: var(--space-3);
+    border-inline-start: var(--border-width-accent) solid var(--color-primary);
+    border-radius: var(--radius-control);
+    background: var(--color-surface-muted);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: var(--line-height-relaxed);
+    overflow-wrap: anywhere;
+}
+
+.nextContext strong {
+    color: var(--color-text-primary);
+}
+
+.exportAction {
     width: 100%;
-    min-height: 2.75rem;
-    padding: var(--space-3) var(--space-4);
-    border: 0;
-    border-radius: var(--radius-small);
-    background: var(--color-primary);
-    color: var(--color-surface);
-    cursor: pointer;
-    font-weight: 800;
 }
 
-.card button:disabled {
-    cursor: wait;
-    opacity: 0.7;
+.exportNotice {
+    animation: exports-feedback 160ms ease-out both;
 }
 
-.notice,
-.error {
+.exportNotice p {
+    margin: 0;
+}
+
+.exportNotice .noticeDetail {
+    margin-block-start: var(--space-2);
+    font-size: var(--font-size-caption);
     overflow-wrap: anywhere;
-    font-weight: 700;
 }
 
-.notice {
-    color: var(--color-primary-hover);
-}
-
-.error {
-    color: var(--color-accent);
+.noticeDetail code {
+    color: inherit;
+    font-family: inherit;
+    font-weight: var(--font-weight-semibold);
+    overflow-wrap: anywhere;
 }
 
 @media (min-width: 48rem) {
-    .filters {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+    .pageHeader {
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: end;
     }
 
-    .filters h2,
-    .filters fieldset {
-        grid-column: 1 / -1;
+    .inventorySummary {
+        justify-content: flex-end;
     }
 
-    .cards {
+    .commonFilters {
+        grid-template-columns: minmax(0, 1.45fr) minmax(13rem, 0.55fr);
+    }
+
+    .orderFilters {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
 
-@media (min-width: 80rem) {
+@media (min-width: 64rem) {
     .cards {
         grid-template-columns: repeat(3, minmax(0, 1fr));
+        align-items: start;
+    }
+}
+
+@media (forced-colors: active) {
+    .parameterPanel,
+    .card,
+    .nextContext {
+        border-color: CanvasText;
+        box-shadow: none;
+    }
+
+    .parameterPanel,
+    .card {
+        border-block-start-width: var(--border-width-accent);
+    }
+
+    .currencyField input,
+    .orderFilters select {
+        border-color: ButtonText;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .pageHeader,
+    .parameterPanel,
+    .inventoryHeading,
+    .card,
+    .exportNotice {
+        transition: none;
+        animation: none;
+    }
+
+    .card:hover {
+        transform: none;
+    }
+}
+
+@keyframes exports-enter {
+    from {
+        opacity: 0;
+        transform: translateY(4px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes exports-feedback {
+    from {
+        opacity: 0;
+        transform: translateY(2px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
     }
 }

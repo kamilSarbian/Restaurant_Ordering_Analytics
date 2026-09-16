@@ -1,165 +1,306 @@
 .page,
 .pageHeader,
+.appliedContext,
 .filters,
 .analyticsSection,
+.sectionBody,
+.sectionHeading,
 .filterFields,
 .filterFields label,
 .statePanel,
-.errorPanel,
 .kpiCard,
-.kpiCard dl,
 .card article,
-.card dl {
+.card dl,
+.breakdownGroups,
+.currencyBreakdown,
+.breakdownHeading {
     display: grid;
     min-width: 0;
-    gap: var(--space-3);
 }
 
 .page {
     gap: var(--space-8);
 }
 
+.pageHeader {
+    gap: var(--space-2);
+    animation: analytics-enter 180ms ease-out both;
+}
+
 .pageHeader h1 {
-    font-size: clamp(2.25rem, 8vw, 4rem);
+    max-width: 18ch;
+    font-size: clamp(var(--font-size-heading), 5vw, var(--font-size-display));
 }
 
 .pageHeader > p:not(:first-child),
+.sectionHeading p,
 .statePanel p,
-.errorPanel p {
+.breakdownHeading p,
+.contextEmpty {
     max-width: 68ch;
-    color: var(--color-muted);
+    color: var(--color-text-secondary);
 }
 
-.filters,
-.statePanel,
-.errorPanel,
-.kpiCard,
-.card {
-    padding: clamp(var(--space-4), 4vw, var(--space-6));
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-medium);
+.appliedContext,
+.filters {
+    gap: var(--space-4);
+    padding: clamp(var(--space-4), 3vw, var(--space-6));
+    border: var(--border-width-hairline) solid var(--color-border-subtle);
+    border-radius: var(--radius-card);
     background: var(--color-surface);
-    box-shadow: var(--shadow-small);
 }
 
-.filters h2,
-.analyticsSection h2,
+.appliedContext {
+    border-block-start: var(--border-width-accent) solid var(--color-primary);
+    box-shadow: var(--shadow-elevation-1);
+    transition:
+        border-color 160ms ease-out,
+        background-color 160ms ease-out;
+}
+
+.appliedContext:focus-visible,
+.applyFailure:focus-visible {
+    outline: var(--border-width-strong) solid var(--color-focus-ring);
+    outline-offset: var(--space-1);
+}
+
+.contextHeading,
+.filterHeading,
+.sectionHeading {
+    display: flex;
+    min-width: 0;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+}
+
+.contextHeading > div {
+    display: grid;
+    gap: var(--space-1);
+}
+
+.contextEyebrow,
+.presets legend {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-bold);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.contextHeading h2,
+.filterHeading h2,
+.sectionHeading h2,
 .statePanel h3,
-.errorPanel h3,
 .kpiCard h3,
-.card h3 {
+.breakdownHeading h3,
+.card h4 {
     margin: 0;
     color: var(--color-primary-hover);
 }
 
+.contextGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+    gap: var(--space-3);
+    margin: 0;
+}
+
+.contextGrid > div {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-1);
+    padding-block-start: var(--space-2);
+    border-block-start: var(--border-width-hairline) solid var(--color-border-subtle);
+}
+
+.contextGrid dt {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-label);
+    font-weight: var(--font-weight-semibold);
+}
+
+.contextGrid dd {
+    min-width: 0;
+    margin: 0;
+    font-variant-numeric: tabular-nums;
+    font-weight: var(--font-weight-semibold);
+    overflow-wrap: anywhere;
+}
+
+.filters {
+    animation: analytics-enter 200ms 30ms ease-out both;
+}
+
+.presets {
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+
+.presets legend {
+    margin-block-end: var(--space-2);
+    padding: 0;
+}
+
+.presets > div,
+.actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+}
+
+.presetButton[aria-pressed='true'] {
+    border-color: var(--color-primary);
+    background: var(--color-surface-muted);
+    color: var(--color-primary-hover);
+}
+
+.filterFields {
+    gap: var(--space-3);
+}
+
 .filterFields label {
     gap: var(--space-2);
-    font-weight: 750;
+    font-weight: var(--font-weight-semibold);
 }
 
 .filterFields input {
     min-height: 2.75rem;
     width: 100%;
     padding: var(--space-2) var(--space-3);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-small);
+    border: var(--border-width-hairline) solid var(--color-control-border);
+    border-radius: var(--radius-control);
     background: var(--color-surface);
-    color: var(--color-text);
+    color: var(--color-text-primary);
+    font: inherit;
 }
 
 .filterFields input[aria-invalid='true'] {
-    border-color: var(--color-accent);
-}
-
-.fieldError,
-.errorPanel {
-    color: var(--color-accent);
+    border-color: var(--color-danger);
 }
 
 .fieldError {
-    font-size: 0.9rem;
+    color: var(--color-danger);
+    font-size: var(--font-size-label);
 }
 
-.errorPanel {
-    border-color: var(--color-accent);
-    background: var(--color-background);
-}
-
-.actions {
-    display: grid;
-    gap: var(--space-3);
-}
-
-.primaryButton,
-.secondaryButton {
-    min-height: 2.75rem;
-    width: 100%;
-    padding: var(--space-2) var(--space-4);
-    border: 1px solid var(--color-primary);
-    border-radius: var(--radius-small);
-    cursor: pointer;
-    font-weight: 800;
-}
-
-.primaryButton {
-    background: var(--color-primary);
-    color: var(--color-surface);
-}
-
-.secondaryButton {
-    background: var(--color-surface);
-    color: var(--color-primary-hover);
-}
-
-.primaryButton:hover {
-    background: var(--color-primary-hover);
-}
-
-.secondaryButton:hover {
-    background: rgb(36 97 70 / 9%);
+.applyFailure {
+    border-radius: var(--radius-control);
 }
 
 .refreshStatus {
-    color: var(--color-muted);
-    font-weight: 750;
+    margin: 0;
+    color: var(--color-text-secondary);
+    font-weight: var(--font-weight-semibold);
 }
 
 .analyticsSection {
     gap: var(--space-4);
+    padding-block-start: var(--space-5);
+    border-block-start: var(--border-width-hairline) solid var(--color-border-subtle);
 }
 
-.kpiGrid,
-.cards {
-    display: grid;
+.sectionHeading {
+    align-items: end;
+}
+
+.sectionHeading p {
+    margin: 0;
+    font-size: var(--font-size-label);
+}
+
+.sectionBody {
     gap: var(--space-4);
+    animation: analytics-result 180ms ease-out both;
 }
 
-.kpiCard dl > div,
-.card dl > div {
+.statePanel {
+    gap: var(--space-2);
+    padding: var(--space-4);
+    border: var(--border-width-hairline) dashed var(--color-border);
+    border-radius: var(--radius-control);
+    background: var(--color-surface);
+}
+
+.sectionNotice {
+    max-width: 72rem;
+}
+
+.kpiGrid {
     display: grid;
-    grid-template-columns: minmax(8rem, 0.7fr) minmax(0, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
     gap: var(--space-3);
 }
 
-.kpiCard dt,
-.card dt {
-    color: var(--color-muted);
-    font-weight: 750;
+.kpiCard {
+    gap: var(--space-3);
+    padding: var(--space-4);
+    border: var(--border-width-hairline) solid var(--color-border-subtle);
+    border-block-start: var(--border-width-accent) solid var(--color-primary);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
 }
 
-.kpiCard dd,
-.card dd {
+.metricRows {
+    display: grid;
+    gap: var(--space-2);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.metricRows li {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: var(--space-3);
+    align-items: baseline;
+    padding-block-start: var(--space-2);
+    border-block-start: var(--border-width-hairline) solid var(--color-border-subtle);
+}
+
+.metricRows span {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-label);
+    font-weight: var(--font-weight-bold);
+}
+
+.metricRows strong {
     min-width: 0;
+    font-size: var(--font-size-title-small);
+    font-variant-numeric: tabular-nums;
+    text-align: end;
     overflow-wrap: anywhere;
-    font-weight: 800;
+}
+
+.breakdownGroups {
+    gap: var(--space-4);
+}
+
+.currencyBreakdown {
+    gap: var(--space-3);
+    padding: var(--space-4);
+    border: var(--border-width-hairline) solid var(--color-border-subtle);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+}
+
+.breakdownHeading {
+    gap: var(--space-1);
+}
+
+.breakdownHeading p {
+    margin: 0;
+    font-size: var(--font-size-label);
 }
 
 .tableWrapper {
     display: none;
     overflow-x: auto;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-medium);
-    background: var(--color-surface);
+    border: var(--border-width-hairline) solid var(--color-border-subtle);
+    border-radius: var(--radius-control);
 }
 
 .table {
@@ -169,29 +310,75 @@
 }
 
 .table caption {
-    padding: var(--space-4);
-    color: var(--color-muted);
-    font-weight: 750;
+    padding: var(--space-3) var(--space-4);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-label);
+    font-weight: var(--font-weight-semibold);
     text-align: left;
 }
 
 .table th,
 .table td {
+    min-width: 0;
     padding: var(--space-3) var(--space-4);
-    border-top: 1px solid var(--color-border);
+    border-block-start: var(--border-width-hairline) solid var(--color-border-subtle);
+    font-variant-numeric: tabular-nums;
     overflow-wrap: anywhere;
     vertical-align: middle;
 }
 
 .table thead th {
-    background: rgb(169 185 170 / 18%);
+    background: var(--color-surface-muted);
     color: var(--color-primary-hover);
-    font-size: 0.9rem;
+    font-size: var(--font-size-label);
 }
 
 .cards {
+    display: grid;
+    gap: var(--space-3);
+    margin: 0;
     padding: 0;
     list-style: none;
+}
+
+.card {
+    min-width: 0;
+    padding: var(--space-4);
+    border: var(--border-width-hairline) solid var(--color-border-subtle);
+    border-radius: var(--radius-control);
+    background: var(--color-background);
+}
+
+.card article,
+.card dl {
+    gap: var(--space-3);
+}
+
+.card h4 {
+    overflow-wrap: anywhere;
+}
+
+.card dl {
+    margin: 0;
+}
+
+.card dl > div {
+    display: grid;
+    grid-template-columns: minmax(7rem, 0.7fr) minmax(0, 1fr);
+    gap: var(--space-3);
+}
+
+.card dt {
+    color: var(--color-text-secondary);
+    font-weight: var(--font-weight-semibold);
+}
+
+.card dd {
+    min-width: 0;
+    margin: 0;
+    font-variant-numeric: tabular-nums;
+    font-weight: var(--font-weight-bold);
+    overflow-wrap: anywhere;
 }
 
 .bar {
@@ -199,28 +386,48 @@
     width: var(--bar-size);
     min-width: 0;
     max-width: 100%;
-    height: 0.65rem;
-    margin-top: var(--space-2);
-    border-radius: 999px;
+    height: 0.5rem;
+    margin-block-start: var(--space-2);
+    border-radius: var(--radius-pill);
     background: var(--color-primary);
+    transition: width 180ms ease-out;
+}
+
+@keyframes analytics-enter {
+    from {
+        opacity: 0;
+        transform: translateY(4px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes analytics-result {
+    from {
+        opacity: 0.78;
+        transform: translateY(3px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 @media (min-width: 48rem) {
-    .filterFields,
-    .kpiGrid {
+    .filterFields {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
-    .actions {
-        display: flex;
-        flex-wrap: wrap;
+    .cards {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
+}
 
-    .primaryButton,
-    .secondaryButton {
-        width: auto;
-    }
-
+@media (min-width: 64rem) {
     .cards {
         display: none;
     }
@@ -230,8 +437,37 @@
     }
 }
 
-@media (min-width: 64rem) {
-    .kpiGrid {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+@media (prefers-reduced-motion: reduce) {
+    .pageHeader,
+    .filters,
+    .sectionBody {
+        animation: none;
+        transform: none;
+    }
+
+    .appliedContext,
+    .bar {
+        transition: none;
+    }
+}
+
+@media (forced-colors: active) {
+    .appliedContext,
+    .filters,
+    .kpiCard,
+    .currencyBreakdown,
+    .card,
+    .statePanel,
+    .tableWrapper {
+        border-color: CanvasText;
+    }
+
+    .bar {
+        background: CanvasText;
+    }
+
+    .presetButton[aria-pressed='true'] {
+        outline: var(--border-width-strong) solid CanvasText;
+        outline-offset: -4px;
     }
 }

@@ -6,6 +6,7 @@ import {
   test,
   type BrowserContext,
   type ConsoleMessage,
+  type Locator,
   type Page,
   type Request,
   type Response,
@@ -558,55 +559,77 @@ async function assertGuestCapabilityInternal(
 }
 
 function adminOrderSummary(page: Page) {
-  return page.getByRole('heading', { level: 2, name: 'Order summary' }).locator('..');
+  return page
+    .getByRole('heading', { level: 2, name: 'Order summary' })
+    .locator('xpath=ancestor::section[1]');
 }
 
 function adminPaymentAttempt(page: Page) {
   return page
     .getByRole('heading', { level: 3, name: 'Payment attempt 1' })
-    .locator('..');
+    .locator('xpath=ancestor::li[1]');
 }
 
 async function assertAdminOrderStatus(page: Page, status: string): Promise<void> {
-  const statusBadge = adminOrderSummary(page).locator(
-    `[data-status="${status.toLowerCase()}"]`,
-  );
-  await expect(statusBadge).toHaveCount(1);
-  await expect(statusBadge).toHaveText(status);
+  const variants: Readonly<Record<string, string>> = {
+    Accepted: 'info',
+    Cancelled: 'danger',
+    Completed: 'success',
+    Created: 'neutral',
+    Preparing: 'warning',
+    Ready: 'info',
+  };
+  const expectedVariant = variants[status];
+  safeInvariant(expectedVariant !== undefined, 'ADMIN_ORDER_STATUS_VARIANT_UNKNOWN');
+  const label = adminOrderSummary(page)
+    .locator('[data-variant] > span:last-child')
+    .filter({ hasText: new RegExp(`^${status}$`, 'u') })
+    .first();
+  const statusBadge = label.locator('..');
+  await expect(label).toHaveText(status);
+  await expect(statusBadge).toHaveAttribute('data-variant', expectedVariant);
+  await expect(statusBadge.locator('[aria-hidden="true"]')).toHaveCount(1);
 }
 
 async function denyUnpaidAcceptance(
   page: Page,
-  guard: BrowserSafetyGuard,
   publicOrderNumber: string,
 ): Promise<void> {
   const statusPath = `/api/v1/admin/orders/${publicOrderNumber}/status`;
-  await page.getByRole('button', { name: 'Accept order', exact: true }).click();
-  const confirmation = page.getByRole('group', { name: 'Accept this order?' });
-  await expect(confirmation).toBeVisible();
-
-  guard.expectHttpFailure('PATCH', statusPath, 409);
-  const mutationResponse = waitForApiResponse(page, 'PATCH', statusPath);
-  const refreshResponse = waitForApiResponse(
-    page,
-    'GET',
-    `/api/v1/admin/orders/${publicOrderNumber}`,
-  );
-  await confirmation.getByRole('button', { name: 'Confirm', exact: true }).click();
-  await Promise.all([
-    assertResponseStatus(mutationResponse, 409, 'UNPAID_ACCEPTANCE_STATUS_MISMATCH'),
-    assertResponseStatus(refreshResponse, 200, 'UNPAID_REFRESH_STATUS_MISMATCH'),
-  ]);
+  let statusMutationCount = 0;
+  const countStatusMutation = (request: Request) => {
+    if (requestMatches(request, 'PATCH', statusPath)) {
+      statusMutationCount += 1;
+    }
+  };
+  page.on('request', countStatusMutation);
+  try {
+    await expect(
+      page.getByText(
+        'A pending payment attempt blocks acceptance and cancellation until the recorded payment status changes.',
+        { exact: true },
+      ),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'Accept order', exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole('button', { name: 'Cancel order', exact: true }),
+    ).toHaveCount(0);
+    await expect(page.getByRole('group', { name: /this order\?/u })).toHaveCount(0);
+    await expect(
+      adminPaymentAttempt(page).getByText('Pending', { exact: true }),
+    ).toBeVisible();
+    await assertAdminOrderStatus(page, 'Created');
+  } finally {
+    page.off('request', countStatusMutation);
+  }
+  safeInvariant(statusMutationCount === 0, 'UNPAID_ACCEPTANCE_WAS_NOT_PRE_GATED');
   await expect(
     page.getByText(
-      'The order changed or this action is not currently allowed. The latest order details have been loaded.',
+      'Provider reconciliation state is not exposed by this order-detail contract.',
       { exact: true },
     ),
-  ).toBeVisible();
-  guard.assertExpectedFailuresConsumed();
-  await assertAdminOrderStatus(page, 'Created');
-  await expect(
-    adminPaymentAttempt(page).getByText('Pending', { exact: true }),
   ).toBeVisible();
 }
 
@@ -699,6 +722,862 @@ async function closeContexts(contexts: readonly BrowserContext[]): Promise<void>
   if (cleanupFailed) {
     throw new Error('E2E_CONTEXT_CLEANUP_FAILED');
   }
+}
+
+const ADMIN_DETAIL_VIEWPORTS = [
+  { height: 812, width: 375 },
+  { height: 1024, width: 768 },
+  { height: 800, width: 1280 },
+  { height: 900, width: 1440 },
+] as const;
+const ADMIN_DETAIL_AUTH_STORAGE_KEY = 'restaurant-ordering:auth:v1';
+const ADMIN_DETAIL_EMAIL =
+  'stage21-f2b-operational-administrator-with-a-long-identity@example.invalid';
+const ADMIN_DETAIL_TOKEN = 'synthetic.stage21.f2b.admin.token';
+const ADMIN_DETAIL_USER_ID = '55555555-5555-4555-8555-555555555555';
+const ADMIN_DETAIL_ORDER_ID = '66666666-6666-4666-8666-666666666666';
+const ADMIN_DETAIL_ITEM_ID = '77777777-7777-4777-8777-777777777777';
+const ADMIN_DETAIL_MENU_ITEM_ID = '88888888-8888-4888-8888-888888888888';
+const ADMIN_DETAIL_PAYMENT_ID = '99999999-9999-4999-8999-999999999999';
+const ADMIN_DETAIL_PUBLIC_ORDER_NUMBER = 'ROA-ZYXWVUTSRQPN';
+const ADMIN_DETAIL_PATH = '/admin/orders/' + ADMIN_DETAIL_PUBLIC_ORDER_NUMBER;
+const ADMIN_DETAIL_API_PATH =
+  '/api/v1/admin/orders/' + ADMIN_DETAIL_PUBLIC_ORDER_NUMBER;
+const ADMIN_DETAIL_STATUS_API_PATH = ADMIN_DETAIL_API_PATH + '/status';
+const ADMIN_DETAIL_LONG_ITEM_NAME =
+  'Hand-finished mountain herb platter with roasted roots, preserved berries, smoked barley, and an intentionally long operational snapshot name';
+const ADMIN_DETAIL_LONG_CATEGORY =
+  'A deliberately long historical category snapshot retained for administrator review';
+const ADMIN_DETAIL_TOTAL_AMOUNT = 987_654_294;
+const ADMIN_DETAIL_CONFLICT_COPY =
+  'private provider conflict metadata must remain behind the administrator API boundary';
+
+type SyntheticAdminOrderStatus =
+  'accepted' | 'cancelled' | 'completed' | 'created' | 'preparing' | 'ready';
+type SyntheticAdminPaymentStatus = 'expired' | 'failed' | 'pending' | 'succeeded';
+type SyntheticAdminMutationMode = 'accept-success' | 'ready-conflict' | null;
+
+interface SyntheticAdminDetailRequest {
+  readonly authorization: string | null;
+  readonly capability: string | null;
+  readonly contentType: string | null;
+  readonly method: string;
+  readonly pathname: string;
+  readonly postData: string | null;
+  readonly search: string;
+}
+
+interface AdminDetailRuntimeElement {
+  readonly clientHeight: number;
+  readonly clientWidth: number;
+  readonly scrollHeight: number;
+  readonly scrollWidth: number;
+  getBoundingClientRect: () => {
+    readonly height: number;
+    readonly left: number;
+    readonly right: number;
+    readonly width: number;
+  };
+}
+
+interface AdminDetailBrowserRuntime {
+  readonly document: {
+    readonly body: AdminDetailRuntimeElement & { readonly innerText: string };
+    readonly documentElement: AdminDetailRuntimeElement;
+  };
+  readonly getComputedStyle: (element: AdminDetailRuntimeElement) => {
+    readonly animationDuration: string;
+    readonly animationName: string;
+    readonly boxShadow: string;
+    readonly outlineStyle: string;
+    readonly outlineWidth: string;
+    readonly transform: string;
+    readonly transitionDuration: string;
+  };
+  readonly innerWidth: number;
+}
+
+const ADMIN_DETAIL_STATUS_PATHS: Readonly<
+  Record<SyntheticAdminOrderStatus, readonly SyntheticAdminOrderStatus[]>
+> = {
+  accepted: ['created', 'accepted'],
+  cancelled: ['created', 'cancelled'],
+  completed: ['created', 'accepted', 'preparing', 'ready', 'completed'],
+  created: ['created'],
+  preparing: ['created', 'accepted', 'preparing'],
+  ready: ['created', 'accepted', 'preparing', 'ready'],
+};
+
+function buildSyntheticAdminDetail(
+  status: SyntheticAdminOrderStatus,
+  paymentStatus: SyntheticAdminPaymentStatus,
+) {
+  const statusPath = ADMIN_DETAIL_STATUS_PATHS[status];
+  return {
+    order_id: ADMIN_DETAIL_ORDER_ID,
+    public_order_number: ADMIN_DETAIL_PUBLIC_ORDER_NUMBER,
+    status,
+    order_type: 'dine_in',
+    table_number: 27,
+    currency: 'NOK',
+    subtotal_amount: ADMIN_DETAIL_TOTAL_AMOUNT,
+    total_amount: ADMIN_DETAIL_TOTAL_AMOUNT,
+    created_at: '2026-08-27T10:00:00+00:00',
+    updated_at: '2026-08-27T10:20:00+00:00',
+    items: [
+      {
+        id: ADMIN_DETAIL_ITEM_ID,
+        menu_item_id: ADMIN_DETAIL_MENU_ITEM_ID,
+        position: 0,
+        category_name: ADMIN_DETAIL_LONG_CATEGORY,
+        name: ADMIN_DETAIL_LONG_ITEM_NAME,
+        quantity: 99,
+        unit_price_amount: 9_976_306,
+        unit_cost_amount: 4_000_000,
+        tax_rate_bps: 2_500,
+        discount_amount: 0,
+        line_total_amount: ADMIN_DETAIL_TOTAL_AMOUNT,
+      },
+    ],
+    status_history: statusPath.map((newStatus, sequence) => ({
+      sequence,
+      previous_status: sequence === 0 ? null : (statusPath[sequence - 1] ?? null),
+      new_status: newStatus,
+      changed_at: '2026-08-27T10:0' + sequence + ':00+00:00',
+    })),
+    payments: [
+      {
+        id: ADMIN_DETAIL_PAYMENT_ID,
+        status: paymentStatus,
+        amount: ADMIN_DETAIL_TOTAL_AMOUNT,
+        currency: 'NOK',
+        created_at: '2026-08-27T10:01:00+00:00',
+        updated_at: '2026-08-27T10:03:00+00:00',
+        checkout_expires_at:
+          paymentStatus === 'pending' ? '2026-08-27T10:31:00+00:00' : null,
+      },
+    ],
+  };
+}
+
+type SyntheticAdminDetail = ReturnType<typeof buildSyntheticAdminDetail>;
+
+interface SyntheticAdminDetailController {
+  detail: SyntheticAdminDetail;
+  mutationGate: Promise<void> | null;
+  mutationMode: SyntheticAdminMutationMode;
+  readonly networkIssues: string[];
+  readonly requests: SyntheticAdminDetailRequest[];
+}
+
+function captureSyntheticAdminDetailRequest(
+  request: Request,
+  parsed: URL,
+): SyntheticAdminDetailRequest {
+  const headers = request.headers();
+  return {
+    authorization: headers.authorization ?? null,
+    capability: headers['x-order-access-token'] ?? null,
+    contentType: headers['content-type'] ?? null,
+    method: request.method(),
+    pathname: parsed.pathname,
+    postData: request.postData(),
+    search: parsed.search,
+  };
+}
+
+function buildSyntheticStatusUpdate(
+  previousStatus: SyntheticAdminOrderStatus,
+  targetStatus: SyntheticAdminOrderStatus,
+) {
+  return {
+    public_order_number: ADMIN_DETAIL_PUBLIC_ORDER_NUMBER,
+    status: targetStatus,
+    updated_at: '2026-08-27T10:25:00+00:00',
+    history: {
+      sequence: ADMIN_DETAIL_STATUS_PATHS[previousStatus].length,
+      previous_status: previousStatus,
+      new_status: targetStatus,
+      changed_at: '2026-08-27T10:25:00+00:00',
+    },
+  };
+}
+
+async function installSyntheticAdminDetailRouting(
+  page: Page,
+  controller: SyntheticAdminDetailController,
+): Promise<void> {
+  await page.route('**/*', async (route) => {
+    const request = route.request();
+    const parsed = parseUrl(request.url());
+    if (parsed === null) {
+      controller.networkIssues.push('admin-detail-invalid-url');
+      await route.abort();
+      return;
+    }
+    if (parsed.origin !== baseOrigin) {
+      controller.networkIssues.push('admin-detail-external-request:' + parsed.hostname);
+      await route.abort();
+      return;
+    }
+
+    const method = request.method();
+    if (
+      parsed.pathname === '/api/v1/auth/me' &&
+      parsed.search === '' &&
+      method === 'GET'
+    ) {
+      controller.requests.push(captureSyntheticAdminDetailRequest(request, parsed));
+      await route.fulfill({
+        body: JSON.stringify({
+          email: ADMIN_DETAIL_EMAIL,
+          id: ADMIN_DETAIL_USER_ID,
+          is_active: true,
+          role: 'admin',
+        }),
+        contentType: 'application/json',
+        status: 200,
+      });
+      return;
+    }
+
+    if (
+      parsed.pathname === ADMIN_DETAIL_API_PATH &&
+      parsed.search === '' &&
+      method === 'GET'
+    ) {
+      controller.requests.push(captureSyntheticAdminDetailRequest(request, parsed));
+      await route.fulfill({
+        body: JSON.stringify(controller.detail),
+        contentType: 'application/json',
+        status: 200,
+      });
+      return;
+    }
+
+    if (
+      parsed.pathname === ADMIN_DETAIL_STATUS_API_PATH &&
+      parsed.search === '' &&
+      method === 'PATCH'
+    ) {
+      const captured = captureSyntheticAdminDetailRequest(request, parsed);
+      controller.requests.push(captured);
+      if (
+        controller.mutationMode === 'accept-success' &&
+        captured.postData === '{"status":"accepted"}'
+      ) {
+        if (controller.mutationGate !== null) {
+          await controller.mutationGate;
+        }
+        controller.detail = buildSyntheticAdminDetail('accepted', 'succeeded');
+        controller.mutationMode = null;
+        await route.fulfill({
+          body: JSON.stringify(buildSyntheticStatusUpdate('created', 'accepted')),
+          contentType: 'application/json',
+          status: 200,
+        });
+        return;
+      }
+      if (
+        controller.mutationMode === 'ready-conflict' &&
+        captured.postData === '{"status":"ready"}'
+      ) {
+        controller.detail = buildSyntheticAdminDetail('ready', 'succeeded');
+        controller.mutationMode = null;
+        await route.fulfill({
+          body: JSON.stringify({ detail: ADMIN_DETAIL_CONFLICT_COPY }),
+          contentType: 'application/json',
+          status: 409,
+        });
+        return;
+      }
+      controller.networkIssues.push(
+        'admin-detail-unexpected-mutation:' + String(captured.postData),
+      );
+      await route.fulfill({
+        body: JSON.stringify({ detail: 'Unexpected synthetic mutation' }),
+        contentType: 'application/json',
+        status: 500,
+      });
+      return;
+    }
+
+    if (parsed.pathname.startsWith('/api/')) {
+      controller.networkIssues.push(
+        'admin-detail-unexpected-api:' + method + ':' + parsed.pathname + parsed.search,
+      );
+      await route.fulfill({
+        body: JSON.stringify({ detail: 'Unexpected synthetic admin-detail request' }),
+        contentType: 'application/json',
+        status: 500,
+      });
+      return;
+    }
+
+    await route.continue();
+  });
+}
+
+function adminPaymentStatusBadge(page: Page, status: string): Locator {
+  return adminPaymentAttempt(page)
+    .locator('[data-variant] > span:last-child')
+    .filter({ hasText: new RegExp('^' + status + '$', 'u') })
+    .first()
+    .locator('..');
+}
+
+async function assertAdminPaymentStatus(
+  page: Page,
+  status: string,
+  variant: string,
+): Promise<void> {
+  const badge = adminPaymentStatusBadge(page, status);
+  await expect(badge).toHaveAttribute('data-variant', variant);
+  await expect(badge.locator('[aria-hidden="true"]')).toHaveCount(1);
+}
+
+function maximumCssDuration(value: string): number {
+  return Math.max(
+    ...value.split(',').map((part) => {
+      const normalized = part.trim();
+      const duration = Number.parseFloat(normalized);
+      if (!Number.isFinite(duration)) {
+        return Number.POSITIVE_INFINITY;
+      }
+      return normalized.endsWith('ms') ? duration : duration * 1_000;
+    }),
+  );
+}
+
+async function assertAdminDetailReducedMotion(locator: Locator): Promise<void> {
+  const motion = await locator.evaluate((element) => {
+    const runtime = globalThis as typeof globalThis & AdminDetailBrowserRuntime;
+    const style = runtime.getComputedStyle(
+      element as unknown as AdminDetailRuntimeElement,
+    );
+    return {
+      animationDuration: style.animationDuration,
+      animationName: style.animationName,
+      transform: style.transform,
+      transitionDuration: style.transitionDuration,
+    };
+  });
+  safeInvariant(
+    (motion.animationName === 'none' ||
+      maximumCssDuration(motion.animationDuration) <= 0.011) &&
+      maximumCssDuration(motion.transitionDuration) <= 0.011 &&
+      motion.transform === 'none',
+    'ADMIN_DETAIL_REDUCED_MOTION_MISMATCH',
+  );
+}
+
+async function assertAdminDetailVisibleFocus(locator: Locator): Promise<void> {
+  await expect(locator).toBeFocused();
+  const focus = await locator.evaluate((element) => {
+    const runtime = globalThis as typeof globalThis & AdminDetailBrowserRuntime;
+    const style = runtime.getComputedStyle(
+      element as unknown as AdminDetailRuntimeElement,
+    );
+    return {
+      boxShadow: style.boxShadow,
+      outlineStyle: style.outlineStyle,
+      outlineWidth: Number.parseFloat(style.outlineWidth),
+    };
+  });
+  safeInvariant(
+    (focus.outlineStyle !== 'none' && focus.outlineWidth > 0) ||
+      (focus.boxShadow !== 'none' && focus.boxShadow !== ''),
+    'ADMIN_DETAIL_FOCUS_NOT_VISIBLE',
+  );
+}
+
+async function assertAdminDetailTouchTarget(
+  locator: Locator,
+  code: string,
+): Promise<void> {
+  const box = await locator.boundingBox();
+  safeInvariant(box !== null && box.width >= 44 && box.height >= 44, code);
+}
+
+async function assertAdminDetailElementNotClipped(
+  locator: Locator,
+  code: string,
+): Promise<void> {
+  const dimensions = await locator.evaluate((element) => {
+    const candidate = element as unknown as AdminDetailRuntimeElement;
+    const bounds = candidate.getBoundingClientRect();
+    const runtime = globalThis as typeof globalThis & AdminDetailBrowserRuntime;
+    return {
+      clientHeight: candidate.clientHeight,
+      clientWidth: candidate.clientWidth,
+      height: bounds.height,
+      left: bounds.left,
+      right: bounds.right,
+      scrollHeight: candidate.scrollHeight,
+      scrollWidth: candidate.scrollWidth,
+      viewportWidth: runtime.innerWidth,
+      width: bounds.width,
+    };
+  });
+  safeInvariant(
+    dimensions.left >= -1 &&
+      dimensions.right <= dimensions.viewportWidth + 1 &&
+      dimensions.width > 0 &&
+      dimensions.height > 0 &&
+      dimensions.scrollWidth <= dimensions.clientWidth + 1 &&
+      dimensions.scrollHeight <= dimensions.clientHeight + 1,
+    code,
+  );
+}
+
+async function assertAdminDetailNoHorizontalOverflow(page: Page): Promise<void> {
+  const widths = await page.evaluate(() => {
+    const runtime = globalThis as typeof globalThis & AdminDetailBrowserRuntime;
+    return {
+      bodyClientWidth: runtime.document.body.clientWidth,
+      bodyScrollWidth: runtime.document.body.scrollWidth,
+      rootClientWidth: runtime.document.documentElement.clientWidth,
+      rootScrollWidth: runtime.document.documentElement.scrollWidth,
+      viewportWidth: runtime.innerWidth,
+    };
+  });
+  safeInvariant(
+    widths.bodyScrollWidth <= widths.bodyClientWidth + 1 &&
+      widths.rootScrollWidth <= widths.rootClientWidth + 1 &&
+      widths.rootClientWidth <= widths.viewportWidth + 1,
+    'ADMIN_DETAIL_HORIZONTAL_OVERFLOW',
+  );
+}
+
+async function refreshSyntheticAdminDetail(
+  page: Page,
+  controller: SyntheticAdminDetailController,
+  detail: SyntheticAdminDetail,
+): Promise<void> {
+  controller.detail = detail;
+  const response = waitForApiResponse(page, 'GET', ADMIN_DETAIL_API_PATH);
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await assertResponseStatus(response, 200, 'ADMIN_DETAIL_REFRESH_STATUS_MISMATCH');
+}
+
+async function openSyntheticAdminDetail(page: Page): Promise<void> {
+  const currentUserResponse = waitForApiResponse(page, 'GET', '/api/v1/auth/me');
+  const detailResponse = waitForApiResponse(page, 'GET', ADMIN_DETAIL_API_PATH);
+  await page.goto(ADMIN_DETAIL_PATH);
+  await Promise.all([
+    assertResponseStatus(
+      currentUserResponse,
+      200,
+      'ADMIN_DETAIL_CURRENT_USER_STATUS_MISMATCH',
+    ),
+    assertResponseStatus(detailResponse, 200, 'ADMIN_DETAIL_GET_STATUS_MISMATCH'),
+  ]);
+  await expect(
+    page.getByRole('heading', {
+      level: 1,
+      name: 'Order ' + ADMIN_DETAIL_PUBLIC_ORDER_NUMBER,
+    }),
+  ).toBeVisible();
+}
+
+async function assertSyntheticAdminDetailFoundations(
+  page: Page,
+  controller: SyntheticAdminDetailController,
+): Promise<void> {
+  await page.emulateMedia({ forcedColors: 'none', reducedMotion: 'no-preference' });
+  await openSyntheticAdminDetail(page);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
+  await assertAdminOrderStatus(page, 'Created');
+  await assertAdminPaymentStatus(page, 'Pending', 'warning');
+  await expect(
+    page.getByText(
+      'A pending payment attempt blocks acceptance and cancellation until the recorded payment status changes.',
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expect(
+    page.getByText(
+      'Provider reconciliation state is not exposed by this order-detail contract.',
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Accept order', exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole('button', { name: 'Cancel order', exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole('link', { name: 'Back to Orders', exact: true }),
+  ).toHaveAttribute('href', '/admin/orders');
+
+  const longItem = page.getByRole('heading', {
+    level: 3,
+    name: ADMIN_DETAIL_LONG_ITEM_NAME,
+  });
+  await expect(longItem).toBeVisible();
+  await expect(
+    page.getByText(ADMIN_DETAIL_LONG_CATEGORY, { exact: true }),
+  ).toBeVisible();
+  const formattedTotal = new Intl.NumberFormat('en-NO', {
+    currency: 'NOK',
+    style: 'currency',
+  }).format(ADMIN_DETAIL_TOTAL_AMOUNT / 100);
+  const authoritativeTotal = page.getByText(formattedTotal, { exact: true }).last();
+  await expect(authoritativeTotal).toBeVisible();
+  await assertAdminDetailElementNotClipped(longItem, 'ADMIN_DETAIL_LONG_ITEM_CLIPPED');
+  await assertAdminDetailElementNotClipped(
+    authoritativeTotal,
+    'ADMIN_DETAIL_LONG_TOTAL_CLIPPED',
+  );
+  await assertAdminDetailNoHorizontalOverflow(page);
+
+  await refreshSyntheticAdminDetail(
+    page,
+    controller,
+    buildSyntheticAdminDetail('created', 'failed'),
+  );
+  await assertAdminOrderStatus(page, 'Created');
+  await assertAdminPaymentStatus(page, 'Failed', 'danger');
+  await expect(
+    page.getByText(
+      'Acceptance is unavailable because no succeeded payment attempt is recorded.',
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Accept order', exact: true }),
+  ).toHaveCount(0);
+  const cancelButton = page.getByRole('button', {
+    name: 'Cancel order',
+    exact: true,
+  });
+  await expect(cancelButton).toBeEnabled();
+  await cancelButton.focus();
+  await page.keyboard.press('Shift+Tab');
+  await page.keyboard.press('Tab');
+  await assertAdminDetailVisibleFocus(cancelButton);
+  await assertAdminDetailTouchTarget(
+    cancelButton,
+    'ADMIN_DETAIL_CANCEL_TARGET_TOO_SMALL',
+  );
+  await cancelButton.click();
+  const cancelConfirmation = page.getByRole('group', {
+    name: 'Cancel this order? This action cannot be undone in the current workflow.',
+  });
+  await expect(cancelConfirmation).toBeVisible();
+  const cancelConfirmationHeading = cancelConfirmation.getByRole('heading', {
+    level: 3,
+    name: 'Cancel this order? This action cannot be undone in the current workflow.',
+  });
+  await expect(cancelConfirmationHeading).toBeFocused();
+  await expect(
+    cancelConfirmation.getByRole('button', {
+      name: 'Confirm Cancel order',
+      exact: true,
+    }),
+  ).toHaveAttribute('data-variant', 'danger');
+  await cancelConfirmation
+    .getByRole('button', { name: 'Keep current status', exact: true })
+    .click();
+  await expect(cancelConfirmation).toHaveCount(0);
+  await expect(cancelButton).toBeFocused();
+
+  await refreshSyntheticAdminDetail(
+    page,
+    controller,
+    buildSyntheticAdminDetail('created', 'succeeded'),
+  );
+  await assertAdminPaymentStatus(page, 'Succeeded', 'success');
+  await expect(
+    page.getByText(
+      'Cancellation is unavailable because a succeeded payment attempt is recorded and refunds are outside this workflow.',
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Cancel order', exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole('button', { name: 'Accept order', exact: true }),
+  ).toBeEnabled();
+}
+
+async function applySyntheticAdminDetailAcceptance(
+  page: Page,
+  controller: SyntheticAdminDetailController,
+): Promise<void> {
+  await page.getByRole('button', { name: 'Accept order', exact: true }).click();
+  const acceptConfirmation = page.getByRole('group', {
+    name: 'Accept this order?',
+  });
+  await expect(
+    acceptConfirmation.getByRole('heading', {
+      level: 3,
+      name: 'Accept this order?',
+    }),
+  ).toBeFocused();
+
+  let releaseMutation = (): void => undefined;
+  controller.mutationGate = new Promise<void>((resolve) => {
+    releaseMutation = resolve;
+  });
+  controller.mutationMode = 'accept-success';
+  const patchCountBeforeSuccess = controller.requests.filter(
+    ({ method, pathname }) =>
+      method === 'PATCH' && pathname === ADMIN_DETAIL_STATUS_API_PATH,
+  ).length;
+  const acceptMutationResponse = waitForApiResponse(
+    page,
+    'PATCH',
+    ADMIN_DETAIL_STATUS_API_PATH,
+  );
+  const acceptRefetchResponse = waitForApiResponse(page, 'GET', ADMIN_DETAIL_API_PATH);
+  const confirmAccept = acceptConfirmation.getByRole('button', {
+    name: 'Confirm Accept order',
+    exact: true,
+  });
+  try {
+    await confirmAccept.press('Enter');
+    await expect
+      .poll(
+        () =>
+          controller.requests.filter(
+            ({ method, pathname }) =>
+              method === 'PATCH' && pathname === ADMIN_DETAIL_STATUS_API_PATH,
+          ).length,
+      )
+      .toBe(patchCountBeforeSuccess + 1);
+    const updatingAccept = acceptConfirmation.getByRole('button', {
+      name: 'Updating order to Accepted',
+      exact: true,
+    });
+    await expect(updatingAccept).toBeDisabled();
+    await expect(updatingAccept).toHaveAttribute('aria-busy', 'true');
+    await expect(
+      page
+        .getByRole('heading', { level: 2, name: 'Order actions' })
+        .locator('xpath=ancestor::section[1]'),
+    ).toHaveAttribute('aria-busy', 'true');
+    await assertAdminOrderStatus(page, 'Created');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(100);
+    expect(
+      controller.requests.filter(
+        ({ method, pathname }) =>
+          method === 'PATCH' && pathname === ADMIN_DETAIL_STATUS_API_PATH,
+      ),
+    ).toHaveLength(patchCountBeforeSuccess + 1);
+  } finally {
+    releaseMutation();
+    controller.mutationGate = null;
+  }
+  await Promise.all([
+    assertResponseStatus(
+      acceptMutationResponse,
+      200,
+      'ADMIN_DETAIL_ACCEPT_STATUS_MISMATCH',
+    ),
+    assertResponseStatus(
+      acceptRefetchResponse,
+      200,
+      'ADMIN_DETAIL_ACCEPT_REFETCH_STATUS_MISMATCH',
+    ),
+  ]);
+  await expect(page.getByText('Order status updated.', { exact: true })).toBeVisible();
+  await assertAdminOrderStatus(page, 'Accepted');
+  const actionHeading = page.getByRole('heading', {
+    level: 2,
+    name: 'Order actions',
+  });
+  await expect(actionHeading).toBeFocused();
+  await assertAdminDetailVisibleFocus(actionHeading);
+}
+
+async function applySyntheticAdminDetailConflict(
+  page: Page,
+  controller: SyntheticAdminDetailController,
+  guard: BrowserSafetyGuard,
+): Promise<void> {
+  await refreshSyntheticAdminDetail(
+    page,
+    controller,
+    buildSyntheticAdminDetail('preparing', 'succeeded'),
+  );
+  await assertAdminOrderStatus(page, 'Preparing');
+  const markReadyButton = page.getByRole('button', {
+    name: 'Mark ready',
+    exact: true,
+  });
+  await expect(markReadyButton).toBeEnabled();
+  await markReadyButton.click();
+  const readyConfirmation = page.getByRole('group', {
+    name: 'Mark this order as ready?',
+  });
+  await expect(
+    readyConfirmation.getByRole('heading', {
+      level: 3,
+      name: 'Mark this order as ready?',
+    }),
+  ).toBeFocused();
+  controller.mutationMode = 'ready-conflict';
+  guard.expectHttpFailure('PATCH', ADMIN_DETAIL_STATUS_API_PATH, 409);
+  const readyConflictResponse = waitForApiResponse(
+    page,
+    'PATCH',
+    ADMIN_DETAIL_STATUS_API_PATH,
+  );
+  const readyConflictRefetch = waitForApiResponse(page, 'GET', ADMIN_DETAIL_API_PATH);
+  await readyConfirmation
+    .getByRole('button', { name: 'Confirm Mark ready', exact: true })
+    .click();
+  await Promise.all([
+    assertResponseStatus(
+      readyConflictResponse,
+      409,
+      'ADMIN_DETAIL_CONFLICT_STATUS_MISMATCH',
+    ),
+    assertResponseStatus(
+      readyConflictRefetch,
+      200,
+      'ADMIN_DETAIL_CONFLICT_REFETCH_STATUS_MISMATCH',
+    ),
+  ]);
+  await expect(
+    page.getByText(
+      'The order changed or this action is not currently allowed. The latest order details have been loaded.',
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expect(page.getByText(ADMIN_DETAIL_CONFLICT_COPY, { exact: true })).toHaveCount(
+    0,
+  );
+  await assertAdminOrderStatus(page, 'Ready');
+  await expect(
+    page.getByRole('heading', { level: 2, name: 'Order actions' }),
+  ).toBeFocused();
+  guard.assertExpectedFailuresConsumed();
+}
+
+async function assertSyntheticAdminDetailTerminalStates(
+  page: Page,
+  controller: SyntheticAdminDetailController,
+): Promise<void> {
+  await refreshSyntheticAdminDetail(
+    page,
+    controller,
+    buildSyntheticAdminDetail('completed', 'succeeded'),
+  );
+  await assertAdminOrderStatus(page, 'Completed');
+  await expect(
+    page.getByText('No further status actions are available.', { exact: true }),
+  ).toBeVisible();
+
+  await refreshSyntheticAdminDetail(
+    page,
+    controller,
+    buildSyntheticAdminDetail('cancelled', 'failed'),
+  );
+  await assertAdminOrderStatus(page, 'Cancelled');
+  await expect(
+    page.getByText('No further status actions are available.', { exact: true }),
+  ).toBeVisible();
+
+  await page.emulateMedia({ forcedColors: 'active', reducedMotion: 'reduce' });
+  await refreshSyntheticAdminDetail(
+    page,
+    controller,
+    buildSyntheticAdminDetail('created', 'failed'),
+  );
+  const reducedCancelButton = page.getByRole('button', {
+    name: 'Cancel order',
+    exact: true,
+  });
+  await reducedCancelButton.focus();
+  await page.keyboard.press('Shift+Tab');
+  await page.keyboard.press('Tab');
+  await assertAdminDetailVisibleFocus(reducedCancelButton);
+  await reducedCancelButton.click();
+  const reducedConfirmation = page.getByRole('group', {
+    name: 'Cancel this order? This action cannot be undone in the current workflow.',
+  });
+  const pageSurface = page.locator('#admin-main-content > article').first();
+  await assertAdminDetailReducedMotion(pageSurface);
+  await assertAdminDetailReducedMotion(reducedConfirmation);
+  await reducedConfirmation
+    .getByRole('button', { name: 'Keep current status', exact: true })
+    .click();
+  await expect(reducedCancelButton).toBeFocused();
+  await assertAdminDetailNoHorizontalOverflow(page);
+
+  const mainText = await page.locator('#admin-main-content').innerText();
+  for (const sensitiveValue of [
+    ADMIN_DETAIL_TOKEN,
+    ADMIN_DETAIL_ORDER_ID,
+    ADMIN_DETAIL_ITEM_ID,
+    ADMIN_DETAIL_MENU_ITEM_ID,
+    ADMIN_DETAIL_PAYMENT_ID,
+    ADMIN_DETAIL_CONFLICT_COPY,
+  ]) {
+    expect(mainText).not.toContain(sensitiveValue);
+  }
+  expect(mainText).not.toMatch(
+    /reconciled|reconciliation complete|provider-confirmed/iu,
+  );
+}
+
+function assertSyntheticAdminDetailContracts(
+  controller: SyntheticAdminDetailController,
+): void {
+  const authRequests = controller.requests.filter(
+    ({ pathname }) => pathname === '/api/v1/auth/me',
+  );
+  const detailRequests = controller.requests.filter(
+    ({ method, pathname }) => method === 'GET' && pathname === ADMIN_DETAIL_API_PATH,
+  );
+  const mutationRequests = controller.requests.filter(
+    ({ method, pathname }) =>
+      method === 'PATCH' && pathname === ADMIN_DETAIL_STATUS_API_PATH,
+  );
+  expect(authRequests).toHaveLength(1);
+  expect(detailRequests).toHaveLength(9);
+  expect(mutationRequests.map(({ postData }) => postData)).toEqual([
+    '{"status":"accepted"}',
+    '{"status":"ready"}',
+  ]);
+  for (const request of controller.requests) {
+    expect(request.authorization).toBe('Bearer ' + ADMIN_DETAIL_TOKEN);
+    expect(request.capability).toBeNull();
+    expect(request.search).toBe('');
+    if (request.method === 'GET') {
+      expect(request.postData).toBeNull();
+      expect(request.contentType).toBeNull();
+    } else {
+      expect(request.method).toBe('PATCH');
+      expect(request.contentType).toBe('application/json');
+    }
+  }
+  expect(controller.networkIssues, 'ADMIN_DETAIL_SYNTHETIC_NETWORK_FAILURE').toEqual(
+    [],
+  );
+}
+
+async function assertSyntheticAdminDetailViewport(
+  page: Page,
+  viewport: (typeof ADMIN_DETAIL_VIEWPORTS)[number],
+  controller: SyntheticAdminDetailController,
+  guard: BrowserSafetyGuard,
+): Promise<void> {
+  await assertSyntheticAdminDetailFoundations(page, controller);
+  await applySyntheticAdminDetailAcceptance(page, controller);
+  await applySyntheticAdminDetailConflict(page, controller, guard);
+  await assertSyntheticAdminDetailTerminalStates(page, controller);
+  assertSyntheticAdminDetailContracts(controller);
+  safeInvariant(
+    viewport.width === (await page.viewportSize())?.width &&
+      viewport.height === (await page.viewportSize())?.height,
+    'ADMIN_DETAIL_VIEWPORT_CHANGED',
+  );
 }
 
 test.describe.configure({ mode: 'serial' });
@@ -856,7 +1735,7 @@ test('completes guest payment and administrator governance without external trus
     await expect(
       adminPaymentAttempt(adminPage).getByText('Pending', { exact: true }),
     ).toBeVisible();
-    await denyUnpaidAcceptance(adminPage, adminGuard, publicOrderNumber);
+    await denyUnpaidAcceptance(adminPage, publicOrderNumber);
 
     let completionRequestCount = 0;
     const countCompletionRequest = (request: Request) => {
@@ -1056,5 +1935,89 @@ test('completes guest payment and administrator governance without external trus
   }
   if (scenarioError !== undefined) {
     throw scenarioError;
+  }
+});
+
+test('keeps admin order detail safe, authoritative, and responsive across four viewports', async ({
+  browser,
+}) => {
+  test.setTimeout(300_000);
+  const storedSession = JSON.stringify({
+    accessToken: ADMIN_DETAIL_TOKEN,
+    version: 1,
+  });
+
+  for (const viewport of ADMIN_DETAIL_VIEWPORTS) {
+    const context = await browser.newContext({
+      baseURL: baseOrigin,
+      reducedMotion: 'no-preference',
+      viewport: { height: viewport.height, width: viewport.width },
+    });
+    await context.addInitScript(
+      ({ storageKey, storageValue }) => {
+        const runtime = globalThis as typeof globalThis & {
+          location: { protocol: string };
+          sessionStorage: { setItem: (key: string, value: string) => void };
+        };
+        if (
+          runtime.location.protocol === 'http:' ||
+          runtime.location.protocol === 'https:'
+        ) {
+          runtime.sessionStorage.setItem(storageKey, storageValue);
+        }
+      },
+      {
+        storageKey: ADMIN_DETAIL_AUTH_STORAGE_KEY,
+        storageValue: storedSession,
+      },
+    );
+    const page = await context.newPage();
+    const controller: SyntheticAdminDetailController = {
+      detail: buildSyntheticAdminDetail('created', 'pending'),
+      mutationGate: null,
+      mutationMode: null,
+      networkIssues: [],
+      requests: [],
+    };
+    const guard = new BrowserSafetyGuard(page, [
+      ADMIN_DETAIL_TOKEN,
+      ADMIN_DETAIL_ORDER_ID,
+      ADMIN_DETAIL_ITEM_ID,
+      ADMIN_DETAIL_MENU_ITEM_ID,
+      ADMIN_DETAIL_PAYMENT_ID,
+      ADMIN_DETAIL_CONFLICT_COPY,
+    ]);
+    page.on('websocket', (socket) => {
+      const parsed = parseUrl(socket.url());
+      if (parsed === null || parsed.host !== new URL(baseOrigin).host) {
+        controller.networkIssues.push('admin-detail-external-websocket');
+      }
+    });
+    await installSyntheticAdminDetailRouting(page, controller);
+
+    let scenarioError: unknown;
+    let finalizationError: unknown;
+    try {
+      await assertSyntheticAdminDetailViewport(page, viewport, controller, guard);
+    } catch (error: unknown) {
+      scenarioError = error;
+    } finally {
+      try {
+        guard.assertClean();
+      } catch (error: unknown) {
+        finalizationError = error;
+      }
+      try {
+        await closeContexts([context]);
+      } catch (error: unknown) {
+        finalizationError ??= error;
+      }
+    }
+    if (scenarioError !== undefined) {
+      throw scenarioError;
+    }
+    if (finalizationError !== undefined) {
+      throw finalizationError;
+    }
   }
 });

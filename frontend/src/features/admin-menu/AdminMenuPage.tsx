@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type Ref, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { AdminApiRequestError } from '../../api/adminApi';
 import AsyncNotice, { type AsyncNoticeTone } from '../../components/AsyncNotice';
+import Button from '../../components/ui/Button';
+import StatusBadge from '../../components/ui/StatusBadge';
 import { useAuth } from '../auth/AuthContext';
+import { resolveMenuImageUrl } from '../menu/menuImageCatalog';
 import {
   type AdminCategory,
   type AdminCategoryCreatePayload,
@@ -18,13 +21,12 @@ import {
   fetchAdminMenuItems,
   fetchAllAdminCategories,
   formatAdminMenuDate,
-  formatAdminMenuMoney,
   updateAdminCategory,
   updateAdminMenuItem,
 } from './adminMenuApi';
 import styles from './AdminMenuPage.module.css';
 import CategoryForm from './CategoryForm';
-import MenuItemForm from './MenuItemForm';
+import MenuItemForm, { formatNokMinorUnits } from './MenuItemForm';
 
 const PAGE_LIMIT = 50;
 
@@ -37,6 +39,58 @@ interface Notice {
   message: string;
   title: string;
   tone: AsyncNoticeTone;
+}
+
+interface CollectionFocusIntent {
+  readonly kind: 'pagination' | 'retry';
+  readonly origin: HTMLElement | null;
+}
+
+function restoreFocusIfAbandoned(
+  target: HTMLElement | null,
+  origin: HTMLElement | null = null,
+): void {
+  if (target === null || !target.isConnected) return;
+  const activeElement = document.activeElement;
+  if (
+    activeElement === origin ||
+    activeElement === null ||
+    activeElement === document.body ||
+    !activeElement.isConnected ||
+    (activeElement instanceof HTMLButtonElement && activeElement.disabled)
+  ) {
+    target.focus();
+  }
+}
+
+function MenuImagePreview({ item }: { item: AdminMenuItem }) {
+  const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null);
+  const imageUrl = resolveMenuImageUrl(item.id, item.imageUrl);
+  const failed = imageUrl !== null && failedImageUrl === imageUrl;
+
+  return (
+    <span className={styles.itemImageFrame}>
+      {imageUrl !== null && !failed ? (
+        <img
+          alt=""
+          className={styles.itemImage}
+          decoding="async"
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          src={imageUrl}
+          onError={() => setFailedImageUrl(imageUrl)}
+        />
+      ) : (
+        <span
+          aria-label={failed ? 'Image preview unavailable' : 'No safe image preview'}
+          className={styles.itemImageFallback}
+          role="img"
+        >
+          No image
+        </span>
+      )}
+    </span>
+  );
 }
 
 type CategoryOptionsState =
@@ -141,10 +195,12 @@ function getItemMutationNotice(error: unknown): Notice {
 }
 
 function StatePanel({
+  actionRef,
   heading,
   message,
   onRetry,
 }: {
+  actionRef?: Ref<HTMLButtonElement>;
   heading: string;
   message: string;
   onRetry?: () => void;
@@ -154,9 +210,9 @@ function StatePanel({
       <h3>{heading}</h3>
       <p>{message}</p>
       {onRetry ? (
-        <button className={styles.secondaryButton} type="button" onClick={onRetry}>
+        <Button ref={actionRef} variant="secondary" onClick={onRetry}>
           Retry
-        </button>
+        </Button>
       ) : null}
     </div>
   );
@@ -175,27 +231,27 @@ function Pagination({
   offset: number;
   pageItems: number;
   total: number;
-  onOffsetChange: (offset: number) => void;
+  onOffsetChange: (offset: number, origin: HTMLButtonElement) => void;
 }) {
   return (
     <nav className={styles.pagination} aria-label={`${label} pagination`}>
-      <button
-        className={styles.secondaryButton}
-        type="button"
+      <Button
+        variant="secondary"
         disabled={offset === 0}
-        onClick={() => onOffsetChange(Math.max(0, offset - limit))}
+        onClick={(event) =>
+          onOffsetChange(Math.max(0, offset - limit), event.currentTarget)
+        }
       >
         Previous
-      </button>
+      </Button>
       <span aria-current="page">Page {Math.floor(offset / limit) + 1}</span>
-      <button
-        className={styles.secondaryButton}
-        type="button"
+      <Button
+        variant="secondary"
         disabled={offset + pageItems >= total}
-        onClick={() => onOffsetChange(offset + limit)}
+        onClick={(event) => onOffsetChange(offset + limit, event.currentTarget)}
       >
         Next
-      </button>
+      </Button>
     </nav>
   );
 }
@@ -203,24 +259,31 @@ function Pagination({
 function CategoryResults({
   data,
   onEdit,
+  summaryRef,
 }: {
   data: AdminCategoryListResponse;
-  onEdit: (category: AdminCategory) => void;
+  onEdit: (category: AdminCategory, trigger: HTMLButtonElement) => void;
+  summaryRef: Ref<HTMLParagraphElement>;
 }) {
   return (
     <>
-      <p className={styles.resultSummary} aria-live="polite">
+      <p
+        ref={summaryRef}
+        className={styles.resultSummary}
+        tabIndex={-1}
+        aria-live="polite"
+      >
         Showing {data.offset + 1}–{data.offset + data.items.length} of {data.total}
       </p>
       <div className={styles.tableWrapper}>
-        <table className={styles.table}>
+        <table className={[styles.table, styles.categoryTable].join(' ')}>
           <caption>Administrator categories in backend order</caption>
           <thead>
             <tr>
               <th scope="col">Name</th>
               <th scope="col">Description</th>
               <th scope="col">Display order</th>
-              <th scope="col">Active</th>
+              <th scope="col">Lifecycle</th>
               <th scope="col">Updated</th>
               <th scope="col">Action</th>
             </tr>
@@ -231,20 +294,25 @@ function CategoryResults({
                 <th scope="row">{category.name}</th>
                 <td>{category.description ?? 'No description'}</td>
                 <td>{category.displayOrder}</td>
-                <td>{category.isActive ? 'Active' : 'Inactive'}</td>
+                <td>
+                  <StatusBadge variant={category.isActive ? 'success' : 'neutral'}>
+                    {category.isActive ? 'Active' : 'Inactive'}
+                  </StatusBadge>
+                </td>
                 <td>
                   <time dateTime={category.updatedAt}>
                     {formatAdminMenuDate(category.updatedAt)}
                   </time>
                 </td>
                 <td>
-                  <button
+                  <Button
                     className={styles.compactButton}
-                    type="button"
-                    onClick={() => onEdit(category)}
+                    size="sm"
+                    variant="secondary"
+                    onClick={(event) => onEdit(category, event.currentTarget)}
                   >
                     Edit <span className={styles.visuallyHidden}>{category.name}</span>
-                  </button>
+                  </Button>
                 </td>
               </tr>
             ))}
@@ -263,8 +331,12 @@ function CategoryResults({
                   <dd>{category.displayOrder}</dd>
                 </div>
                 <div>
-                  <dt>Status</dt>
-                  <dd>{category.isActive ? 'Active' : 'Inactive'}</dd>
+                  <dt>Lifecycle</dt>
+                  <dd>
+                    <StatusBadge variant={category.isActive ? 'success' : 'neutral'}>
+                      {category.isActive ? 'Active' : 'Inactive'}
+                    </StatusBadge>
+                  </dd>
                 </div>
                 <div>
                   <dt>Updated</dt>
@@ -275,13 +347,13 @@ function CategoryResults({
                   </dd>
                 </div>
               </dl>
-              <button
-                className={styles.secondaryButton}
-                type="button"
-                onClick={() => onEdit(category)}
+              <Button
+                variant="secondary"
+                onClick={(event) => onEdit(category, event.currentTarget)}
               >
-                Edit category
-              </button>
+                Edit category{' '}
+                <span className={styles.visuallyHidden}>{category.name}</span>
+              </Button>
             </article>
           </li>
         ))}
@@ -292,44 +364,80 @@ function CategoryResults({
 
 function ItemResults({
   categoryNames,
-  data,
+  items,
+  summary,
   onEdit,
+  summaryRef,
 }: {
   categoryNames: Map<string, string>;
-  data: AdminMenuItemListResponse;
-  onEdit: (item: AdminMenuItem) => void;
+  items: AdminMenuItem[];
+  summary: string;
+  onEdit: (item: AdminMenuItem, trigger: HTMLButtonElement) => void;
+  summaryRef: Ref<HTMLParagraphElement>;
 }) {
   const categoryName = (id: string) => categoryNames.get(id) ?? 'Category not loaded';
   return (
     <>
-      <p className={styles.resultSummary} aria-live="polite">
-        Showing {data.offset + 1}–{data.offset + data.items.length} of {data.total}
+      <p
+        ref={summaryRef}
+        className={styles.resultSummary}
+        tabIndex={-1}
+        aria-live="polite"
+      >
+        {summary}
       </p>
       <div className={styles.tableWrapper}>
-        <table className={styles.table}>
+        <table className={[styles.table, styles.itemTable].join(' ')}>
           <caption>Administrator menu items in backend order</caption>
           <thead>
             <tr>
-              <th scope="col">Name</th>
+              <th scope="col">Image</th>
+              <th scope="col">Item</th>
               <th scope="col">Category</th>
               <th scope="col">Price</th>
-              <th scope="col">Currency</th>
-              <th scope="col">Active</th>
-              <th scope="col">Available</th>
-              <th scope="col">Display order</th>
+              <th scope="col">Cost</th>
+              <th scope="col">Lifecycle</th>
+              <th scope="col">Sale availability</th>
+              <th scope="col">Order</th>
               <th scope="col">Updated</th>
               <th scope="col">Action</th>
             </tr>
           </thead>
           <tbody>
-            {data.items.map((item) => (
+            {items.map((item) => (
               <tr key={item.id}>
-                <th scope="row">{item.name}</th>
+                <td>
+                  <MenuImagePreview item={item} />
+                </td>
+                <th scope="row">
+                  <span className={styles.itemName}>{item.name}</span>
+                  {item.description ? (
+                    <span className={styles.itemDescription}>{item.description}</span>
+                  ) : null}
+                </th>
                 <td>{categoryName(item.categoryId)}</td>
-                <td>{formatAdminMenuMoney(item.priceAmount, item.currency)}</td>
-                <td>{item.currency}</td>
-                <td>{item.isActive ? 'Active' : 'Inactive'}</td>
-                <td>{item.isAvailable ? 'Available' : 'Unavailable'}</td>
+                <td className={styles.moneyCell}>
+                  {item.currency === 'NOK'
+                    ? formatNokMinorUnits(item.priceAmount) + ' NOK'
+                    : 'Unsupported ' + item.currency}
+                </td>
+                <td className={styles.moneyCell}>
+                  {item.costAmount === null
+                    ? 'Unknown'
+                    : item.currency === 'NOK'
+                      ? formatNokMinorUnits(item.costAmount) + ' NOK'
+                      : 'Unsupported ' + item.currency}
+                </td>
+                <td>
+                  <StatusBadge variant={item.isActive ? 'success' : 'neutral'}>
+                    {item.isActive ? 'Active' : 'Inactive'}
+                  </StatusBadge>
+                </td>
+                <td>
+                  <StatusBadge variant={item.isAvailable ? 'success' : 'warning'}>
+                    {item.isAvailable ? 'Available' : 'Unavailable'}
+                  </StatusBadge>
+                </td>
                 <td>{item.displayOrder}</td>
                 <td>
                   <time dateTime={item.updatedAt}>
@@ -337,13 +445,14 @@ function ItemResults({
                   </time>
                 </td>
                 <td>
-                  <button
+                  <Button
                     className={styles.compactButton}
-                    type="button"
-                    onClick={() => onEdit(item)}
+                    size="sm"
+                    variant="secondary"
+                    onClick={(event) => onEdit(item, event.currentTarget)}
                   >
                     Edit <span className={styles.visuallyHidden}>{item.name}</span>
-                  </button>
+                  </Button>
                 </td>
               </tr>
             ))}
@@ -351,40 +460,66 @@ function ItemResults({
         </table>
       </div>
       <ul className={styles.cards} aria-label="Administrator menu items">
-        {data.items.map((item) => (
+        {items.map((item) => (
           <li className={styles.card} key={item.id}>
             <article>
-              <h3>{item.name}</h3>
-              <p>{categoryName(item.categoryId)}</p>
+              <div className={styles.itemCardHeader}>
+                <MenuImagePreview item={item} />
+                <div className={styles.itemIdentity}>
+                  <h3>{item.name}</h3>
+                  <p>{categoryName(item.categoryId)}</p>
+                </div>
+              </div>
+              {item.description ? (
+                <p className={styles.itemCardDescription}>{item.description}</p>
+              ) : null}
               <dl className={styles.cardDetails}>
                 <div>
                   <dt>Price</dt>
-                  <dd>{formatAdminMenuMoney(item.priceAmount, item.currency)}</dd>
+                  <dd className={styles.moneyCell}>
+                    {item.currency === 'NOK'
+                      ? formatNokMinorUnits(item.priceAmount) + ' NOK'
+                      : 'Unsupported ' + item.currency}
+                  </dd>
                 </div>
                 <div>
-                  <dt>Currency</dt>
-                  <dd>{item.currency}</dd>
+                  <dt>Cost</dt>
+                  <dd className={styles.moneyCell}>
+                    {item.costAmount === null
+                      ? 'Unknown'
+                      : item.currency === 'NOK'
+                        ? formatNokMinorUnits(item.costAmount) + ' NOK'
+                        : 'Unsupported ' + item.currency}
+                  </dd>
                 </div>
                 <div>
-                  <dt>Active</dt>
-                  <dd>{item.isActive ? 'Active' : 'Inactive'}</dd>
+                  <dt>Lifecycle</dt>
+                  <dd>
+                    <StatusBadge variant={item.isActive ? 'success' : 'neutral'}>
+                      {item.isActive ? 'Active' : 'Inactive'}
+                    </StatusBadge>
+                  </dd>
                 </div>
                 <div>
-                  <dt>Available</dt>
-                  <dd>{item.isAvailable ? 'Available' : 'Unavailable'}</dd>
+                  <dt>Sale availability</dt>
+                  <dd>
+                    <StatusBadge variant={item.isAvailable ? 'success' : 'warning'}>
+                      {item.isAvailable ? 'Available' : 'Unavailable'}
+                    </StatusBadge>
+                  </dd>
                 </div>
                 <div>
                   <dt>Display order</dt>
                   <dd>{item.displayOrder}</dd>
                 </div>
               </dl>
-              <button
-                className={styles.secondaryButton}
-                type="button"
-                onClick={() => onEdit(item)}
+              <Button
+                variant="secondary"
+                onClick={(event) => onEdit(item, event.currentTarget)}
               >
-                Edit menu item
-              </button>
+                Edit menu item{' '}
+                <span className={styles.visuallyHidden}>{item.name}</span>
+              </Button>
             </article>
           </li>
         ))}
@@ -421,11 +556,22 @@ export default function AdminMenuPage() {
   const [itemBusy, setItemBusy] = useState(false);
   const [categorySubmitLocked, setCategorySubmitLocked] = useState(false);
   const [itemSubmitLocked, setItemSubmitLocked] = useState(false);
+  const [selectedCategoryId, setSelectedCategoryId] = useState<'all' | string>('all');
   const categoryControllerRef = useRef<AbortController | null>(null);
   const itemControllerRef = useRef<AbortController | null>(null);
   const optionsControllerRef = useRef<AbortController | null>(null);
   const categoryGenerationRef = useRef(0);
   const itemGenerationRef = useRef(0);
+  const categoryHeadingRef = useRef<HTMLHeadingElement>(null);
+  const itemHeadingRef = useRef<HTMLHeadingElement>(null);
+  const categoryResultSummaryRef = useRef<HTMLParagraphElement>(null);
+  const itemResultSummaryRef = useRef<HTMLParagraphElement>(null);
+  const categoryRetryButtonRef = useRef<HTMLButtonElement>(null);
+  const itemRetryButtonRef = useRef<HTMLButtonElement>(null);
+  const categoryFocusIntentRef = useRef<CollectionFocusIntent | null>(null);
+  const itemFocusIntentRef = useRef<CollectionFocusIntent | null>(null);
+  const categoryEditorTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const itemEditorTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   const loadCategories = useCallback(async () => {
     const authSession = getAuthenticatedSession();
@@ -436,6 +582,7 @@ export default function AdminMenuPage() {
     categoryControllerRef.current?.abort();
     const controller = new AbortController();
     categoryControllerRef.current = controller;
+    setCategoryNotice(null);
     setCategoryState({ kind: 'loading' });
     try {
       const data = await fetchAdminCategories(
@@ -484,6 +631,7 @@ export default function AdminMenuPage() {
     itemControllerRef.current?.abort();
     const controller = new AbortController();
     itemControllerRef.current = controller;
+    setItemNotice(null);
     setItemState({ kind: 'loading' });
     try {
       const data = await fetchAdminMenuItems(
@@ -538,6 +686,68 @@ export default function AdminMenuPage() {
 
   useEffect(() => () => optionsControllerRef.current?.abort(), []);
 
+  useEffect(() => {
+    if (categoryState.kind === 'loading') return;
+    const intent = categoryFocusIntentRef.current;
+    if (intent === null) return;
+    categoryFocusIntentRef.current = null;
+    const target =
+      categoryState.kind === 'error'
+        ? categoryRetryButtonRef.current
+        : categoryState.data.items.length > 0
+          ? categoryResultSummaryRef.current
+          : categoryHeadingRef.current;
+    restoreFocusIfAbandoned(target, intent.origin);
+  }, [categoryState]);
+
+  useEffect(() => {
+    if (itemState.kind === 'loading') return;
+    const intent = itemFocusIntentRef.current;
+    if (intent === null) return;
+    itemFocusIntentRef.current = null;
+    const target =
+      itemState.kind === 'error'
+        ? itemRetryButtonRef.current
+        : itemState.data.items.length > 0
+          ? itemResultSummaryRef.current
+          : itemHeadingRef.current;
+    restoreFocusIfAbandoned(target, intent.origin);
+  }, [itemState]);
+
+  const retryCategories = useCallback(() => {
+    categoryFocusIntentRef.current = {
+      kind: 'retry',
+      origin:
+        document.activeElement instanceof HTMLElement ? document.activeElement : null,
+    };
+    void loadCategories();
+  }, [loadCategories]);
+
+  const retryItems = useCallback(() => {
+    itemFocusIntentRef.current = {
+      kind: 'retry',
+      origin:
+        document.activeElement instanceof HTMLElement ? document.activeElement : null,
+    };
+    void loadItems();
+  }, [loadItems]);
+
+  const changeCategoryOffset = useCallback(
+    (nextOffset: number, origin: HTMLButtonElement) => {
+      categoryFocusIntentRef.current = { kind: 'pagination', origin };
+      setCategoryOffset(nextOffset);
+    },
+    [],
+  );
+
+  const changeItemOffset = useCallback(
+    (nextOffset: number, origin: HTMLButtonElement) => {
+      itemFocusIntentRef.current = { kind: 'pagination', origin };
+      setItemOffset(nextOffset);
+    },
+    [],
+  );
+
   const categoryNames = useMemo(() => {
     const categories =
       categoryOptions.kind === 'success'
@@ -548,7 +758,113 @@ export default function AdminMenuPage() {
     return new Map(categories.map((category) => [category.id, category.name]));
   }, [categoryOptions, categoryState]);
 
-  const openItemEditor = async (item: AdminMenuItem | null) => {
+  const categoryFilterOptions = useMemo(() => {
+    if (
+      categoryState.kind !== 'success' ||
+      itemState.kind !== 'success' ||
+      categoryState.data.offset !== 0 ||
+      itemState.data.offset !== 0 ||
+      categoryState.data.items.length !== categoryState.data.total ||
+      itemState.data.items.length !== itemState.data.total ||
+      categoryState.data.items.length < 2
+    ) {
+      return [];
+    }
+    return categoryState.data.items;
+  }, [categoryState, itemState]);
+
+  const effectiveSelectedCategoryId =
+    selectedCategoryId === 'all' ||
+    categoryFilterOptions.some((category) => category.id === selectedCategoryId)
+      ? selectedCategoryId
+      : 'all';
+
+  const visibleItems = useMemo(() => {
+    if (itemState.kind !== 'success') {
+      return [];
+    }
+    if (effectiveSelectedCategoryId === 'all' || categoryFilterOptions.length === 0) {
+      return itemState.data.items;
+    }
+    return itemState.data.items.filter(
+      (item) => item.categoryId === effectiveSelectedCategoryId,
+    );
+  }, [categoryFilterOptions, effectiveSelectedCategoryId, itemState]);
+
+  const itemResultSummary = useMemo(() => {
+    if (itemState.kind !== 'success') {
+      return '';
+    }
+    if (effectiveSelectedCategoryId !== 'all' && categoryFilterOptions.length > 0) {
+      const categoryName =
+        categoryNames.get(effectiveSelectedCategoryId) ?? 'selected category';
+      return `${visibleItems.length} item${visibleItems.length === 1 ? '' : 's'} in ${categoryName}`;
+    }
+    return `Showing ${itemState.data.offset + 1}–${itemState.data.offset + itemState.data.items.length} of ${itemState.data.total}`;
+  }, [
+    categoryFilterOptions.length,
+    categoryNames,
+    itemState,
+    effectiveSelectedCategoryId,
+    visibleItems.length,
+  ]);
+
+  const inventorySummary = useMemo(() => {
+    if (
+      itemState.kind !== 'success' ||
+      itemState.data.offset !== 0 ||
+      itemState.data.items.length !== itemState.data.total
+    ) {
+      return null;
+    }
+    return {
+      active: itemState.data.items.filter((item) => item.isActive).length,
+      available: itemState.data.items.filter((item) => item.isAvailable).length,
+      total: itemState.data.total,
+    };
+  }, [itemState]);
+
+  const openCategoryEditor = (
+    category: AdminCategory | null,
+    trigger: HTMLButtonElement,
+  ) => {
+    categoryEditorTriggerRef.current = trigger;
+    if (!categorySubmitLocked) {
+      setCategoryNotice(null);
+    }
+    setCategoryEditor(category);
+  };
+
+  const closeCategoryEditor = useCallback(() => {
+    const trigger = categoryEditorTriggerRef.current;
+    setCategoryEditor(undefined);
+    window.setTimeout(() => {
+      restoreFocusIfAbandoned(trigger);
+      if (categoryEditorTriggerRef.current === trigger) {
+        categoryEditorTriggerRef.current = null;
+      }
+    }, 0);
+  }, []);
+
+  const closeItemEditor = useCallback(() => {
+    const trigger = itemEditorTriggerRef.current;
+    setItemEditor(undefined);
+    window.setTimeout(() => {
+      restoreFocusIfAbandoned(trigger);
+      if (itemEditorTriggerRef.current === trigger) {
+        itemEditorTriggerRef.current = null;
+      }
+    }, 0);
+  }, []);
+
+  const openItemEditor = async (
+    item: AdminMenuItem | null,
+    trigger: HTMLButtonElement,
+  ) => {
+    itemEditorTriggerRef.current = trigger;
+    if (!itemSubmitLocked) {
+      setItemNotice(null);
+    }
     if (categoryOptions.kind === 'success') {
       setItemEditor(item);
       return;
@@ -579,12 +895,20 @@ export default function AdminMenuPage() {
         kind: 'error',
         message: getListErrorMessage('categories', error),
       });
+      window.setTimeout(() => {
+        restoreFocusIfAbandoned(trigger);
+        if (itemEditorTriggerRef.current === trigger) {
+          itemEditorTriggerRef.current = null;
+        }
+      }, 0);
     }
   };
 
   const handleCategorySubmit = async (
     payload: AdminCategoryCreatePayload | AdminCategoryUpdatePayload,
   ) => {
+    const focusOrigin =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const authSession = getAuthenticatedSession();
     if (authSession === null) return logout();
     const token = authSession.accessToken;
@@ -620,6 +944,10 @@ export default function AdminMenuPage() {
           title: 'Category saved',
           tone: 'success',
         });
+        window.setTimeout(
+          () => restoreFocusIfAbandoned(categoryHeadingRef.current, focusOrigin),
+          0,
+        );
       } catch (refreshError: unknown) {
         if (
           refreshError instanceof AdminApiRequestError &&
@@ -640,6 +968,10 @@ export default function AdminMenuPage() {
           title: 'Category saved',
           tone: 'success',
         });
+        window.setTimeout(
+          () => restoreFocusIfAbandoned(categoryHeadingRef.current, focusOrigin),
+          0,
+        );
       }
     } catch (error: unknown) {
       if (error instanceof AdminApiRequestError && error.status === 401) {
@@ -670,6 +1002,8 @@ export default function AdminMenuPage() {
   const handleItemSubmit = async (
     payload: AdminMenuItemCreatePayload | AdminMenuItemUpdatePayload,
   ) => {
+    const focusOrigin =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const authSession = getAuthenticatedSession();
     if (authSession === null) return logout();
     const token = authSession.accessToken;
@@ -701,6 +1035,10 @@ export default function AdminMenuPage() {
           title: 'Menu item saved',
           tone: 'success',
         });
+        window.setTimeout(
+          () => restoreFocusIfAbandoned(itemHeadingRef.current, focusOrigin),
+          0,
+        );
       } catch (refreshError: unknown) {
         if (
           refreshError instanceof AdminApiRequestError &&
@@ -721,6 +1059,10 @@ export default function AdminMenuPage() {
           title: 'Menu item saved',
           tone: 'success',
         });
+        window.setTimeout(
+          () => restoreFocusIfAbandoned(itemHeadingRef.current, focusOrigin),
+          0,
+        );
       }
     } catch (error: unknown) {
       if (error instanceof AdminApiRequestError && error.status === 401) {
@@ -756,7 +1098,8 @@ export default function AdminMenuPage() {
         <p className="eyebrow">Catalog operations</p>
         <h1 id="admin-menu-heading">Menu</h1>
         <p>
-          Manage current categories and menu items without deleting historical records.
+          Manage categories, NOK pricing, lifecycle visibility, and daily sale
+          availability.
         </p>
         <p className={styles.snapshotWarning}>
           Changes affect future orders only. Historical order snapshots and analytics do
@@ -764,29 +1107,34 @@ export default function AdminMenuPage() {
         </p>
       </header>
 
-      <section className={styles.resourceSection} aria-labelledby="categories-heading">
+      <section
+        aria-busy={categoryState.kind === 'loading' || categoryBusy}
+        className={styles.resourceSection}
+        aria-labelledby="categories-heading"
+      >
         <header className={styles.sectionHeader}>
           <div>
-            <h2 id="categories-heading">Categories</h2>
+            <h2 ref={categoryHeadingRef} id="categories-heading" tabIndex={-1}>
+              Categories
+            </h2>
             <p>Manage active and inactive category records.</p>
           </div>
           <div className={styles.sectionActions}>
-            <button
-              className={styles.primaryButton}
-              type="button"
+            <Button
               disabled={categoryBusy}
-              onClick={() => setCategoryEditor(null)}
+              onClick={(event) => openCategoryEditor(null, event.currentTarget)}
             >
               Add category
-            </button>
-            <button
-              className={styles.secondaryButton}
-              type="button"
-              disabled={categoryState.kind === 'loading' || categoryBusy}
+            </Button>
+            <Button
+              variant="secondary"
+              loading={categoryState.kind === 'loading'}
+              loadingLabel="Refreshing categories…"
+              disabled={categoryBusy}
               onClick={() => void loadCategories()}
             >
               Refresh categories
-            </button>
+            </Button>
           </div>
         </header>
         {categoryNotice ? (
@@ -799,7 +1147,7 @@ export default function AdminMenuPage() {
             key={categoryEditor?.id ?? 'new-category'}
             busy={categoryBusy}
             category={categoryEditor}
-            onCancel={() => setCategoryEditor(undefined)}
+            onCancel={closeCategoryEditor}
             onSubmit={handleCategorySubmit}
             submitLocked={categorySubmitLocked}
           />
@@ -812,9 +1160,10 @@ export default function AdminMenuPage() {
         ) : null}
         {categoryState.kind === 'error' ? (
           <StatePanel
+            actionRef={categoryRetryButtonRef}
             heading="Unable to load categories"
             message={categoryState.message}
-            onRetry={() => void loadCategories()}
+            onRetry={retryCategories}
           />
         ) : null}
         {categoryState.kind === 'success' && categoryState.data.items.length === 0 ? (
@@ -824,7 +1173,11 @@ export default function AdminMenuPage() {
           />
         ) : null}
         {categoryState.kind === 'success' && categoryState.data.items.length > 0 ? (
-          <CategoryResults data={categoryState.data} onEdit={setCategoryEditor} />
+          <CategoryResults
+            data={categoryState.data}
+            onEdit={openCategoryEditor}
+            summaryRef={categoryResultSummaryRef}
+          />
         ) : null}
         {categoryState.kind === 'success' && categoryState.data.total > 0 ? (
           <Pagination
@@ -833,41 +1186,104 @@ export default function AdminMenuPage() {
             offset={categoryOffset}
             pageItems={categoryState.data.items.length}
             total={categoryState.data.total}
-            onOffsetChange={setCategoryOffset}
+            onOffsetChange={changeCategoryOffset}
           />
         ) : null}
       </section>
 
-      <section className={styles.resourceSection} aria-labelledby="items-heading">
+      <section
+        aria-busy={itemState.kind === 'loading' || itemBusy}
+        className={styles.resourceSection}
+        aria-labelledby="items-heading"
+      >
         <header className={styles.sectionHeader}>
           <div>
-            <h2 id="items-heading">Menu items</h2>
+            <h2 ref={itemHeadingRef} id="items-heading" tabIndex={-1}>
+              Menu items
+            </h2>
             <p>Activity and availability remain independent controls.</p>
           </div>
           <div className={styles.sectionActions}>
-            <button
-              className={styles.primaryButton}
-              type="button"
+            <Button
               disabled={
                 itemBusy ||
                 categoryState.kind !== 'success' ||
                 categoryState.data.total === 0 ||
                 categoryOptions.kind === 'loading'
               }
-              onClick={() => void openItemEditor(null)}
+              onClick={(event) => void openItemEditor(null, event.currentTarget)}
             >
               Add menu item
-            </button>
-            <button
-              className={styles.secondaryButton}
-              type="button"
-              disabled={itemState.kind === 'loading' || itemBusy}
+            </Button>
+            <Button
+              variant="secondary"
+              loading={itemState.kind === 'loading'}
+              loadingLabel="Refreshing menu items…"
+              disabled={itemBusy}
               onClick={() => void loadItems()}
             >
               Refresh menu items
-            </button>
+            </Button>
           </div>
         </header>
+        {inventorySummary !== null ? (
+          <dl
+            className={styles.operationalSummary}
+            aria-label="Current inventory summary"
+          >
+            <div>
+              <dt>Items</dt>
+              <dd>{inventorySummary.total}</dd>
+            </div>
+            <div>
+              <dt>Active</dt>
+              <dd>{inventorySummary.active}</dd>
+            </div>
+            <div>
+              <dt>Marked available</dt>
+              <dd>{inventorySummary.available}</dd>
+            </div>
+          </dl>
+        ) : null}
+        {categoryFilterOptions.length > 0 ? (
+          <nav
+            className={styles.categoryFilter}
+            aria-label="Filter menu items by category"
+          >
+            <p>Current inventory by category</p>
+            <div className={styles.categoryFilterOptions}>
+              <Button
+                aria-pressed={effectiveSelectedCategoryId === 'all'}
+                className={styles.categoryFilterButton}
+                size="sm"
+                variant={effectiveSelectedCategoryId === 'all' ? 'primary' : 'ghost'}
+                onClick={() => setSelectedCategoryId('all')}
+              >
+                <span aria-hidden="true">
+                  {effectiveSelectedCategoryId === 'all' ? '✓ ' : ''}
+                </span>
+                All items
+              </Button>
+              {categoryFilterOptions.map((category) => (
+                <Button
+                  key={category.id}
+                  aria-pressed={effectiveSelectedCategoryId === category.id}
+                  className={styles.categoryFilterButton}
+                  size="sm"
+                  variant={
+                    effectiveSelectedCategoryId === category.id ? 'primary' : 'ghost'
+                  }
+                  onClick={() => setSelectedCategoryId(category.id)}
+                >
+                  <span aria-hidden="true">
+                    {effectiveSelectedCategoryId === category.id ? '✓ ' : ''}
+                  </span>
+                  {category.name}
+                </Button>
+              ))}
+            </div>
+          </nav>
+        ) : null}
         {categoryOptions.kind === 'loading' ? (
           <p className={styles.inlineStatus} role="status">
             Loading all categories for the item form…
@@ -889,7 +1305,7 @@ export default function AdminMenuPage() {
             busy={itemBusy}
             categories={categoryOptions.categories}
             item={itemEditor}
-            onCancel={() => setItemEditor(undefined)}
+            onCancel={closeItemEditor}
             onSubmit={handleItemSubmit}
             submitLocked={itemSubmitLocked}
           />
@@ -902,9 +1318,10 @@ export default function AdminMenuPage() {
         ) : null}
         {itemState.kind === 'error' ? (
           <StatePanel
+            actionRef={itemRetryButtonRef}
             heading="Unable to load menu items"
             message={itemState.message}
-            onRetry={() => void loadItems()}
+            onRetry={retryItems}
           />
         ) : null}
         {itemState.kind === 'success' && itemState.data.items.length === 0 ? (
@@ -913,11 +1330,21 @@ export default function AdminMenuPage() {
             message="Menu items will appear here after they are created."
           />
         ) : null}
-        {itemState.kind === 'success' && itemState.data.items.length > 0 ? (
+        {itemState.kind === 'success' &&
+        itemState.data.items.length > 0 &&
+        visibleItems.length === 0 ? (
+          <StatePanel
+            heading="No items in this category"
+            message="Choose another category or show all current menu items."
+          />
+        ) : null}
+        {itemState.kind === 'success' && visibleItems.length > 0 ? (
           <ItemResults
             categoryNames={categoryNames}
-            data={itemState.data}
-            onEdit={(item) => void openItemEditor(item)}
+            items={visibleItems}
+            summary={itemResultSummary}
+            onEdit={(item, trigger) => void openItemEditor(item, trigger)}
+            summaryRef={itemResultSummaryRef}
           />
         ) : null}
         {itemState.kind === 'success' && itemState.data.total > 0 ? (
@@ -927,7 +1354,7 @@ export default function AdminMenuPage() {
             offset={itemOffset}
             pageItems={itemState.data.items.length}
             total={itemState.data.total}
-            onOffsetChange={setItemOffset}
+            onOffsetChange={changeItemOffset}
           />
         ) : null}
       </section>

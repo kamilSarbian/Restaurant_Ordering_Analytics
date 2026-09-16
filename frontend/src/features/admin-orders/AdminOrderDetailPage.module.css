@@ -1,229 +1,214 @@
 .page {
     display: grid;
-    gap: var(--space-6);
+    width: min(100%, var(--content-width-admin));
+    min-width: 0;
+    margin-inline: auto;
+    gap: var(--space-5);
+    animation: pageReveal var(--duration-standard) var(--easing-standard) both;
 }
 
 .pageHeader {
     display: grid;
+    min-width: 0;
     gap: var(--space-4);
+    padding-block-end: var(--space-4);
+    border-block-end: var(--border-width-hairline) solid var(--color-border-subtle);
 }
 
 .pageHeader > div {
     display: grid;
-    gap: var(--space-2);
+    min-width: 0;
+    gap: var(--space-1);
 }
 
 .pageHeader h1 {
+    max-width: 100%;
+    font-size: clamp(1.75rem, 6vw, 2.5rem);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.025em;
     overflow-wrap: anywhere;
-    font-size: clamp(2rem, 7vw, 3.5rem);
 }
 
 .backLink {
+    display: inline-flex;
+    min-height: 2.75rem;
+    align-items: center;
     justify-self: start;
-    font-weight: 750;
+    color: var(--color-primary);
+    font-size: var(--font-size-label);
+    font-weight: var(--font-weight-semibold);
+    text-underline-offset: 0.2em;
+    transition:
+        var(--transition-color),
+        transform var(--duration-fast) var(--easing-standard);
 }
 
-.secondaryButton {
-    min-height: 2.75rem;
-    width: 100%;
-    padding: var(--space-2) var(--space-4);
-    border: 1px solid var(--color-primary);
-    border-radius: var(--radius-small);
-    background: var(--color-surface);
+.backLink:hover {
     color: var(--color-primary-hover);
-    cursor: pointer;
-    font-weight: 750;
+    transform: translateX(-2px);
 }
 
-.secondaryButton:hover:not(:disabled) {
-    background: rgb(36 97 70 / 9%);
-}
-
-.secondaryButton:disabled {
-    cursor: not-allowed;
-    opacity: 0.55;
-}
-
-.panel,
-.actionPanel,
-.statePanel {
-    display: grid;
-    min-width: 0;
-    gap: var(--space-4);
-    padding: clamp(var(--space-5), 5vw, var(--space-8));
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-medium);
-    background: var(--color-surface);
-    box-shadow: var(--shadow-small);
-}
-
-.panel > p,
-.actionPanel > p,
-.statePanel p {
-    color: var(--color-muted);
-}
-
-.actionButtons,
-.confirmationActions {
-    display: grid;
-    gap: var(--space-3);
-}
-
-.primaryButton,
-.destructiveButton {
-    min-height: 2.75rem;
-    width: 100%;
-    padding: var(--space-2) var(--space-4);
-    border: 1px solid var(--color-primary);
-    border-radius: var(--radius-small);
-    background: var(--color-primary);
-    color: var(--color-surface);
-    cursor: pointer;
-    font-weight: 800;
-}
-
-.primaryButton:hover:not(:disabled) {
-    background: var(--color-primary-hover);
-}
-
-.destructiveButton {
-    border-color: var(--color-accent);
-    background: var(--color-accent);
-}
-
-.destructiveButton:hover:not(:disabled) {
-    background: var(--color-accent-strong);
-}
-
-.primaryButton:disabled,
-.destructiveButton:disabled {
-    cursor: not-allowed;
-    opacity: 0.55;
-}
-
-.confirmationPanel {
-    display: grid;
-    min-width: 0;
-    gap: var(--space-4);
-    padding: var(--space-4);
-    border: 2px solid var(--color-accent);
-    border-radius: var(--radius-small);
-    background: var(--color-background);
-}
-
-.confirmationPanel h3,
-.confirmationPanel p,
-.mutationNotice,
-.refreshGate,
-.updatingStatus,
-.refreshingStatus {
+.headerContext {
+    max-width: 100%;
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-label);
+    font-variant-numeric: tabular-nums;
     overflow-wrap: anywhere;
 }
 
-.mutationNotice,
-.refreshGate,
-.updatingStatus,
-.refreshingStatus {
-    padding: var(--space-3) var(--space-4);
-    border-radius: var(--radius-small);
-}
-
-.mutationNotice,
-.refreshGate {
-    border: 1px solid var(--color-border);
-    background: var(--color-background);
-}
-
-.success {
-    border-color: var(--color-primary);
-    color: var(--color-primary-hover);
-}
-
-.warning,
-.error {
-    border-color: var(--color-accent);
-    color: var(--color-accent);
-}
-
-.updatingStatus,
-.refreshingStatus {
-    background: rgb(36 97 70 / 9%);
-    color: var(--color-primary-hover);
-    font-weight: 750;
-}
-
-.detailContent {
+.panel,
+.actionPanel {
     display: grid;
     min-width: 0;
-    gap: var(--space-6);
+    gap: var(--space-4);
+    padding: clamp(var(--space-4), 3vw, var(--space-6));
+    border: var(--border-width-hairline) solid var(--color-border-subtle);
+    border-radius: var(--radius-control);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-none);
 }
 
-.detailContentStale {
-    padding: var(--space-2);
-    outline: 2px dashed var(--color-accent);
-    outline-offset: var(--space-1);
-    border-radius: var(--radius-medium);
+.statePanel {
+    display: grid;
+    min-width: 0;
+    max-width: var(--content-width-narrow);
+    gap: var(--space-3);
+    padding: var(--space-5);
+    border-radius: var(--radius-control);
+}
+
+.statePanel h2,
+.statePanel p,
+.panel > p,
+.actionPanel > p {
+    overflow-wrap: anywhere;
+}
+
+.statePanel p,
+.panel > p,
+.actionPanel > p {
+    color: var(--color-text-secondary);
+}
+
+.summaryPanel {
+    border-inline-start: var(--border-width-accent) solid var(--color-primary);
+}
+
+.sectionHeader {
+    display: flex;
+    min-width: 0;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+}
+
+.sectionHeader > div {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-1);
+}
+
+.sectionHeader h2,
+.sectionHeader h3 {
+    font-size: clamp(1.15rem, 3vw, 1.4rem);
+    overflow-wrap: anywhere;
+}
+
+.sectionEyebrow {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-bold);
+    letter-spacing: var(--letter-spacing-label);
+    line-height: var(--line-height-heading);
+    text-transform: uppercase;
+}
+
+.sectionIntro {
+    max-width: 68ch;
+    margin-block-start: calc(var(--space-2) * -1);
 }
 
 .summaryGrid,
 .itemDetails,
 .paymentDetails {
     display: grid;
-    gap: var(--space-4);
+    min-width: 0;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 9.5rem), 1fr));
+    gap: var(--space-3);
 }
 
 .summaryGrid > div,
 .itemDetails > div,
 .paymentDetails > div {
     display: grid;
+    min-width: 0;
+    align-content: start;
     gap: var(--space-1);
+}
+
+.summaryGrid > div {
+    padding-block: var(--space-2);
+    border-block-end: var(--border-width-hairline) solid var(--color-border-subtle);
 }
 
 .summaryGrid dt,
 .itemDetails dt,
 .paymentDetails dt,
 .totals dt {
-    color: var(--color-muted);
-    font-size: 0.9rem;
-    font-weight: 750;
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-semibold);
+    letter-spacing: 0.03em;
 }
 
 .summaryGrid dd,
 .itemDetails dd,
-.paymentDetails dd {
+.paymentDetails dd,
+.totals dd {
     min-width: 0;
+    margin: 0;
     overflow-wrap: anywhere;
 }
 
-.status {
-    display: inline-flex;
-    padding: var(--space-1) var(--space-2);
-    border: 1px solid var(--color-border);
-    border-radius: 999px;
-    background: var(--color-background);
-    font-size: 0.9rem;
-    font-weight: 800;
+.money {
+    font-variant-numeric: tabular-nums;
+    font-weight: var(--font-weight-semibold);
+    letter-spacing: 0.01em;
 }
 
-.status[data-status='accepted'],
-.status[data-status='ready'],
-.status[data-status='completed'] {
+.readyStatus {
     border-color: var(--color-primary);
+    background: var(--color-success-surface);
     color: var(--color-primary-hover);
 }
 
-.status[data-status='cancelled'] {
-    border-color: var(--color-accent);
-    color: var(--color-accent);
+.detailContent {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-5);
+}
+
+.detailContentStale {
+    padding: var(--space-2);
+    outline: var(--border-width-strong) dashed var(--color-warning);
+    outline-offset: var(--space-1);
+    border-radius: var(--radius-control);
 }
 
 .itemList,
 .paymentList,
 .timeline {
     display: grid;
-    gap: var(--space-4);
+    min-width: 0;
+    gap: var(--space-3);
+    margin: 0;
     padding: 0;
     list-style: none;
+}
+
+.paymentList {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
 }
 
 .itemCard,
@@ -231,56 +216,320 @@
 .timeline > li {
     display: grid;
     min-width: 0;
-    gap: var(--space-4);
-    padding: var(--space-4);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-small);
-    background: var(--color-background);
+    gap: var(--space-3);
+    padding: var(--space-3);
+    border: var(--border-width-hairline) solid var(--color-border-subtle);
+    border-radius: var(--radius-control);
+    background: var(--color-canvas);
 }
 
-.itemCategory {
-    color: var(--color-muted);
-    font-size: 0.9rem;
+.itemIdentity {
+    display: grid;
+    min-width: 0;
+    align-content: start;
+    gap: var(--space-1);
+}
+
+.itemIdentity h3,
+.paymentHeader h3,
+.confirmationPanel h3 {
+    font-size: var(--font-size-body);
+    overflow-wrap: anywhere;
+}
+
+.itemCategory,
+.itemCount {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-semibold);
+    overflow-wrap: anywhere;
+}
+
+.itemCount {
+    padding: var(--space-1) var(--space-2);
+    border: var(--border-width-hairline) solid var(--color-border-subtle);
+    border-radius: var(--radius-control);
+    background: var(--color-surface-muted);
+    white-space: nowrap;
 }
 
 .totals {
     display: grid;
-    gap: var(--space-3);
-    padding-top: var(--space-4);
-    border-top: 1px solid var(--color-border);
+    min-width: 0;
+    gap: var(--space-2);
+    margin: 0;
+    padding-block-start: var(--space-4);
+    border-block-start: var(--border-width-strong) solid var(--color-border-subtle);
 }
 
 .totals > div {
-    display: flex;
-    justify-content: space-between;
+    display: grid;
+    min-width: 0;
+    grid-template-columns: minmax(0, 1fr) minmax(0, auto);
+    align-items: baseline;
     gap: var(--space-4);
 }
 
+.totals dd {
+    text-align: end;
+}
+
 .totals > div:last-child {
+    padding-block-start: var(--space-2);
+    border-block-start: var(--border-width-hairline) solid var(--color-border-subtle);
     color: var(--color-primary-hover);
-    font-size: 1.15rem;
-    font-weight: 850;
+    font-size: var(--font-size-body-large);
+    font-weight: var(--font-weight-bold);
+}
+
+.paymentHeader,
+.historyTransition {
+    display: flex;
+    min-width: 0;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+}
+
+.paymentDetails {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
+}
+
+.contractNote {
+    padding: var(--space-3);
+    border-inline-start: var(--border-width-accent) solid var(--color-info);
+    background: var(--color-info-surface);
+    color: var(--color-info) !important;
+    font-size: var(--font-size-label);
 }
 
 .timeline > li {
-    grid-template-columns: minmax(0, 1fr);
+    border-inline-start: var(--border-width-accent) solid var(--color-primary);
 }
 
 .timeline time {
-    color: var(--color-muted);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-label);
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
 }
 
-@media (min-width: 48rem) {
-    .secondaryButton,
-    .primaryButton,
-    .destructiveButton {
-        width: auto;
+.historyTransition > span {
+    min-width: 0;
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-label);
+    overflow-wrap: anywhere;
+}
+
+.actionPanel {
+    align-content: start;
+    border-color: var(--color-sage-support);
+    border-inline-start: var(--border-width-accent) solid var(--color-primary);
+    background: var(--color-surface-muted);
+}
+
+.actionButtons,
+.confirmationActions {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-3);
+}
+
+.actionButtons > *,
+.confirmationActions > * {
+    width: 100%;
+}
+
+.actionButtons > button,
+.confirmationActions > button {
+    min-height: 44px;
+}
+
+.actionButtons > button {
+    transition:
+        var(--transition-color),
+        transform var(--duration-fast) var(--easing-standard);
+}
+
+.actionButtons > button:not(:disabled):hover {
+    transform: translateY(-1px);
+}
+
+.actionButtons > button:not(:disabled):active {
+    transform: translateY(1px);
+}
+
+.actionGuidance {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-1);
+    padding: var(--space-3);
+    border: var(--border-width-hairline) solid var(--color-control-border);
+    border-radius: var(--radius-control);
+    background: var(--color-surface);
+    color: var(--color-text-primary) !important;
+}
+
+.actionGuidance span {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-label);
+    overflow-wrap: anywhere;
+}
+
+.dangerZone {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-3);
+    padding: var(--space-3);
+    border: var(--border-width-hairline) solid var(--color-danger);
+    border-inline-start-width: var(--border-width-accent);
+    border-radius: var(--radius-control);
+    background: var(--color-danger-surface);
+}
+
+.dangerZone > div:first-child {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-1);
+}
+
+.dangerZone strong {
+    color: var(--color-danger);
+}
+
+.dangerZone p {
+    color: var(--color-text-primary);
+    font-size: var(--font-size-label);
+    overflow-wrap: anywhere;
+}
+
+.confirmationPanel {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-3);
+    padding: var(--space-4);
+    border: var(--border-width-strong) solid var(--color-brand-accent);
+    border-radius: var(--radius-control);
+    background: var(--color-surface);
+    animation: confirmationReveal var(--duration-standard) var(--easing-standard) both;
+}
+
+.confirmationPanel[data-destructive='true'] {
+    border-color: var(--color-danger);
+    background: var(--color-danger-surface);
+}
+
+.confirmationEyebrow {
+    color: var(--color-primary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-bold);
+    letter-spacing: var(--letter-spacing-label);
+    line-height: var(--line-height-heading);
+    text-transform: uppercase;
+}
+
+.confirmationPanel[data-destructive='true'] .confirmationEyebrow {
+    color: var(--color-danger);
+}
+
+.confirmationPanel p,
+.confirmationPanel strong {
+    overflow-wrap: anywhere;
+}
+
+.backLink:focus-visible,
+.sectionHeader h2:focus-visible,
+.confirmationPanel h3:focus-visible,
+.statePanel h2:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
+}
+
+.updatingStatus,
+.refreshingStatus {
+    min-width: 0;
+    padding: var(--space-3);
+    border-radius: var(--radius-control);
+    background: var(--color-info-surface);
+    color: var(--color-info) !important;
+    font-size: var(--font-size-label);
+    font-weight: var(--font-weight-semibold);
+    overflow-wrap: anywhere;
+}
+
+.summaryUpdated {
+    animation: summaryConfirmed 220ms var(--easing-standard) both;
+}
+
+@keyframes pageReveal {
+    from {
+        opacity: 0;
+        transform: translateY(3px);
     }
 
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes confirmationReveal {
+    from {
+        opacity: 0;
+        transform: translateY(2px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes summaryConfirmed {
+    from {
+        border-color: var(--color-success);
+        background: var(--color-success-surface);
+    }
+
+    to {
+        border-color: var(--color-border-subtle);
+        border-inline-start-color: var(--color-primary);
+        background: var(--color-surface);
+    }
+}
+
+@media (min-width: 40rem) {
     .actionButtons,
     .confirmationActions {
         display: flex;
         flex-wrap: wrap;
+    }
+
+    .actionButtons > *,
+    .confirmationActions > * {
+        width: auto;
+    }
+
+    .dangerZone {
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+    }
+
+    .itemCard {
+        grid-template-columns: minmax(0, 0.8fr) minmax(18rem, 1.2fr);
+        align-items: start;
+    }
+
+    .timeline > li {
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+    }
+}
+
+@media (min-width: 48rem) {
+    .page {
+        gap: var(--space-6);
     }
 
     .pageHeader {
@@ -289,21 +538,91 @@
     }
 
     .summaryGrid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: repeat(3, minmax(0, 1fr));
     }
+}
 
-    .itemCard {
-        grid-template-columns: minmax(0, 1fr) minmax(20rem, 1fr);
+@media (min-width: 64rem) {
+    .detailContent {
+        grid-template-columns: minmax(0, 1.35fr) minmax(18rem, 0.85fr);
         align-items: start;
     }
 
-    .itemDetails,
-    .paymentDetails {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+    .itemsPanel,
+    .historyPanel {
+        grid-column: 1 / -1;
     }
 
-    .timeline > li {
-        grid-template-columns: minmax(0, 1fr) auto;
-        align-items: center;
+    .paymentsPanel {
+        grid-column: 1;
+    }
+
+    .actionPanel {
+        grid-column: 2;
+    }
+
+    .summaryGrid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .page,
+    .confirmationPanel,
+    .summaryUpdated {
+        animation: none;
+    }
+
+    .backLink,
+    .actionButtons > button,
+    .confirmationActions > button {
+        transition: none;
+    }
+
+    .backLink:hover,
+    .actionButtons > button:not(:disabled):hover,
+    .actionButtons > button:not(:disabled):active {
+        transform: none;
+    }
+}
+
+@media (forced-colors: active) {
+    .panel,
+    .actionPanel,
+    .itemCard,
+    .paymentList > li,
+    .timeline > li,
+    .actionGuidance,
+    .dangerZone,
+    .confirmationPanel,
+    .itemCount {
+        border-color: CanvasText;
+        background: Canvas;
+        box-shadow: none;
+    }
+
+    .summaryPanel,
+    .actionPanel,
+    .timeline > li,
+    .contractNote {
+        border-inline-start-color: Highlight;
+    }
+
+    .dangerZone,
+    .confirmationPanel {
+        border-color: LinkText;
+    }
+
+    .detailContentStale {
+        outline-color: Highlight;
+    }
+
+    .backLink:focus-visible,
+    .sectionHeader h2:focus-visible,
+    .confirmationPanel h3:focus-visible,
+    .statePanel h2:focus-visible {
+        outline: var(--border-width-strong) solid Highlight;
+        outline-offset: var(--space-1);
+        box-shadow: none;
     }
 }

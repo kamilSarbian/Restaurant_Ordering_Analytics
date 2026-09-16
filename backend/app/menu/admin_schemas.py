@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Self
+from typing import Annotated, Literal, Self
 from uuid import UUID
 
 from pydantic import (
@@ -19,6 +19,7 @@ CurrencyCode = Annotated[
     str,
     StringConstraints(strict=True, pattern=r"^[A-Z]{3}$"),
 ]
+AdminMenuWriteCurrency = Literal["NOK"]
 CategoryName = Annotated[str, StringConstraints(strict=True, max_length=120)]
 MenuItemName = Annotated[str, StringConstraints(strict=True, max_length=120)]
 
@@ -151,7 +152,7 @@ class AdminMenuItemCreateRequest(BaseModel):
     image_url: str | None = Field(default=None, max_length=2048)
     price_amount: int = Field(strict=True, gt=0)
     cost_amount: int | None = Field(default=None, strict=True, ge=0)
-    currency: CurrencyCode = "NOK"
+    currency: AdminMenuWriteCurrency = "NOK"
     allergens: list[str] = Field(default_factory=list)
     display_order: int = Field(default=0, strict=True, ge=0)
     is_active: bool = Field(default=True, strict=True)
@@ -172,7 +173,7 @@ class AdminMenuItemUpdateRequest(BaseModel):
     image_url: str | None = Field(default=None, max_length=2048)
     price_amount: int | None = Field(default=None, strict=True, gt=0)
     cost_amount: int | None = Field(default=None, strict=True, ge=0)
-    currency: CurrencyCode | None = None
+    currency: AdminMenuWriteCurrency | None = None
     allergens: list[str] | None = None
     display_order: int | None = Field(default=None, strict=True, ge=0)
     is_active: bool | None = Field(default=None, strict=True)

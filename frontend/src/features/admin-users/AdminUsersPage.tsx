@@ -9,6 +9,9 @@ import {
 import { useNavigate } from 'react-router-dom';
 
 import { AdminApiRequestError } from '../../api/adminApi';
+import Button from '../../components/ui/Button';
+import Notice, { type NoticeVariant } from '../../components/ui/Notice';
+import StatusBadge, { type StatusBadgeVariant } from '../../components/ui/StatusBadge';
 import { useAuth, type AuthenticatedSession } from '../auth/AuthContext';
 import {
   type AdminUserListItem,
@@ -34,6 +37,28 @@ interface PendingTransition {
   readonly email: string;
   readonly targetRole: OrdinaryAdminUserRole;
   readonly userId: string;
+}
+
+type AsyncFocusTarget = 'feedback' | 'origin' | 'results';
+
+interface ActiveAsyncFocus {
+  readonly origin: HTMLButtonElement;
+  readonly successTarget: Exclude<AsyncFocusTarget, 'feedback'>;
+}
+
+interface PendingAsyncFocus {
+  readonly origin: HTMLButtonElement;
+  readonly target: AsyncFocusTarget;
+}
+
+function shouldRestoreAsyncFocus(origin: HTMLElement): boolean {
+  const activeElement = document.activeElement;
+  return (
+    activeElement === null ||
+    activeElement === document.body ||
+    activeElement === origin ||
+    !activeElement.isConnected
+  );
 }
 
 function formatAdminUserDate(timestamp: string): string {
@@ -94,7 +119,24 @@ function isAmbiguousMutationFailure(error: unknown): boolean {
   );
 }
 
+function getNoticeVariant(kind: NoticeKind): NoticeVariant {
+  return {
+    error: 'danger',
+    success: 'success',
+    warning: 'warning',
+  }[kind] as NoticeVariant;
+}
+
+function getNoticeTitle(kind: NoticeKind): string {
+  return {
+    error: 'Role update blocked',
+    success: 'Role updated',
+    warning: 'Review required',
+  }[kind];
+}
+
 interface UserActionProps {
+  readonly currentUserId: string;
   readonly disabled: boolean;
   readonly onSelect: (
     user: AdminUserListItem,
@@ -103,48 +145,77 @@ interface UserActionProps {
   readonly user: AdminUserListItem;
 }
 
-function UserAction({ disabled, onSelect, user }: UserActionProps) {
+function UserAction({ currentUserId, disabled, onSelect, user }: UserActionProps) {
+  if (user.id === currentUserId) {
+    return <StatusBadge variant="neutral">Read only</StatusBadge>;
+  }
   const targetRole = getTargetRole(user);
   if (targetRole === null) {
-    return <span className={styles.readOnly}>Read only</span>;
+    return <StatusBadge variant="neutral">Read only</StatusBadge>;
   }
   const actionLabel = getActionLabel(targetRole);
   return (
-    <button
+    <Button
       className={styles.actionButton}
-      type="button"
       disabled={disabled}
       aria-label={`${actionLabel} for ${user.email}`}
       onClick={(event) => onSelect(user, event)}
+      variant="secondary"
     >
       {actionLabel}
-    </button>
+    </Button>
   );
 }
 
 function UserRole({ user }: { readonly user: AdminUserListItem }) {
+  const variant: StatusBadgeVariant = {
+    admin: 'info',
+    customer: 'neutral',
+    super_admin: 'success',
+  }[user.role] as StatusBadgeVariant;
   return (
-    <span className={styles.roleBadge} data-role={user.role}>
+    <StatusBadge className={styles.roleBadge} variant={variant}>
       {getRoleLabel(user.role)}
-    </span>
+    </StatusBadge>
   );
 }
 
 function UserActivity({ user }: { readonly user: AdminUserListItem }) {
   return (
-    <span className={styles.activityBadge} data-active={String(user.isActive)}>
+    <StatusBadge variant={user.isActive ? 'success' : 'neutral'}>
       {user.isActive ? 'Active' : 'Inactive'}
+    </StatusBadge>
+  );
+}
+
+function UserIdentity({
+  currentUserId,
+  user,
+}: {
+  readonly currentUserId: string;
+  readonly user: AdminUserListItem;
+}) {
+  return (
+    <span className={styles.identity}>
+      <span>{user.email}</span>
+      {user.id === currentUserId ? <StatusBadge variant="info">You</StatusBadge> : null}
     </span>
   );
 }
 
 interface UserCollectionProps {
   readonly controlsDisabled: boolean;
+  readonly currentUserId: string;
   readonly data: AdminUsersResponse;
   readonly onSelect: UserActionProps['onSelect'];
 }
 
-function UsersTable({ controlsDisabled, data, onSelect }: UserCollectionProps) {
+function UsersTable({
+  controlsDisabled,
+  currentUserId,
+  data,
+  onSelect,
+}: UserCollectionProps) {
   return (
     <div className={styles.tableWrapper}>
       <table className={styles.table}>
@@ -162,7 +233,9 @@ function UsersTable({ controlsDisabled, data, onSelect }: UserCollectionProps) {
         <tbody>
           {data.items.map((user) => (
             <tr key={user.id}>
-              <th scope="row">{user.email}</th>
+              <th scope="row">
+                <UserIdentity currentUserId={currentUserId} user={user} />
+              </th>
               <td>
                 <UserRole user={user} />
               </td>
@@ -181,6 +254,7 @@ function UsersTable({ controlsDisabled, data, onSelect }: UserCollectionProps) {
               </td>
               <td>
                 <UserAction
+                  currentUserId={currentUserId}
                   disabled={controlsDisabled}
                   onSelect={onSelect}
                   user={user}
@@ -194,7 +268,12 @@ function UsersTable({ controlsDisabled, data, onSelect }: UserCollectionProps) {
   );
 }
 
-function UsersCards({ controlsDisabled, data, onSelect }: UserCollectionProps) {
+function UsersCards({
+  controlsDisabled,
+  currentUserId,
+  data,
+  onSelect,
+}: UserCollectionProps) {
   return (
     <ul className={styles.cards} aria-label="Registered users, oldest first">
       {data.items.map((user) => {
@@ -202,7 +281,9 @@ function UsersCards({ controlsDisabled, data, onSelect }: UserCollectionProps) {
         return (
           <li className={styles.card} key={user.id}>
             <article aria-labelledby={headingId}>
-              <h2 id={headingId}>{user.email}</h2>
+              <h2 id={headingId}>
+                <UserIdentity currentUserId={currentUserId} user={user} />
+              </h2>
               <dl className={styles.cardDetails}>
                 <div>
                   <dt>Role</dt>
@@ -235,6 +316,7 @@ function UsersCards({ controlsDisabled, data, onSelect }: UserCollectionProps) {
               </dl>
               <div className={styles.cardAction}>
                 <UserAction
+                  currentUserId={currentUserId}
                   disabled={controlsDisabled}
                   onSelect={onSelect}
                   user={user}
@@ -269,15 +351,45 @@ export default function AdminUsersPage() {
   const [mutationInFlight, setMutationInFlight] = useState(false);
   const [mutationNotice, setMutationNotice] = useState<MutationNotice | null>(null);
   const [reconciliationRequired, setReconciliationRequired] = useState(false);
+  const activeAsyncFocusRef = useRef<ActiveAsyncFocus | null>(null);
   const dataRef = useRef<AdminUsersResponse | null>(null);
+  const emptyHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const listControllerRef = useRef<AbortController | null>(null);
   const listGenerationRef = useRef(0);
   const mutationControllerRef = useRef<AbortController | null>(null);
   const mutationInFlightRef = useRef(false);
   const reconciliationRequiredRef = useRef(false);
   const mountedRef = useRef(true);
+  const feedbackRef = useRef<HTMLDivElement | null>(null);
   const confirmationHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const initiatingActionRef = useRef<HTMLButtonElement | null>(null);
+  const pendingAsyncFocusRef = useRef<PendingAsyncFocus | null>(null);
+  const resultsRef = useRef<HTMLDivElement | null>(null);
+
+  const beginAsyncFocus = useCallback(
+    (
+      origin: HTMLButtonElement,
+      successTarget: Exclude<AsyncFocusTarget, 'feedback'>,
+    ) => {
+      activeAsyncFocusRef.current = { origin, successTarget };
+      pendingAsyncFocusRef.current = null;
+    },
+    [],
+  );
+
+  const queueAsyncFocus = useCallback((target?: AsyncFocusTarget) => {
+    const activeFocus = activeAsyncFocusRef.current;
+    if (activeFocus === null) return;
+    activeAsyncFocusRef.current = null;
+    pendingAsyncFocusRef.current = {
+      origin: activeFocus.origin,
+      target: target ?? activeFocus.successTarget,
+    };
+  }, []);
+
+  const focusFeedback = useCallback(() => {
+    queueAsyncFocus('feedback');
+  }, [queueAsyncFocus]);
 
   const storeData = useCallback((nextData: AdminUsersResponse | null) => {
     dataRef.current = nextData;
@@ -400,6 +512,11 @@ export default function AdminUsersPage() {
         } else if (reason === 'manual') {
           setMutationNotice(null);
         }
+        if (reason === 'post-mutation' || reason === 'reconcile' || gateWasRequired) {
+          focusFeedback();
+        } else {
+          queueAsyncFocus();
+        }
         return true;
       } catch (error: unknown) {
         if (generation !== listGenerationRef.current || !mountedRef.current) {
@@ -420,6 +537,7 @@ export default function AdminUsersPage() {
             setListError(
               'Your super-administrator access was confirmed, but the user service denied this request. Refresh and try again.',
             );
+            focusFeedback();
           }
           return false;
         }
@@ -438,6 +556,9 @@ export default function AdminUsersPage() {
               'The latest user state could not be reconciled. Refresh before another role action.',
           });
         }
+        if (reason !== 'initial' || activeAsyncFocusRef.current !== null) {
+          focusFeedback();
+        }
         return false;
       } finally {
         if (generation === listGenerationRef.current && mountedRef.current) {
@@ -447,10 +568,12 @@ export default function AdminUsersPage() {
     },
     [
       getAuthenticatedSession,
+      focusFeedback,
       invalidateSessionIfCurrent,
       logout,
       offset,
       phase,
+      queueAsyncFocus,
       refreshRoleAfterForbidden,
       setReconciliationGate,
       storeData,
@@ -481,6 +604,8 @@ export default function AdminUsersPage() {
       listControllerRef.current = null;
       mutationControllerRef.current = null;
       mutationInFlightRef.current = false;
+      activeAsyncFocusRef.current = null;
+      pendingAsyncFocusRef.current = null;
     },
     [],
   );
@@ -491,6 +616,33 @@ export default function AdminUsersPage() {
     }
   }, [pendingTransition]);
 
+  useEffect(() => {
+    const pendingFocus = pendingAsyncFocusRef.current;
+    if (pendingFocus === null || isListLoading || mutationInFlight) return;
+
+    const target =
+      pendingFocus.target === 'feedback'
+        ? feedbackRef.current
+        : pendingFocus.target === 'origin'
+          ? pendingFocus.origin
+          : data?.items.length === 0
+            ? emptyHeadingRef.current
+            : resultsRef.current;
+    if (target === null || !target.isConnected) return;
+
+    pendingAsyncFocusRef.current = null;
+    if (!shouldRestoreAsyncFocus(pendingFocus.origin)) return;
+    if (target instanceof HTMLButtonElement && target.disabled) return;
+    target.focus();
+  }, [
+    data,
+    isListLoading,
+    listError,
+    mutationInFlight,
+    mutationNotice,
+    reconciliationRequired,
+  ]);
+
   const selectTransition = (
     selectedUser: AdminUserListItem,
     event: ReactMouseEvent<HTMLButtonElement>,
@@ -498,7 +650,9 @@ export default function AdminUsersPage() {
     if (
       mutationInFlightRef.current ||
       reconciliationRequiredRef.current ||
-      isListLoading
+      isListLoading ||
+      pendingTransition !== null ||
+      selectedUser.id === user?.id
     ) {
       return;
     }
@@ -593,6 +747,7 @@ export default function AdminUsersPage() {
             message:
               'Your super-administrator access was confirmed, but the role update was denied. Refresh the user list before trying again.',
           });
+          focusFeedback();
         }
         return;
       }
@@ -618,6 +773,7 @@ export default function AdminUsersPage() {
           message:
             'The requested role transition was not valid. Refresh the list and review the current role.',
         });
+        focusFeedback();
         return;
       }
       if (isAmbiguousMutationFailure(error)) {
@@ -628,6 +784,7 @@ export default function AdminUsersPage() {
           message:
             'We could not confirm whether the role changed. Refresh the user list before any other role action.',
         });
+        focusFeedback();
         return;
       }
 
@@ -637,6 +794,7 @@ export default function AdminUsersPage() {
         message:
           'The role could not be updated. Review the current state and try again.',
       });
+      focusFeedback();
     } finally {
       mutationControllerRef.current = null;
       mutationInFlightRef.current = false;
@@ -646,6 +804,7 @@ export default function AdminUsersPage() {
     }
   }, [
     getAuthenticatedSession,
+    focusFeedback,
     invalidateSessionIfCurrent,
     loadUsers,
     logout,
@@ -655,14 +814,19 @@ export default function AdminUsersPage() {
     setReconciliationGate,
   ]);
 
-  const changePage = (nextOffset: number) => {
+  const changePage = (
+    nextOffset: number,
+    event: ReactMouseEvent<HTMLButtonElement>,
+  ) => {
     if (
       mutationInFlightRef.current ||
       reconciliationRequiredRef.current ||
-      isListLoading
+      isListLoading ||
+      pendingTransition !== null
     ) {
       return;
     }
+    beginAsyncFocus(event.currentTarget, 'results');
     setPendingTransition(null);
     setMutationNotice(null);
     setListError(null);
@@ -674,11 +838,19 @@ export default function AdminUsersPage() {
     return null;
   }
 
-  const controlsDisabled = mutationInFlight || reconciliationRequired || isListLoading;
+  const controlsDisabled =
+    mutationInFlight ||
+    reconciliationRequired ||
+    isListLoading ||
+    pendingTransition !== null;
   const page = Math.floor(offset / PAGE_LIMIT) + 1;
 
   return (
-    <section className={styles.page} aria-labelledby="admin-users-heading">
+    <section
+      className={styles.page}
+      aria-busy={isListLoading || mutationInFlight}
+      aria-labelledby="admin-users-heading"
+    >
       <header className={styles.pageHeader}>
         <div>
           <p className="eyebrow">User governance</p>
@@ -687,34 +859,104 @@ export default function AdminUsersPage() {
             Review registered accounts and govern ordinary customer and administrator
             roles.
           </p>
+          <p className={styles.securityContract}>
+            Every privilege change is confirmed by the server before the list changes.
+          </p>
         </div>
-        <button
-          className={styles.secondaryButton}
-          type="button"
-          disabled={isListLoading || mutationInFlight}
-          onClick={() => void loadUsers('manual')}
+        <Button
+          className={styles.refreshButton}
+          disabled={mutationInFlight || pendingTransition !== null}
+          loading={isListLoading}
+          loadingLabel="Refreshing users"
+          onClick={(event) => {
+            beginAsyncFocus(event.currentTarget, 'origin');
+            void loadUsers('manual');
+          }}
+          variant="secondary"
         >
           Refresh
-        </button>
+        </Button>
       </header>
 
-      {mutationNotice !== null ? (
-        <div
-          className={`${styles.notice} ${styles[mutationNotice.kind]}`}
-          role={mutationNotice.kind === 'success' ? 'status' : 'alert'}
-          aria-live={mutationNotice.kind === 'success' ? 'polite' : 'assertive'}
-        >
-          {mutationNotice.message}
-        </div>
-      ) : null}
-
       {reconciliationRequired ? (
-        <div className={styles.reconciliationGate} role="alert">
-          <strong>Refresh required</strong>
-          <span>
-            Role actions remain disabled until the latest authoritative user list loads
-            successfully.
-          </span>
+        <div
+          ref={feedbackRef}
+          aria-label="User management feedback"
+          className={styles.feedback}
+          tabIndex={-1}
+        >
+          <Notice
+            role="alert"
+            title="Refresh required"
+            variant={mutationNotice?.kind === 'error' ? 'danger' : 'warning'}
+          >
+            <div className={styles.noticeBody}>
+              {mutationNotice === null ? null : <p>{mutationNotice.message}</p>}
+              {listError === null ? null : <p>{listError}</p>}
+              <p>
+                Role actions remain disabled until the latest authoritative user list
+                loads successfully.
+              </p>
+              {listError === null ? null : (
+                <Button
+                  disabled={mutationInFlight}
+                  loading={isListLoading}
+                  loadingLabel="Retrying user list"
+                  onClick={(event) => {
+                    beginAsyncFocus(event.currentTarget, 'results');
+                    void loadUsers('manual');
+                  }}
+                  variant="secondary"
+                >
+                  Retry
+                </Button>
+              )}
+            </div>
+          </Notice>
+        </div>
+      ) : listError !== null ? (
+        <div
+          ref={feedbackRef}
+          aria-label="User management feedback"
+          className={styles.feedback}
+          tabIndex={-1}
+        >
+          <Notice
+            role="alert"
+            title={data === null ? 'Unable to load users' : 'Unable to refresh users'}
+            variant="danger"
+          >
+            <div className={styles.noticeBody}>
+              <p>{listError}</p>
+              <Button
+                disabled={mutationInFlight}
+                loading={isListLoading}
+                loadingLabel="Retrying user list"
+                onClick={(event) => {
+                  beginAsyncFocus(event.currentTarget, 'results');
+                  void loadUsers('manual');
+                }}
+                variant="secondary"
+              >
+                Retry
+              </Button>
+            </div>
+          </Notice>
+        </div>
+      ) : mutationNotice !== null ? (
+        <div
+          ref={feedbackRef}
+          aria-label="User management feedback"
+          className={styles.feedback}
+          tabIndex={-1}
+        >
+          <Notice
+            role={mutationNotice.kind === 'success' ? 'status' : 'alert'}
+            title={getNoticeTitle(mutationNotice.kind)}
+            variant={getNoticeVariant(mutationNotice.kind)}
+          >
+            {mutationNotice.message}
+          </Notice>
         </div>
       ) : null}
 
@@ -722,34 +964,54 @@ export default function AdminUsersPage() {
         <div
           className={styles.confirmationPanel}
           role="group"
+          aria-busy={mutationInFlight}
+          aria-describedby="role-confirmation-guidance"
           aria-labelledby="role-confirmation-heading"
+          data-risk={pendingTransition.targetRole === 'admin' ? 'elevated' : 'reduced'}
           onKeyDown={handleConfirmationKeyDown}
         >
           <h2 id="role-confirmation-heading" ref={confirmationHeadingRef} tabIndex={-1}>
             Confirm role change
           </h2>
-          <p>
-            Change <strong>{pendingTransition.email}</strong> from{' '}
-            <strong>{getRoleLabel(pendingTransition.currentRole)}</strong> to{' '}
-            <strong>{getRoleLabel(pendingTransition.targetRole)}</strong>?
+          <dl className={styles.confirmationDetails}>
+            <div>
+              <dt>Account</dt>
+              <dd>{pendingTransition.email}</dd>
+            </div>
+            <div>
+              <dt>Current role</dt>
+              <dd>{getRoleLabel(pendingTransition.currentRole)}</dd>
+            </div>
+            <div>
+              <dt>Requested role</dt>
+              <dd>{getRoleLabel(pendingTransition.targetRole)}</dd>
+            </div>
+          </dl>
+          <p id="role-confirmation-guidance" className={styles.confirmationGuidance}>
+            {pendingTransition.targetRole === 'admin'
+              ? 'This grants administrator access. Confirm only when the privilege is required.'
+              : 'This removes administrator access after the server accepts the change.'}
           </p>
           <div className={styles.confirmationActions}>
-            <button
-              className={styles.primaryButton}
-              type="button"
-              disabled={mutationInFlight || reconciliationRequired || isListLoading}
-              onClick={() => void confirmTransition()}
+            <Button
+              disabled={reconciliationRequired || isListLoading}
+              loading={mutationInFlight}
+              loadingLabel="Updating role"
+              onClick={(event) => {
+                beginAsyncFocus(event.currentTarget, 'results');
+                void confirmTransition();
+              }}
+              variant={pendingTransition.targetRole === 'admin' ? 'danger' : 'primary'}
             >
               Confirm
-            </button>
-            <button
-              className={styles.secondaryButton}
-              type="button"
+            </Button>
+            <Button
               disabled={mutationInFlight}
               onClick={cancelTransition}
+              variant="secondary"
             >
               Cancel
-            </button>
+            </Button>
           </div>
         </div>
       ) : null}
@@ -761,30 +1023,23 @@ export default function AdminUsersPage() {
         </div>
       ) : null}
 
-      {listError !== null ? (
-        <div className={styles.statePanel} role="alert" aria-live="assertive">
-          <h2>{data === null ? 'Unable to load users' : 'Unable to refresh users'}</h2>
-          <p>{listError}</p>
-          <button
-            className={styles.secondaryButton}
-            type="button"
-            disabled={isListLoading || mutationInFlight}
-            onClick={() => void loadUsers('manual')}
-          >
-            Retry
-          </button>
-        </div>
-      ) : null}
-
       {data !== null && data.items.length === 0 && !isListLoading ? (
         <div className={styles.statePanel}>
-          <h2>No users found</h2>
+          <h2 ref={emptyHeadingRef} tabIndex={-1}>
+            No users found
+          </h2>
           <p>No registered users are available on this page.</p>
         </div>
       ) : null}
 
       {data !== null && data.items.length > 0 ? (
-        <div className={styles.results}>
+        <div
+          ref={resultsRef}
+          aria-label={'User list results'}
+          className={styles.results}
+          role={'region'}
+          tabIndex={-1}
+        >
           <div className={styles.resultHeader}>
             <p className={styles.resultSummary} aria-live="polite">
               Showing {data.offset + 1}&ndash;{data.offset + data.items.length} of{' '}
@@ -798,11 +1053,13 @@ export default function AdminUsersPage() {
           </div>
           <UsersTable
             controlsDisabled={controlsDisabled}
+            currentUserId={user.id}
             data={data}
             onSelect={selectTransition}
           />
           <UsersCards
             controlsDisabled={controlsDisabled}
+            currentUserId={user.id}
             data={data}
             onSelect={selectTransition}
           />
@@ -811,33 +1068,33 @@ export default function AdminUsersPage() {
 
       {data !== null && data.total > 0 ? (
         <nav className={styles.pagination} aria-label="Users pagination">
-          <button
-            className={styles.secondaryButton}
-            type="button"
+          <Button
             disabled={
               offset === 0 ||
               isListLoading ||
               mutationInFlight ||
-              reconciliationRequired
+              reconciliationRequired ||
+              pendingTransition !== null
             }
-            onClick={() => changePage(Math.max(0, offset - PAGE_LIMIT))}
+            onClick={(event) => changePage(Math.max(0, offset - PAGE_LIMIT), event)}
+            variant="secondary"
           >
             Previous
-          </button>
+          </Button>
           <span aria-current="page">Page {page}</span>
-          <button
-            className={styles.secondaryButton}
-            type="button"
+          <Button
             disabled={
               data.offset + data.items.length >= data.total ||
               isListLoading ||
               mutationInFlight ||
-              reconciliationRequired
+              reconciliationRequired ||
+              pendingTransition !== null
             }
-            onClick={() => changePage(offset + PAGE_LIMIT)}
+            onClick={(event) => changePage(offset + PAGE_LIMIT, event)}
+            variant="secondary"
           >
             Next
-          </button>
+          </Button>
         </nav>
       ) : null}
     </section>
