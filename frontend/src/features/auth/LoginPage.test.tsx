@@ -36,6 +36,7 @@ function renderLogin(initialEntry = '/login') {
         element: <AuthProvider />,
         children: [
           { path: '/login', element: <LoginPage /> },
+          { path: '/register', element: <h1>Registration destination</h1> },
           { path: '/', element: <h1>Customer home</h1> },
           { path: '/account', element: <h1>Account destination</h1> },
           {
@@ -91,19 +92,80 @@ afterEach(() => {
 });
 
 describe('shared login page', () => {
-  it('renders one role-neutral accessible form without future controls', async () => {
+  it('renders one branded role-neutral form with a decorative mark', async () => {
     const fetchSpy = vi.fn<typeof fetch>();
     vi.stubGlobal('fetch', fetchSpy);
     renderLogin();
 
     expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeVisible();
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+    expect(screen.getByText('Nordic Hearth', { exact: true })).toBeVisible();
+    expect(
+      screen.queryByRole('img', { name: 'Nordic Hearth' }),
+    ).not.toBeInTheDocument();
     expect(screen.getByLabelText('Email')).toHaveAttribute('autocomplete', 'username');
     expect(screen.getByLabelText('Password')).toHaveAttribute(
       'autocomplete',
       'current-password',
     );
     expect(screen.queryByRole('combobox', { name: /role/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: /register/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Create an account' })).toHaveAttribute(
+      'href',
+      '/register',
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('carries a safe encoded continuation to registration without submitting', async () => {
+    const user = userEvent.setup();
+    const fetchSpy = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetchSpy);
+    const { router } = renderLogin('/login?next=%2Fcart');
+
+    const registerLink = await screen.findByRole('link', {
+      name: 'Create an account',
+    });
+    expect(registerLink).toHaveAttribute('href', '/register?next=%2Fcart');
+
+    await user.click(registerLink);
+
+    expect(
+      await screen.findByRole('heading', { name: 'Registration destination' }),
+    ).toBeVisible();
+    expect(router.state.location.pathname).toBe('/register');
+    expect(router.state.location.search).toBe('?next=%2Fcart');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('toggles password visibility without changing its value or revealing after validation', async () => {
+    const user = userEvent.setup();
+    const fetchSpy = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetchSpy);
+    renderLogin();
+    const passwordInput = await screen.findByLabelText('Password');
+    await user.type(passwordInput, ' exact password ');
+
+    const showPassword = screen.getByRole('button', { name: 'Show password' });
+    expect(showPassword).toHaveAttribute('aria-pressed', 'false');
+    expect(passwordInput).toHaveAttribute('type', 'password');
+    await user.click(showPassword);
+    expect(passwordInput).toHaveAttribute('type', 'text');
+    expect(passwordInput).toHaveValue(' exact password ');
+    expect(screen.getByRole('button', { name: 'Hide password' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Hide password' }));
+    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    expect(screen.getByText('Email is required.')).toBeVisible();
+    expect(passwordInput).toHaveAttribute('type', 'password');
+    expect(passwordInput).toHaveValue(' exact password ');
+    expect(screen.getByRole('button', { name: 'Show password' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
@@ -312,6 +374,36 @@ describe('shared login page', () => {
     expect(JSON.stringify(sessionStorage)).not.toMatch(/password/i);
   });
 
+  it('recovers from a request error without rendering the issued token', async () => {
+    const user = userEvent.setup();
+    const stub = installFetchStub(
+      { json: { detail: 'private authentication context' }, status: 401 },
+      { json: TOKEN_RESPONSE },
+      { json: currentUser('customer') },
+    );
+    const { router } = renderLogin('/login?next=%2Fcart');
+
+    const fields = await submitCredentials();
+    expect(
+      await screen.findByText('The email or password is incorrect.'),
+    ).toBeVisible();
+    expect(document.body).not.toHaveTextContent('private authentication context');
+    expect(fields.passwordInput).toHaveAttribute('type', 'password');
+
+    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    expect(
+      await screen.findByRole('heading', { name: 'Cart destination' }),
+    ).toBeVisible();
+    expect(router.state.location.pathname).toBe('/cart');
+    expect(stub.calls.map((call) => call.url)).toEqual([
+      '/api/v1/auth/login',
+      '/api/v1/auth/login',
+      '/api/v1/auth/me',
+    ]);
+    expect(document.body).not.toHaveTextContent(TOKEN);
+  });
+
   it('prevents a second submission while login is in flight', async () => {
     const pending = deferredResponse();
     const stub = installFetchStub({ responsePromise: pending.promise });
@@ -319,7 +411,12 @@ describe('shared login page', () => {
 
     const fields = await submitCredentials();
 
-    expect(screen.getByRole('button', { name: 'Signing in…' })).toBeDisabled();
+    const loadingButton = screen.getByRole('button', { name: 'Signing in' });
+    expect(loadingButton).toBeDisabled();
+    expect(loadingButton).toHaveAttribute('aria-busy', 'true');
+    const form = loadingButton.closest('form');
+    expect(form).not.toBeNull();
+    fireEvent.submit(form as HTMLFormElement);
     expect(stub.calls).toHaveLength(1);
     await act(async () => {
       pending.resolve(new Response(null, { status: 401 }));
@@ -368,8 +465,8 @@ describe('shared login page', () => {
   });
 
   it.each([
-    [503, 'The authentication service is temporarily unavailable. Try again.'],
-    [500, 'Sign-in could not reach the authentication service. Try again.'],
+    [503, 'Sign-in is temporarily unavailable. Try again.'],
+    [500, 'We could not sign you in. Check your connection and try again.'],
   ])('maps HTTP %i to a safe page error', async (status, message) => {
     installFetchStub({
       json: { detail: 'private backend context' },
@@ -392,7 +489,7 @@ describe('shared login page', () => {
 
     expect(
       await screen.findByText(
-        'Sign-in could not reach the authentication service. Try again.',
+        'We could not sign you in. Check your connection and try again.',
       ),
     ).toBeVisible();
     expect(sessionStorage).toHaveLength(0);
@@ -429,9 +526,7 @@ describe('shared login page', () => {
     await submitCredentials();
 
     expect(
-      await screen.findByText(
-        'The authentication service returned an invalid response. Try again later.',
-      ),
+      await screen.findByText('We could not complete sign-in. Try again later.'),
     ).toBeVisible();
     expect(sessionStorage).toHaveLength(0);
   });

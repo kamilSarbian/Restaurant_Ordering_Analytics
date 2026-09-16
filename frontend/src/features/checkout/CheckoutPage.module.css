@@ -1,132 +1,506 @@
 .page {
     display: grid;
+    width: min(100%, 64rem);
+    min-width: 0;
+    align-self: start;
+    gap: var(--space-6);
+    margin-inline: auto;
+}
+
+.hero,
+.panel,
+.summaryPanel,
+.paymentPanel {
     width: 100%;
-    place-items: start center;
+    min-width: 0;
+    padding: var(--space-5);
+    border: var(--border-width-hairline) solid var(--color-border-subtle);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-elevation-1);
+    animation: checkout-reveal var(--duration-slow) var(--easing-standard) both;
+}
+
+.hero {
+    border-top: var(--border-width-accent) solid var(--color-brand-accent);
 }
 
 .panel {
     width: min(100%, 42rem);
-    padding: var(--space-6);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-medium);
+    margin-inline: auto;
+}
+
+.statePanel {
+    overflow: hidden;
+    border-top: var(--border-width-accent) solid var(--color-primary);
+    background: linear-gradient(
+        150deg,
+        var(--color-surface) 0%,
+        var(--color-surface) 74%,
+        var(--color-surface-muted) 150%
+    );
+}
+
+.statePanel h1 {
+    max-width: 18ch;
+    margin: 0;
+    color: var(--color-primary-hover);
+    font-size: clamp(2.25rem, 6vw, 3.5rem);
+}
+
+.stateIntro {
+    max-width: 42rem;
+    margin: var(--space-4) 0 0;
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-body-large);
+}
+
+.stateOrderContext {
+    min-width: 0;
+    margin-top: var(--space-5);
+    padding: var(--space-3) var(--space-4);
+    border: var(--border-width-hairline) solid var(--color-border-subtle);
+    border-radius: var(--radius-control);
+    background: color-mix(in srgb, var(--color-surface-muted) 58%, transparent);
+}
+
+.stateOrderContext .orderNumberLabel {
+    margin-top: 0;
+}
+
+.stateOrderContext .orderNumber {
+    margin-bottom: 0;
+}
+
+.stateGuidance,
+.stateDisclosure {
+    max-width: 46rem;
+    margin: var(--space-4) 0 0;
+    overflow-wrap: anywhere;
+}
+
+.stateGuidance {
+    color: var(--color-text-primary);
+}
+
+.stateDisclosure {
+    padding-left: var(--space-3);
+    border-left: var(--border-width-strong) solid var(--color-border-subtle);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-label);
+}
+
+.stateNotice {
+    margin-top: var(--space-5);
+    animation: checkout-reveal var(--duration-standard) var(--easing-standard) both;
+}
+
+.stateNotice p {
+    margin: 0;
+}
+
+.stateRecoveryActions {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+}
+
+.stateRecoveryAction {
+    width: 100%;
+}
+
+.stateActions {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-3);
+    margin-top: var(--space-6);
+}
+
+.stateAction {
+    display: inline-flex;
+    min-width: 0;
+    min-height: 2.75rem;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-2) var(--space-4);
+    border: var(--border-width-hairline) solid transparent;
+    border-radius: var(--radius-control);
+    overflow-wrap: anywhere;
+    font-weight: var(--font-weight-semibold);
+    text-align: center;
+    text-decoration: none;
+    transition:
+        var(--transition-color),
+        transform var(--duration-fast) var(--easing-standard),
+        box-shadow var(--duration-fast) var(--easing-standard);
+}
+
+.statePrimaryAction {
+    border-color: var(--color-primary);
+    background: var(--color-primary);
+    color: var(--color-text-inverse);
+}
+
+.statePrimaryAction:hover {
+    border-color: var(--color-primary-hover);
+    background: var(--color-primary-hover);
+    color: var(--color-text-inverse);
+    transform: translateY(-1px);
+}
+
+.statePrimaryAction:active {
+    border-color: var(--color-primary-active);
+    background: var(--color-primary-active);
+    transform: translateY(1px);
+}
+
+.stateSecondaryAction {
+    border-color: var(--color-control-border);
     background: var(--color-surface);
-    box-shadow: var(--shadow-small);
+    color: var(--color-primary);
+}
+
+.stateSecondaryAction:hover {
+    background: var(--color-surface-muted);
+    color: var(--color-primary-hover);
+    transform: translateY(-1px);
+}
+
+.stateSecondaryAction:active {
+    color: var(--color-primary-active);
+    transform: translateY(1px);
+}
+
+.stateTertiaryAction {
+    color: var(--color-primary);
+}
+
+.stateTertiaryAction:hover {
+    background: var(--color-surface-muted);
+    color: var(--color-primary-hover);
+}
+
+.brandLockup {
+    display: inline-flex;
+    min-width: 0;
+    align-items: center;
+    gap: var(--space-2);
+    margin-bottom: var(--space-5);
+    overflow-wrap: anywhere;
+    color: var(--color-primary-hover);
+    font-family: var(--font-family-display);
+    font-size: var(--font-size-title-small);
+    font-weight: var(--font-weight-semibold);
+    letter-spacing: var(--letter-spacing-display);
+}
+
+.brandMark {
+    flex: 0 0 auto;
+    color: var(--color-brand-accent);
 }
 
 .eyebrow {
     margin-bottom: var(--space-2);
-    color: var(--color-accent);
-    font-size: 0.8rem;
-    font-weight: 800;
-    letter-spacing: 0.13em;
+    color: var(--color-brand-accent);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-bold);
+    letter-spacing: var(--letter-spacing-label);
     text-transform: uppercase;
 }
 
+.hero h1,
+.summaryPanel h2,
+.paymentPanel h2 {
+    margin: 0;
+    color: var(--color-primary-hover);
+}
+
+.paymentRequired {
+    margin-top: var(--space-4);
+    padding: var(--space-3) var(--space-4);
+    border-left: var(--border-width-accent) solid var(--color-warning);
+    background: var(--color-warning-surface);
+    color: var(--color-text-primary);
+    font-weight: var(--font-weight-bold);
+}
+
+.intro {
+    max-width: 46rem;
+    margin-top: var(--space-4);
+    color: var(--color-text-secondary);
+}
+
 .orderNumberLabel {
-    margin-top: var(--space-6);
-    color: var(--color-muted);
-    font-size: 0.875rem;
-    font-weight: 700;
+    margin-top: var(--space-5);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-label);
+    font-weight: var(--font-weight-semibold);
 }
 
 .orderNumber {
     overflow-wrap: anywhere;
     color: var(--color-primary-hover);
-    font-size: clamp(1.25rem, 5vw, 1.75rem);
-    font-weight: 850;
+    font-size: clamp(1.2rem, 5vw, 1.65rem);
+    font-weight: var(--font-weight-bold);
     letter-spacing: 0.04em;
 }
 
+.checkoutGrid {
+    display: grid;
+    min-width: 0;
+    align-items: start;
+    gap: var(--space-6);
+}
+
+.summaryPanel,
+.paymentPanel {
+    align-self: start;
+}
+
+.summaryContent {
+    min-width: 0;
+    animation: checkout-reveal var(--duration-standard) var(--easing-standard) both;
+}
+
+.orderMetadata,
+.totals {
+    display: grid;
+    gap: var(--space-3);
+    margin: var(--space-5) 0 0;
+}
+
+.orderMetadata div,
+.totals div {
+    display: grid;
+    min-width: 0;
+    grid-template-columns: minmax(0, 1fr) minmax(0, auto);
+    align-items: baseline;
+    gap: var(--space-3);
+}
+
+.orderMetadata dt,
+.totals dt {
+    color: var(--color-text-secondary);
+}
+
+.orderMetadata dd,
+.totals dd {
+    min-width: 0;
+    margin: 0;
+    overflow-wrap: anywhere;
+    font-variant-numeric: tabular-nums;
+    font-weight: var(--font-weight-semibold);
+    text-align: right;
+}
+
+.itemList {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-3);
+    margin: var(--space-6) 0;
+    padding: 0;
+    list-style: none;
+}
+
+.itemList li {
+    display: grid;
+    min-width: 0;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: var(--space-3);
+    padding-bottom: var(--space-3);
+    border-bottom: var(--border-width-hairline) solid var(--color-border-subtle);
+}
+
+.itemDetails,
+.itemDetails strong,
+.itemDetails small {
+    display: block;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.itemDetails small {
+    margin-top: var(--space-1);
+    color: var(--color-text-secondary);
+}
+
+.amount {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font-variant-numeric: tabular-nums;
+    font-weight: var(--font-weight-semibold);
+    text-align: right;
+}
+
+.totalRow {
+    padding-top: var(--space-3);
+    border-top: var(--border-width-strong) solid var(--color-primary);
+    color: var(--color-primary-hover);
+    font-size: var(--font-size-body-large);
+}
+
 .actions {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-3);
     margin-top: var(--space-6);
 }
 
 .primaryAction,
 .secondaryAction {
-    min-height: 2.75rem;
-    border-radius: var(--radius-small);
-    font: inherit;
-    font-weight: 800;
-    cursor: pointer;
-}
-
-.primaryAction {
     width: 100%;
-    padding: var(--space-3) var(--space-5);
-    border: 1px solid var(--color-primary);
-    background: var(--color-primary);
-    color: var(--color-surface);
 }
 
-.primaryAction:hover:not(:disabled) {
-    background: var(--color-primary-hover);
-}
-
-.primaryAction:disabled {
-    cursor: not-allowed;
-    opacity: 0.62;
-}
-
-.secondaryAction {
+.inlineAction {
     width: 100%;
     margin-top: var(--space-3);
-    padding: var(--space-2) var(--space-4);
-    border: 1px solid var(--color-accent);
-    background: transparent;
-    color: var(--color-accent);
 }
 
-.notice,
-.errorNotice {
-    margin-top: var(--space-4);
-    padding: var(--space-4);
-    border-radius: var(--radius-small);
+.inlineNotice {
+    margin-top: var(--space-5);
+    animation: checkout-reveal var(--duration-standard) var(--easing-standard) both;
 }
 
-.notice {
-    border: 1px solid var(--color-sage);
-    background: var(--color-background);
-}
-
-.errorNotice {
-    border: 1px solid var(--color-accent);
-    color: var(--color-accent);
-}
-
-.errorNotice:focus {
+.focusTarget {
+    min-width: 0;
+    border-radius: var(--radius-card);
     outline: none;
+}
+
+.focusTarget:focus {
     box-shadow: var(--focus-ring);
 }
 
 .links {
     display: flex;
     flex-direction: column;
+    align-items: stretch;
     gap: var(--space-3);
     margin-top: var(--space-6);
 }
 
-.links a {
+.backLink,
+.menuLink {
+    display: inline-flex;
+    min-width: 0;
     min-height: 2.75rem;
+    align-items: center;
+    justify-content: center;
     padding: var(--space-2) var(--space-4);
-    border: 1px solid var(--color-primary);
-    border-radius: var(--radius-small);
-    color: var(--color-primary);
-    font-weight: 750;
-    line-height: 1.6;
+    border-radius: var(--radius-control);
+    overflow-wrap: anywhere;
+    font-weight: var(--font-weight-semibold);
     text-align: center;
+}
+
+.backLink {
+    border: var(--border-width-hairline) solid var(--color-control-border);
+    background: var(--color-surface);
+    color: var(--color-primary);
     text-decoration: none;
+    transition: var(--transition-color);
+}
+
+.backLink:hover {
+    background: var(--color-surface-muted);
+    color: var(--color-primary-hover);
+}
+
+.menuLink {
+    color: var(--color-primary);
+}
+
+.visuallyHidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    border: 0;
+    margin: -1px;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+@keyframes checkout-reveal {
+    from {
+        opacity: 0;
+        transform: translateY(6px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 @media (min-width: 40rem) {
-    .panel {
-        padding: var(--space-10);
+    .hero,
+    .panel,
+    .summaryPanel,
+    .paymentPanel {
+        padding: var(--space-8);
     }
 
+    .actions,
     .links {
         flex-direction: row;
     }
 
-    .secondaryAction {
-        width: auto;
+    .secondaryAction,
+    .inlineAction,
+    .backLink,
+    .menuLink {
+        width: fit-content;
+    }
+
+    .backLink,
+    .menuLink {
+        flex: 1 1 0;
+    }
+
+    .stateRecoveryActions {
+        flex-direction: row;
+    }
+
+    .stateRecoveryAction {
+        width: fit-content;
+    }
+}
+
+@media (min-width: 56rem) {
+    .checkoutGrid {
+        grid-template-columns: minmax(0, 1.12fr) minmax(18rem, 0.88fr);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .hero,
+    .panel,
+    .summaryPanel,
+    .paymentPanel,
+    .summaryContent,
+    .inlineNotice,
+    .stateNotice {
+        animation: none;
+        transform: none;
+    }
+
+    .stateAction,
+    .stateRecoveryAction {
+        transition: none;
+        transform: none;
+    }
+
+    .statePrimaryAction:hover,
+    .statePrimaryAction:active,
+    .stateSecondaryAction:hover,
+    .stateSecondaryAction:active {
+        transform: none;
     }
 }

@@ -281,6 +281,35 @@ describe('CartPage', () => {
     expect(screen.queryByText(ITEM_ID)).not.toBeInTheDocument();
   });
 
+  it('renders a safe lazy cart thumbnail without promoting it to high priority', async () => {
+    seedCart();
+    const menuWithImage = {
+      categories: MENU.categories.map((category) => ({
+        ...category,
+        items: category.items.map((item) =>
+          item.id === ITEM_ID
+            ? {
+                ...item,
+                image_url: '/images/menu/main_courses/Seasonal-Bowl.png',
+              }
+            : item,
+        ),
+      })),
+    };
+    installFetchStub({ json: menuWithImage });
+
+    const { container } = renderCart();
+    await flushAsyncWork();
+
+    const image = container.querySelector('img');
+    expect(image).not.toBeNull();
+    expect(image).toHaveAttribute('src', '/images/menu/main_courses/Seasonal-Bowl.png');
+    expect(image).toHaveAttribute('alt', '');
+    expect(image).toHaveAttribute('decoding', 'async');
+    expect(image).toHaveAttribute('loading', 'lazy');
+    expect(image).not.toHaveAttribute('fetchpriority');
+  });
+
   it('sends one exact quote request after the debounce and renders server values', async () => {
     seedCart([{ menuItemId: ITEM_ID, quantity: 2 }]);
     const stub = installFetchStub({ json: MENU }, { json: quoteFor(2) });
@@ -326,6 +355,10 @@ describe('CartPage', () => {
         'status',
       ),
     ).toHaveTextContent('Previous quote — updating');
+    expect(screen.getByText(/Previous server quote/u)).toHaveTextContent(
+      'awaiting a current total',
+    );
+    expect(screen.getByText('Seasonal bowl snapshot × 1')).toBeInTheDocument();
     expect(stub.calls).toHaveLength(2);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(399);
@@ -339,6 +372,7 @@ describe('CartPage', () => {
       JSON.stringify({ items: [{ menu_item_id: ITEM_ID, quantity: 2 }] }),
     );
     expect(screen.getByText('Seasonal bowl snapshot × 2')).toBeInTheDocument();
+    expect(screen.queryByText(/Previous server quote/u)).not.toBeInTheDocument();
   });
 
   it('aborts and ignores a stale response after the cart changes', async () => {
@@ -415,9 +449,32 @@ describe('CartPage', () => {
     );
 
     expect(screen.getByText('Your cart is empty.')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Your cart' })).toHaveFocus();
   });
 
-  it('clears all cart lines immediately', async () => {
+  it('moves focus to the next remove action after deleting a cart line', async () => {
+    seedCart([
+      { menuItemId: ITEM_ID, quantity: 1 },
+      { menuItemId: SECOND_ITEM_ID, quantity: 2 },
+    ]);
+    installFetchStub({ json: MENU });
+    renderCart();
+    await flushAsyncWork();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Remove Seasonal bowl from cart' }),
+    );
+
+    expect(
+      screen.getByRole('button', { name: 'Remove Evening special from cart' }),
+    ).toHaveFocus();
+    expect(screen.getByText('Seasonal bowl removed from your cart.')).toHaveAttribute(
+      'role',
+      'status',
+    );
+  });
+
+  it('requires inline confirmation before clearing all cart lines', async () => {
     seedCart([
       { menuItemId: ITEM_ID, quantity: 1 },
       { menuItemId: SECOND_ITEM_ID, quantity: 2 },
@@ -428,7 +485,23 @@ describe('CartPage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Clear cart' }));
 
+    expect(
+      screen.getByRole('group', { name: 'Clear cart confirmation' }),
+    ).toHaveTextContent('Remove all 3 items from your cart?');
+    expect(screen.getByRole('button', { name: 'Cancel clear cart' })).toHaveFocus();
+    expect(
+      screen.getByRole('heading', { level: 3, name: 'Seasonal bowl' }),
+    ).toBeVisible();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel clear cart' }));
+    expect(screen.getByRole('button', { name: 'Clear cart' })).toHaveFocus();
+    expect(screen.getByText('Your cart was kept.')).toHaveAttribute('role', 'status');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear cart' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm clear cart' }));
+
     expect(screen.getByText('Your cart is empty.')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Your cart' })).toHaveFocus();
   });
 
   it('shows a safe placeholder when a persisted item is missing from the menu', async () => {
@@ -497,7 +570,7 @@ describe('CartPage', () => {
       }),
     ).toBeDisabled();
     expect(screen.getByRole('radio', { name: 'Takeaway' })).toBeChecked();
-    expect(screen.getByRole('link', { name: 'Continue browsing' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Continue shopping' })).toHaveAttribute(
       'href',
       '/menu',
     );
@@ -678,12 +751,27 @@ describe('CartPage', () => {
     const placeOrder = screen.getByRole('button', {
       name: 'Place order and continue to payment',
     });
+    const decreaseQuantity = screen.getByRole('button', {
+      name: 'Decrease quantity for Seasonal bowl',
+    });
+    const increaseQuantity = screen.getByRole('button', {
+      name: 'Increase quantity for Seasonal bowl',
+    });
+    const removeItemButton = screen.getByRole('button', {
+      name: 'Remove Seasonal bowl from cart',
+    });
+    const clearCartButton = screen.getByRole('button', { name: 'Clear cart' });
 
     fireEvent.click(placeOrder);
     fireEvent.click(placeOrder);
 
     expect(stub.calls).toHaveLength(3);
     expect(placeOrder).toBeDisabled();
+    expect(placeOrder).toHaveAttribute('aria-busy', 'true');
+    expect(decreaseQuantity).toBeDisabled();
+    expect(increaseQuantity).toBeDisabled();
+    expect(removeItemButton).toBeDisabled();
+    expect(clearCartButton).toBeDisabled();
     expect(screen.getByText('Confirming current prices…')).toBeVisible();
   });
 
@@ -911,6 +999,51 @@ describe('CartPage', () => {
       'table-number-help table-number-error',
     );
     expect(screen.getByText(/could not validate this table/)).toBeVisible();
+  });
+
+  it('does not steal focus moved to a connected control while order creation is pending', async () => {
+    let resolveOrder!: (response: Response) => void;
+    const orderResponse = new Promise<Response>((resolve) => {
+      resolveOrder = resolve;
+    });
+    seedCart();
+    const stub = installFetchStub(
+      { json: MENU },
+      { json: quoteFor(1) },
+      { json: quoteFor(1) },
+      { responsePromise: orderResponse },
+    );
+    renderCart({ externalMutation: true });
+    await flushAsyncWork();
+    await advanceQuoteDebounce();
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Dine in' }));
+    const tableInput = screen.getByLabelText('Table number');
+    fireEvent.change(tableInput, { target: { value: '7' } });
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Place order and continue to payment',
+      }),
+    );
+    await flushAsyncWork();
+    expect(stub.calls).toHaveLength(4);
+
+    const persistentControl = screen.getByRole('button', {
+      name: 'External cart mutation',
+    });
+    persistentControl.focus();
+    expect(persistentControl).toHaveFocus();
+    resolveOrder(
+      new Response(JSON.stringify({ detail: 'Invalid table' }), {
+        headers: { 'Content-Type': 'application/json' },
+        status: 422,
+      }),
+    );
+    await flushAsyncWork();
+
+    expect(tableInput).toHaveAttribute('aria-invalid', 'true');
+    expect(persistentControl).toHaveFocus();
+    expect(tableInput).not.toHaveFocus();
   });
 
   it('preserves the cart and stores no token for an invalid creation response', async () => {

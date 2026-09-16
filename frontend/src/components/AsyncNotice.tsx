@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react';
 
+import Notice, { type NoticeVariant } from './ui/Notice';
+
 export type AsyncNoticeTone = 'neutral' | 'error' | 'success';
 
 interface AsyncNoticeProps {
@@ -9,6 +11,13 @@ interface AsyncNoticeProps {
   role?: 'alert' | 'status';
 }
 
+const NOTICE_VARIANTS: Record<AsyncNoticeTone, NoticeVariant> = {
+  error: 'danger',
+  neutral: 'info',
+  success: 'success',
+};
+
+/** Preserve the legacy async notice API while delegating presentation to Notice. */
 export default function AsyncNotice({
   children,
   title,
@@ -16,14 +25,8 @@ export default function AsyncNotice({
   role = tone === 'error' ? 'alert' : 'status',
 }: AsyncNoticeProps) {
   return (
-    <section
-      className="async-notice"
-      data-tone={tone}
-      role={role}
-      aria-live={role === 'alert' ? 'assertive' : 'polite'}
-    >
-      <strong>{title}</strong>
-      <div>{children}</div>
-    </section>
+    <Notice role={role} title={title} variant={NOTICE_VARIANTS[tone]}>
+      {children}
+    </Notice>
   );
 }

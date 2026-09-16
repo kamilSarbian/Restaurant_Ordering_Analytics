@@ -1,4 +1,5 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, vi } from 'vitest';
 
@@ -17,14 +18,16 @@ const CURRENT_USER = {
   is_active: true,
   role: 'customer',
 };
+const PAYMENT_CLAIM_PATTERN =
+  /\b(successful|succeeded|failed|pending|confirmed|paid|charged)\b|\bno charge\b|\bpayment went through\b/i;
 
-function renderReturnPage(kind: 'cancelled' | 'return') {
-  const path =
+function renderReturnPage(kind: 'cancelled' | 'return', search = '') {
+  const pathname =
     kind === 'return'
       ? `/orders/${PUBLIC_ORDER_NUMBER}/payment-return`
       : `/orders/${PUBLIC_ORDER_NUMBER}/checkout-cancelled`;
   return render(
-    <MemoryRouter initialEntries={[path]}>
+    <MemoryRouter initialEntries={[`${pathname}${search}`]}>
       <AuthProvider>
         <Routes>
           <Route
@@ -109,21 +112,101 @@ it.each(['return', 'cancelled'] as const)(
   },
 );
 
-it('keeps an unavailable saved session retryable instead of treating it as guest access', async () => {
-  storeAuthToken();
-  saveOrderAccess(PUBLIC_ORDER_NUMBER, 'private-guest-token');
-  installFetchStub({ status: 503 });
+it.each(['return', 'cancelled'] as const)(
+  'keeps an unavailable saved session retryable on %s instead of treating it as guest access',
+  async (kind) => {
+    const user = userEvent.setup();
+    storeAuthToken();
+    saveOrderAccess(PUBLIC_ORDER_NUMBER, 'private-guest-token');
+    const stub = installFetchStub({ status: 503 }, { json: CURRENT_USER });
 
-  renderReturnPage('return');
+    renderReturnPage(kind);
 
-  expect(await screen.findByRole('alert')).toHaveTextContent(
-    'saved session is retained',
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'saved session is retained',
+    );
+    expect(screen.getByRole('button', { name: 'Retry validation' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Log out' })).toBeEnabled();
+    expect(
+      screen.queryByRole('link', { name: 'View order status' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('link', { name: 'Return to payment' }),
+    ).not.toBeInTheDocument();
+    expect(stub.calls).toHaveLength(1);
+
+    await user.click(screen.getByRole('button', { name: 'Retry validation' }));
+
+    expect(
+      await screen.findByRole('link', { name: 'View order status' }),
+    ).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Return to payment' })).toBeVisible();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    await waitFor(() => expect(stub.calls).toHaveLength(2));
+  },
+);
+
+it.each([
+  ['return', 'View order status'],
+  ['cancelled', 'Return to payment'],
+] as const)(
+  'uses one compact brand identity and one keyboard-primary action on %s',
+  async (kind, primaryActionName) => {
+    const user = userEvent.setup();
+    const stub = installFetchStub();
+    saveOrderAccess(PUBLIC_ORDER_NUMBER, 'private-token');
+
+    const { container } = renderReturnPage(kind);
+
+    expect(screen.getAllByText('Nordic Hearth')).toHaveLength(1);
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+    const mark = container.querySelector('svg');
+    expect(mark).toHaveAttribute('aria-hidden', 'true');
+    expect(mark).toHaveAttribute('focusable', 'false');
+    expect(screen.queryByRole('img')).not.toBeInTheDocument();
+
+    const primaryActions = container.querySelectorAll(
+      '[data-action-priority="primary"]',
+    );
+    expect(primaryActions).toHaveLength(1);
+    expect(primaryActions[0]).toHaveTextContent(primaryActionName);
+
+    await user.tab();
+    expect(primaryActions[0]).toHaveFocus();
+    expect(stub.calls).toHaveLength(0);
+  },
+);
+
+it('does not infer a return outcome from misleading URL state', () => {
+  const stub = installFetchStub();
+
+  renderReturnPage(
+    'return',
+    '?payment_status=succeeded&redirect_status=failed&payment=pending',
   );
-  expect(screen.getByRole('button', { name: 'Retry validation' })).toBeEnabled();
-  expect(screen.getByRole('button', { name: 'Log out' })).toBeEnabled();
+
   expect(
-    screen.queryByRole('link', { name: 'View order status' }),
-  ).not.toBeInTheDocument();
+    screen.getByText(
+      'This page does not check payment status or make a payment claim.',
+    ),
+  ).toBeVisible();
+  expect(document.body).not.toHaveTextContent(PAYMENT_CLAIM_PATTERN);
+  expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+  expect(stub.calls).toHaveLength(0);
+});
+
+it('keeps a cancelled redirect neutral even when its query suggests an outcome', () => {
+  const stub = installFetchStub();
+
+  renderReturnPage(
+    'cancelled',
+    '?payment_status=failed&redirect_status=succeeded&charged=true',
+  );
+
+  expect(screen.getByText(/restaurant order was not cancelled/i)).toBeVisible();
+  expect(document.body).not.toHaveTextContent(PAYMENT_CLAIM_PATTERN);
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  expect(stub.calls).toHaveLength(0);
 });
 
 describe('PaymentReturnPage', () => {
@@ -139,8 +222,8 @@ describe('PaymentReturnPage', () => {
       }),
     ).toBeVisible();
     expect(screen.getByText(PUBLIC_ORDER_NUMBER)).toBeVisible();
-    expect(screen.getByText('Payment confirmation can take a moment.')).toBeVisible();
-    expect(document.body).not.toHaveTextContent(/payment (succeeded|confirmed|paid)/i);
+    expect(screen.getByText(/does not itself confirm a payment result/i)).toBeVisible();
+    expect(document.body).not.toHaveTextContent(PAYMENT_CLAIM_PATTERN);
     expect(
       screen.queryByRole('link', { name: 'View order status' }),
     ).not.toBeInTheDocument();
@@ -150,6 +233,10 @@ describe('PaymentReturnPage', () => {
     expect(screen.getByRole('link', { name: 'Browse the menu' })).toHaveAttribute(
       'href',
       '/menu',
+    );
+    expect(screen.getByRole('link', { name: 'Browse the menu' })).toHaveAttribute(
+      'data-action-priority',
+      'primary',
     );
     expect(stub.calls).toHaveLength(0);
   });
@@ -168,7 +255,7 @@ describe('PaymentReturnPage', () => {
       'href',
       `/orders/${PUBLIC_ORDER_NUMBER}/checkout`,
     );
-    expect(document.body).not.toHaveTextContent(/payment (succeeded|confirmed|paid)/i);
+    expect(document.body).not.toHaveTextContent(PAYMENT_CLAIM_PATTERN);
     expect(stub.calls).toHaveLength(0);
   });
 });
@@ -186,7 +273,7 @@ describe('CheckoutCancelledPage', () => {
     expect(screen.getByText(PUBLIC_ORDER_NUMBER)).toBeVisible();
     expect(screen.getByText('Hosted checkout was cancelled or closed.')).toBeVisible();
     expect(screen.getByText(/restaurant order was not cancelled/i)).toBeVisible();
-    expect(document.body).not.toHaveTextContent(/payment failed/i);
+    expect(document.body).not.toHaveTextContent(PAYMENT_CLAIM_PATTERN);
     expect(screen.getByRole('link', { name: 'Return to payment' })).toHaveAttribute(
       'href',
       `/orders/${PUBLIC_ORDER_NUMBER}/checkout`,
@@ -215,5 +302,9 @@ describe('CheckoutCancelledPage', () => {
     expect(
       screen.queryByRole('link', { name: 'Return to payment' }),
     ).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Browse the menu' })).toHaveAttribute(
+      'data-action-priority',
+      'primary',
+    );
   });
 });

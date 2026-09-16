@@ -37,6 +37,7 @@ function renderRegister(initialEntry = '/register') {
         element: <AuthProvider />,
         children: [
           { path: '/register', element: <RegisterPage /> },
+          { path: '/login', element: <h1>Login destination</h1> },
           { path: '/', element: <h1>Landing destination</h1> },
           { path: '/account', element: <h1>Account destination</h1> },
           {
@@ -56,6 +57,14 @@ function renderRegister(initialEntry = '/register') {
     { initialEntries: [initialEntry] },
   );
   return { router, ...render(<RouterProvider router={router} />) };
+}
+
+function deferredResponse() {
+  let resolve!: (response: Response) => void;
+  const promise = new Promise<Response>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
 }
 
 async function submitRegistration(
@@ -83,7 +92,7 @@ afterEach(() => {
 });
 
 describe('shared registration page', () => {
-  it('renders accessible customer fields without a role control', async () => {
+  it('renders one branded customer form with a decorative mark', async () => {
     const fetchSpy = vi.fn<typeof fetch>();
     vi.stubGlobal('fetch', fetchSpy);
     renderRegister();
@@ -91,6 +100,11 @@ describe('shared registration page', () => {
     expect(
       await screen.findByRole('heading', { name: 'Create account' }),
     ).toBeVisible();
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+    expect(screen.getByText('Nordic Hearth', { exact: true })).toBeVisible();
+    expect(
+      screen.queryByRole('img', { name: 'Nordic Hearth' }),
+    ).not.toBeInTheDocument();
     expect(screen.getByLabelText('Email')).toHaveAttribute('autocomplete', 'email');
     expect(screen.getByLabelText('Password')).toHaveAttribute(
       'autocomplete',
@@ -102,6 +116,78 @@ describe('shared registration page', () => {
     );
     expect(screen.getByText(/15 to 128 characters/i)).toBeVisible();
     expect(screen.queryByRole('combobox', { name: /role/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Sign in' })).toHaveAttribute(
+      'href',
+      '/login',
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('carries a safe encoded continuation to login without submitting', async () => {
+    const user = userEvent.setup();
+    const fetchSpy = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetchSpy);
+    const { router } = renderRegister('/register?next=%2Fcart');
+
+    const loginLink = await screen.findByRole('link', { name: 'Sign in' });
+    expect(loginLink).toHaveAttribute('href', '/login?next=%2Fcart');
+
+    await user.click(loginLink);
+
+    expect(
+      await screen.findByRole('heading', { name: 'Login destination' }),
+    ).toBeVisible();
+    expect(router.state.location.pathname).toBe('/login');
+    expect(router.state.location.search).toBe('?next=%2Fcart');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('toggles password visibility without changing its value or revealing after validation', async () => {
+    const user = userEvent.setup();
+    const fetchSpy = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetchSpy);
+    renderRegister();
+    const passwordInput = await screen.findByLabelText('Password');
+    const confirmInput = screen.getByLabelText('Confirm password');
+    await user.type(passwordInput, VALID_PASSWORD);
+    await user.type(confirmInput, VALID_PASSWORD);
+
+    const showPassword = screen.getByRole('button', { name: 'Show password' });
+    expect(showPassword).toHaveAttribute('aria-pressed', 'false');
+    expect(passwordInput).toHaveAttribute('type', 'password');
+    await user.click(showPassword);
+    expect(passwordInput).toHaveAttribute('type', 'text');
+    expect(passwordInput).toHaveValue(VALID_PASSWORD);
+    expect(screen.getByRole('button', { name: 'Hide password' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Hide password' }));
+    const showConfirmation = screen.getByRole('button', {
+      name: 'Show password confirmation',
+    });
+    expect(showConfirmation).toHaveAttribute('aria-pressed', 'false');
+    await user.click(showConfirmation);
+    expect(confirmInput).toHaveAttribute('type', 'text');
+    expect(confirmInput).toHaveValue(VALID_PASSWORD);
+    expect(
+      screen.getByRole('button', { name: 'Hide password confirmation' }),
+    ).toHaveAttribute('aria-pressed', 'true');
+    await user.click(
+      screen.getByRole('button', { name: 'Hide password confirmation' }),
+    );
+    await user.click(screen.getByRole('button', { name: 'Create account' }));
+
+    expect(screen.getByText('Email is required.')).toBeVisible();
+    expect(passwordInput).toHaveAttribute('type', 'password');
+    expect(passwordInput).toHaveValue(VALID_PASSWORD);
+    expect(confirmInput).toHaveAttribute('type', 'password');
+    expect(confirmInput).toHaveValue(VALID_PASSWORD);
+    expect(screen.getByRole('button', { name: 'Show password' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
@@ -265,7 +351,7 @@ describe('shared registration page', () => {
   it.each([
     [409, 'An account with this email already exists. Sign in instead.'],
     [422, 'The registration details were not accepted. Review them and try again.'],
-    [503, 'The authentication service is temporarily unavailable. Try again.'],
+    [503, 'Account creation is temporarily unavailable. Try again.'],
   ])('maps HTTP %i to a safe registration error', async (status, message) => {
     installFetchStub({ json: { detail: 'private backend detail' }, status });
     renderRegister();
@@ -275,6 +361,68 @@ describe('shared registration page', () => {
     expect(await screen.findByText(message)).toBeVisible();
     expect(document.body).not.toHaveTextContent('private backend detail');
     expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toBeNull();
+  });
+
+  it('blocks duplicate registration while exposing the real loading state', async () => {
+    const pending = deferredResponse();
+    const stub = installFetchStub({ responsePromise: pending.promise });
+    renderRegister();
+
+    const fields = await submitRegistration();
+
+    const loadingButton = screen.getByRole('button', {
+      name: /Creating account/u,
+    });
+    expect(loadingButton).toBeDisabled();
+    expect(loadingButton).toHaveAttribute('aria-busy', 'true');
+    const form = loadingButton.closest('form');
+    expect(form).not.toBeNull();
+    fireEvent.submit(form as HTMLFormElement);
+    expect(stub.calls).toHaveLength(1);
+
+    await act(async () => {
+      pending.resolve(new Response(null, { status: 503 }));
+      await pending.promise;
+    });
+    expect(
+      await screen.findByText(
+        'Account creation is temporarily unavailable. Try again.',
+      ),
+    ).toBeVisible();
+    expect(fields.passwordInput).toHaveValue(VALID_PASSWORD);
+    expect(fields.confirmInput).toHaveValue(VALID_PASSWORD);
+  });
+
+  it('recovers from a request error without rendering private detail or token', async () => {
+    const user = userEvent.setup();
+    const stub = installFetchStub(
+      { json: { detail: 'private registration context' }, status: 503 },
+      { json: TOKEN_RESPONSE, status: 201 },
+      { json: currentUser() },
+    );
+    const { router } = renderRegister('/register?next=%2Fcart');
+
+    const fields = await submitRegistration();
+    expect(
+      await screen.findByText(
+        'Account creation is temporarily unavailable. Try again.',
+      ),
+    ).toBeVisible();
+    expect(document.body).not.toHaveTextContent('private registration context');
+    expect(fields.passwordInput).toHaveAttribute('type', 'password');
+
+    await user.click(screen.getByRole('button', { name: 'Create account' }));
+
+    expect(
+      await screen.findByRole('heading', { name: 'Cart destination' }),
+    ).toBeVisible();
+    expect(router.state.location.pathname).toBe('/cart');
+    expect(stub.calls.map((call) => call.url)).toEqual([
+      '/api/v1/auth/register',
+      '/api/v1/auth/register',
+      '/api/v1/auth/me',
+    ]);
+    expect(document.body).not.toHaveTextContent(TOKEN);
   });
 
   it('honors registration Retry-After without sending a second request', async () => {
@@ -313,7 +461,7 @@ describe('shared registration page', () => {
 
     expect(
       await screen.findByText(
-        'Registration could not reach the authentication service. Try again.',
+        'We could not create your account. Check your connection and try again.',
       ),
     ).toBeVisible();
     expect(sessionStorage).toHaveLength(0);

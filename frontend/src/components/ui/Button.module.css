@@ -1,0 +1,177 @@
+.button {
+    position: relative;
+    display: inline-flex;
+    max-width: 100%;
+    align-items: center;
+    justify-content: center;
+    border: var(--border-width-hairline) solid transparent;
+    border-radius: var(--radius-control);
+    cursor: pointer;
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-heading);
+    text-align: center;
+    transition:
+        var(--transition-color),
+        transform var(--duration-fast) var(--easing-standard),
+        box-shadow var(--duration-fast) var(--easing-standard);
+}
+
+.button:disabled {
+    cursor: not-allowed;
+    opacity: 0.58;
+    transform: none;
+    box-shadow: none;
+}
+
+.button:not(:disabled):hover {
+    box-shadow: var(--shadow-elevation-1);
+}
+
+.button:not(:disabled):active {
+    transform: translateY(1px);
+    box-shadow: var(--shadow-none);
+}
+
+.content {
+    display: inline-flex;
+    min-width: 0;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    overflow-wrap: anywhere;
+}
+
+.button[data-loading='true'] .content {
+    opacity: 0;
+}
+
+.loadingIndicator {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    pointer-events: none;
+}
+
+.spinner {
+    width: var(--space-4);
+    aspect-ratio: 1;
+    border: var(--border-width-strong) solid currentColor;
+    border-inline-end-color: transparent;
+    border-radius: var(--radius-pill);
+    animation: button-loading-spin 720ms linear infinite;
+}
+
+@keyframes button-loading-spin {
+    to {
+        transform: rotate(1turn);
+    }
+}
+
+.sm {
+    min-height: calc(var(--space-8) + var(--space-1));
+    padding: var(--space-1) var(--space-3);
+    font-size: var(--font-size-label);
+}
+
+.md {
+    min-height: calc(var(--space-10) + var(--space-1));
+    padding: var(--space-2) var(--space-4);
+    font-size: var(--font-size-label);
+}
+
+.lg {
+    min-height: var(--space-12);
+    padding: var(--space-3) var(--space-6);
+    font-size: var(--font-size-body);
+}
+
+.primary {
+    border-color: var(--color-primary);
+    background: var(--color-primary);
+    color: var(--color-text-inverse);
+}
+
+.primary:not(:disabled):hover {
+    border-color: var(--color-primary-hover);
+    background: var(--color-primary-hover);
+}
+
+.primary:not(:disabled):active {
+    border-color: var(--color-primary-active);
+    background: var(--color-primary-active);
+}
+
+.secondary {
+    border-color: var(--color-control-border);
+    background: var(--color-surface);
+    color: var(--color-primary);
+}
+
+.secondary:not(:disabled):hover {
+    background: var(--color-surface-muted);
+    color: var(--color-primary-hover);
+}
+
+.secondary:not(:disabled):active {
+    background: var(--color-surface-muted);
+    color: var(--color-primary-active);
+}
+
+.accent {
+    border-color: var(--color-brand-accent);
+    background: var(--color-brand-accent);
+    color: var(--color-text-inverse);
+}
+
+.accent:not(:disabled):hover {
+    border-color: var(--color-brand-accent-hover);
+    background: var(--color-brand-accent-hover);
+}
+
+.accent:not(:disabled):active {
+    border-color: var(--color-brand-accent-active);
+    background: var(--color-brand-accent-active);
+}
+
+.danger {
+    border-color: var(--color-danger);
+    background: var(--color-danger-surface);
+    color: var(--color-danger);
+}
+
+.danger:not(:disabled):hover {
+    text-decoration: underline;
+    text-decoration-thickness: var(--border-width-hairline);
+    text-underline-offset: 0.18em;
+}
+
+.danger:not(:disabled):active {
+    text-decoration-thickness: var(--border-width-strong);
+}
+
+.ghost {
+    border-color: transparent;
+    background: transparent;
+    color: var(--color-primary);
+}
+
+.ghost:not(:disabled):hover {
+    background: var(--color-surface-muted);
+    color: var(--color-primary-hover);
+}
+
+.ghost:not(:disabled):active {
+    background: var(--color-surface-muted);
+    color: var(--color-primary-active);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .button:not(:disabled):active {
+        transform: none;
+    }
+
+    .spinner {
+        animation: none;
+    }
+}

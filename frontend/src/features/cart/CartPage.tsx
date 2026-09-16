@@ -10,12 +10,17 @@ import type {
   QuoteResponse,
 } from '../../api/types';
 import AsyncNotice from '../../components/AsyncNotice';
+import BrandMark from '../../components/branding/BrandMark';
+import Button from '../../components/ui/Button';
 import { useAuth } from '../auth/AuthContext';
 import { saveOrderAccess } from '../checkout/orderAccessStorage';
+import { resolveMenuImage } from '../menu/menuImageCatalog';
 import { useCart } from './CartContext';
 import styles from './CartPage.module.css';
 import QuantityControl from './QuantityControl';
 
+const CART_ITEM_IMAGE_SIZES =
+  '(min-width: 64rem) 7rem, (min-width: 40rem) 6rem, 5.5rem';
 const QUOTE_DEBOUNCE_MS = 400;
 
 type MenuLookupState =
@@ -50,6 +55,25 @@ type OrderSubmissionState =
       publicOrderNumber: string;
       status: 'navigation-error';
     };
+
+interface SubmissionFocusIntent {
+  readonly origin: HTMLElement | null;
+}
+
+function getFocusOrigin(): HTMLElement | null {
+  return document.activeElement instanceof HTMLElement ? document.activeElement : null;
+}
+
+function shouldRestoreAsyncFocus(origin: HTMLElement | null): boolean {
+  const activeElement = document.activeElement;
+  return (
+    activeElement === null ||
+    activeElement === document.body ||
+    activeElement === origin ||
+    !activeElement.isConnected ||
+    (activeElement instanceof HTMLButtonElement && activeElement.disabled)
+  );
+}
 
 function formatAmount(amount: number, currency: string): string {
   const fallback = `${amount} minor units ${currency}`;
@@ -123,6 +147,62 @@ function getDefinitiveOrderErrorMessage(error: ApiRequestError): string {
   return 'The server rejected the order. Review the cart before trying again.';
 }
 
+interface CartItemThumbnailProps {
+  item: MenuItem | undefined;
+}
+
+function CartItemThumbnail({ item }: CartItemThumbnailProps) {
+  const resolvedImage =
+    item === undefined ? null : resolveMenuImage(item.id, item.image_url);
+  const safeImageUrl =
+    resolvedImage?.kind === 'responsive'
+      ? resolvedImage.asset.pngSrc
+      : (resolvedImage?.src ?? null);
+  const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null);
+  const showImage = safeImageUrl !== null && failedImageUrl !== safeImageUrl;
+
+  return (
+    <div
+      aria-hidden={true}
+      className={styles.thumbnail}
+      data-image-state={showImage ? 'ready' : 'placeholder'}
+    >
+      {showImage ? (
+        resolvedImage?.kind === 'responsive' ? (
+          <picture>
+            <source
+              sizes={CART_ITEM_IMAGE_SIZES}
+              srcSet={resolvedImage.asset.webpSrcSet}
+              type={'image/webp'}
+            />
+            <img
+              alt={''}
+              decoding={'async'}
+              height={resolvedImage.asset.height}
+              loading={'lazy'}
+              onError={() => setFailedImageUrl(safeImageUrl)}
+              src={resolvedImage.asset.pngSrc}
+              width={resolvedImage.asset.width}
+            />
+          </picture>
+        ) : (
+          <img
+            alt={''}
+            decoding={'async'}
+            height={1086}
+            loading={'lazy'}
+            onError={() => setFailedImageUrl(safeImageUrl)}
+            src={safeImageUrl}
+            width={1448}
+          />
+        )
+      ) : (
+        <BrandMark className={styles.thumbnailMark} size={32} />
+      )}
+    </div>
+  );
+}
+
 export default function CartPage() {
   const navigate = useNavigate();
   const {
@@ -145,6 +225,16 @@ export default function CartPage() {
   const [orderState, setOrderState] = useState<OrderSubmissionState>({
     status: 'idle',
   });
+  const [clearCartConfirmationOpen, setClearCartConfirmationOpen] = useState(false);
+  const [cartMutationMessage, setCartMutationMessage] = useState('');
+  const pageHeadingRef = useRef<HTMLHeadingElement>(null);
+  const quoteRetryButtonRef = useRef<HTMLButtonElement>(null);
+  const clearCartButtonRef = useRef<HTMLButtonElement>(null);
+  const cancelClearCartButtonRef = useRef<HTMLButtonElement>(null);
+  const removeButtonRefs = useRef(new Map<string, HTMLButtonElement>());
+  const pendingRemovalFocusRef = useRef<string | null | undefined>(undefined);
+  const restoreQuoteRetryFocusRef = useRef(false);
+  const restoreClearButtonFocusRef = useRef(false);
   const tableInputRef = useRef<HTMLInputElement>(null);
   const submissionInFlight = useRef(false);
   const hasItems = items.length > 0;
@@ -161,6 +251,7 @@ export default function CartPage() {
     [items],
   );
   const latestSignature = useRef(cartSignature);
+  const submissionFocusIntentRef = useRef<SubmissionFocusIntent | null>(null);
   const tableNumber =
     orderType === 'dine_in' ? parsePositiveTableNumber(tableNumberInput) : null;
   const tableNumberIsValid = orderType === 'takeaway' || tableNumber !== null;
@@ -244,18 +335,120 @@ export default function CartPage() {
   }, [cartSignature, hasItems, quoteItems, retryVersion]);
 
   useEffect(() => {
-    if (orderState.status === 'error' && orderState.focusTable === true) {
+    if (orderState.status === 'refreshing-quote' || orderState.status === 'creating') {
+      return;
+    }
+    const focusIntent = submissionFocusIntentRef.current;
+    submissionFocusIntentRef.current = null;
+    if (
+      focusIntent !== null &&
+      orderState.status === 'error' &&
+      orderState.focusTable === true &&
+      shouldRestoreAsyncFocus(focusIntent.origin)
+    ) {
       tableInputRef.current?.focus();
     }
   }, [orderState]);
 
+  useEffect(() => {
+    const targetMenuItemId = pendingRemovalFocusRef.current;
+    if (targetMenuItemId === undefined) {
+      return;
+    }
+    pendingRemovalFocusRef.current = undefined;
+    if (targetMenuItemId !== null) {
+      const target = removeButtonRefs.current.get(targetMenuItemId);
+      if (target !== undefined) {
+        target.focus();
+        return;
+      }
+    }
+    pageHeadingRef.current?.focus();
+  }, [items]);
+
+  useEffect(() => {
+    if (clearCartConfirmationOpen) {
+      cancelClearCartButtonRef.current?.focus();
+      return;
+    }
+    if (restoreClearButtonFocusRef.current) {
+      restoreClearButtonFocusRef.current = false;
+      clearCartButtonRef.current?.focus();
+    }
+  }, [clearCartConfirmationOpen]);
+
+  useEffect(() => {
+    if (!restoreQuoteRetryFocusRef.current) {
+      return;
+    }
+    if (!hasItems) {
+      restoreQuoteRetryFocusRef.current = false;
+      return;
+    }
+    if (quoteState.status === 'idle' || quoteState.status === 'pending') {
+      return;
+    }
+
+    const retryFailed =
+      quoteState.status === 'error' && quoteState.signature === cartSignature;
+    restoreQuoteRetryFocusRef.current = false;
+    const activeElement = document.activeElement;
+    if (retryFailed && (activeElement === document.body || activeElement === null)) {
+      quoteRetryButtonRef.current?.focus();
+    }
+  }, [cartSignature, hasItems, quoteState]);
+
+  const retryQuote = () => {
+    restoreQuoteRetryFocusRef.current = true;
+    setRetryVersion((version) => version + 1);
+  };
+
+  const removeCartItem = (menuItemId: string, itemName: string) => {
+    const itemIndex = items.findIndex((item) => item.menuItemId === menuItemId);
+    const nextItem = items[itemIndex + 1] ?? items[itemIndex - 1] ?? null;
+    pendingRemovalFocusRef.current = nextItem?.menuItemId ?? null;
+    setCartMutationMessage(`${itemName} removed from your cart.`);
+    removeItem(menuItemId);
+  };
+
+  const requestClearCart = () => {
+    setCartMutationMessage('');
+    setClearCartConfirmationOpen(true);
+  };
+
+  const cancelClearCart = () => {
+    restoreClearButtonFocusRef.current = true;
+    setCartMutationMessage('Your cart was kept.');
+    setClearCartConfirmationOpen(false);
+  };
+
+  const confirmClearCart = () => {
+    pendingRemovalFocusRef.current = null;
+    setCartMutationMessage('All items were removed from your cart.');
+    setClearCartConfirmationOpen(false);
+    clearCart();
+  };
+
   if (!hasItems) {
     return (
-      <div className={styles.page}>
-        <h1>Your cart</h1>
+      <div className={[styles.page, styles.emptyPage].join(' ')}>
+        <BrandMark className={styles.emptyMark} size={48} />
+        <p className={styles.eyebrow}>A fresh meal is a few choices away</p>
+        <h1 ref={pageHeadingRef} tabIndex={-1}>
+          Your cart
+        </h1>
+        <p className={styles.emptyLead}>
+          Your table is ready. Choose a dish and return here when you are ready to
+          order.
+        </p>
         <AsyncNotice title="Your cart is empty.">
           <Link to="/menu">Browse the menu</Link>
         </AsyncNotice>
+        {cartMutationMessage !== '' && (
+          <p className={styles.mutationStatus} role={'status'}>
+            {cartMutationMessage}
+          </p>
+        )}
       </div>
     );
   }
@@ -277,6 +470,9 @@ export default function CartPage() {
     'snapshot' in quoteState && quoteState.snapshot?.signature !== cartSignature
       ? quoteState.snapshot
       : null;
+  const retainedSnapshot = 'snapshot' in quoteState ? quoteState.snapshot : null;
+  const summaryQuote = currentQuote ?? retainedSnapshot?.quote ?? null;
+  const summaryQuoteIsPrevious = currentQuote === null && summaryQuote !== null;
   const canPlaceOrder =
     quoteIsCurrent &&
     tableNumberIsValid &&
@@ -307,6 +503,7 @@ export default function CartPage() {
     }
 
     submissionInFlight.current = true;
+    submissionFocusIntentRef.current = { origin: getFocusOrigin() };
     const submittedSignature = cartSignature;
     const submittedItems = quoteItems.map((item) => ({ ...item }));
     setOrderState({ status: 'refreshing-quote' });
@@ -461,14 +658,16 @@ export default function CartPage() {
       <header className={styles.pageHeader}>
         <div>
           <p className={styles.eyebrow}>Review your choices</p>
-          <h1>Your cart</h1>
-          <p>
+          <h1 ref={pageHeadingRef} tabIndex={-1}>
+            Your cart
+          </h1>
+          <p className={styles.headerSummary}>
             {totalQuantity} {totalQuantity === 1 ? 'item' : 'items'} across{' '}
             {items.length} {items.length === 1 ? 'dish' : 'dishes'}.
           </p>
         </div>
         <Link className={styles.menuLink} to="/menu">
-          Continue browsing
+          Continue shopping
         </Link>
       </header>
 
@@ -476,15 +675,52 @@ export default function CartPage() {
         <section aria-labelledby="cart-items-heading">
           <div className={styles.sectionHeading}>
             <h2 id="cart-items-heading">Cart items</h2>
-            <button
-              className={styles.clearButton}
-              type="button"
-              disabled={orderRequestInFlight}
-              onClick={clearCart}
-            >
-              Clear cart
-            </button>
+            {!clearCartConfirmationOpen && (
+              <Button
+                className={styles.clearButton}
+                ref={clearCartButtonRef}
+                size={'sm'}
+                variant={'danger'}
+                type="button"
+                disabled={orderRequestInFlight}
+                onClick={requestClearCart}
+              >
+                Clear cart
+              </Button>
+            )}
           </div>
+          {clearCartConfirmationOpen && (
+            <div
+              aria-label={'Clear cart confirmation'}
+              className={styles.clearConfirmation}
+              role={'group'}
+            >
+              <p>
+                Remove all {totalQuantity} {totalQuantity === 1 ? 'item' : 'items'} from
+                your cart?
+              </p>
+              <div className={styles.clearConfirmationActions}>
+                <Button
+                  disabled={orderRequestInFlight}
+                  onClick={confirmClearCart}
+                  size={'md'}
+                  type={'button'}
+                  variant={'danger'}
+                >
+                  Confirm clear cart
+                </Button>
+                <Button
+                  onClick={cancelClearCart}
+                  ref={cancelClearCartButtonRef}
+                  size={'md'}
+                  type={'button'}
+                  variant={'secondary'}
+                >
+                  Cancel clear cart
+                </Button>
+              </div>
+            </div>
+          )}
           {menuLookup.status === 'error' && (
             <p className={styles.lookupWarning} role="status">
               Current item details are unavailable. Your cart and server quote are
@@ -507,7 +743,8 @@ export default function CartPage() {
 
               return (
                 <li className={styles.cartLine} key={cartItem.menuItemId}>
-                  <div>
+                  <CartItemThumbnail item={menuItem} />
+                  <div className={styles.itemDetails}>
                     <h3>{itemName}</h3>
                     {menuItem !== undefined && (
                       <p
@@ -526,6 +763,7 @@ export default function CartPage() {
                     )}
                   </div>
                   <QuantityControl
+                    disabled={orderRequestInFlight}
                     itemName={itemName}
                     quantity={cartItem.quantity}
                     onDecrement={() => {
@@ -535,15 +773,24 @@ export default function CartPage() {
                       if (!orderRequestInFlight) incrementItem(cartItem.menuItemId);
                     }}
                   />
-                  <button
+                  <Button
                     className={styles.removeButton}
+                    ref={(button) => {
+                      if (button === null) {
+                        removeButtonRefs.current.delete(cartItem.menuItemId);
+                        return;
+                      }
+                      removeButtonRefs.current.set(cartItem.menuItemId, button);
+                    }}
+                    size={'sm'}
+                    variant={'danger'}
                     type="button"
                     disabled={orderRequestInFlight}
                     aria-label={`Remove ${itemName} from cart`}
-                    onClick={() => removeItem(cartItem.menuItemId)}
+                    onClick={() => removeCartItem(cartItem.menuItemId, itemName)}
                   >
                     Remove
-                  </button>
+                  </Button>
                   {quotedLine !== undefined && currentQuoteCurrency !== undefined && (
                     <dl className={styles.lineAmounts}>
                       <div>
@@ -570,6 +817,11 @@ export default function CartPage() {
               );
             })}
           </ul>
+          {cartMutationMessage !== '' && (
+            <p className={styles.mutationStatus} role={'status'}>
+              {cartMutationMessage}
+            </p>
+          )}
         </section>
 
         <aside className={styles.summary} aria-labelledby="quote-heading">
@@ -600,8 +852,9 @@ export default function CartPage() {
               <div className={styles.errorActions}>
                 <button
                   className={styles.retryButton}
+                  ref={quoteRetryButtonRef}
                   type="button"
-                  onClick={() => setRetryVersion((version) => version + 1)}
+                  onClick={retryQuote}
                 >
                   Retry quote
                 </button>
@@ -610,16 +863,22 @@ export default function CartPage() {
             </AsyncNotice>
           )}
 
-          {currentQuote !== null && (
+          {summaryQuoteIsPrevious && (
+            <p className={styles.previousQuoteLabel}>
+              {'Previous server quote \u2014 awaiting a current total'}
+            </p>
+          )}
+
+          {summaryQuote !== null && (
             <div className={styles.quoteResult} aria-live="polite">
               <ul aria-label="Quoted items">
-                {currentQuote.items.map((line) => (
+                {summaryQuote.items.map((line) => (
                   <li key={line.menu_item_id}>
                     <span>
                       {line.name} × {line.quantity}
                     </span>
                     <strong>
-                      {formatAmount(line.line_total_amount, currentQuote.currency)}
+                      {formatAmount(line.line_total_amount, summaryQuote.currency)}
                     </strong>
                   </li>
                 ))}
@@ -628,13 +887,13 @@ export default function CartPage() {
                 <div>
                   <dt>Subtotal</dt>
                   <dd>
-                    {formatAmount(currentQuote.subtotal_amount, currentQuote.currency)}
+                    {formatAmount(summaryQuote.subtotal_amount, summaryQuote.currency)}
                   </dd>
                 </div>
                 <div className={styles.totalRow}>
                   <dt>Total</dt>
                   <dd>
-                    {formatAmount(currentQuote.total_amount, currentQuote.currency)}
+                    {formatAmount(summaryQuote.total_amount, summaryQuote.currency)}
                   </dd>
                 </div>
               </dl>
@@ -789,14 +1048,22 @@ export default function CartPage() {
             <p className={styles.ctaHelp} id="place-order-help">
               {disabledReason}
             </p>
-            <button
+            <Button
               className={styles.placeOrderButton}
+              loading={orderRequestInFlight}
+              loadingLabel={
+                orderState.status === 'creating'
+                  ? 'Creating your order\u2026'
+                  : 'Confirming current prices\u2026'
+              }
+              size={'lg'}
+              variant={'primary'}
               type="submit"
               aria-describedby="place-order-help"
               disabled={!canPlaceOrder}
             >
               Place order and continue to payment
-            </button>
+            </Button>
           </form>
         </aside>
       </div>

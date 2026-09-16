@@ -1,12 +1,66 @@
+import { useEffect, useRef, type RefObject } from 'react';
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
 
 import styles from '../../components/admin/AdminShell.module.css';
-import { useAuth } from './AuthContext';
+import { type AuthPhase, useAuth } from './AuthContext';
 import { buildAdminLoginTarget } from './authNavigation';
 
-function CheckingSession() {
+type SessionValidationPhase = Extract<
+  AuthPhase,
+  'checking-session' | 'temporarily-unavailable'
+>;
+
+function shouldRestoreAsyncFocus(): boolean {
+  const activeElement = document.activeElement;
   return (
-    <main className={styles.stateScreen}>
+    activeElement === null ||
+    activeElement === document.body ||
+    !activeElement.isConnected ||
+    (activeElement instanceof HTMLButtonElement && activeElement.disabled)
+  );
+}
+
+function useSessionValidationFocus(
+  phase: AuthPhase,
+  retrySession: () => Promise<void>,
+) {
+  const checkingMainRef = useRef<HTMLElement>(null);
+  const retryButtonRef = useRef<HTMLButtonElement>(null);
+  const restoreFocusRef = useRef(false);
+
+  useEffect(() => {
+    if (!restoreFocusRef.current) return;
+    if (phase === 'checking-session') {
+      if (shouldRestoreAsyncFocus()) {
+        checkingMainRef.current?.focus({ preventScroll: true });
+      }
+      return;
+    }
+
+    restoreFocusRef.current = false;
+    if (!shouldRestoreAsyncFocus()) return;
+    const target =
+      phase === 'temporarily-unavailable'
+        ? retryButtonRef.current
+        : document.getElementById('admin-main-content');
+    target?.focus({ preventScroll: true });
+  }, [phase]);
+
+  const handleRetrySession = (): void => {
+    restoreFocusRef.current = true;
+    void retrySession();
+  };
+
+  return { checkingMainRef, handleRetrySession, retryButtonRef };
+}
+
+function CheckingSession({
+  checkingMainRef,
+}: {
+  checkingMainRef: RefObject<HTMLElement | null>;
+}) {
+  return (
+    <main ref={checkingMainRef} className={styles.stateScreen} tabIndex={-1}>
       <section className={styles.statePanel} role="status" aria-live="polite">
         <p className="eyebrow">Administrator access</p>
         <h1>Checking your session</h1>
@@ -16,8 +70,23 @@ function CheckingSession() {
   );
 }
 
-function TemporarilyUnavailable() {
-  const { logout, retrySession } = useAuth();
+function SessionValidationState({
+  checkingMainRef,
+  handleRetrySession,
+  phase,
+  retryButtonRef,
+}: {
+  checkingMainRef: RefObject<HTMLElement | null>;
+  handleRetrySession: () => void;
+  phase: SessionValidationPhase;
+  retryButtonRef: RefObject<HTMLButtonElement | null>;
+}) {
+  const { logout } = useAuth();
+
+  if (phase === 'checking-session') {
+    return <CheckingSession checkingMainRef={checkingMainRef} />;
+  }
+
   return (
     <main className={styles.stateScreen}>
       <section className={styles.statePanel} role="alert" aria-live="assertive">
@@ -29,9 +98,10 @@ function TemporarilyUnavailable() {
         </p>
         <div className={styles.stateActions}>
           <button
+            ref={retryButtonRef}
             className={styles.secondaryButton}
             type="button"
-            onClick={() => void retrySession()}
+            onClick={handleRetrySession}
           >
             Retry validation
           </button>
@@ -46,14 +116,12 @@ function TemporarilyUnavailable() {
 
 /** Guard current administrator routes with the canonical application session. */
 export function AdministratorRouteGuard() {
-  const { phase, user } = useAuth();
+  const { phase, retrySession, user } = useAuth();
   const location = useLocation();
+  const sessionFocus = useSessionValidationFocus(phase, retrySession);
 
-  if (phase === 'checking-session') {
-    return <CheckingSession />;
-  }
-  if (phase === 'temporarily-unavailable') {
-    return <TemporarilyUnavailable />;
+  if (phase === 'checking-session' || phase === 'temporarily-unavailable') {
+    return <SessionValidationState phase={phase} {...sessionFocus} />;
   }
   if (phase === 'unauthenticated') {
     return <Navigate to={buildAdminLoginTarget(location.pathname)} replace />;
@@ -66,14 +134,12 @@ export function AdministratorRouteGuard() {
 
 /** Restrict the user-management route tree to the current super administrator. */
 export function SuperAdminRouteGuard() {
-  const { phase, user } = useAuth();
+  const { phase, retrySession, user } = useAuth();
   const location = useLocation();
+  const sessionFocus = useSessionValidationFocus(phase, retrySession);
 
-  if (phase === 'checking-session') {
-    return <CheckingSession />;
-  }
-  if (phase === 'temporarily-unavailable') {
-    return <TemporarilyUnavailable />;
+  if (phase === 'checking-session' || phase === 'temporarily-unavailable') {
+    return <SessionValidationState phase={phase} {...sessionFocus} />;
   }
   if (phase === 'unauthenticated') {
     return <Navigate to={buildAdminLoginTarget(location.pathname)} replace />;

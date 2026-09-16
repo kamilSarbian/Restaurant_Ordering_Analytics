@@ -9,23 +9,18 @@
 html {
     min-width: 20rem;
     min-height: 100%;
-    background: var(--color-background);
+    background: var(--color-canvas);
+    color-scheme: light;
 }
 
 body {
     min-height: 100%;
     margin: 0;
-    color: var(--color-text);
-    background: var(--color-background);
-    font-family:
-        Inter,
-        ui-sans-serif,
-        system-ui,
-        -apple-system,
-        BlinkMacSystemFont,
-        'Segoe UI',
-        sans-serif;
-    line-height: 1.6;
+    color: var(--color-text-primary);
+    background: var(--color-canvas);
+    font-family: var(--font-family-ui);
+    font-size: var(--font-size-body);
+    line-height: var(--line-height-body);
     text-rendering: optimizeLegibility;
 }
 
@@ -33,20 +28,61 @@ button,
 input,
 select,
 textarea {
+    color: inherit;
     font: inherit;
+    letter-spacing: inherit;
+}
+
+input:is(
+    :not([type]),
+    [type='text'],
+    [type='email'],
+    [type='password'],
+    [type='number'],
+    [type='date'],
+    [type='search'],
+    [type='tel'],
+    [type='url']
+),
+select,
+textarea {
+    border-color: var(--color-control-border);
+    background-color: var(--color-surface);
+    color: var(--color-text-primary);
+}
+
+input::placeholder,
+textarea::placeholder {
+    color: var(--color-text-secondary);
+    opacity: 1;
+}
+
+button,
+input[type='checkbox'],
+input[type='radio'],
+select {
+    accent-color: var(--color-primary);
 }
 
 a {
     color: var(--color-primary);
+    text-decoration-thickness: 0.08em;
     text-underline-offset: 0.18em;
+    transition: var(--transition-color);
 }
 
 a:hover {
     color: var(--color-primary-hover);
 }
 
+::selection {
+    background: var(--color-brand-accent);
+    color: var(--color-text-inverse);
+}
+
 :focus-visible {
-    outline: none;
+    outline: var(--border-width-focus) solid transparent;
+    outline-offset: var(--border-width-strong);
     box-shadow: var(--focus-ring);
 }
 
@@ -73,11 +109,21 @@ p {
     margin-block: 0;
 }
 
+.type-display {
+    font-family: var(--font-family-display);
+    line-height: var(--line-height-heading);
+    letter-spacing: var(--letter-spacing-display);
+}
+
+.tabular-nums {
+    font-variant-numeric: tabular-nums;
+}
+
 .foundation-page,
 .not-found {
-    width: min(100%, 48rem);
+    width: min(100%, var(--content-width-narrow));
     padding: clamp(var(--space-6), 5vw, var(--space-12));
-    border: 1px solid var(--color-border);
+    border: var(--border-width-hairline) solid var(--color-border);
     border-radius: var(--radius-medium);
     background: var(--color-surface);
     box-shadow: var(--shadow-small);
@@ -85,7 +131,7 @@ p {
 
 .eyebrow {
     margin-bottom: var(--space-4);
-    color: var(--color-accent);
+    color: var(--color-brand-accent);
     font-size: 0.8rem;
     font-weight: 800;
     letter-spacing: 0.13em;
@@ -96,7 +142,7 @@ p {
 .not-found > p:not(.eyebrow) {
     max-width: 60ch;
     margin-top: var(--space-6);
-    color: var(--color-muted);
+    color: var(--color-text-secondary);
     font-size: clamp(1rem, 2vw, 1.15rem);
 }
 
@@ -109,35 +155,57 @@ p {
     padding: var(--space-2) var(--space-5);
     border-radius: var(--radius-small);
     background: var(--color-primary);
-    color: var(--color-surface);
+    color: var(--color-text-inverse);
     font-weight: 700;
     text-decoration: none;
+    transition: var(--transition-color);
 }
 
 .action-link:hover {
     background: var(--color-primary-hover);
-    color: var(--color-surface);
+    color: var(--color-text-inverse);
+}
+
+.action-link:active {
+    background: var(--color-primary-active);
 }
 
 .async-notice {
     display: grid;
     gap: var(--space-1);
     padding: var(--space-4);
-    border: 1px solid var(--color-border);
-    border-left: 0.3rem solid var(--color-sage);
+    border: var(--border-width-hairline) solid var(--color-border);
+    border-left: var(--border-width-accent) solid var(--color-info);
     border-radius: var(--radius-small);
     background: var(--color-surface);
 }
 
 .async-notice[data-tone='error'] {
-    border-left-color: var(--color-accent-strong);
+    border-left-color: var(--color-danger);
 }
 
 .async-notice[data-tone='success'] {
-    border-left-color: var(--color-primary);
+    border-left-color: var(--color-success);
+}
+
+.async-notice[data-tone='warning'] {
+    border-left-color: var(--color-warning);
+}
+
+@media (forced-colors: active) {
+    :focus-visible {
+        outline-color: Highlight;
+        box-shadow: none;
+    }
 }
 
 @media (prefers-reduced-motion: reduce) {
+    :root {
+        --duration-fast: 0.01ms;
+        --duration-standard: 0.01ms;
+        --duration-slow: 0.01ms;
+    }
+
     *,
     *::before,
     *::after {

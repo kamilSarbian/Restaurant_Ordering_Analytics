@@ -1,7 +1,10 @@
+import { useEffect, useRef } from 'react';
+
 import { CART_MAX_QUANTITY, CART_MIN_QUANTITY } from './cartReducer';
 import styles from './CartPage.module.css';
 
 interface QuantityControlProps {
+  disabled?: boolean;
   itemName: string;
   onDecrement: () => void;
   onIncrement: () => void;
@@ -9,18 +12,68 @@ interface QuantityControlProps {
 }
 
 export default function QuantityControl({
+  disabled = false,
   itemName,
   onDecrement,
   onIncrement,
   quantity,
 }: QuantityControlProps) {
+  const decrementButtonRef = useRef<HTMLButtonElement>(null);
+  const incrementButtonRef = useRef<HTMLButtonElement>(null);
+  const pendingBoundaryFocusRef = useRef<'decrement' | 'increment' | null>(null);
+
+  useEffect(() => {
+    const targetName = pendingBoundaryFocusRef.current;
+    if (targetName === null) {
+      return;
+    }
+
+    const sourceButton =
+      targetName === 'increment'
+        ? decrementButtonRef.current
+        : incrementButtonRef.current;
+    const targetButton =
+      targetName === 'increment'
+        ? incrementButtonRef.current
+        : decrementButtonRef.current;
+    pendingBoundaryFocusRef.current = null;
+
+    const activeElement = document.activeElement;
+    if (
+      activeElement === sourceButton ||
+      activeElement === document.body ||
+      activeElement === null
+    ) {
+      targetButton?.focus();
+    }
+  }, [quantity]);
+
+  const decrementQuantity = () => {
+    pendingBoundaryFocusRef.current =
+      quantity === CART_MIN_QUANTITY + 1 ? 'increment' : null;
+    onDecrement();
+  };
+
+  const incrementQuantity = () => {
+    pendingBoundaryFocusRef.current =
+      quantity === CART_MAX_QUANTITY - 1 ? 'decrement' : null;
+    onIncrement();
+  };
+
   return (
-    <div className={styles.quantityControl} aria-label={`Quantity for ${itemName}`}>
+    <div
+      aria-disabled={disabled || undefined}
+      aria-label={`Quantity for ${itemName}`}
+      className={styles.quantityControl}
+      data-disabled={disabled || undefined}
+      role={'group'}
+    >
       <button
+        ref={decrementButtonRef}
         type="button"
         aria-label={`Decrease quantity for ${itemName}`}
-        disabled={quantity <= CART_MIN_QUANTITY}
-        onClick={onDecrement}
+        disabled={disabled || quantity <= CART_MIN_QUANTITY}
+        onClick={decrementQuantity}
       >
         −
       </button>
@@ -28,10 +81,11 @@ export default function QuantityControl({
         {quantity}
       </output>
       <button
+        ref={incrementButtonRef}
         type="button"
         aria-label={`Increase quantity for ${itemName}`}
-        disabled={quantity >= CART_MAX_QUANTITY}
-        onClick={onIncrement}
+        disabled={disabled || quantity >= CART_MAX_QUANTITY}
+        onClick={incrementQuantity}
       >
         +
       </button>

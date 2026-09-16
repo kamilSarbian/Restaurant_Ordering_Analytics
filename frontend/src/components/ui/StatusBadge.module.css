@@ -1,0 +1,47 @@
+.badge {
+    display: inline-flex;
+    max-width: 100%;
+    align-items: center;
+    gap: var(--space-1);
+    padding: calc(var(--space-1) / 2) var(--space-2);
+    border: var(--border-width-hairline) solid currentColor;
+    border-radius: var(--radius-control);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-heading);
+    overflow-wrap: anywhere;
+}
+
+.marker {
+    display: inline-grid;
+    min-width: var(--space-3);
+    place-items: center;
+    font-weight: var(--font-weight-bold);
+    line-height: 1;
+}
+
+.neutral {
+    border-color: var(--color-control-border);
+    background: var(--color-surface-muted);
+    color: var(--color-text-primary);
+}
+
+.info {
+    background: var(--color-info-surface);
+    color: var(--color-info);
+}
+
+.success {
+    background: var(--color-success-surface);
+    color: var(--color-success);
+}
+
+.warning {
+    background: var(--color-warning-surface);
+    color: var(--color-warning);
+}
+
+.danger {
+    background: var(--color-danger-surface);
+    color: var(--color-danger);
+}

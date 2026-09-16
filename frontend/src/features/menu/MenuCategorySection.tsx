@@ -4,24 +4,38 @@ import styles from './MenuPage.module.css';
 
 interface MenuCategorySectionProps {
   category: MenuCategory;
+  prioritizeFirstItem?: boolean;
 }
 
-export default function MenuCategorySection({ category }: MenuCategorySectionProps) {
-  const headingId = `category-${category.id}`;
+/** Render an ordered menu category and propagate first-card image priority. */
+export default function MenuCategorySection({
+  category,
+  prioritizeFirstItem = false,
+}: MenuCategorySectionProps) {
+  const headingId = 'category-' + category.id;
 
   return (
-    <section aria-labelledby={headingId}>
+    <section className={styles.categorySection} aria-labelledby={headingId}>
       <header className={styles.categoryHeader}>
-        <h2 className={styles.categoryHeading} id={headingId}>
-          {category.name}
-        </h2>
+        <div className={styles.categoryTitleRow}>
+          <h2 className={styles.categoryHeading} id={headingId}>
+            {category.name}
+          </h2>
+          <span className={styles.itemCount}>
+            {category.items.length} {category.items.length === 1 ? 'item' : 'items'}
+          </span>
+        </div>
         {category.description !== null && (
           <p className={styles.categoryDescription}>{category.description}</p>
         )}
       </header>
       <div className={styles.itemGrid}>
-        {category.items.map((item) => (
-          <MenuItemCard item={item} key={item.id} />
+        {category.items.map((item, itemIndex) => (
+          <MenuItemCard
+            item={item}
+            priority={prioritizeFirstItem && itemIndex === 0}
+            key={item.id}
+          />
         ))}
       </div>
     </section>

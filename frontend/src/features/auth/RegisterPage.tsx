@@ -1,6 +1,9 @@
 import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { Link, Navigate, useSearchParams } from 'react-router-dom';
 
+import BrandMark from '../../components/branding/BrandMark';
+import Button from '../../components/ui/Button';
+import Notice from '../../components/ui/Notice';
 import { useAuth, type AuthActionOutcome } from './AuthContext';
 import { resolveAuthDestination } from './authNavigation';
 import styles from './AuthPage.module.css';
@@ -9,6 +12,15 @@ interface RegisterErrors {
   confirmPassword?: string;
   email?: string;
   password?: string;
+}
+
+function AuthBrand() {
+  return (
+    <div className={styles.brand}>
+      <BrandMark className={styles.brandMark} size={24} />
+      <span>Nordic Hearth</span>
+    </div>
+  );
 }
 
 function isPlausibleEmail(value: string): boolean {
@@ -25,13 +37,13 @@ function outcomeMessage(outcome: AuthActionOutcome): string {
       return 'Too many registration attempts were made. Try again later.';
     case 'service-unavailable':
     case 'session-unavailable':
-      return 'The authentication service is temporarily unavailable. Try again.';
+      return 'Account creation is temporarily unavailable. Try again.';
     case 'timeout':
       return 'The registration request timed out. Check your connection and try again.';
     case 'network':
-      return 'Registration could not reach the authentication service. Try again.';
+      return 'We could not create your account. Check your connection and try again.';
     case 'invalid-response':
-      return 'The authentication service returned an invalid response. Try again later.';
+      return 'We could not complete account creation. Try again later.';
     case 'aborted':
       return 'The registration request was cancelled.';
     case 'invalid-credentials':
@@ -48,6 +60,8 @@ export default function RegisterPage() {
   const emailRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
   const confirmPasswordRef = useRef<HTMLInputElement>(null);
+  const submitButtonRef = useRef<HTMLButtonElement>(null);
+  const restoreSubmitFocusRef = useRef(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -55,6 +69,8 @@ export default function RegisterPage() {
   const [feedback, setFeedback] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [retrySeconds, setRetrySeconds] = useState(0);
+  const [passwordVisible, setPasswordVisible] = useState(false);
+  const [confirmationVisible, setConfirmationVisible] = useState(false);
 
   useEffect(() => {
     if (retrySeconds <= 0) {
@@ -65,6 +81,24 @@ export default function RegisterPage() {
     }, 1_000);
     return () => window.clearInterval(timer);
   }, [retrySeconds]);
+
+  useEffect(() => {
+    if (submitting || !restoreSubmitFocusRef.current) {
+      return;
+    }
+
+    const activeElement = document.activeElement;
+    if (activeElement !== null && activeElement !== document.body) {
+      restoreSubmitFocusRef.current = false;
+      return;
+    }
+    if (retrySeconds > 0) {
+      return;
+    }
+
+    submitButtonRef.current?.focus();
+    restoreSubmitFocusRef.current = false;
+  }, [retrySeconds, submitting]);
 
   if (phase === 'authenticated' && user !== null) {
     return (
@@ -79,8 +113,11 @@ export default function RegisterPage() {
     return (
       <main className={styles.screen}>
         <section className={styles.panel} role="status" aria-live="polite">
-          <p className="eyebrow">Account access</p>
-          <h1>Checking your session</h1>
+          <AuthBrand />
+          <div className={styles.heading}>
+            <p className="eyebrow">Account access</p>
+            <h1>Checking your session</h1>
+          </div>
           <p className={styles.intro}>Please wait before creating another account.</p>
         </section>
       </main>
@@ -91,22 +128,25 @@ export default function RegisterPage() {
     return (
       <main className={styles.screen}>
         <section className={styles.panel} role="alert" aria-live="assertive">
-          <p className="eyebrow">Account access</p>
-          <h1>Session validation is unavailable</h1>
+          <AuthBrand />
+          <div className={styles.heading}>
+            <p className="eyebrow">Account access</p>
+            <h1>Session validation is unavailable</h1>
+          </div>
           <p className={styles.intro}>
             Your saved session remains available for another validation attempt.
           </p>
           <div className={styles.actions}>
-            <button
-              className={styles.secondaryButton}
+            <Button
               type="button"
+              variant="secondary"
               onClick={() => void retrySession()}
             >
               Retry validation
-            </button>
-            <button className={styles.secondaryButton} type="button" onClick={logout}>
+            </Button>
+            <Button type="button" variant="ghost" onClick={logout}>
               Clear session
-            </button>
+            </Button>
           </div>
         </section>
       </main>
@@ -155,6 +195,7 @@ export default function RegisterPage() {
       return;
     }
 
+    restoreSubmitFocusRef.current = document.activeElement === submitButtonRef.current;
     setSubmitting(true);
     setFeedback('Creating your account and validating your session…');
     const outcome = await register(email, password);
@@ -176,18 +217,23 @@ export default function RegisterPage() {
     errors.password === undefined
       ? 'register-password-guidance'
       : 'register-password-guidance register-password-error';
+  const next = searchParams.get('next');
+  const loginDestination =
+    next === null ? '/login' : `/login?next=${encodeURIComponent(next)}`;
 
   return (
     <main className={styles.screen}>
       <section className={styles.panel} aria-labelledby="register-heading">
-        <div>
+        <AuthBrand />
+        <div className={styles.heading}>
           <p className="eyebrow">Customer account</p>
           <h1 id="register-heading">Create account</h1>
         </div>
         <p className={styles.intro}>
-          Create a customer account to continue ordering with one shared sign-in.
+          Create a customer account to keep your orders together.
         </p>
         <form
+          aria-busy={submitting}
           className={styles.form}
           noValidate
           onSubmit={(event) => void handleSubmit(event)}
@@ -206,78 +252,120 @@ export default function RegisterPage() {
               aria-invalid={errors.email !== undefined}
               onChange={(event) => setEmail(event.target.value)}
             />
-            {errors.email !== undefined ? (
-              <p id="register-email-error" className={styles.fieldError}>
-                {errors.email}
-              </p>
-            ) : null}
+            <div className={styles.fieldMessage}>
+              {errors.email !== undefined ? (
+                <p id="register-email-error" className={styles.fieldError}>
+                  {errors.email}
+                </p>
+              ) : null}
+            </div>
           </div>
           <div className={styles.field}>
             <label htmlFor="register-password">Password</label>
-            <input
-              ref={passwordRef}
-              id="register-password"
-              type="password"
-              autoComplete="new-password"
-              value={password}
-              aria-describedby={passwordDescription}
-              aria-invalid={errors.password !== undefined}
-              onChange={(event) => setPassword(event.target.value)}
-            />
-            <p id="register-password-guidance" className={styles.intro}>
+            <div className={styles.passwordControl}>
+              <input
+                ref={passwordRef}
+                id="register-password"
+                type={passwordVisible ? 'text' : 'password'}
+                autoComplete="new-password"
+                value={password}
+                aria-describedby={passwordDescription}
+                aria-invalid={errors.password !== undefined}
+                onChange={(event) => setPassword(event.target.value)}
+              />
+              <button
+                aria-controls="register-password"
+                aria-label={passwordVisible ? 'Hide password' : 'Show password'}
+                aria-pressed={passwordVisible}
+                className={styles.passwordToggle}
+                type="button"
+                onClick={() => setPasswordVisible((visible) => !visible)}
+              >
+                {passwordVisible ? 'Hide' : 'Show'}
+              </button>
+            </div>
+            <p id="register-password-guidance" className={styles.guidance}>
               Use 15 to 128 characters. Spaces are preserved.
             </p>
-            {errors.password !== undefined ? (
-              <p id="register-password-error" className={styles.fieldError}>
-                {errors.password}
-              </p>
-            ) : null}
+            <div className={styles.fieldMessage}>
+              {errors.password !== undefined ? (
+                <p id="register-password-error" className={styles.fieldError}>
+                  {errors.password}
+                </p>
+              ) : null}
+            </div>
           </div>
           <div className={styles.field}>
             <label htmlFor="register-confirm-password">Confirm password</label>
-            <input
-              ref={confirmPasswordRef}
-              id="register-confirm-password"
-              type="password"
-              autoComplete="new-password"
-              value={confirmPassword}
-              aria-describedby={
-                errors.confirmPassword === undefined
-                  ? undefined
-                  : 'register-confirm-password-error'
-              }
-              aria-invalid={errors.confirmPassword !== undefined}
-              onChange={(event) => setConfirmPassword(event.target.value)}
-            />
-            {errors.confirmPassword !== undefined ? (
-              <p id="register-confirm-password-error" className={styles.fieldError}>
-                {errors.confirmPassword}
-              </p>
-            ) : null}
+            <div className={styles.passwordControl}>
+              <input
+                ref={confirmPasswordRef}
+                id="register-confirm-password"
+                type={confirmationVisible ? 'text' : 'password'}
+                autoComplete="new-password"
+                value={confirmPassword}
+                aria-describedby={
+                  errors.confirmPassword === undefined
+                    ? undefined
+                    : 'register-confirm-password-error'
+                }
+                aria-invalid={errors.confirmPassword !== undefined}
+                onChange={(event) => setConfirmPassword(event.target.value)}
+              />
+              <button
+                aria-controls="register-confirm-password"
+                aria-label={
+                  confirmationVisible
+                    ? 'Hide password confirmation'
+                    : 'Show password confirmation'
+                }
+                aria-pressed={confirmationVisible}
+                className={styles.passwordToggle}
+                type="button"
+                onClick={() => setConfirmationVisible((visible) => !visible)}
+              >
+                {confirmationVisible ? 'Hide' : 'Show'}
+              </button>
+            </div>
+            <div className={styles.fieldMessage}>
+              {errors.confirmPassword !== undefined ? (
+                <p id="register-confirm-password-error" className={styles.fieldError}>
+                  {errors.confirmPassword}
+                </p>
+              ) : null}
+            </div>
           </div>
-          {feedback !== '' ? (
-            <p
-              className={
-                feedback.startsWith('Creating')
-                  ? styles.statusNotice
-                  : styles.errorNotice
-              }
-              role={feedback.startsWith('Creating') ? 'status' : 'alert'}
-              aria-live={feedback.startsWith('Creating') ? 'polite' : 'assertive'}
-            >
-              {feedback}
-            </p>
-          ) : null}
-          <button
+          <Button
+            ref={submitButtonRef}
             className={styles.submitButton}
             type="submit"
-            disabled={submitting || retrySeconds > 0}
+            disabled={retrySeconds > 0}
+            loading={submitting}
+            loadingLabel="Creating account"
+            size="lg"
           >
-            {submitting ? 'Creating account…' : retryLabel}
-          </button>
+            {retryLabel}
+          </Button>
+          <p className={styles.authSwitch}>
+            Already have an account?{' '}
+            <Link className={styles.inlineLink} to={loginDestination}>
+              Sign in
+            </Link>
+          </p>
           <Link className={styles.backLink} to="/">
             ← Back to home
           </Link>
+          <div className={styles.feedbackSlot}>
+            {feedback !== '' ? (
+              <Notice
+                className={styles.feedbackNotice}
+                role={feedback.startsWith('Creating') ? 'status' : 'alert'}
+                variant={feedback.startsWith('Creating') ? 'info' : 'danger'}
+              >
+                {feedback}
+              </Notice>
+            ) : null}
+          </div>
         </form>
       </section>
     </main>

@@ -1,29 +1,124 @@
 :root {
-    --color-primary: #246146;
-    --color-primary-hover: #173d2b;
-    --color-sage: #a9b9aa;
-    --color-accent: #7a1f32;
-    --color-accent-strong: #b42a3c;
-    --color-background: #f7f3ea;
-    --color-surface: #fffcf7;
-    --color-text: #202622;
-    --color-muted: #68716b;
-    --color-border: #ddd8ce;
+    /* Semantic color foundations keep the cabin palette independent from page structure. */
+    --color-canvas: #f3efe6;
+    --color-surface: #fffdf8;
+    --color-surface-muted: #eae5db;
+    --color-surface-inverse: #253638;
+    --color-text-primary: #1e2521;
+    --color-text-secondary: #5f6862;
+    --color-text-inverse: #fffdf8;
+    --color-border-subtle: #d7d1c7;
+    --color-control-border: #898177;
 
-    --space-1: 0.25rem;
-    --space-2: 0.5rem;
-    --space-3: 0.75rem;
-    --space-4: 1rem;
+    --color-primary: #1f513a;
+    --color-primary-hover: #143827;
+    --color-primary-active: #0d2b1e;
+    --color-brand-accent: #8b2438;
+    --color-brand-accent-hover: #6e1728;
+    --color-brand-accent-active: #55101e;
+    --color-success: #2f664a;
+    --color-warning: #8a4b0f;
+    --color-danger: #b42335;
+    --color-info: #315f78;
+    --color-focus-ring: var(--color-brand-accent);
+    --color-focus-ring-contrast: var(--color-surface);
+
+    --color-success-surface: #e1ece3;
+    --color-warning-surface: #f5e7d2;
+    --color-danger-surface: #f7e2e4;
+    --color-info-surface: #e1ebf0;
+    --color-sage-support: #a9b9aa;
+
+    /* Compatibility aliases keep existing CSS Modules stable during the staged migration. */
+    --color-background: var(--color-canvas);
+    --color-text: var(--color-text-primary);
+    --color-muted: var(--color-text-secondary);
+    --color-border: var(--color-control-border);
+    --color-accent: var(--color-brand-accent);
+    --color-accent-strong: var(--color-brand-accent-hover);
+    --color-sage: var(--color-sage-support);
+
+    --font-family-display: Georgia, 'Times New Roman', Times, serif;
+    --font-family-ui:
+        ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+        sans-serif;
+    --font-size-caption: 0.75rem;
+    --font-size-label: 0.875rem;
+    --font-size-body: 1rem;
+    --font-size-body-large: 1.125rem;
+    --font-size-title-small: 1.25rem;
+    --font-size-title: 1.5rem;
+    --font-size-heading: 2rem;
+    --font-size-display: 2.75rem;
+    --font-size-display-large: 4rem;
+    --line-height-tight: 1.08;
+    --line-height-heading: 1.2;
+    --line-height-body: 1.6;
+    --line-height-relaxed: 1.75;
+    --font-weight-regular: 400;
+    --font-weight-medium: 500;
+    --font-weight-semibold: 600;
+    --font-weight-bold: 700;
+    --letter-spacing-display: -0.035em;
+    --letter-spacing-label: 0.12em;
+
+    --space-2xs: 0.25rem;
+    --space-xs: 0.5rem;
+    --space-sm: 0.75rem;
+    --space-md: 1rem;
+    --space-lg: 1.5rem;
+    --space-xl: 2rem;
+    --space-2xl: 3rem;
+    --space-3xl: 4rem;
+
+    /* Numeric aliases preserve the spacing contract already used by feature modules. */
+    --space-1: var(--space-2xs);
+    --space-2: var(--space-xs);
+    --space-3: var(--space-sm);
+    --space-4: var(--space-md);
     --space-5: 1.25rem;
-    --space-6: 1.5rem;
-    --space-8: 2rem;
+    --space-6: var(--space-lg);
+    --space-8: var(--space-xl);
     --space-10: 2.5rem;
-    --space-12: 3rem;
+    --space-12: var(--space-2xl);
+    --space-16: var(--space-3xl);
 
-    --radius-small: 0.5rem;
-    --radius-medium: 1rem;
-    --shadow-small: 0 0.5rem 1.5rem rgb(32 38 34 / 10%);
+    --radius-control: 0.5rem;
+    --radius-card: 1rem;
+    --radius-large: 1.25rem;
+    --radius-pill: 999px;
+    --radius-small: var(--radius-control);
+    --radius-medium: var(--radius-card);
+
+    --border-width-hairline: 1px;
+    --border-width-strong: 2px;
+    --border-width-focus: 3px;
+    --border-width-accent: 0.25rem;
+
+    --shadow-none: none;
+    --shadow-elevation-1: 0 1px 2px rgb(30 37 33 / 8%), 0 6px 18px rgb(30 37 33 / 6%);
+    --shadow-elevation-2:
+        0 2px 6px rgb(30 37 33 / 10%), 0 14px 36px rgb(30 37 33 / 12%);
+    --shadow-overlay: 0 8px 20px rgb(30 37 33 / 14%), 0 24px 64px rgb(30 37 33 / 16%);
+    --shadow-small: var(--shadow-elevation-1);
+
+    --duration-fast: 120ms;
+    --duration-standard: 180ms;
+    --duration-slow: 240ms;
+    --easing-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+    --transition-color:
+        color var(--duration-fast) var(--easing-standard),
+        background-color var(--duration-fast) var(--easing-standard),
+        border-color var(--duration-fast) var(--easing-standard);
+
+    --content-width-narrow: 48rem;
+    --content-width-customer: 72rem;
+    --content-width-admin: 90rem;
     --max-content-width: 75rem;
+
+    /* A light inner ring remains visible when the focused control sits on a dark surface. */
     --focus-ring:
-        0 0 0 0.2rem var(--color-background), 0 0 0 0.4rem var(--color-accent);
+        0 0 0 var(--border-width-strong) var(--color-focus-ring-contrast),
+        0 0 0 calc(var(--border-width-strong) + var(--border-width-focus))
+            var(--color-focus-ring);
 }

@@ -2,6 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { AuthenticatedApiRequestError } from '../../api/authenticatedApi';
+import BrandMark from '../../components/branding/BrandMark';
+import Button from '../../components/ui/Button';
+import Notice from '../../components/ui/Notice';
+import StatusBadge, { type StatusBadgeVariant } from '../../components/ui/StatusBadge';
 import { useAuth } from '../auth/AuthContext';
 import {
   formatCustomerDate,
@@ -16,18 +20,46 @@ import styles from './AccountOrdersPage.module.css';
 
 const PAGE_LIMIT = 50;
 
-type OrdersState =
-  | { kind: 'loading' }
-  | { data: AccountOrdersResponse; kind: 'success' }
-  | { kind: 'error'; message: string };
+interface OrdersState {
+  data: AccountOrdersResponse | null;
+  error: string | null;
+  loading: boolean;
+}
 
-const ORDER_STATUS_LABELS: Record<AccountOrderListItem['status'], string> = {
-  accepted: 'Accepted',
-  cancelled: 'Cancelled',
-  completed: 'Completed',
-  created: 'Order received',
-  preparing: 'Preparing',
-  ready: 'Ready',
+interface OrderStatusPresentation {
+  label: string;
+  variant: StatusBadgeVariant;
+}
+
+interface CollectionFocusIntent {
+  readonly origin: HTMLElement | null;
+}
+
+function getFocusOrigin(): HTMLElement | null {
+  return document.activeElement instanceof HTMLElement ? document.activeElement : null;
+}
+
+function shouldRestoreAsyncFocus(origin: HTMLElement | null): boolean {
+  const activeElement = document.activeElement;
+  return (
+    activeElement === null ||
+    activeElement === document.body ||
+    activeElement === origin ||
+    !activeElement.isConnected ||
+    (activeElement instanceof HTMLButtonElement && activeElement.disabled)
+  );
+}
+
+const ORDER_STATUS_PRESENTATIONS: Record<
+  AccountOrderListItem['status'],
+  OrderStatusPresentation
+> = {
+  accepted: { label: 'Accepted', variant: 'info' },
+  cancelled: { label: 'Cancelled', variant: 'danger' },
+  completed: { label: 'Completed', variant: 'success' },
+  created: { label: 'Order received', variant: 'neutral' },
+  preparing: { label: 'Preparing', variant: 'warning' },
+  ready: { label: 'Ready', variant: 'info' },
 };
 
 function getOrderTypeLabel(orderType: AccountOrderListItem['orderType']): string {
@@ -39,16 +71,16 @@ function getListErrorMessage(error: unknown): string {
     return 'Your orders could not be loaded. Check your connection and try again.';
   }
   if (error.kind === 'timeout' || error.kind === 'network') {
-    return 'The orders service could not be reached. Check your connection and try again.';
+    return 'Your orders could not be reached. Check your connection and try again.';
   }
   if (error.kind === 'invalid-response') {
-    return 'The orders service returned an unexpected response. Try again later.';
+    return 'We received an unexpected response while loading your orders. Try again shortly.';
   }
   if (error.status === 422) {
-    return 'The requested order page is not valid. Return to the first page and try again.';
+    return 'This page of orders could not be loaded. Try again.';
   }
   if (error.status === 503 || (error.status !== null && error.status >= 500)) {
-    return 'The orders service is temporarily unavailable. Try again later.';
+    return 'Your orders are temporarily unavailable. Try again shortly.';
   }
   return 'Your orders could not be loaded. Try again.';
 }
@@ -62,110 +94,89 @@ function OrderTotal({ order }: { order: AccountOrderListItem }) {
   );
 }
 
-function OrderTable({ data }: { data: AccountOrdersResponse }) {
+function OrderStatus({ status }: { status: AccountOrderListItem['status'] }) {
+  const presentation = ORDER_STATUS_PRESENTATIONS[status];
   return (
-    <div className={styles.tableWrapper}>
-      <table className={styles.table}>
-        <caption>Your orders, newest first</caption>
-        <thead>
-          <tr>
-            <th scope="col">Order</th>
-            <th scope="col">Status</th>
-            <th scope="col">Type</th>
-            <th scope="col">Total</th>
-            <th scope="col">Created</th>
-            <th scope="col">Updated</th>
-          </tr>
-        </thead>
-        <tbody>
-          {data.items.map((order) => (
-            <tr key={order.publicOrderNumber}>
-              <th scope="row">
-                <Link to={`/account/orders/${order.publicOrderNumber}`}>
-                  {order.publicOrderNumber}
-                </Link>
-              </th>
-              <td>
-                <span className={styles.status} data-status={order.status}>
-                  {ORDER_STATUS_LABELS[order.status]}
-                </span>
-              </td>
-              <td>{getOrderTypeLabel(order.orderType)}</td>
-              <td>
-                <OrderTotal order={order} />
-              </td>
-              <td>
-                <time dateTime={order.createdAt}>
-                  {formatCustomerDate(order.createdAt)}
-                </time>
-              </td>
-              <td>
-                <time dateTime={order.updatedAt}>
-                  {formatCustomerDate(order.updatedAt)}
-                </time>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <StatusBadge className={styles.statusBadge} variant={presentation.variant}>
+      {presentation.label}
+    </StatusBadge>
   );
 }
 
-function OrderCards({ data }: { data: AccountOrdersResponse }) {
+function OrderList({ data }: { data: AccountOrdersResponse }) {
   return (
-    <ul className={styles.cards} aria-label="Your orders, newest first">
-      {data.items.map((order) => {
-        const headingId = `account-order-${order.publicOrderNumber}`;
-        return (
-          <li className={styles.card} key={order.publicOrderNumber}>
-            <article aria-labelledby={headingId}>
-              <h2 id={headingId}>
-                <Link to={`/account/orders/${order.publicOrderNumber}`}>
-                  {order.publicOrderNumber}
-                </Link>
-              </h2>
-              <dl className={styles.cardDetails}>
-                <div>
-                  <dt>Status</dt>
-                  <dd>
-                    <span className={styles.status} data-status={order.status}>
-                      {ORDER_STATUS_LABELS[order.status]}
-                    </span>
-                  </dd>
+    <div className={styles.orderCollection}>
+      <div className={styles.columnHeadings} aria-hidden="true">
+        <span>Order</span>
+        <span>Status</span>
+        <span>Type</span>
+        <span>Total</span>
+        <span>Created</span>
+        <span>Updated</span>
+      </div>
+      <ul className={styles.orderList} aria-label="Your orders, newest first">
+        {data.items.map((order) => {
+          const headingId = `account-order-${order.publicOrderNumber}`;
+          return (
+            <li
+              className={styles.orderItem}
+              data-order-number={order.publicOrderNumber}
+              key={order.publicOrderNumber}
+            >
+              <article className={styles.orderRow} aria-labelledby={headingId}>
+                <div className={styles.orderIdentity}>
+                  <span className={styles.fieldLabel}>Order</span>
+                  <h2 id={headingId}>
+                    <Link
+                      className={styles.orderLink}
+                      to={`/account/orders/${order.publicOrderNumber}`}
+                    >
+                      <span className={styles.orderNumber}>
+                        {order.publicOrderNumber}
+                      </span>
+                    </Link>
+                  </h2>
                 </div>
-                <div>
-                  <dt>Type</dt>
-                  <dd>{getOrderTypeLabel(order.orderType)}</dd>
-                </div>
-                <div>
-                  <dt>Total</dt>
-                  <dd>
-                    <OrderTotal order={order} />
-                  </dd>
-                </div>
-                <div>
-                  <dt>Created</dt>
-                  <dd>
-                    <time dateTime={order.createdAt}>
-                      {formatCustomerDate(order.createdAt)}
-                    </time>
-                  </dd>
-                </div>
-                <div>
-                  <dt>Updated</dt>
-                  <dd>
-                    <time dateTime={order.updatedAt}>
-                      {formatCustomerDate(order.updatedAt)}
-                    </time>
-                  </dd>
-                </div>
-              </dl>
-            </article>
-          </li>
-        );
-      })}
-    </ul>
+                <dl className={styles.orderDetails}>
+                  <div className={styles.statusField}>
+                    <dt className={styles.fieldLabel}>Status</dt>
+                    <dd>
+                      <OrderStatus status={order.status} />
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className={styles.fieldLabel}>Type</dt>
+                    <dd>{getOrderTypeLabel(order.orderType)}</dd>
+                  </div>
+                  <div>
+                    <dt className={styles.fieldLabel}>Total</dt>
+                    <dd>
+                      <OrderTotal order={order} />
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className={styles.fieldLabel}>Created</dt>
+                    <dd>
+                      <time dateTime={order.createdAt}>
+                        {formatCustomerDate(order.createdAt)}
+                      </time>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className={styles.fieldLabel}>Updated</dt>
+                    <dd>
+                      <time dateTime={order.updatedAt}>
+                        {formatCustomerDate(order.updatedAt)}
+                      </time>
+                    </dd>
+                  </div>
+                </dl>
+              </article>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }
 
@@ -174,12 +185,23 @@ export default function AccountOrdersPage() {
   const { getAuthenticatedSession, invalidateSessionIfCurrent, logout, phase } =
     useAuth();
   const [offset, setOffset] = useState(0);
-  const [state, setState] = useState<OrdersState>({ kind: 'loading' });
+  const [state, setState] = useState<OrdersState>({
+    data: null,
+    error: null,
+    loading: true,
+  });
   const activeControllerRef = useRef<AbortController | null>(null);
+  const emptyStateRef = useRef<HTMLDivElement | null>(null);
+  const focusAfterRequestRef = useRef<CollectionFocusIntent | null>(null);
   const generationRef = useRef(0);
+  const resultSummaryRef = useRef<HTMLParagraphElement | null>(null);
+  const retryButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const loadOrders = useCallback(async () => {
     if (phase !== 'authenticated') {
+      return;
+    }
+    if (activeControllerRef.current !== null) {
       return;
     }
     const authSession = getAuthenticatedSession();
@@ -190,10 +212,9 @@ export default function AccountOrdersPage() {
 
     generationRef.current += 1;
     const generation = generationRef.current;
-    activeControllerRef.current?.abort();
     const controller = new AbortController();
     activeControllerRef.current = controller;
-    setState({ kind: 'loading' });
+    setState((current) => ({ ...current, error: null, loading: true }));
 
     try {
       const data = await fetchAccountOrders({
@@ -204,7 +225,7 @@ export default function AccountOrdersPage() {
       });
       if (generation === generationRef.current) {
         activeControllerRef.current = null;
-        setState({ data, kind: 'success' });
+        setState({ data, error: null, loading: false });
       }
     } catch (error: unknown) {
       if (generation !== generationRef.current) {
@@ -218,7 +239,11 @@ export default function AccountOrdersPage() {
         invalidateSessionIfCurrent(authSession);
         return;
       }
-      setState({ kind: 'error', message: getListErrorMessage(error) });
+      setState((current) => ({
+        ...current,
+        error: getListErrorMessage(error),
+        loading: false,
+      }));
     }
   }, [getAuthenticatedSession, invalidateSessionIfCurrent, logout, offset, phase]);
 
@@ -235,76 +260,148 @@ export default function AccountOrdersPage() {
     };
   }, [loadOrders, phase]);
 
-  const page = Math.floor(offset / PAGE_LIMIT) + 1;
+  useEffect(() => {
+    const focusIntent = focusAfterRequestRef.current;
+    if (focusIntent === null || state.loading) {
+      return;
+    }
+    focusAfterRequestRef.current = null;
+    if (!shouldRestoreAsyncFocus(focusIntent.origin)) {
+      return;
+    }
+    if (state.error !== null) {
+      retryButtonRef.current?.focus();
+      return;
+    }
+    if (state.data === null) {
+      return;
+    }
+
+    const focusTarget =
+      state.data.items.length > 0 ? resultSummaryRef.current : emptyStateRef.current;
+    focusTarget?.focus();
+  }, [state.data, state.error, state.loading]);
+
+  const data = state.data;
+  const hasPreviousPage = data !== null && data.offset > 0;
+  const hasNextPage = data !== null && data.offset + data.items.length < data.total;
+  const showPagination = hasPreviousPage || hasNextPage;
+  const page = data === null ? 1 : Math.floor(data.offset / PAGE_LIMIT) + 1;
+
+  function requestPage(nextOffset: number): void {
+    if (state.loading || state.error !== null || nextOffset === offset) {
+      return;
+    }
+    focusAfterRequestRef.current = { origin: getFocusOrigin() };
+    setState((current) => ({ ...current, loading: true }));
+    setOffset(nextOffset);
+  }
+
+  function retryOrders(): void {
+    if (state.loading) {
+      return;
+    }
+    focusAfterRequestRef.current = { origin: getFocusOrigin() };
+    void loadOrders();
+  }
 
   return (
-    <section className={styles.page} aria-labelledby="account-orders-heading">
-      <header className={styles.pageHeader}>
-        <div>
+    <section
+      className={`${styles.page} ${styles.overviewPage}`}
+      aria-labelledby="account-orders-heading"
+    >
+      <header className={styles.overviewHeader}>
+        <div className={styles.brandLockup}>
+          <BrandMark size={24} />
+          <span>Nordic Hearth</span>
+        </div>
+        <div className={styles.headingGroup}>
           <p className="eyebrow">My account</p>
           <h1 id="account-orders-heading">My orders</h1>
           <p>Review orders placed while signed in to this account.</p>
         </div>
       </header>
 
-      {state.kind === 'loading' ? (
-        <div className={styles.statePanel} role="status" aria-live="polite">
+      {state.loading && data === null && state.error === null ? (
+        <Notice className={styles.stateNotice} role="status" variant="info">
           <h2>Loading your orders</h2>
-          <p>Your latest order page is being requested.</p>
-        </div>
+          <p>We are gathering the latest orders for this account.</p>
+        </Notice>
       ) : null}
 
-      {state.kind === 'error' ? (
-        <div className={styles.statePanel} role="alert" aria-live="assertive">
+      {state.error !== null ? (
+        <Notice className={styles.stateNotice} role="alert" variant="danger">
           <h2>Unable to load your orders</h2>
-          <p>{state.message}</p>
-          <button
-            className={styles.retryButton}
-            type="button"
-            onClick={() => void loadOrders()}
+          <p>{state.error}</p>
+          <Button
+            ref={retryButtonRef}
+            aria-busy={state.loading || undefined}
+            className={styles.retryAction}
+            disabled={state.loading}
+            variant="secondary"
+            onClick={retryOrders}
           >
             Retry
-          </button>
-        </div>
+          </Button>
+        </Notice>
       ) : null}
 
-      {state.kind === 'success' && state.data.items.length === 0 ? (
-        <div className={styles.statePanel}>
-          <h2>No orders yet</h2>
-          <p>Orders placed while you are signed in will appear here.</p>
-        </div>
+      {state.loading && data !== null && state.error === null ? (
+        <Notice className={styles.progressNotice} role="status" variant="info">
+          <p>Updating your orders while the current page stays available.</p>
+        </Notice>
       ) : null}
 
-      {state.kind === 'success' && state.data.items.length > 0 ? (
-        <div className={styles.results}>
-          <p className={styles.resultSummary} aria-live="polite">
-            Showing {state.data.offset + 1}–
-            {state.data.offset + state.data.items.length} of {state.data.total}
+      {data !== null && data.items.length === 0 && state.error === null ? (
+        <div ref={emptyStateRef} className={styles.overviewState} tabIndex={-1}>
+          <h2>{data.offset === 0 ? 'No orders yet' : 'No orders on this page'}</h2>
+          <p>
+            {data.offset === 0
+              ? 'Orders placed while you are signed in will appear here.'
+              : 'Return to an earlier page to continue reviewing your orders.'}
           </p>
-          <OrderTable data={state.data} />
-          <OrderCards data={state.data} />
+          {data.offset === 0 ? (
+            <Link className={styles.menuAction} to="/menu">
+              Explore the menu
+            </Link>
+          ) : null}
         </div>
       ) : null}
 
-      {state.kind === 'success' && state.data.total > 0 ? (
+      {data !== null && data.items.length > 0 ? (
+        <div className={styles.results} aria-busy={state.loading}>
+          <p
+            ref={resultSummaryRef}
+            className={styles.resultSummary}
+            aria-live="polite"
+            tabIndex={-1}
+          >
+            Showing {data.offset + 1}&ndash;{data.offset + data.items.length} of{' '}
+            {data.total}
+          </p>
+          <OrderList data={data} />
+        </div>
+      ) : null}
+
+      {data !== null && showPagination ? (
         <nav className={styles.pagination} aria-label="Your orders pagination">
-          <button
-            className={styles.retryButton}
-            type="button"
-            disabled={offset === 0}
-            onClick={() => setOffset((current) => Math.max(0, current - PAGE_LIMIT))}
+          <Button
+            className={styles.paginationAction}
+            disabled={!hasPreviousPage || state.loading || state.error !== null}
+            variant="secondary"
+            onClick={() => requestPage(Math.max(0, data.offset - PAGE_LIMIT))}
           >
             Previous
-          </button>
+          </Button>
           <span aria-current="page">Page {page}</span>
-          <button
-            className={styles.retryButton}
-            type="button"
-            disabled={state.data.offset + state.data.items.length >= state.data.total}
-            onClick={() => setOffset((current) => current + PAGE_LIMIT)}
+          <Button
+            className={styles.paginationAction}
+            disabled={!hasNextPage || state.loading || state.error !== null}
+            variant="secondary"
+            onClick={() => requestPage(data.offset + PAGE_LIMIT)}
           >
             Next
-          </button>
+          </Button>
         </nav>
       ) : null}
     </section>

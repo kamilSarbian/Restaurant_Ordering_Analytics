@@ -10,6 +10,9 @@ import { loadOrderAccess, saveOrderAccess } from '../checkout/orderAccessStorage
 import OrderStatusPage from './OrderStatusPage';
 
 const PUBLIC_ORDER_NUMBER = 'ROA-23456789ABCD';
+const MAX_PUBLIC_ORDER_NUMBER = 'ROA-FFFFFFFFFFFF';
+const LONG_ITEM_NAME =
+  'NordicForestMushroomBarleyFeastWithPickledShallotsAndRoastedJuniper'.repeat(2);
 const TOKEN = 'private-guest-token-that-must-not-render';
 const AUTH_TOKEN = 'private-auth-token-that-must-not-render';
 const CURRENT_USER = {
@@ -51,9 +54,9 @@ function responseFor(status: OrderStatus): OrderStatusResponse {
   return { ...VALID_STATUS, status };
 }
 
-function renderStatusPage(publicOrderNumber = PUBLIC_ORDER_NUMBER) {
+function renderStatusPage(publicOrderNumber = PUBLIC_ORDER_NUMBER, search = '') {
   return render(
-    <MemoryRouter initialEntries={[`/orders/${publicOrderNumber}/status`]}>
+    <MemoryRouter initialEntries={[`/orders/${publicOrderNumber}/status${search}`]}>
       <AuthProvider>
         <Routes>
           <Route
@@ -83,6 +86,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   sessionStorage.clear();
   localStorage.clear();
+  Reflect.deleteProperty(navigator, 'onLine');
   resetAuthMemoryForTests();
 });
 
@@ -112,7 +116,7 @@ describe('OrderStatusPage', () => {
     renderStatusPage();
 
     expect(screen.getByRole('status')).toHaveTextContent('Loading order status…');
-    expect(screen.getByText(PUBLIC_ORDER_NUMBER)).toBeVisible();
+    expect(screen.queryByText(PUBLIC_ORDER_NUMBER)).not.toBeInTheDocument();
     expect(screen.queryByText(TOKEN)).not.toBeInTheDocument();
     resolveResponse?.(
       new Response(JSON.stringify(VALID_STATUS), {
@@ -124,6 +128,7 @@ describe('OrderStatusPage', () => {
     expect(
       await screen.findByRole('heading', { level: 2, name: 'Order received' }),
     ).toBeVisible();
+    expect(screen.getByText(PUBLIC_ORDER_NUMBER)).toBeVisible();
     expect(screen.getByRole('link', { name: 'Browse the menu' })).toHaveAttribute(
       'href',
       '/menu',
@@ -214,36 +219,69 @@ describe('OrderStatusPage', () => {
   });
 
   it.each([
-    ['created', 'Order received'],
-    ['accepted', 'Accepted'],
-    ['preparing', 'Preparing'],
-    ['ready', 'Ready'],
-    ['completed', 'Completed'],
-    ['cancelled', 'Cancelled'],
-  ] as const)('maps %s to the customer label %s', async (status, label) => {
-    installFetchStub({ json: responseFor(status) });
-    saveOrderAccess(PUBLIC_ORDER_NUMBER, TOKEN);
+    ['created', 'Order received', 'neutral'],
+    ['accepted', 'Accepted', 'info'],
+    ['preparing', 'Preparing', 'info'],
+    ['ready', 'Ready', 'info'],
+    ['completed', 'Completed', 'success'],
+    ['cancelled', 'Cancelled', 'danger'],
+  ] as const)(
+    'maps server state %s to exact label %s and %s semantics',
+    async (status, label, variant) => {
+      installFetchStub({ json: responseFor(status) });
+      saveOrderAccess(PUBLIC_ORDER_NUMBER, TOKEN);
 
-    renderStatusPage();
+      renderStatusPage(
+        PUBLIC_ORDER_NUMBER,
+        '?payment_status=succeeded&redirect_status=failed&charged=true',
+      );
 
-    expect(await screen.findByRole('heading', { level: 2, name: label })).toBeVisible();
-  });
+      expect(
+        await screen.findByRole('heading', { level: 2, name: label }),
+      ).toBeVisible();
+      const currentState = screen.getByRole('list', {
+        name: 'Current order status',
+      });
+      const steps = within(currentState).getAllByRole('listitem');
+      expect(steps).toHaveLength(1);
+      expect(steps[0]).toHaveAttribute('aria-current', 'step');
+      expect(steps[0]).toHaveAttribute('data-order-status', status);
+      expect(
+        within(steps[0]!).getByText('Current status').closest('[data-variant]'),
+      ).toHaveAttribute('data-variant', variant);
+      expect(document.body).not.toHaveTextContent(
+        /stripe|payment status|paid|charged|succeeded|failed/i,
+      );
+    },
+  );
 
-  it('marks prior, current, and future timeline steps with text semantics', async () => {
+  it('renders only the authoritative current state without projected history', async () => {
     installFetchStub({ json: responseFor('preparing') });
     saveOrderAccess(PUBLIC_ORDER_NUMBER, TOKEN);
     renderStatusPage();
     await screen.findByRole('heading', { level: 2, name: 'Preparing' });
 
-    const timeline = screen.getByRole('list', { name: '' });
-    const receivedStep = screen.getByText('Order received').closest('li');
-    const preparingStep = within(timeline).getByText('Preparing').closest('li');
-    const readyStep = within(timeline).getByText('Ready').closest('li');
-
-    expect(receivedStep).toHaveTextContent('Completed step');
-    expect(preparingStep).toHaveAttribute('aria-current', 'step');
-    expect(preparingStep).toHaveTextContent('Current status');
-    expect(readyStep).toHaveTextContent('Upcoming step');
+    const currentState = screen.getByRole('list', {
+      name: 'Current order status',
+    });
+    const steps = within(currentState).getAllByRole('listitem');
+    expect(steps).toHaveLength(1);
+    expect(steps[0]).toHaveAttribute('aria-current', 'step');
+    expect(steps[0]).toHaveTextContent('Preparing');
+    expect(steps[0]).toHaveTextContent('Current status');
+    expect(
+      screen.queryByRole('heading', { name: 'Order timeline' }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText('Completed step')).not.toBeInTheDocument();
+    expect(screen.queryByText('Upcoming step')).not.toBeInTheDocument();
+    for (const projectedStatus of [
+      'Order received',
+      'Accepted',
+      'Ready',
+      'Completed',
+    ]) {
+      expect(within(currentState).queryByText(projectedStatus)).not.toBeInTheDocument();
+    }
   });
 
   it('shows cancellation as a separate current state without future progression', async () => {
@@ -256,9 +294,57 @@ describe('OrderStatusPage', () => {
       name: 'Cancelled',
     });
     expect(cancelledHeading).toBeVisible();
+    const cancelledPanel = cancelledHeading.closest('section');
     const cancelledTimelineStep = screen.getByText('Current status').closest('li');
+    expect(cancelledPanel).toHaveAttribute('data-order-status', 'cancelled');
     expect(cancelledTimelineStep).toHaveAttribute('aria-current', 'step');
+    expect(cancelledTimelineStep).toHaveAttribute('data-order-status', 'cancelled');
+    expect(
+      within(cancelledTimelineStep!)
+        .getByText('Current status')
+        .closest('[data-variant]'),
+    ).toHaveAttribute('data-variant', 'danger');
+    expect(cancelledPanel?.querySelector('[data-variant="success"]')).toBeNull();
     expect(screen.queryByText('Upcoming step')).not.toBeInTheDocument();
+  });
+
+  it('keeps one decorative brand mark, one H1, one primary CTA, and long content', async () => {
+    const longOrder = {
+      ...VALID_STATUS,
+      items: VALID_STATUS.items.map((item, index) =>
+        index === 0 ? { ...item, name: LONG_ITEM_NAME } : item,
+      ),
+      public_order_number: MAX_PUBLIC_ORDER_NUMBER,
+    };
+    installFetchStub({ json: longOrder });
+    saveOrderAccess(MAX_PUBLIC_ORDER_NUMBER, TOKEN);
+
+    const view = renderStatusPage(MAX_PUBLIC_ORDER_NUMBER);
+
+    const currentStatusHeading = await screen.findByRole('heading', {
+      level: 2,
+      name: 'Order received',
+    });
+    const brandName = screen.getByText('Nordic Hearth');
+    expect(screen.getAllByText('Nordic Hearth')).toHaveLength(1);
+    expect(brandName.parentElement?.querySelector('svg')).toHaveAttribute(
+      'aria-hidden',
+      'true',
+    );
+    expect(screen.queryByRole('img')).not.toBeInTheDocument();
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+    const orderNumber = screen.getByText(MAX_PUBLIC_ORDER_NUMBER);
+    expect(orderNumber).toBeVisible();
+    expect(
+      currentStatusHeading.compareDocumentPosition(orderNumber) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(screen.getByText(LONG_ITEM_NAME)).toBeVisible();
+    const primaryAction = view.container.querySelector(
+      '[data-action-priority="primary"]',
+    );
+    expect(primaryAction).toBe(screen.getByRole('link', { name: 'Browse the menu' }));
+    expect(primaryAction).toHaveAttribute('href', '/menu');
   });
 
   it('renders only the guest-safe order summary and server snapshot values', async () => {
@@ -291,6 +377,10 @@ describe('OrderStatusPage', () => {
     expect(
       screen.getByRole('heading', { level: 2, name: 'Order received' }),
     ).toBeVisible();
+    const primaryAction = screen.getByRole('link', { name: 'Browse the menu' });
+    const liveRegion = screen.getByRole('status');
+    primaryAction.focus();
+    expect(primaryAction).toHaveFocus();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(8_000);
@@ -299,13 +389,89 @@ describe('OrderStatusPage', () => {
     expect(
       screen.getByRole('heading', { level: 2, name: 'Order received' }),
     ).toBeVisible();
-    expect(screen.getByRole('status')).toHaveTextContent('Refreshing status…');
-    resolveRefresh?.(
-      new Response(JSON.stringify(responseFor('accepted')), {
-        headers: { 'Content-Type': 'application/json' },
-        status: 200,
-      }),
+    expect(screen.getByText('Checking for the latest update…')).toHaveAttribute(
+      'aria-hidden',
+      'true',
     );
+    expect(screen.getAllByRole('status')).toEqual([liveRegion]);
+    expect(primaryAction).toHaveFocus();
+    await act(async () => {
+      resolveRefresh?.(
+        new Response(JSON.stringify(responseFor('accepted')), {
+          headers: { 'Content-Type': 'application/json' },
+          status: 200,
+        }),
+      );
+      await Promise.resolve();
+    });
+    expect(screen.getByRole('status')).toBe(liveRegion);
+    expect(liveRegion).toHaveTextContent('Current status: Accepted');
+    expect(primaryAction).toHaveFocus();
+  });
+
+  it('does not mutate or duplicate the status live region on a same-state poll', async () => {
+    vi.useFakeTimers();
+    let resolveRefresh: ((response: Response) => void) | undefined;
+    const refreshPromise = new Promise<Response>((resolve) => {
+      resolveRefresh = resolve;
+    });
+    installFetchStub({ json: VALID_STATUS }, { responsePromise: refreshPromise });
+    saveOrderAccess(PUBLIC_ORDER_NUMBER, TOKEN);
+    renderStatusPage();
+    await act(async () => undefined);
+
+    const liveRegion = screen.getByRole('status');
+    const mutations: MutationRecord[] = [];
+    const observer = new MutationObserver((records) => mutations.push(...records));
+    observer.observe(liveRegion, {
+      characterData: true,
+      childList: true,
+      subtree: true,
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(8_000);
+    });
+    await act(async () => {
+      resolveRefresh?.(
+        new Response(JSON.stringify(VALID_STATUS), {
+          headers: { 'Content-Type': 'application/json' },
+          status: 200,
+        }),
+      );
+      await Promise.resolve();
+    });
+    observer.disconnect();
+
+    expect(screen.getAllByRole('status')).toEqual([liveRegion]);
+    expect(liveRegion).toHaveTextContent('Current status: Order received');
+    expect(mutations).toHaveLength(0);
+  });
+
+  it('keeps automatic-update copy truthful when valid data becomes paused', async () => {
+    installFetchStub({ json: VALID_STATUS });
+    saveOrderAccess(PUBLIC_ORDER_NUMBER, TOKEN);
+    renderStatusPage();
+    await screen.findByRole('heading', { level: 2, name: 'Order received' });
+
+    expect(
+      screen.getByText('This page checks automatically while it is open and online.', {
+        exact: true,
+      }),
+    ).toBeVisible();
+    Object.defineProperty(navigator, 'onLine', {
+      configurable: true,
+      value: false,
+    });
+    act(() => window.dispatchEvent(new Event('offline')));
+
+    expect(
+      screen.getByText('Updates paused').closest('[role="status"]'),
+    ).toHaveTextContent(
+      'Status updates are paused while this tab is hidden or the browser is offline.',
+    );
+    expect(document.body).not.toHaveTextContent('Automatic updates are on.');
+    Reflect.deleteProperty(navigator, 'onLine');
   });
 
   it('shows the privacy-preserving 404 message and stops retry UI', async () => {
@@ -353,6 +519,12 @@ describe('OrderStatusPage', () => {
 
       expect(stub.calls).toHaveLength(1);
       expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+      Object.defineProperty(navigator, 'onLine', {
+        configurable: true,
+        value: false,
+      });
+      act(() => window.dispatchEvent(new Event('offline')));
+      expect(screen.queryByText('Updates paused')).not.toBeInTheDocument();
     },
   );
 });

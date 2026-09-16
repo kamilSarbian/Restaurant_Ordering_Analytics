@@ -1,8 +1,18 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { Link, MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, vi } from 'vitest';
 
+import { ApiRequestError } from '../../api/client';
+import type { OrderStatusOptions } from '../../api/customerApi';
+import type { OrderStatusResponse } from '../../api/types';
 import { installFetchStub } from '../../test/fetchStub';
 import { AuthProvider } from '../auth/AuthContext';
 import {
@@ -26,7 +36,9 @@ import {
 } from './orderAccessStorage';
 
 const PUBLIC_ORDER_NUMBER = 'ROA-23456789ABCD';
+const SECOND_PUBLIC_ORDER_NUMBER = 'ROA-BCDEFGHJKLMN';
 const ACCESS_TOKEN = 'guest-access-token-that-must-stay-private';
+const SECOND_ACCESS_TOKEN = 'second-guest-access-token-that-must-stay-private';
 const AUTH_TOKEN = 'canonical-customer-token';
 const AUTH_USER = {
   email: 'customer@example.invalid',
@@ -100,11 +112,46 @@ const VALID_CHECKOUT = {
   payment_status: 'pending',
   public_order_number: PUBLIC_ORDER_NUMBER,
 };
+const VALID_ORDER_SUMMARY: OrderStatusResponse = {
+  created_at: '2026-08-11T14:30:00Z',
+  currency: 'NOK',
+  items: [
+    {
+      line_total_amount: 25_800,
+      menu_item_id: '00000000-0000-4000-8000-000000000010',
+      name: 'Fjord cod',
+      quantity: 2,
+      unit_price_amount: 12_900,
+    },
+    {
+      line_total_amount: 13_000,
+      menu_item_id: '00000000-0000-4000-8000-000000000020',
+      name: 'Cloudberry drink',
+      quantity: 1,
+      unit_price_amount: 13_000,
+    },
+  ],
+  order_type: 'dine_in',
+  public_order_number: PUBLIC_ORDER_NUMBER,
+  status: 'created',
+  subtotal_amount: 38_800,
+  table_number: 12,
+  total_amount: 38_800,
+  updated_at: '2026-08-11T14:30:00Z',
+};
+
+type OrderSummaryLoader = (
+  publicOrderNumber: string,
+  options: OrderStatusOptions,
+) => Promise<OrderStatusResponse>;
 
 function renderCheckout(
   publicOrderNumber = PUBLIC_ORDER_NUMBER,
   state: unknown = null,
   redirectToCheckout: (checkoutUrl: string) => void = vi.fn(),
+  loadOrderSummary: OrderSummaryLoader = vi
+    .fn<OrderSummaryLoader>()
+    .mockResolvedValue(VALID_ORDER_SUMMARY),
 ) {
   return render(
     <MemoryRouter
@@ -120,7 +167,12 @@ function renderCheckout(
           <Routes>
             <Route
               path="/orders/:publicOrderNumber/checkout"
-              element={<CheckoutPage redirectToCheckout={redirectToCheckout} />}
+              element={
+                <CheckoutPage
+                  loadOrderSummary={loadOrderSummary}
+                  redirectToCheckout={redirectToCheckout}
+                />
+              }
             />
           </Routes>
         </CartProvider>
@@ -335,28 +387,122 @@ describe('CheckoutPage', () => {
     resetAuthMemoryForTests();
   });
 
-  it('shows the exact checkout CTA without calling the API on mount', () => {
+  it('renders the branded authoritative summary without starting checkout', async () => {
     const stub = installFetchStub();
+    const loadOrderSummary = vi
+      .fn<OrderSummaryLoader>()
+      .mockResolvedValue(VALID_ORDER_SUMMARY);
     saveOrderAccess(PUBLIC_ORDER_NUMBER, ACCESS_TOKEN);
 
-    renderCheckout();
+    renderCheckout(PUBLIC_ORDER_NUMBER, null, vi.fn(), loadOrderSummary);
 
     expect(
       screen.getByRole('heading', { level: 1, name: 'Order created' }),
     ).toBeVisible();
+    expect(screen.getByText('Nordic Hearth')).toBeVisible();
+    expect(screen.getAllByText('Nordic Hearth')).toHaveLength(1);
+    const brandMark = screen
+      .getByText('Nordic Hearth')
+      .parentElement?.querySelector('svg');
+    expect(brandMark).toHaveAttribute('aria-hidden', 'true');
+    expect(
+      screen.queryByRole('img', { name: 'Nordic Hearth' }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText('Payment is still required.')).toBeVisible();
     expect(screen.getByText(PUBLIC_ORDER_NUMBER)).toBeVisible();
     expect(
       screen.getByRole('button', { name: 'Continue to secure payment' }),
     ).toBeEnabled();
+    expect(screen.getByRole('link', { name: 'Return to cart' })).toHaveAttribute(
+      'href',
+      '/cart',
+    );
     expect(screen.queryByText(ACCESS_TOKEN)).not.toBeInTheDocument();
     expect(screen.queryByText(FIRST_KEY)).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Browse the menu' })).toHaveAttribute(
       'href',
       '/menu',
     );
+    const summary = await screen.findByRole('region', { name: 'Order summary' });
+    expect(within(summary).getByText('Fjord cod')).toBeVisible();
+    expect(within(summary).getByText('Qty 2')).toBeVisible();
+    expect(within(summary).getByText('Cloudberry drink')).toBeVisible();
+    expect(within(summary).getByText('Dine-in')).toBeVisible();
+    expect(within(summary).getByText('12')).toBeVisible();
+    expect(within(summary).getByText('Subtotal').parentElement).toHaveTextContent(
+      /38[\s,.]?800|388[,.]00/,
+    );
+    expect(within(summary).getByText('Total').parentElement).toHaveTextContent(
+      /38[\s,.]?800|388[,.]00/,
+    );
+    expect(within(summary).getByText('Fjord cod').closest('li')).toHaveTextContent(
+      /25[\s,.]?800|258[,.]00/,
+    );
+    expect(screen.queryByText(/payment (?:complete|succeeded|successful)/i)).toBeNull();
+    expect(loadOrderSummary).toHaveBeenCalledWith(PUBLIC_ORDER_NUMBER, {
+      guestAccessToken: ACCESS_TOKEN,
+      signal: expect.any(AbortSignal),
+    });
     expect(stub.calls).toHaveLength(0);
     expect(loadCheckoutAttempt(PUBLIC_ORDER_NUMBER)?.idempotencyKey).toBe(FIRST_KEY);
     expect(window.crypto.randomUUID).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps payment available and retries a focused summary error independently', async () => {
+    const user = userEvent.setup();
+    const stub = installFetchStub();
+    const loadOrderSummary = vi
+      .fn<OrderSummaryLoader>()
+      .mockRejectedValueOnce(new TypeError('offline'))
+      .mockResolvedValueOnce(VALID_ORDER_SUMMARY);
+    saveOrderAccess(PUBLIC_ORDER_NUMBER, ACCESS_TOKEN);
+    seedAttempt();
+
+    renderCheckout(PUBLIC_ORDER_NUMBER, null, vi.fn(), loadOrderSummary);
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Order summary unavailable');
+    await waitFor(() => expect(alert.parentElement).toHaveFocus());
+    expect(
+      screen.getByRole('button', { name: 'Continue to secure payment' }),
+    ).toBeEnabled();
+    expect(loadCheckoutAttempt(PUBLIC_ORDER_NUMBER)?.idempotencyKey).toBe(FIRST_KEY);
+    expect(stub.calls).toHaveLength(0);
+
+    await user.click(screen.getByRole('button', { name: 'Retry order summary' }));
+
+    const summary = await screen.findByRole('region', { name: 'Order summary' });
+    expect(within(summary).getByText('Fjord cod')).toBeVisible();
+    expect(summary).toHaveAttribute('tabindex', '-1');
+    await waitFor(() => expect(summary).toHaveFocus());
+    expect(loadOrderSummary).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(stub.calls).toHaveLength(0);
+  });
+
+  it('aborts the independent order-summary request on unmount', async () => {
+    const loadOrderSummary = vi.fn<OrderSummaryLoader>(
+      () => new Promise<OrderStatusResponse>(() => undefined),
+    );
+    saveOrderAccess(PUBLIC_ORDER_NUMBER, ACCESS_TOKEN);
+
+    const view = renderCheckout(PUBLIC_ORDER_NUMBER, null, vi.fn(), loadOrderSummary);
+
+    await waitFor(() => expect(loadOrderSummary).toHaveBeenCalledTimes(1));
+    const summarySignal = loadOrderSummary.mock.calls[0]?.[1].signal;
+    expect(summarySignal).toBeInstanceOf(AbortSignal);
+    expect(summarySignal?.aborted).toBe(false);
+    expect(
+      screen.getByRole('button', { name: 'Continue to secure payment' }),
+    ).toBeEnabled();
+    expect(screen.getByRole('region', { name: 'Order summary' })).toHaveAttribute(
+      'aria-busy',
+      'true',
+    );
+
+    view.unmount();
+
+    expect(summarySignal?.aborted).toBe(true);
   });
 
   it('ignores a capability supplied through navigation state and never renders it', () => {
@@ -381,6 +527,116 @@ describe('CheckoutPage', () => {
 
     expect(loadCheckoutAttempt(PUBLIC_ORDER_NUMBER)?.idempotencyKey).toBe(FIRST_KEY);
     expect(window.crypto.randomUUID).not.toHaveBeenCalled();
+  });
+
+  it('aborts and ignores an in-flight order A checkout after navigating in place to order B', async () => {
+    let resolveFirstResponse: ((response: Response) => void) | undefined;
+    const firstResponsePromise = new Promise<Response>((resolve) => {
+      resolveFirstResponse = resolve;
+    });
+    const secondCheckout = {
+      ...VALID_CHECKOUT,
+      checkout_url: 'https://checkout.example.test/session/second-hosted',
+      public_order_number: SECOND_PUBLIC_ORDER_NUMBER,
+    };
+    const stub = installFetchStub(
+      { responsePromise: firstResponsePromise },
+      { json: secondCheckout, status: 201 },
+    );
+    const redirect = vi.fn();
+    const loadOrderSummary = vi.fn<OrderSummaryLoader>(async (publicOrderNumber) => ({
+      ...VALID_ORDER_SUMMARY,
+      public_order_number: publicOrderNumber,
+    }));
+    const cartValue = JSON.stringify({
+      items: [{ menuItemId: '00000000-0000-4000-8000-000000000010', quantity: 2 }],
+      version: 1,
+    });
+    sessionStorage.setItem('restaurant-ordering:cart:v1', cartValue);
+    saveOrderAccess(PUBLIC_ORDER_NUMBER, ACCESS_TOKEN);
+    saveOrderAccess(SECOND_PUBLIC_ORDER_NUMBER, SECOND_ACCESS_TOKEN);
+    seedAttempt();
+    saveCheckoutAttempt({
+      idempotencyKey: SECOND_KEY,
+      publicOrderNumber: SECOND_PUBLIC_ORDER_NUMBER,
+      version: CHECKOUT_ATTEMPT_STORAGE_VERSION,
+    });
+    const user = userEvent.setup();
+
+    render(
+      <MemoryRouter initialEntries={[`/orders/${PUBLIC_ORDER_NUMBER}/checkout`]}>
+        <AuthProvider>
+          <CartProvider>
+            <Link to={`/orders/${SECOND_PUBLIC_ORDER_NUMBER}/checkout`}>
+              Open second order
+            </Link>
+            <Routes>
+              <Route
+                path="/orders/:publicOrderNumber/checkout"
+                element={
+                  <CheckoutPage
+                    loadOrderSummary={loadOrderSummary}
+                    redirectToCheckout={redirect}
+                  />
+                }
+              />
+            </Routes>
+          </CartProvider>
+        </AuthProvider>
+      </MemoryRouter>,
+    );
+
+    await user.click(
+      screen.getByRole('button', { name: 'Continue to secure payment' }),
+    );
+    await waitFor(() => expect(stub.calls).toHaveLength(1));
+    const firstSignal = stub.calls[0]?.signal;
+    expect(firstSignal?.aborted).toBe(false);
+
+    await user.click(screen.getByRole('link', { name: 'Open second order' }));
+
+    expect(await screen.findByText(SECOND_PUBLIC_ORDER_NUMBER)).toBeVisible();
+    expect(firstSignal?.aborted).toBe(true);
+    expect(loadOrderSummary).toHaveBeenLastCalledWith(SECOND_PUBLIC_ORDER_NUMBER, {
+      guestAccessToken: SECOND_ACCESS_TOKEN,
+      signal: expect.any(AbortSignal),
+    });
+
+    let lateResponseParsed = false;
+    const lateResponse = new Response(JSON.stringify(VALID_CHECKOUT), {
+      headers: { 'Content-Type': 'application/json' },
+      status: 201,
+    });
+    vi.spyOn(lateResponse, 'json').mockImplementation(async () => {
+      lateResponseParsed = true;
+      return VALID_CHECKOUT;
+    });
+    await act(async () => {
+      resolveFirstResponse?.(lateResponse);
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(lateResponseParsed).toBe(true));
+
+    expect(redirect).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem('restaurant-ordering:cart:v1')).toBe(cartValue);
+    expect(
+      screen.getByRole('button', { name: 'Continue to secure payment' }),
+    ).toBeEnabled();
+
+    await user.click(
+      screen.getByRole('button', { name: 'Continue to secure payment' }),
+    );
+
+    await waitFor(() =>
+      expect(redirect).toHaveBeenCalledWith(secondCheckout.checkout_url),
+    );
+    expect(stub.calls.map((call) => call.headers.get('Idempotency-Key'))).toEqual([
+      FIRST_KEY,
+      SECOND_KEY,
+    ]);
+    expect(stub.calls[1]?.headers.get('X-Order-Access-Token')).toBe(
+      SECOND_ACCESS_TOKEN,
+    );
   });
 
   it('ignores invalid attempt storage and replaces it with one valid UUIDv4', () => {
@@ -514,11 +770,20 @@ describe('CheckoutPage', () => {
     saveOrderAccess(PUBLIC_ORDER_NUMBER, ACCESS_TOKEN);
     seedAttempt();
     const calls = installAuthenticatedCheckoutFetch();
+    const loadOrderSummary = vi
+      .fn<OrderSummaryLoader>()
+      .mockResolvedValue(VALID_ORDER_SUMMARY);
     const redirect = vi.fn();
     const user = userEvent.setup();
-    renderCheckout(PUBLIC_ORDER_NUMBER, null, redirect);
+    renderCheckout(PUBLIC_ORDER_NUMBER, null, redirect, loadOrderSummary);
 
     await screen.findByRole('heading', { name: 'Order created' });
+    await waitFor(() => expect(loadOrderSummary).toHaveBeenCalledTimes(1));
+    expect(loadOrderSummary).toHaveBeenCalledWith(PUBLIC_ORDER_NUMBER, {
+      accessToken: AUTH_TOKEN,
+      guestAccessToken: ACCESS_TOKEN,
+      signal: expect.any(AbortSignal),
+    });
     await user.click(
       screen.getByRole('button', { name: 'Continue to secure payment' }),
     );
@@ -536,11 +801,19 @@ describe('CheckoutPage', () => {
   it('allows an authenticated owner to checkout without a guest capability', async () => {
     seedAuthToken();
     const calls = installAuthenticatedCheckoutFetch();
+    const loadOrderSummary = vi
+      .fn<OrderSummaryLoader>()
+      .mockResolvedValue(VALID_ORDER_SUMMARY);
     const redirect = vi.fn();
     const user = userEvent.setup();
-    renderCheckout(PUBLIC_ORDER_NUMBER, null, redirect);
+    renderCheckout(PUBLIC_ORDER_NUMBER, null, redirect, loadOrderSummary);
 
     await screen.findByRole('heading', { name: 'Order created' });
+    await waitFor(() => expect(loadOrderSummary).toHaveBeenCalledTimes(1));
+    expect(loadOrderSummary).toHaveBeenCalledWith(PUBLIC_ORDER_NUMBER, {
+      accessToken: AUTH_TOKEN,
+      signal: expect.any(AbortSignal),
+    });
     await user.click(
       screen.getByRole('button', { name: 'Continue to secure payment' }),
     );
@@ -581,6 +854,40 @@ describe('CheckoutPage', () => {
       0,
     );
     expect(loadOrderAccess(PUBLIC_ORDER_NUMBER)).toBe(ACCESS_TOKEN);
+  });
+
+  it('does not retry an authenticated summary 401 with the guest capability', async () => {
+    seedAuthToken();
+    saveOrderAccess(PUBLIC_ORDER_NUMBER, ACCESS_TOKEN);
+    const calls = installAuthenticatedCheckoutFetch();
+    const loadOrderSummary = vi
+      .fn<OrderSummaryLoader>()
+      .mockRejectedValue(
+        new ApiRequestError('http', 'The session expired.', { status: 401 }),
+      );
+
+    renderCheckout(PUBLIC_ORDER_NUMBER, null, vi.fn(), loadOrderSummary);
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Order details were not retried as a guest');
+    await waitFor(() => expect(alert.parentElement).toHaveFocus());
+    expect(
+      screen.getByRole('button', { name: 'Continue to secure payment' }),
+    ).toBeDisabled();
+    expect(
+      screen.queryByRole('button', { name: 'Retry order summary' }),
+    ).not.toBeInTheDocument();
+    await waitFor(() => expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toBeNull());
+    expect(loadOrderSummary).toHaveBeenCalledTimes(1);
+    expect(loadOrderSummary).toHaveBeenCalledWith(PUBLIC_ORDER_NUMBER, {
+      accessToken: AUTH_TOKEN,
+      guestAccessToken: ACCESS_TOKEN,
+      signal: expect.any(AbortSignal),
+    });
+    expect(loadOrderAccess(PUBLIC_ORDER_NUMBER)).toBe(ACCESS_TOKEN);
+    expect(calls.filter((call) => call.url.endsWith('/checkout-session'))).toHaveLength(
+      0,
+    );
   });
 
   it('keeps capability and idempotency after authenticated 401 without retrying', async () => {
@@ -642,7 +949,9 @@ describe('CheckoutPage', () => {
     fireEvent.click(button);
 
     expect(button).toBeDisabled();
-    expect(screen.getByRole('status')).toHaveTextContent('Creating secure checkout…');
+    expect(button).toHaveAttribute('aria-busy', 'true');
+    expect(button).toHaveAccessibleName('Continue to secure payment');
+    expect(screen.getByText('Creating secure checkout…')).toBeVisible();
     expect(stub.calls).toHaveLength(1);
     resolveResponse?.(
       new Response(JSON.stringify(VALID_CHECKOUT), {
@@ -673,10 +982,69 @@ describe('CheckoutPage', () => {
       screen.getByRole('button', { name: 'Continue to secure payment' }),
     );
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/unsafe or invalid/i);
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(/unsafe or invalid/i);
+    await waitFor(() => expect(alert.parentElement).toHaveFocus());
     expect(redirect).not.toHaveBeenCalled();
     expect(sessionStorage.getItem('restaurant-ordering:cart:v1')).toBe(cartValue);
     expect(loadCheckoutAttempt(PUBLIC_ORDER_NUMBER)?.idempotencyKey).toBe(FIRST_KEY);
+  });
+
+  it('preserves focus moved elsewhere while checkout feedback is pending', async () => {
+    let resolveResponse!: (response: Response) => void;
+    const responsePromise = new Promise<Response>((resolve) => {
+      resolveResponse = resolve;
+    });
+    const user = userEvent.setup();
+    installFetchStub({ responsePromise });
+    saveOrderAccess(PUBLIC_ORDER_NUMBER, ACCESS_TOKEN);
+    seedAttempt();
+    renderCheckout();
+
+    await user.click(
+      screen.getByRole('button', { name: 'Continue to secure payment' }),
+    );
+    expect(screen.getByText(/Creating secure checkout/u)).toBeVisible();
+    const returnToCart = screen.getByRole('link', { name: 'Return to cart' });
+    returnToCart.focus();
+    expect(returnToCart).toHaveFocus();
+
+    resolveResponse(new Response(null, { status: 503 }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'We could not safely confirm the checkout result',
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(returnToCart).toHaveFocus();
+  });
+
+  it('preserves focus moved elsewhere while the order summary is pending', async () => {
+    let rejectSummary!: (reason: unknown) => void;
+    const pendingSummary = new Promise<OrderStatusResponse>((_resolve, reject) => {
+      rejectSummary = reject;
+    });
+    const loadOrderSummary = vi
+      .fn<OrderSummaryLoader>()
+      .mockReturnValue(pendingSummary);
+    saveOrderAccess(PUBLIC_ORDER_NUMBER, ACCESS_TOKEN);
+    seedAttempt();
+    renderCheckout(PUBLIC_ORDER_NUMBER, null, vi.fn(), loadOrderSummary);
+    await waitFor(() => expect(loadOrderSummary).toHaveBeenCalledTimes(1));
+
+    const browseMenu = screen.getByRole('link', { name: 'Browse the menu' });
+    browseMenu.focus();
+    expect(browseMenu).toHaveFocus();
+    rejectSummary(new TypeError('offline'));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Order summary unavailable',
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(browseMenu).toHaveFocus();
   });
 
   it('honors positive Retry-After without automatic retry or a new key', async () => {
@@ -690,11 +1058,33 @@ describe('CheckoutPage', () => {
     fireEvent.click(button);
     await act(async () => undefined);
 
-    expect(screen.getByRole('alert')).toHaveTextContent(/wait 2 seconds/i);
+    const visibleCountdown = screen.getByText(/wait 2 seconds/i);
+    expect(visibleCountdown).toBeVisible();
+    expect(visibleCountdown).toHaveAttribute('aria-hidden', 'true');
+    expect(
+      screen.getByText(
+        'Payment retry is temporarily unavailable. The same payment attempt will be reused.',
+      ),
+    ).toBeInTheDocument();
     expect(button).toBeDisabled();
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(2_000);
+      await vi.advanceTimersByTimeAsync(1_000);
     });
+    const updatedCountdown = screen.getByText(/wait 1 second/i);
+    expect(updatedCountdown).toBeVisible();
+    expect(updatedCountdown).toHaveAttribute('aria-hidden', 'true');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    expect(screen.getByText('Payment retry ready')).toBeVisible();
+    expect(
+      screen.getByText('You can now retry this same payment attempt.'),
+    ).toBeVisible();
+    expect(
+      screen.queryByText(
+        'Payment retry is temporarily unavailable. The same payment attempt will be reused.',
+      ),
+    ).not.toBeInTheDocument();
     expect(button).toBeEnabled();
     expect(stub.calls).toHaveLength(1);
     expect(loadCheckoutAttempt(PUBLIC_ORDER_NUMBER)?.idempotencyKey).toBe(FIRST_KEY);
@@ -720,9 +1110,11 @@ describe('CheckoutPage', () => {
     await user.click(newAttemptButton);
     expect(loadCheckoutAttempt(PUBLIC_ORDER_NUMBER)?.idempotencyKey).toBe(SECOND_KEY);
     expect(stub.calls).toHaveLength(1);
-    expect(
-      screen.getByRole('button', { name: 'Continue to secure payment' }),
-    ).toBeEnabled();
+    const checkoutButton = screen.getByRole('button', {
+      name: 'Continue to secure payment',
+    });
+    expect(checkoutButton).toBeEnabled();
+    await waitFor(() => expect(checkoutButton).toHaveFocus());
   });
 
   it.each([503, 404, 409, 422])(
