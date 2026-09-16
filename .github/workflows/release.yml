@@ -1,0 +1,416 @@
+name: Production Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_sha:
+        description: Full lowercase SHA of the current remote main commit
+        required: true
+        type: string
+      confirm:
+        description: Type DEPLOY_STAGE20 to pass the production release gate
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  checks: read
+  packages: write
+
+concurrency:
+  group: production-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Immutable production release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      EXPECTED_REPOSITORY: kamilSarbian/Restaurant_Ordering_Analytics
+      SOURCE_URL: https://github.com/kamilSarbian/Restaurant_Ordering_Analytics
+      GHCR_REPOSITORY: ghcr.io/kamilsarbian/restaurant-ordering-analytics-backend
+      EXPECTED_ALEMBIC_HEAD: 0008_add_order_ownership
+      RELEASE_SHA: ${{ inputs.release_sha }}
+      CONFIRM: ${{ inputs.confirm }}
+
+    steps:
+      - name: Verify release request against remote main
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REPOSITORY}" != "${EXPECTED_REPOSITORY}" ]]; then
+            echo "Release repository rejected." >&2
+            exit 1
+          fi
+          if [[ "${GITHUB_REF}" != "refs/heads/main" ]]; then
+            echo "Release workflow must be dispatched from main." >&2
+            exit 1
+          fi
+          if [[ "${CONFIRM}" != "DEPLOY_STAGE20" ]]; then
+            echo "Release confirmation rejected." >&2
+            exit 1
+          fi
+          if [[ ! "${RELEASE_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Release SHA rejected." >&2
+            exit 1
+          fi
+
+          remote_main_sha="$(
+            gh api \
+              --method GET \
+              --header "Accept: application/vnd.github+json" \
+              --header "X-GitHub-Api-Version: 2022-11-28" \
+              "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" \
+              --jq '.object.sha'
+          )"
+          if [[ ! "${remote_main_sha}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Remote main identity rejected." >&2
+            exit 1
+          fi
+          if [[ "${remote_main_sha}" != "${RELEASE_SHA}" ]]; then
+            echo "Release SHA is not the current remote main SHA." >&2
+            exit 1
+          fi
+
+      - name: Check out the immutable release commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.release_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify source identity and singular migration head
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$(git rev-parse HEAD)" != "${RELEASE_SHA}" ]]; then
+            echo "Checked-out source identity rejected." >&2
+            exit 1
+          fi
+          if [[ -e .env || -e backend/.env ]]; then
+            echo "Release environment boundary rejected." >&2
+            exit 1
+          fi
+
+          python3 - <<'PY'
+          import importlib.util
+          import os
+          import sys
+          from pathlib import Path
+
+          helper_path = Path(".github/scripts/render_release.py")
+          spec = importlib.util.spec_from_file_location("render_release", helper_path)
+          if spec is None or spec.loader is None:
+              raise SystemExit("Release helper import failed.")
+          release = importlib.util.module_from_spec(spec)
+          sys.modules[spec.name] = release
+          spec.loader.exec_module(release)
+
+          expected_head = os.environ["EXPECTED_ALEMBIC_HEAD"]
+          heads = release.find_alembic_heads(Path("backend/alembic/versions"))
+          if (
+              heads != (expected_head,)
+              or expected_head != release.EXPECTED_ALEMBIC_HEAD
+          ):
+              raise SystemExit("Alembic release head rejected.")
+          PY
+
+      - name: Require successful GitHub Actions checks
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          required_checks=("Backend" "Migrations" "Frontend" "Browser E2E")
+
+          for index in "${!required_checks[@]}"; do
+            check_name="${required_checks[$index]}"
+            payload_path="${RUNNER_TEMP}/required-check-${index}.json"
+            gh api \
+              --method GET \
+              --header "Accept: application/vnd.github+json" \
+              --header "X-GitHub-Api-Version: 2022-11-28" \
+              "repos/${GITHUB_REPOSITORY}/commits/${RELEASE_SHA}/check-runs" \
+              --field "check_name=${check_name}" \
+              --field "filter=latest" \
+              --field "per_page=100" \
+              > "${payload_path}"
+
+          done
+
+          CHECK_PAYLOAD_DIRECTORY="${RUNNER_TEMP}" python3 - <<'PY'
+          import importlib.util
+          import json
+          import os
+          import sys
+          from pathlib import Path
+
+          helper_path = Path(".github/scripts/render_release.py")
+          spec = importlib.util.spec_from_file_location("render_release", helper_path)
+          if spec is None or spec.loader is None:
+              raise SystemExit("Release helper import failed.")
+          release = importlib.util.module_from_spec(spec)
+          sys.modules[spec.name] = release
+          spec.loader.exec_module(release)
+
+          directory = Path(os.environ["CHECK_PAYLOAD_DIRECTORY"])
+          try:
+              payloads = {
+                  check_name: json.loads(
+                      (directory / f"required-check-{index}.json").read_text(
+                          encoding="utf-8"
+                      )
+                  )
+                  for index, check_name in enumerate(release.REQUIRED_CHECK_NAMES)
+              }
+              release.validate_required_check_runs(
+                  payloads,
+                  os.environ["RELEASE_SHA"],
+              )
+          except (OSError, json.JSONDecodeError, release.ReleaseError):
+              raise SystemExit("Required GitHub Actions check rejected.") from None
+          PY
+
+      # GHCR creates the first package as private. After that first publish, a
+      # repository owner must set it to PUBLIC before provisioning Render.
+      - name: Publish or reuse the immutable backend image
+        id: image
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          inspect_reference() {
+            local reference="$1"
+            local output_path="$2"
+            local error_path="$3"
+            local status
+
+            set +e
+            docker buildx imagetools inspect \
+              "${reference}" > "${output_path}" 2> "${error_path}"
+            status=$?
+            set -e
+            if [[ ${status} -eq 0 ]]; then
+              return 0
+            fi
+            if grep -Eqi \
+              'manifest unknown|not found|no such manifest' "${error_path}"; then
+              return 1
+            fi
+            echo "Registry reference inspection failed." >&2
+            return 2
+          }
+
+          extract_digest() {
+            local inspection_path="$1"
+            local digest
+            digest="$(awk '$1 == "Digest:" { print $2; exit }' "${inspection_path}")"
+            if [[ ! "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              echo "Registry digest rejected." >&2
+              return 1
+            fi
+            printf '%s' "${digest}"
+          }
+
+          printf '%s' "${GH_TOKEN}" | docker login ghcr.io \
+            --username "${GITHUB_ACTOR}" \
+            --password-stdin > /dev/null
+
+          release_tag="${GHCR_REPOSITORY}:${RELEASE_SHA}"
+          release_inspection="${RUNNER_TEMP}/release-image-inspection.txt"
+          release_error="${RUNNER_TEMP}/release-image-inspection.err"
+          release_exists=false
+
+          if inspect_reference \
+            "${release_tag}" "${release_inspection}" "${release_error}"; then
+            release_exists=true
+          else
+            inspection_status=$?
+            if [[ ${inspection_status} -ne 1 ]]; then
+              exit 1
+            fi
+          fi
+
+          if [[ "${release_exists}" == "true" ]]; then
+            digest="$(extract_digest "${release_inspection}")"
+          else
+            metadata_path="${RUNNER_TEMP}/backend-build-metadata.json"
+            docker buildx build \
+              --platform linux/amd64 \
+              --file backend/Dockerfile \
+              --tag "${release_tag}" \
+              --label "org.opencontainers.image.source=${SOURCE_URL}" \
+              --label "org.opencontainers.image.revision=${RELEASE_SHA}" \
+              --label "org.opencontainers.image.version=${RELEASE_SHA}" \
+              --provenance=false \
+              --sbom=false \
+              --push \
+              --metadata-file "${metadata_path}" \
+              backend
+
+            metadata_digest="$(
+              METADATA_PATH="${metadata_path}" python3 - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          try:
+              metadata = json.loads(
+                  Path(os.environ["METADATA_PATH"]).read_text(encoding="utf-8")
+              )
+              digest = metadata["containerimage.digest"]
+          except (KeyError, TypeError, json.JSONDecodeError, OSError):
+              raise SystemExit("Build digest metadata rejected.") from None
+          if not isinstance(digest, str) or re.fullmatch(
+              r"sha256:[0-9a-f]{64}", digest
+          ) is None:
+              raise SystemExit("Build digest metadata rejected.")
+          print(digest)
+          PY
+            )"
+
+            if ! inspect_reference \
+              "${release_tag}" "${release_inspection}" "${release_error}"; then
+              echo "Published image could not be resolved." >&2
+              exit 1
+            fi
+            digest="$(extract_digest "${release_inspection}")"
+            if [[ "${digest}" != "${metadata_digest}" ]]; then
+              echo "Published image digest mismatch." >&2
+              exit 1
+            fi
+          fi
+
+          immutable_ref="${GHCR_REPOSITORY}@${digest}"
+          bootstrap_tag="${GHCR_REPOSITORY}:stage20-bootstrap"
+          bootstrap_inspection="${RUNNER_TEMP}/bootstrap-image-inspection.txt"
+          bootstrap_error="${RUNNER_TEMP}/bootstrap-image-inspection.err"
+
+          # stage20-bootstrap is created only when absent and is never moved.
+          if inspect_reference \
+            "${bootstrap_tag}" "${bootstrap_inspection}" "${bootstrap_error}"; then
+            extract_digest "${bootstrap_inspection}" > /dev/null
+          else
+            bootstrap_status=$?
+            if [[ ${bootstrap_status} -ne 1 ]]; then
+              exit 1
+            fi
+            docker buildx imagetools create \
+              --tag "${bootstrap_tag}" \
+              "${immutable_ref}"
+            if ! inspect_reference \
+              "${bootstrap_tag}" "${bootstrap_inspection}" "${bootstrap_error}"; then
+              echo "Bootstrap image could not be resolved." >&2
+              exit 1
+            fi
+            extract_digest "${bootstrap_inspection}" > /dev/null
+          fi
+
+          printf 'digest=%s\n' "${digest}" >> "${GITHUB_OUTPUT}"
+          printf 'image_ref=%s\n' "${immutable_ref}" >> "${GITHUB_OUTPUT}"
+
+      - name: Verify immutable image identity
+        shell: bash
+        env:
+          IMAGE_REF: ${{ steps.image.outputs.image_ref }}
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          set -euo pipefail
+          if [[ ! "${IMAGE_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Immutable image digest rejected." >&2
+            exit 1
+          fi
+          if [[ "${IMAGE_REF}" != "${GHCR_REPOSITORY}@${IMAGE_DIGEST}" ]]; then
+            echo "Immutable image reference rejected." >&2
+            exit 1
+          fi
+
+          registry_inspection="${RUNNER_TEMP}/immutable-image-inspection.txt"
+          docker buildx imagetools inspect "${IMAGE_REF}" > "${registry_inspection}"
+          registry_digest="$(
+            awk '$1 == "Digest:" { print $2; exit }' "${registry_inspection}"
+          )"
+          if [[ "${registry_digest}" != "${IMAGE_DIGEST}" ]]; then
+            echo "Registry digest verification failed." >&2
+            exit 1
+          fi
+
+          docker pull --platform linux/amd64 "${IMAGE_REF}" > /dev/null
+          docker image inspect "${IMAGE_REF}" \
+            > "${RUNNER_TEMP}/immutable-image.json"
+          IMAGE_INSPECTION="${RUNNER_TEMP}/immutable-image.json" python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          try:
+              images = json.loads(
+                  Path(os.environ["IMAGE_INSPECTION"]).read_text(encoding="utf-8")
+              )
+              if len(images) != 1:
+                  raise ValueError
+              image = images[0]
+              labels = image["Config"]["Labels"]
+              expected_labels = {
+                  "org.opencontainers.image.source": os.environ["SOURCE_URL"],
+                  "org.opencontainers.image.revision": os.environ["RELEASE_SHA"],
+                  "org.opencontainers.image.version": os.environ["RELEASE_SHA"],
+              }
+              if (
+                  image["Os"] != "linux"
+                  or image["Architecture"] != "amd64"
+                  or any(labels.get(key) != value for key, value in expected_labels.items())
+                  or os.environ["IMAGE_REF"] not in image["RepoDigests"]
+              ):
+                  raise ValueError
+          except (KeyError, TypeError, ValueError, json.JSONDecodeError, OSError):
+              raise SystemExit("Immutable image identity rejected.") from None
+          PY
+
+      - name: Reconfirm remote main before Render
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          remote_main_sha="$(
+            gh api \
+              --method GET \
+              --header "Accept: application/vnd.github+json" \
+              --header "X-GitHub-Api-Version: 2022-11-28" \
+              "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" \
+              --jq '.object.sha'
+          )"
+          if [[ "${remote_main_sha}" != "${RELEASE_SHA}" ]]; then
+            echo "Remote main advanced during release." >&2
+            exit 1
+          fi
+
+      # The helper intentionally returns exit code 3 after its GET-only Render
+      # preflight until live migrator artifact identity can be proven safely.
+      - name: Run fail-closed Render release preflight
+        shell: bash
+        env:
+          IMAGE_REF: ${{ steps.image.outputs.image_ref }}
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_BACKEND_SERVICE_ID: ${{ vars.RENDER_BACKEND_SERVICE_ID }}
+          RENDER_MIGRATOR_SERVICE_ID: ${{ vars.RENDER_MIGRATOR_SERVICE_ID }}
+          RENDER_FRONTEND_SERVICE_ID: ${{ vars.RENDER_FRONTEND_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/render_release.py \
+            --release-sha "${RELEASE_SHA}" \
+            --image-ref "${IMAGE_REF}" \
+            --expected-head "${EXPECTED_ALEMBIC_HEAD}" \
+            --execute
+
+      - name: Remove registry credentials
+        if: ${{ always() }}
+        shell: bash
+        run: docker logout ghcr.io
