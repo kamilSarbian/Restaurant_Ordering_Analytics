@@ -38,10 +38,15 @@ def _request(
     client: tuple[str, int] | None,
     *,
     forwarded_for: str | None = None,
+    forwarding_headers: tuple[tuple[str, str], ...] = (),
 ) -> Request:
     headers: list[tuple[bytes, bytes]] = []
     if forwarded_for is not None:
         headers.append((b"x-forwarded-for", forwarded_for.encode("ascii")))
+    headers.extend(
+        (name.encode("ascii"), value.encode("ascii"))
+        for name, value in forwarding_headers
+    )
     return Request(
         {
             "type": "http",
@@ -107,6 +112,54 @@ def test_forwarded_headers_are_ignored() -> None:
     """Use the direct peer host rather than untrusted forwarding headers."""
     request = _request(("127.0.0.1", 1234), forwarded_for="203.0.113.10")
     assert get_client_bucket_key(request) == "127.0.0.1"
+
+
+@pytest.mark.parametrize(
+    "forwarding_headers",
+    [
+        (("x-forwarded-for", "203.0.113.10, 198.51.100.4"),),
+        (
+            ("x-forwarded-for", "203.0.113.10"),
+            ("x-forwarded-for", "198.51.100.4"),
+        ),
+        (("forwarded", "for=203.0.113.10;proto=https"),),
+        (("x-forwarded-for", "for=unknown, [broken"),),
+        (("x-real-ip", "203.0.113.10"),),
+        (("cf-connecting-ip", "203.0.113.10"),),
+    ],
+)
+def test_all_untrusted_forwarding_forms_use_the_direct_peer(
+    forwarding_headers: tuple[tuple[str, str], ...],
+) -> None:
+    """Ignore spoofed single-hop, multi-hop, repeated, and vendor headers."""
+    request = _request(
+        ("127.0.0.1", 1234),
+        forwarding_headers=forwarding_headers,
+    )
+    assert get_client_bucket_key(request) == "127.0.0.1"
+
+
+def test_forwarded_headers_without_a_direct_peer_use_the_shared_fallback() -> None:
+    """Never promote attacker-controlled forwarding data into a bucket key."""
+    request = _request(
+        None,
+        forwarding_headers=(
+            ("x-forwarded-for", "203.0.113.10, 198.51.100.4"),
+            ("x-real-ip", "192.0.2.20"),
+        ),
+    )
+    assert get_client_bucket_key(request) == UNKNOWN_CLIENT_BUCKET
+
+
+def test_rotating_spoofed_addresses_cannot_create_new_limiter_buckets() -> None:
+    """Charge every spoofed identity to the same direct-peer rate-limit window."""
+    limiter = FixedWindowRateLimiter(limit=2)
+    requests = [
+        _request(("127.0.0.1", 1234), forwarded_for=forwarded)
+        for forwarded in ("203.0.113.10", "198.51.100.4", "192.0.2.20")
+    ]
+    results = [limiter.check(get_client_bucket_key(request)) for request in requests]
+    assert [result.allowed for result in results] == [True, True, False]
 
 
 def test_parallel_attempts_are_thread_safe() -> None:

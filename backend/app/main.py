@@ -5,6 +5,7 @@ from typing import Any
 
 from fastapi import FastAPI
 from sqlalchemy.orm import Session, sessionmaker
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.analytics.router import router as analytics_router
 from app.api.health import router as health_router
@@ -88,6 +89,12 @@ def create_app(
         debug=resolved_settings.app_debug,
         lifespan=lifespan,
     )
+    if resolved_settings.app_environment == "production":
+        application.add_middleware(
+            TrustedHostMiddleware,
+            allowed_hosts=list(resolved_settings.trusted_hosts),
+            www_redirect=False,
+        )
     application.state.order_creation_rate_limiter = (
         order_creation_rate_limiter
         if order_creation_rate_limiter is not None
@@ -121,7 +128,10 @@ def create_app(
         stripe_checkout_client
         if stripe_checkout_client is not None
         else (
-            StripeCheckoutClient(resolved_settings.stripe_secret_key)
+            StripeCheckoutClient(
+                resolved_settings.stripe_secret_key,
+                expected_livemode=resolved_settings.stripe_expected_livemode,
+            )
             if resolved_settings.stripe_secret_key is not None
             else None
         )
@@ -130,7 +140,10 @@ def create_app(
         stripe_webhook_verifier
         if stripe_webhook_verifier is not None
         else (
-            StripeWebhookVerifier(resolved_settings.stripe_webhook_secret)
+            StripeWebhookVerifier(
+                resolved_settings.stripe_webhook_secret,
+                expected_livemode=resolved_settings.stripe_expected_livemode,
+            )
             if resolved_settings.stripe_webhook_secret is not None
             else None
         )

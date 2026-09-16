@@ -41,9 +41,14 @@ def _request() -> StripeCheckoutRequest:
     )
 
 
-def _client(create_operation: object) -> StripeCheckoutClient:
+def _client(
+    create_operation: object,
+    *,
+    expected_livemode: bool | None = None,
+) -> StripeCheckoutClient:
     return StripeCheckoutClient(
         SecretStr("not-a-real-secret"),
+        expected_livemode=expected_livemode,
         create_operation=create_operation,  # type: ignore[arg-type]
     )
 
@@ -117,6 +122,50 @@ def test_adapter_normalizes_provider_expiration_to_utc() -> None:
     result = _client(create_operation).create_checkout_session(_request())
     assert result.expires_at == datetime.fromtimestamp(EXPIRES_AT, tz=UTC)
     assert result.expires_at.tzinfo is UTC
+
+
+def test_adapter_accepts_a_session_matching_expected_test_mode() -> None:
+    """Require explicit provider test-mode evidence when policy is configured."""
+
+    def create_operation(*, params: object, options: object) -> object:
+        return {
+            "id": "cs_test_contract",
+            "url": "https://checkout.stripe.example/session",
+            "expires_at": EXPIRES_AT,
+            "livemode": False,
+        }
+
+    result = _client(
+        create_operation,
+        expected_livemode=False,
+    ).create_checkout_session(_request())
+    assert result.session_id == "cs_test_contract"
+
+
+@pytest.mark.parametrize("livemode", [True, None, 0, "false"])
+def test_adapter_rejects_missing_malformed_or_live_mode_session_evidence(
+    livemode: object,
+) -> None:
+    """Refuse a session that cannot prove the configured sandbox boundary."""
+
+    def create_operation(*, params: object, options: object) -> object:
+        response = {
+            "id": "cs_test_contract",
+            "url": "https://checkout.stripe.example/session",
+            "expires_at": EXPIRES_AT,
+        }
+        if livemode is not None:
+            response["livemode"] = livemode
+        return response
+
+    with pytest.raises(
+        StripeCheckoutAmbiguousError,
+        match="configured provider mode",
+    ):
+        _client(
+            create_operation,
+            expected_livemode=False,
+        ).create_checkout_session(_request())
 
 
 @pytest.mark.parametrize(
@@ -268,3 +317,13 @@ def test_client_rejects_an_empty_secret_before_sdk_use() -> None:
     """Fail locally when no usable provider secret is supplied."""
     with pytest.raises(CheckoutConfigurationError):
         StripeCheckoutClient(SecretStr(""), create_operation=lambda: None)
+
+
+def test_client_rejects_an_invalid_livemode_policy_before_sdk_use() -> None:
+    """Reject non-boolean deployment policy without calling Stripe."""
+    with pytest.raises(CheckoutConfigurationError, match="livemode policy"):
+        StripeCheckoutClient(
+            SecretStr("not-a-real-secret"),
+            expected_livemode="false",  # type: ignore[arg-type]
+            create_operation=lambda: None,
+        )

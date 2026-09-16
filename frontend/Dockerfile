@@ -12,6 +12,7 @@ RUN npm ci --ignore-scripts --no-audit --no-fund
 
 COPY --chown=1000:1000 index.html vite.config.ts tsconfig.json tsconfig.app.json tsconfig.node.json ./
 COPY --chown=1000:1000 src ./src
+COPY --chown=1000:1000 public ./public
 
 RUN npm run build \
     && test -z "$(find dist -type f -name '*.map' -print -quit)" \
@@ -24,11 +25,18 @@ USER root
 RUN rm -rf /usr/share/nginx/html/* \
     && apk del --no-network apk-tools
 
-COPY nginx/default.conf /etc/nginx/conf.d/default.conf
+COPY --chmod=0444 nginx/default.conf /etc/nginx/default.conf.template
+COPY --chmod=0555 nginx/entrypoint.sh /usr/local/bin/frontend-entrypoint
 COPY --from=builder /home/node/app/dist/ /usr/share/nginx/html/
 
-RUN nginx -t
+RUN /bin/sh -n /usr/local/bin/frontend-entrypoint \
+    && command -v envsubst >/dev/null \
+    && rm -f /etc/nginx/conf.d/default.conf \
+    && ln -s /tmp/nginx-default.conf /etc/nginx/conf.d/default.conf
 
 USER 101:101
 
 EXPOSE 8080
+
+ENTRYPOINT ["/usr/local/bin/frontend-entrypoint"]
+CMD []

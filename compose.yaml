@@ -26,13 +26,11 @@ services:
       dockerfile: Dockerfile
     image: restaurant-ordering-analytics-backend:stage17
     command:
-      - python
-      - -m
-      - alembic
-      - upgrade
-      - head
+      - /usr/local/bin/run-migrations
     environment:
-      DATABASE_URL: "postgresql+psycopg://${POSTGRES_USER:?POSTGRES_USER is required}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:?POSTGRES_DB is required}"
+      APP_ENVIRONMENT: development
+      MIGRATION_DATABASE_URL: "postgresql+psycopg://${POSTGRES_USER:?POSTGRES_USER is required}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:?POSTGRES_DB is required}"
+      EXPECTED_ALEMBIC_HEAD: "${EXPECTED_ALEMBIC_HEAD:-0008_add_order_ownership}"
     depends_on:
       postgres:
         condition: service_healthy
@@ -52,18 +50,10 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     image: restaurant-ordering-analytics-backend:stage17
-    command:
-      - /bin/sh
-      - -ec
-      - |
-        if ! python -m alembic current --check-heads >/dev/null 2>&1; then
-          printf '%s\n' 'Backend startup aborted: Alembic head check failed.' >&2
-          exit 1
-        fi
-        exec python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1 --no-proxy-headers --no-server-header
     environment:
-      APP_ENVIRONMENT: production
+      APP_ENVIRONMENT: development
       APP_DEBUG: "false"
+      PORT: "8000"
       DATABASE_URL: "postgresql+psycopg://${POSTGRES_USER:?POSTGRES_USER is required}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:?POSTGRES_DB is required}"
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
@@ -104,6 +94,9 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     image: restaurant-ordering-analytics-frontend:stage17
+    environment:
+      PORT: "8080"
+      BACKEND_UPSTREAM: "backend:8000"
     ports:
       - "127.0.0.1:5173:8080"
     depends_on:

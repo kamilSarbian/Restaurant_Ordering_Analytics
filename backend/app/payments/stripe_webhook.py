@@ -71,6 +71,7 @@ class StripeWebhookVerifier:
         self,
         webhook_secret: str | SecretStr,
         *,
+        expected_livemode: bool | None = None,
         tolerance_seconds: int = DEFAULT_WEBHOOK_TOLERANCE_SECONDS,
         construct_event: StripeConstructEventOperation | None = None,
     ) -> None:
@@ -78,6 +79,7 @@ class StripeWebhookVerifier:
 
         Args:
             webhook_secret: Endpoint signing secret protected in memory.
+            expected_livemode: Optional provider-mode policy for verified events.
             tolerance_seconds: Maximum accepted signature age in seconds.
             construct_event: Optional SDK-compatible verifier used by tests.
 
@@ -88,11 +90,14 @@ class StripeWebhookVerifier:
             raise StripeWebhookConfigurationError(
                 "Stripe webhook tolerance must be a positive integer"
             )
+        if expected_livemode is not None and not isinstance(expected_livemode, bool):
+            raise StripeWebhookConfigurationError("Stripe livemode policy is invalid")
         self._webhook_secret = (
             webhook_secret
             if isinstance(webhook_secret, SecretStr)
             else SecretStr(webhook_secret)
         )
+        self._expected_livemode = expected_livemode
         self._tolerance_seconds = tolerance_seconds
         self._construct_event = construct_event or stripe.Webhook.construct_event
 
@@ -140,7 +145,13 @@ class StripeWebhookVerifier:
         if verified_event is None:
             raise StripeWebhookVerificationError(VERIFICATION_ERROR_MESSAGE)
 
-        return _extract_verified_event(verified_event)
+        extracted_event = _extract_verified_event(verified_event)
+        if (
+            self._expected_livemode is not None
+            and extracted_event.livemode is not self._expected_livemode
+        ):
+            raise StripeWebhookVerificationError(VERIFICATION_ERROR_MESSAGE)
+        return extracted_event
 
 
 def _extract_verified_event(event: object) -> VerifiedStripeEvent:

@@ -45,10 +45,15 @@ COPY app ./app
 COPY alembic/env.py ./alembic/env.py
 COPY alembic/versions ./alembic/versions
 COPY alembic.ini ./alembic.ini
+COPY --chmod=0555 start-backend.sh /usr/local/bin/start-backend
+COPY --chmod=0555 run-migrations.sh /usr/local/bin/run-migrations
+
+RUN /bin/sh -n /usr/local/bin/start-backend \
+    && /bin/sh -n /usr/local/bin/run-migrations
 
 USER 10001:10001
 
 EXPOSE 8000
 STOPSIGNAL SIGTERM
 
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--no-proxy-headers", "--no-server-header"]
+CMD ["/usr/local/bin/start-backend"]

@@ -84,7 +84,11 @@ def _signature(payload: bytes, secret: str, timestamp: int) -> str:
     return f"t={timestamp},v1={digest}"
 
 
-def _injected_verifier(event: object) -> StripeWebhookVerifier:
+def _injected_verifier(
+    event: object,
+    *,
+    expected_livemode: bool | None = None,
+) -> StripeWebhookVerifier:
     def construct_event(
         payload: bytes,
         signature_header: str,
@@ -96,6 +100,7 @@ def _injected_verifier(event: object) -> StripeWebhookVerifier:
 
     return StripeWebhookVerifier(
         SecretStr(TEST_SECRET),
+        expected_livemode=expected_livemode,
         construct_event=construct_event,
     )
 
@@ -238,6 +243,15 @@ def test_nonpositive_or_boolean_tolerance_is_rejected(tolerance: int) -> None:
         StripeWebhookVerifier(TEST_SECRET, tolerance_seconds=tolerance)
 
 
+def test_nonboolean_livemode_policy_is_rejected() -> None:
+    """Reject an ambiguous deployment policy before webhook verification."""
+    with pytest.raises(StripeWebhookConfigurationError, match="livemode policy"):
+        StripeWebhookVerifier(
+            TEST_SECRET,
+            expected_livemode="false",  # type: ignore[arg-type]
+        )
+
+
 def test_empty_secret_is_rejected_only_when_verification_is_used() -> None:
     """Keep construction possible while failing before an SDK verification call."""
     called = False
@@ -347,6 +361,8 @@ def _structurally_invalid_event(case: str) -> dict[str, Any]:
         event["created"] = 10**30
     elif case == "invalid_livemode":
         event["livemode"] = 0
+    elif case == "missing_livemode":
+        event.pop("livemode")
     elif case == "missing_session_id":
         session.pop("id")
     elif case == "blank_session_id":
@@ -364,6 +380,7 @@ def _structurally_invalid_event(case: str) -> dict[str, Any]:
         "invalid_created_type",
         "invalid_created_range",
         "invalid_livemode",
+        "missing_livemode",
         "missing_session_id",
         "blank_session_id",
     ],
@@ -407,6 +424,33 @@ def test_adapter_faithfully_returns_livemode(livemode: bool) -> None:
     event["livemode"] = livemode
     result = _injected_verifier(event).verify(b"unchanged", "unchanged")
     assert result.livemode is livemode
+
+
+def test_expected_test_mode_accepts_a_verified_sandbox_event() -> None:
+    """Return an authentic event only when it matches the sandbox policy."""
+    result = _injected_verifier(
+        _event(),
+        expected_livemode=False,
+    ).verify(b"unchanged", "unchanged")
+    assert result.livemode is False
+
+
+@pytest.mark.parametrize(
+    "event_type",
+    [StripeWebhookEventType.COMPLETED.value, "customer.created"],
+)
+def test_expected_test_mode_rejects_live_events_before_processing(
+    event_type: str,
+) -> None:
+    """Reject both in-scope and ignored live events at the verification boundary."""
+    event = _event(event_type=event_type)
+    event["livemode"] = True
+    with pytest.raises(StripeWebhookVerificationError) as caught:
+        _injected_verifier(
+            event,
+            expected_livemode=False,
+        ).verify(b"unchanged", "unchanged")
+    assert str(caught.value) == "Stripe webhook verification failed"
 
 
 def test_verified_event_dataclasses_are_immutable() -> None:

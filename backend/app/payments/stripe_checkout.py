@@ -143,12 +143,14 @@ class StripeCheckoutClient:
         self,
         secret_key: SecretStr,
         *,
+        expected_livemode: bool | None = None,
         create_operation: StripeCreateOperation | None = None,
     ) -> None:
         """Initialize the adapter with an isolated client or injected test seam.
 
         Args:
             secret_key: Stripe account secret stored in a protected value.
+            expected_livemode: Optional provider-mode policy for returned sessions.
             create_operation: Optional narrow SDK-compatible creation callable.
 
         Raises:
@@ -157,7 +159,10 @@ class StripeCheckoutClient:
         raw_secret = secret_key.get_secret_value()
         if not raw_secret:
             raise CheckoutConfigurationError("Stripe secret key is not configured")
+        if expected_livemode is not None and not isinstance(expected_livemode, bool):
+            raise CheckoutConfigurationError("Stripe livemode policy is invalid")
 
+        self._expected_livemode = expected_livemode
         if create_operation is None:
             client = stripe.StripeClient(raw_secret)
             self._create_operation = client.v1.checkout.sessions.create
@@ -232,14 +237,29 @@ class StripeCheckoutClient:
                 "Stripe Checkout Session creation outcome is ambiguous"
             ) from exc
 
-        return _validate_checkout_session_response(response)
+        return _validate_checkout_session_response(
+            response,
+            expected_livemode=self._expected_livemode,
+        )
 
 
-def _validate_checkout_session_response(response: object) -> CheckoutSessionResult:
+def _validate_checkout_session_response(
+    response: object,
+    *,
+    expected_livemode: bool | None,
+) -> CheckoutSessionResult:
     """Validate the minimal provider response without assuming one SDK shape."""
     session_id = _provider_field(response, "id")
     checkout_url = _provider_field(response, "url")
     expires_at = _provider_field(response, "expires_at")
+    livemode = _provider_field(response, "livemode")
+
+    if expected_livemode is not None and (
+        not isinstance(livemode, bool) or livemode is not expected_livemode
+    ):
+        raise StripeCheckoutAmbiguousError(
+            "Stripe response does not match the configured provider mode"
+        )
 
     if not isinstance(session_id, str) or not session_id.strip():
         raise StripeCheckoutAmbiguousError(
