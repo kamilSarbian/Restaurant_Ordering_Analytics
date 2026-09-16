@@ -1,4 +1,4 @@
-# Restaurant Ordering & Analytics System
+# Nordic Hearth — Restaurant Ordering & Analytics System
 
 ## Current status
 
@@ -23,31 +23,50 @@ guest/payment/administrator E2E, responsive/accessibility/runtime coverage,
 final acceptance, independent review, and final commit, is complete and
 committed at `a1999f9ce22d92876c38a71e24ad9ff8c43075d2`.
 
-Stage 19-1 through Stage 19-4 are complete. The GitHub Actions foundation,
-migration and frontend gates, isolated Browser E2E job, live
-GREEN -> RED -> GREEN acceptance, hosted responsive fixes, and `main` branch
-protection are implemented and verified. The cumulative Stage 19 changes
-remain uncommitted during Stage 19-C1 documentation and pre-commit validation;
-Stage 19-C2 independent review and final commit have not started.
+Stage 19 is complete, verified, and committed at
+`ad637053e2fb4979cf1bf5f5cc8c3a7f95317079`, the repository baseline immediately
+before Stage 20. Its deterministic GitHub Actions
+pipeline, independent backend, migration, and frontend gates, dependent
+isolated Browser E2E gate, GREEN -> RED -> GREEN acceptance, and protected
+`main` branch checks are the committed CI baseline.
+
+Stage 20 — Production Deployment Readiness is complete in the repository. It
+provides fail-closed production configuration, portable hardened containers,
+Nginx runtime templating, isolated migration execution, a Render target
+blueprint, and a manual immutable-GHCR release contract. This is readiness work
+only: the release workflow has not been dispatched, no Render or GHCR resource
+has been mutated, no production Stripe traffic occurred, and no public
+deployment or public URL is claimed.
+
+Stage 21 — UI/UX Redesign & Product Polish is complete under the official
+Nordic Hearth identity. Customer, account, and administrator experiences,
+shared primitives, responsive images, accessibility, motion and feedback, and
+route-level code splitting passed final visual and pre-deployment acceptance.
+The accepted frontend baseline is 1,073/1,073 tests and 23/23 synthetic
+production-preview Chromium scenarios; no JavaScript chunk exceeds 500 kB.
+
+Stage 22 — Production Deployment & Public Acceptance has not started. It will
+cover infrastructure provisioning, Demo Mode and a deterministic synthetic
+production dataset, the first controlled online release, and public-demo
+acceptance. A recruiter-facing public URL may be claimed only after Stage 22-D.
+Stage 23 — Portfolio Documentation & Case Study has not started.
 
 The FastAPI backend provides public menu and quote APIs, anonymous or owned
 Order creation, owner-or-capability status and idempotent Stripe Checkout,
 signature-verified webhook processing, unified registered identities,
 database-authoritative role checks, read-only personal Order history, and
-administrator operations. The current automated baseline is 1654/1654 passing
-backend tests and 890/890 passing frontend tests. Stage 18-5 added two fresh
-isolated final-acceptance runs, each with 8/8 real Chromium Playwright tests
-passing. The earlier Stage 16G integrated acceptance remains an in-process
-ASGI/TestClient historical check rather than browser E2E.
+administrator operations. Historical acceptance counts remain documented in
+their stage-specific sections below.
 
 Local development uses PostgreSQL 17, synchronous SQLAlchemy 2, Psycopg 3,
 Alembic, and an explicit demonstration menu seed. Code and the development
 database are both at migration `0008_add_order_ownership`. A local
 credential-hygiene issue was remediated by rotation without documenting or
 tracking any credential value. Stage 17 provides repeatable local full-system
-containers, Stage 18 provides isolated browser E2E, and Stage 19 provides
-deterministic GitHub Actions CI. This is not a public deployment: Stage 20
-Deployment and Stage 21 Portfolio Documentation have not started.
+containers, Stage 18 provides isolated browser E2E, Stage 19 provides the
+committed deterministic CI baseline, and Stages 20 and 21 add the readiness and
+product-polish work described above. This remains a local,
+pre-deployment repository state.
 
 ## Unified identity, Order ownership, and account backend
 
@@ -184,6 +203,12 @@ without introducing infrastructure that is unnecessary for a single venue.
   database and volume, and a test-only fake Checkout/webhook harness.
 - GitHub Actions CI with independent backend, migration, and frontend gates and
   a dependent isolated Browser E2E gate.
+- Fail-closed production configuration, portable container entry points,
+  migration-only database execution, and a repository-ready immutable
+  GHCR/Render release architecture that has not been dispatched or deployed.
+- A Nordic Hearth design system and polished customer, account, and
+  administrator experiences with responsive WebP delivery, accessibility
+  hardening, and route-level lazy loading.
 - Isolated PostgreSQL integration tests for models, constraints, and migration
   upgrades, downgrades, seed idempotency, and data protection.
 - Ruff, Black, and isort quality configuration.
@@ -192,12 +217,15 @@ without introducing infrastructure that is unnecessary for a single venue.
 
 - Implemented: Python 3.12, FastAPI, Pydantic 2, PostgreSQL 17, SQLAlchemy 2,
   Alembic, Psycopg 3, Stripe Python SDK, pwdlib with Argon2, PyJWT,
-  email-validator, Docker Compose, pytest, Ruff, Black, isort, React,
-  TypeScript, Vite, React Router, CSS Modules, native `fetch`, `sessionStorage`,
-  Vitest, React Testing Library, multi-stage container builds, and an
-  unprivileged static Nginx runtime, Playwright Test 1.62.1, Chromium browser
+  email-validator, Docker Compose, pytest, Ruff, Black, isort, React 19,
+  TypeScript 6, Vite 8, React Router 7, CSS Modules, native `fetch`,
+  `sessionStorage`, Vitest, React Testing Library, multi-stage container builds,
+  an unprivileged static Nginx runtime, Playwright Test 1.62.1, Chromium browser
   E2E, and GitHub Actions CI.
-- Planned: Stage 20 public deployment and Stage 21 Portfolio Documentation.
+- Prepared, not live: the Stage 20 Render/GHCR production target and manual
+  immutable release contract.
+- Planned: Stage 22 Production Deployment & Public Acceptance and Stage 23
+  Portfolio Documentation & Case Study.
 
 ## Repository structure
 
@@ -276,10 +304,11 @@ docker compose --env-file .env down
 ```
 
 Do not add `-v` unless deletion of the local named volume and its data is
-intentional. The current Compose contract is for loopback-only local use. Its
-single application database role is acceptable only at that boundary; public
-deployment still requires HTTPS, managed secret storage, and a least-privilege
-production database role.
+intentional. The current Compose contract remains loopback-only and uses the
+local development database role. Stage 20 separately defines the production
+host, secret, trusted-proxy, and migration-role boundaries in repository
+configuration. Stage 22 must provision and validate those boundaries before
+any public release.
 
 ### Stage 17 isolated acceptance evidence
 
@@ -389,8 +418,40 @@ After acceptance, classic branch protection on `main` was configured to require
 the exact `Backend`, `Migrations`, `Frontend`, and `Browser E2E` checks with
 strict status checks enabled. Admin enforcement is intentionally disabled at
 this stage, and force pushes and deletions are disabled. Stage 19 is complete
-but remains uncommitted until the Stage 19-C2 independent review and final
-commit.
+and committed at `ad637053e2fb4979cf1bf5f5cc8c3a7f95317079`, the repository
+baseline immediately before Stage 20.
+
+## Stage 20 production deployment readiness
+
+Stage 20 adds a fail-closed production configuration contract, portable backend
+and Nginx runtimes, and explicit application-versus-migration database
+boundaries. The production backend accepts only its application
+`DATABASE_URL`; the isolated migrator accepts only `MIGRATION_DATABASE_URL`,
+validates the expected login and owner roles, uses a transaction-scoped role,
+serializes migration execution, and verifies the exact Alembic head.
+
+The repository also contains a Render target blueprint and a manual GitHub
+Actions release contract tied to current `main`, required CI checks, and an
+immutable GHCR digest. The release path intentionally stops before Render
+mutation until its live migrator artifact can be proved safely. The workflow
+has not been dispatched, no cloud resource has been changed, and this section
+does not claim a production deployment or public URL. Provisioning and the
+first controlled online release belong to Stage 22.
+
+## Stage 21 Nordic Hearth UI/UX redesign and product polish
+
+Stage 21 applies the Nordic Hearth design language across customer, account,
+and administrator routes. Shared branding and UI primitives, responsive local
+menu and brand images, mobile-through-desktop layouts, keyboard and focus
+behavior, forced-colors and reduced-motion handling, truthful asynchronous
+feedback, and accessible state presentation are accepted.
+
+Seventeen non-landing feature page routes use route-level lazy loading without
+changing route URLs, guards, or provider state. Final acceptance passed 1,073
+frontend tests and
+23/23 synthetic production-preview Chromium scenarios. The production bundle
+has no JavaScript chunk above 500 kB. This is pre-deployment browser evidence,
+not a claim that the application is publicly available.
 
 ## Local backend setup
 
@@ -840,10 +901,13 @@ manual Refresh before another mutation attempt.
 
 Categories and items use only the existing authenticated GET, POST, and PATCH
 routes; there is no DELETE. List views use offset pagination and manual Refresh.
-Forms support independent active and available item flags, category reassignment
-including inactive categories returned by the backend, integer minor-unit price
-and optional cost values, `[A-Z]{3}` currency, one allergen per line, and
-clearing optional description, image, or cost fields.
+Forms preserve independent active and available item flags and allow category
+reassignment to inactive categories returned by the backend. Administrator
+money is NOK-only at fixed scale two: the UI accepts exact major-unit decimal
+strings and uses string/BigInt conversion to the API's integer minor units
+without floating-point parsing, silent rounding, or a currency selector. Forms
+also accept one allergen per line and can clear optional description, image, or
+cost fields.
 
 PATCH sends changed fields only. The UI does not update optimistically, and an
 ambiguous mutation result must be resolved by Refresh before resubmission.
@@ -1526,7 +1590,7 @@ Stripe, cost, or margin data, and unknown, unowned, or cross-user detail shares
 one generic 404. A current-session 401 uses generation-safe invalidation; a 503
 or network failure keeps the session and offers an explicit retry.
 
-### Visual, responsive, and accessibility direction
+### Historical Stage 16F visual, responsive, and accessibility direction
 
 The customer UI uses a warm restaurant palette, readable type scale, prominent
 server totals, clear availability states, focus-visible controls, semantic

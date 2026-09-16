@@ -1,6 +1,8 @@
 # Implementation Status
 
-- **Documentation:** completed
+- **Repository documentation baseline:** maintained through Stage 21; final
+  portfolio documentation and case-study work remain Stage 23 and have not
+  started
 - **Stage 1:** completed
 - **Stage 2:** completed
 - **Stage 3:** completed
@@ -16,11 +18,15 @@
 - **Stage 13:** completed
 - **Stage 14:** completed
 - **Stage 15:** completed
-- **Current stage:** Stage 18 is complete and committed at
-  `a1999f9ce22d92876c38a71e24ad9ff8c43075d2`. Stage 19-1 through Stage 19-4,
-  including live `GREEN -> RED -> GREEN` GitHub Actions acceptance and `main`
-  branch protection, are complete but uncommitted during Stage 19-C1. Stage
-  19-C2 has not started.
+- **Current stage:** Stage 20 Production Deployment Readiness and Stage 21 UI/UX
+  Redesign & Product Polish are complete locally. Stage 21-I final visual,
+  responsive, interaction, accessibility, performance, network, and
+  preservation acceptance passed on 2026-09-05, including an independent second
+  review with zero P0 or P1 findings. At the 2026-09-15
+  documentation-reconciliation boundary, the Stage 20/21 working tree remained
+  uncommitted and required a renewed pre-commit independent review and logical
+  commit-plan confirmation. Stage 22 and Stage 23 have not started. No
+  production deployment, release-workflow dispatch, or public URL is claimed.
 - **Backend:** FastAPI, database foundation, menu models, local seed data,
   public menu, transient quoting, persistent order creation, and secure public
   order status, Payment persistence, Stripe Checkout, and verified Stripe
@@ -99,12 +105,14 @@
   payments; deterministic UTF-8-SIG, BOM, CSV dialect, filename, query,
   time-source, formula-safety, and exposure contracts completed and verified;
   one report SELECT per route and no migration required
-- **Application tests:** the current Stage 19 baseline passed 1654 backend
-  tests and 890 frontend tests. Backend Ruff, Black, and isort checks; browser
-  E2E type checking; frontend ESLint, Prettier, build; and both dependency
-  audits passed. Each live GREEN workflow passed all four jobs, including the
-  complete eight-test Playwright suite. Alembic exposes the single
-  `0008_add_order_ownership` head, and migration round-trip/no-drift passed 8/8
+- **Application tests:** Stage 21-I final acceptance passed 1,073 frontend
+  tests, 631 customer-targeted tests, 330 administrator-targeted tests, 28
+  shared primitive tests, 90 route tests, 270 H2B/H3 regression tests, and
+  23/23 synthetic production-preview Playwright scenarios. ESLint reported
+  zero errors with two unchanged Fast Refresh warnings; Prettier, frontend and
+  E2E TypeScript, production build, both zero-vulnerability npm audits, and
+  `git diff --check` passed. The backend, API, database, Alembic head, and
+  Stage 20 release contracts were unchanged.
 - **Stage 16 frontend:** the committed B1 through B6 operational administrator
   interface remains complete. Stage 16F F1 through F6 plus FIX1 and FIX2 add
   the landing route, shared auth, registration, authenticated ordering,
@@ -202,15 +210,456 @@
 - **Stage 19-3:** complete — dependency-gated, isolated Docker Browser E2E job
 - **Stage 19-4:** complete — live `GREEN -> RED -> GREEN` GitHub Actions
   acceptance, responsive production fixes, and `main` branch protection
-- **Stage 19-C1:** in progress — exactly six authoritative documents and
-  cumulative pre-commit validation
-- **Stage 19-C2:** not started
-- **Overall Stage 19:** implementation and live acceptance are complete but
-  uncommitted before C2
-- **Remaining direction:** finish every Stage 19-C1 gate, then run Stage 19-C2
-  independent review and final commit
-- **Deployment (Stage 20):** not started
-- **Portfolio documentation (Stage 21):** not started
+- **Stage 19-C1:** complete — authoritative documentation and cumulative
+  pre-commit validation passed
+- **Stage 19-C2:** complete — independent review and final commit completed at
+  `ad637053e2fb4979cf1bf5f5cc8c3a7f95317079`
+- **Overall Stage 19:** complete and committed
+- **Stage 20 — Production Deployment Readiness:** complete and preserved.
+  Production configuration and security contracts, portable containers and Nginx
+  templating, isolated migration execution, and the immutable Render/GHCR
+  release blueprint are implemented. No production infrastructure was
+  provisioned and no public deployment is claimed; those remain Stage 22 work.
+- **Stage 21-D3A:** complete on 2026-08-26 — the customer cart now has a
+  compact Nordic hierarchy, safe responsive thumbnails with a stable fallback,
+  server-authoritative quote continuity, accessible quantity and removal
+  controls, inline clear confirmation, a polished empty state, and restrained
+  reduced-motion-aware transitions. Local acceptance passed 948 frontend
+  tests, the isolated four-viewport Chromium cart story, ESLint, Prettier,
+  frontend and E2E TypeScript checks, the production build, and both npm audits
+  with zero vulnerabilities.
+- **Stage 21-D3B1:** complete on 2026-08-26 — Checkout now presents the
+  Nordic Hearth brand, a server-authoritative saved-order summary, a truthful
+  payment-required hierarchy, a shared busy payment action, focused recoverable
+  notices, and restrained reduced-motion-aware transitions without changing
+  Checkout idempotency or redirect semantics. Local acceptance passed 952
+  frontend tests, 47 targeted Checkout tests, the isolated four-viewport
+  Chromium payment-initiation story, ESLint, Prettier, frontend and E2E
+  TypeScript checks, the production build, and both npm audits with zero
+  vulnerabilities. No backend, database, real Stripe, dependency, asset, or
+  Git-history mutation was required.
+- **Stage 21-D3B2A:** complete on 2026-08-26 — the R1 scope preserves D-060
+  while giving payment return and Checkout cancellation a compact Nordic Hearth
+  identity, truthful neutral hierarchy, one clear primary action, accessible
+  shared Notices, and restrained reduced-motion-aware interactions. Local
+  acceptance passed 957 frontend tests, 15 targeted return/cancel tests, the
+  isolated return-and-cancel Chromium story across four viewports, ESLint,
+  Prettier, frontend and E2E TypeScript checks, the production build, and both
+  npm audits with zero vulnerabilities. No backend, API, database, real Stripe,
+  dependency, asset, or Git-history mutation was required.
+- **Stage 21-D3B2B:** complete on 2026-08-26 - the public order-status page now
+  presents a compact Nordic Hearth hierarchy, the exact authoritative current
+  fulfilment status without synthetic history, truthful freshness and paused
+  states, recoverable retry, one primary menu action, and restrained
+  reduced-motion-aware interactions. D-060 polling behavior remains unchanged,
+  including automatic terminal-state stop. Local acceptance passed 960 frontend
+  tests, 24 targeted order-status tests, the isolated four-viewport Chromium
+  story, ESLint, Prettier, frontend and E2E TypeScript checks, the production
+  build, and both npm audits with zero vulnerabilities. No backend, API, database,
+  dependency, asset, infrastructure, or Git-history mutation was required.
+- **Stage 21-E1:** complete on 2026-08-26 - Login and registration now share a
+  compact Nordic Hearth identity, clear customer guidance, accessible local
+  password visibility controls, stable shared loading actions, and generic
+  recoverable Notices with restrained reduced-motion-aware interactions. The
+  existing validation order, duplicate-submit guards, retry timing, session
+  verification, storage, and safe `next` redirect resolution remain unchanged.
+  Local acceptance passed 967 frontend tests, 73 targeted authentication tests,
+  the isolated four-viewport Chromium authentication story, ESLint, Prettier,
+  frontend and E2E TypeScript checks, the production build, and both npm audits
+  with zero vulnerabilities. No backend, API, database, router, dependency,
+  asset, infrastructure, or Git-history mutation was required.
+- **Stage 21-E2A:** complete on 2026-08-27 - The authenticated account orders
+  overview now has a compact Nordic Hearth identity, one semantic responsive
+  order list, server-authoritative status/date/total presentation, exact API
+  ordering and pagination, retained valid results during requests, focused
+  recovery, and polished loading, empty, and error states with restrained
+  reduced-motion-aware transitions. Local acceptance passed 968 frontend
+  tests, 12 targeted account-order tests, the isolated four-viewport Chromium
+  account story, ESLint, Prettier, frontend and E2E TypeScript checks, the
+  production build, and both npm audits with zero vulnerabilities. No backend,
+  API, database, router, dependency, asset, infrastructure, or Git-history
+  mutation was required.
+- **Stage 21-E2B:** complete on 2026-08-27 - The authenticated account
+  order-detail experience now presents a compact Nordic Hearth identity, exact
+  server-authoritative current status semantics, ordered line items with unit
+  and line prices, explicit authoritative totals, generic private access
+  failures, safe retry with predictable focus, and restrained
+  reduced-motion-aware interactions. Because the account API exposes no status
+  history, this presentation intentionally renders no projected timeline.
+  Local acceptance passed 975 frontend tests, 16 targeted account-order-detail
+  tests, the isolated four-viewport Chromium detail story, the four-viewport
+  E2A overview regression, ESLint, Prettier, frontend and E2E TypeScript checks,
+  the production build, and npm audit with zero vulnerabilities. No backend,
+  API, database, router, dependency, asset, infrastructure, or Git-history
+  mutation was required.
+- **Stage 21-F1:** complete on 2026-08-27 - The administrator home now presents
+  a compact, Nordic Hearth operational hierarchy with four authoritative summary
+  cards, a truthfully bounded needs-attention view, the six newest mixed-status
+  orders, exact-or-explicitly-bounded menu availability, and role-aware links to
+  existing administrator tools. It uses exactly three parallel bounded GET
+  sources already exposed to the frontend: Orders, Menu, and the seven-day
+  Analytics overview. Per-currency revenue and average order value remain
+  separate, section failures retain successful data, and retry targets only the
+  failed section with actual-request loading and deterministic focus recovery.
+  Local acceptance passed 981 frontend tests, 6 targeted administrator-home
+  tests, the isolated four-viewport Chromium dashboard story, ESLint, Prettier,
+  frontend and E2E TypeScript checks, the production build, and npm audit with
+  zero vulnerabilities. No backend, API, database, AdminShell, dependency,
+  asset, infrastructure, or Git-history mutation was required.
+- **Stage 21-F2A:** complete on 2026-08-27 - The administrator orders overview
+  now presents a compact Nordic Hearth operational hierarchy with URL-persistent
+  status and order-type filters, server-authoritative ordering, explicit applied
+  filter context, responsive cards through tablet widths, and a semantic desktop
+  table. All six order statuses use redundant text, marker, and semantic color
+  treatment; bounded previous and next navigation preserves filters without
+  inventing page totals. Loading, refresh, retry, empty, filtered-empty, and
+  later-page states preserve authoritative query boundaries with deterministic
+  focus recovery and reduced-motion or forced-colors support. Local acceptance
+  passed 988 frontend tests, 24 targeted administrator-orders tests, the isolated
+  four-viewport Chromium orders story, ESLint, Prettier, frontend and E2E
+  TypeScript checks, the production build, and npm audits with zero
+  vulnerabilities. No backend, API, database, AdminShell, router, dependency,
+  asset, infrastructure, or Git-history mutation was required.
+- **Stage 21-F2B:** complete on 2026-08-27 - The administrator order detail now
+  presents a compact operational hierarchy with authoritative order status,
+  immutable item snapshots, totals, payment attempts, and recorded status
+  history. Payment state remains separate from fulfilment state, provider
+  reconciliation is explicitly reported as unavailable in this frontend
+  contract, and created-order actions are safely pre-gated from persisted
+  payment-attempt statuses without weakening backend authority. Exact state
+  transitions retain explicit confirmation, duplicate-mutation protection,
+  authoritative post-mutation refresh, conflict reconciliation, deterministic
+  focus recovery, responsive long-value handling, reduced-motion support, and
+  forced-colors semantics. Local acceptance passed 1002 frontend tests, 55
+  targeted administrator order-detail tests, the isolated four-viewport
+  Chromium detail story, full ESLint, Prettier, frontend and E2E TypeScript
+  checks, the production build, and both npm audits with zero vulnerabilities.
+  No backend, API, type, database, AdminShell, router, dependency, asset,
+  infrastructure, or Git-history mutation was required.
+- **Stage 21-F3A-R1:** complete on 2026-08-27 - A read-only development-database
+  audit confirmed that all 15 menu items use `NOK`, with no non-NOK or null
+  currency rows. Administrator Menu create and update requests now accept only
+  exact `NOK`, while response compatibility, integer minor-unit transport, the
+  existing database model, and Alembic head remain unchanged. The redesigned
+  compact Nordic Hearth workspace keeps categories and items in backend order,
+  presents truthful active and available states independently, retains
+  no-hard-delete behavior, adds complete-data-only category filtering, and
+  provides safe image previews without changing image resolution or persistence.
+  Price and cost fields use exact major-unit decimal strings with a fixed
+  two-digit NOK scale, bounded string and `BigInt` conversion, no floating-point
+  multiplication, no silent rounding, and authoritative post-mutation refresh.
+  Local acceptance passed 1,941 backend tests with 8 isolated migration-runner
+  proofs skipped by their explicit opt-in contract, 1,037 frontend tests, 77
+  targeted backend tests, 63 targeted Admin Menu tests, and the isolated
+  four-viewport Chromium Admin Menu story covering populated, create/edit,
+  loading, success, conflict, empty, load-error, and retry states. Ruff, Black,
+  isort, pip check, ESLint, Prettier, frontend and E2E TypeScript checks, the
+  production build, and both npm audits also passed; the audits reported zero
+  vulnerabilities. Development data, migration and Stage 20 release contracts,
+  infrastructure, dependencies, AdminShell, router, assets, Git history, and
+  the staged index were preserved.
+- **Stage 21-F3B:** complete on 2026-09-02 - The super-administrator Users
+  workspace now presents a compact Nordic Hearth operational hierarchy with
+  backend-ordered responsive cards and a semantic desktop table, explicit
+  customer, administrator, and super-administrator role semantics, long-email
+  wrapping, and deterministic current-user and protected-role treatment. Role
+  changes retain exact backend payloads, explicit target/current/requested-role
+  confirmation, duplicate-submit protection, no optimistic mutation,
+  authoritative post-mutation reconciliation, and predictable focus for
+  cancel, success, forbidden, conflict, validation, and ambiguous-network
+  outcomes. Restrained CSS-first motion, reduced-motion removal, forced-colors
+  support, visible focus, live feedback, and practical 44-pixel controls remain
+  usable across phone, tablet, laptop, and desktop layouts. Local acceptance
+  passed 1,039 frontend tests, 78 targeted Admin Users tests, the isolated
+  four-viewport Chromium Admin Users story, ESLint with zero errors, Prettier,
+  frontend and E2E TypeScript checks, the production build, both npm audits
+  with zero vulnerabilities, and `git diff --check`. The exact read-only
+  development-database fingerprint, `.env`, D-077, backend and API security
+  contracts, AdminShell, router, dependencies, assets, infrastructure, Git
+  history, and staged index were preserved.
+- **Stage 21-F4A:** complete on 2026-09-02 - Administrator Analytics now uses a
+  compact, information-first Nordic Hearth hierarchy with an explicit applied
+  context, separate editable draft filters, and deterministic 7-, 30-, and
+  90-day draft presets. Changed filters are committed only after all four
+  existing protected analytics requests succeed; failure preserves the prior
+  authoritative context and data, while same-context initial and refresh loads
+  retain independent section failures. Three restrained KPI cards and the
+  product, category, and order-type sections keep currencies separate, expose
+  adjacent textual values, wrap long labels, distinguish zero data from errors,
+  and add no metric, trend, payment inference, FX conversion, endpoint, or
+  dependency. Restrained CSS-first transitions, reduced-motion and
+  forced-colors handling, visible focus, and practical touch targets remain
+  usable across phone, tablet, laptop, and desktop layouts. Local acceptance
+  passed 1,042 frontend tests, 15 targeted Admin Analytics tests, the isolated
+  four-viewport Chromium Analytics story, ESLint with zero errors, Prettier,
+  frontend and E2E TypeScript checks, the production build, both npm audits
+  with zero vulnerabilities, and `git diff --check`. The exact read-only
+  development-database fingerprint, `.env`, D-077, backend and analytics API
+  contracts, security guards, AdminShell, router, dependencies, assets,
+  infrastructure, Git history, and staged index were preserved.
+- **Stage 21-F4B:** complete on 2026-09-03 - Administrator Exports now presents
+  the exact three existing protected CSV downloads in a compact Nordic Hearth
+  operational layout. Orders exposes only period, optional currency, status,
+  and order-type parameters; Product sales and Payments expose only period and
+  optional currency. These feature-local values are explicitly independent of
+  Analytics, and each request retains an immutable display context. Per-export
+  request, success, and error state remains independent, duplicate requests are
+  blocked, recoverable failures restore focus without stealing a later focus
+  intent, and no silent retry or synthetic progress was added. Existing Bearer
+  authentication, successful-status and `text/csv` validation, safe quoted
+  filename parsing and fallback, Blob opacity, temporary-link removal, and
+  object-URL revocation remain unchanged. Restrained CSS-first motion,
+  reduced-motion removal, forced-colors support, practical 44-pixel targets,
+  long-filename wrapping, and responsive phone, tablet, laptop, and desktop
+  layouts were acceptance-verified with synthetic admin data and downloads.
+  Local acceptance passed 1,048 frontend tests, 39 targeted Admin Exports and
+  download-helper tests, the isolated four-viewport Chromium Exports story,
+  ESLint with zero errors, Prettier, frontend and E2E TypeScript checks, the
+  production build, both npm audits with zero vulnerabilities, and
+  `git diff --check`. The development database, `.env`, D-077, backend, API and
+  type contracts, security guards, Analytics, AdminShell, router, dependencies,
+  assets, infrastructure, Git history, and staged index were preserved.
+- **Stage 21-G1:** complete on 2026-09-03 - Customer responsive and
+  accessibility hardening now provides predictable focus recovery for repeated
+  authentication, menu, order-status, cart-quote, and account-route failures,
+  semantic and unclipped quantity controls, and practical 44-pixel customer
+  action targets without changing existing data, session, routing, payment, or
+  security contracts. Local acceptance passed 1,050 frontend tests, 662
+  customer-targeted tests, and 10/10 synthetic Chromium customer scenarios. The
+  browser proof included 84 route/viewport combinations across 320x568,
+  375x812, 430x932, 768x1024, 1024x768, 1280x800, and 1440x900, together with
+  deterministic reflow, forced-colors, reduced-motion, keyboard/focus,
+  touch-target, long-content/error/empty-state, and responsive-image checks.
+  ESLint reported zero errors; Prettier, frontend and E2E TypeScript checks, the
+  production build, both npm audits with zero vulnerabilities, and
+  `git diff --check` passed. D-060, D-077, the development database, `.env`,
+  backend/API/type/security contracts, administrator features, Stage 20 files,
+  infrastructure, Git history, and the staged index were preserved. All assets
+  remained unchanged: 15 menu PNG and 45 menu WebP. `USER BRAND ASSETS
+PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
+  to Stage 21-H.
+- **Stage 21-G2:** complete on 2026-09-04 - Administrator responsive and
+  accessibility hardening now provides guarded focus recovery across repeated
+  route validation, dashboard reads, orders, order detail, menu, users, and
+  analytics operations without stealing a later navigation intent. Admin Menu
+  cancellation and discard return focus to their exact launch controls, its
+  pagination tracks the initiating control, and its confirmation actions retain
+  practical 44-pixel targets. Existing semantic headings, landmarks, live
+  regions, form validation, status/security meaning, role authority, D-060, and
+  D-077 remain unchanged. Synthetic local Chromium acceptance covered AdminShell,
+  Home, Orders overview and detail, Menu, Users, Analytics, Exports, loading,
+  repeated-error, recovery, empty, confirmation, and protected not-found states
+  across 320x568, 375x812, 430x932, 768x1024, 1024x768, 1280x800, and 1440x900.
+  It also verified deterministic reflow, forced-colors, reduced-motion,
+  keyboard-only focus, practical touch targets, safe long-content wrapping, and
+  absence of page-level overflow. Local acceptance passed 1,055 frontend tests,
+  359 admin-targeted tests, and 8/8 synthetic Chromium administrator scenarios.
+  ESLint reported zero errors; Prettier, frontend and E2E TypeScript checks, the
+  production build, both npm audits with zero vulnerabilities, and
+  `git diff --check` passed. The development database, `.env`, backend,
+  API/type/security contracts, customer features, AdminShell implementation,
+  router, dependencies, Stage 20 files, infrastructure, Git history, and staged
+  index were preserved. All assets remained byte-identical: 15 menu PNG and 45
+  menu WebP. `USER BRAND ASSETS PRESERVED: 16 PNG`. The known large JavaScript
+  chunk warning remains deferred to Stage 21-H.
+- **Stage 21-G3:** complete on 2026-09-04 - Shared and cross-application
+  accessibility acceptance now presents the official Nordic Hearth brand in
+  both application shells, moves focus to the main landmark after pathname
+  navigation without stealing it on query-only updates, exposes one current
+  administrator destination, and avoids duplicate session live regions when a
+  routed customer page owns its feedback. Trailing-slash routes retain the same
+  live-region ownership. Button, Notice, AsyncNotice, StatusBadge, BrandMark,
+  global token, contrast, forced-colors, reduced-motion, and touch-target
+  contracts were accepted without changes to shared primitives or global CSS.
+  Synthetic local Chromium acceptance against the production build passed
+  22/22 cross-application scenarios across 320x568, 375x812, 430x932, 768x1024,
+  1024x768, 1280x800, and 1440x900. It covered deterministic 200-percent
+  reflow, keyboard-only navigation, long content, customer and administrator
+  async/focus recovery, authoritative order polling and conflict recovery,
+  status/security semantics, and responsive-image delivery without external
+  traffic or development-database mutation. Local acceptance passed 1,060
+  frontend tests, 527 customer-targeted tests, 359 administrator-targeted
+  tests, and 28 shared primitive tests. ESLint reported zero errors; Prettier,
+  frontend and E2E TypeScript checks, the production build, both npm audits
+  with zero vulnerabilities, and `git diff --check` passed. D-060, D-077,
+  backend/API/type/security contracts, the development database, `.env`,
+  dependencies, Stage 20 files, infrastructure, Git history, and the staged
+  index were preserved. All assets remained byte-identical: 15 menu PNG and 45
+  menu WebP. `USER BRAND ASSETS PRESERVED: 16 PNG`. The known large JavaScript
+  chunk warning remains deferred to Stage 21-H.
+- **Stage 21-H1:** complete on 2026-09-04 - Route-level code splitting now
+  keeps the landing page, application shells, providers, route guards, and
+  shared primitives eager while loading 10 customer/auth/account/checkout
+  pages and 7 administrator pages only when their routes render. Every lazy
+  page has a stable textual `aria-busy` fallback inside the persistent route
+  boundary, and the root router has a focused, non-technical error page without
+  automatic retry. Route paths, navigation, authorization, role checks, cart
+  and session providers, D-060, and D-077 remain unchanged. The production
+  build moved from one 597,103-byte raw / 162,266-byte gzip JavaScript chunk to
+  31 content-hashed chunks totaling 605,531 bytes raw / 184,518 bytes aggregate
+  gzip. The largest and initial landing chunk is now 327,594 bytes raw /
+  101,472 bytes gzip, reducing initial JavaScript by 45.14 percent raw and
+  37.47 percent gzip and eliminating the Vite warning above 500 kB without
+  changing the warning limit or adding `manualChunks`. A cold local Chromium
+  landing loaded exactly that one entry script; route chunks were fetched only
+  on navigation, returned 200 without duplicate requests, and retained
+  keyboard focus, browser history, forced-colors, and reduced-motion behavior.
+  Local acceptance passed 1,061 frontend tests, 85 route tests, 528
+  customer-targeted tests, 359 administrator-targeted tests, 28 shared
+  primitive tests, and 23/23 synthetic production-preview Chromium scenarios.
+  ESLint reported zero errors; Prettier, frontend and E2E TypeScript checks,
+  the production build, and `git diff --check` passed. The full npm audit
+  returned zero vulnerabilities; the production-only registry request timed
+  out without a vulnerability result and remained availability-conditional.
+  Stage 20 and completed Stage 21 behavior, the development database, `.env`,
+  backend/API/type/security contracts, assets, infrastructure, Git history,
+  and the staged index were preserved. All assets remained byte-identical: 15
+  menu PNG and 45 menu WebP. `USER BRAND ASSETS PRESERVED: 16 PNG`.
+- **Stage 21-H2A:** complete on 2026-09-04 - The customer landing surface now
+  uses the approved full Nordic Hearth raster logo once, an editorial
+  restaurant hero as its sole high-priority image, and one lazy kitchen-to-table
+  story image. AppShell, AdminShell, and authentication retain the compact SVG
+  BrandMark treatment. Seven deterministic responsive WebP derivatives total
+  235,402 bytes; the immutable PNG masters remain their fallbacks. The landing
+  selects 320w for the logo, 640w or 1024w for the hero according to its actual
+  slot, and 640w for the story at the accepted DPR-1 viewports. Critical eager
+  encoded image bytes decreased from 31,326 on mobile and 59,208 on desktop to
+  30,628 on both; Chromium also proximity-prefetched the 25,566-byte native-lazy
+  story image, for 57,094 transferred image bytes in total. Restrained 220 ms
+  opacity/settle motion is CSS-only and is explicitly removed under reduced
+  motion; forced-colors, focus, intrinsic sizing, alt text, and non-duplicated
+  brand naming were accepted. Production Chromium passed the five-view landing
+  matrix at 320x568, 375x812, 768x1024, 1280x800, and 1440x900, the full G1
+  customer matrix, and the H1 lazy-route regression without external traffic or
+  development-database mutation. Local acceptance passed 1,061 frontend tests,
+  10 landing tests, 626 customer-targeted tests, and 28 shared primitive tests.
+  ESLint reported zero errors; Prettier, frontend and E2E TypeScript checks, the
+  production build, and `git diff --check` passed. The full npm audit returned
+  zero vulnerabilities; the production-only registry request did not return
+  within two minutes and remained availability-conditional. H1 remains intact
+  at 32 chunks totaling 607,000 bytes raw / 185,048 bytes aggregate gzip; the
+  largest and initial chunk is 326,449 bytes raw / 100,609 bytes gzip, with no
+  warning above 500 kB and no warning-limit workaround. Stage 20, D-060, D-077,
+  backend/API/type/security contracts, routing, the development database,
+  `.env`, infrastructure, Git history, and the staged index were preserved.
+  All menu assets remain byte-identical: 15 PNG and 45 WebP. All 16 original
+  brand PNG files retain their paths, sizes, SHA-256 digests, and mtimes.
+  `USER BRAND ASSETS PRESERVED: 16 PNG`.
+- **Stage 21-H2B:** complete on 2026-09-04 - Shared buttons now provide a
+  restrained one-pixel press response and a visible loading spinner while
+  respecting reduced motion. Repeated menu additions produce distinct live
+  feedback with the authoritative cart quantity; account-order retry removes
+  stale errors before showing its truthful pending state; and Cart quote,
+  confirmation, and submission progress uses informational rather than success
+  treatment. Admin Menu clears superseded collection notices and restores focus
+  after an accepted save even when its authoritative refetch fails. Admin Order
+  Detail clears stale mutation success before a new manual refresh. Existing
+  Notice, AsyncNotice, StatusBadge, shell, route, payment, polling, Analytics,
+  and Export contracts remain unchanged. Local acceptance passed 1,063 frontend
+  tests, 189 focused regression tests, 626 customer-targeted tests, 330
+  administrator-targeted tests, 113 shared/router tests, and 23/23 synthetic
+  production-preview Chromium scenarios. The browser proof covered customer and
+  administrator flows across the required 320x568, 375x812, 768x1024, 1280x800,
+  and 1440x900 viewports plus the established 430x932 and 1024x768 acceptance
+  widths, including keyboard focus, live regions, forced colors, reduced motion,
+  no duplicate requests, and loopback-only network boundaries. ESLint reported
+  zero errors; Prettier, frontend and E2E TypeScript checks, the production
+  build, both npm audits with zero vulnerabilities, and `git diff --check`
+  passed. JavaScript remains at 32 chunks totaling 607,252 bytes raw / 185,052
+  bytes aggregate gzip; the largest and initial chunk is 326,503 bytes raw /
+  100,601 bytes gzip, with no warning above 500 kB. Stage 20, D-060, D-077,
+  backend/API/type/security contracts, routing, the development database,
+  `.env`, dependencies, infrastructure, Git history, and the staged index were
+  preserved. All assets remained byte-identical: 15 menu PNG, 45 menu WebP, 16
+  original brand PNG, and 7 approved brand WebP derivatives.
+  `USER BRAND ASSETS PRESERVED: 16 PNG`.
+- **Stage 21-H3:** complete on 2026-09-05 - Final performance and interaction
+  acceptance now prevents delayed Checkout, order-summary, and account-order
+  responses from taking focus after the user has moved to another connected
+  control, while retaining the established recovery focus when the initiating
+  control is still active, disabled, or disconnected, including successful
+  summary retry and new-payment-attempt transitions. Regression coverage also
+  waits for React's asynchronous focus effect instead of racing it. Local
+  acceptance passed 1,066 frontend tests, 629 customer-targeted tests, 330
+  administrator-targeted tests, 28 shared primitive tests, 85 route tests, 190
+  H2B regression tests, 10/10 repetitions of the formerly unstable Checkout
+  focus case, and 23/23 synthetic production-preview Chromium scenarios. The
+  browser proof covered the required responsive matrix, keyboard and focus,
+  forced colors, reduced motion, live regions, responsive images, route-chunk
+  history, and loopback-only network boundaries. ESLint reported zero errors
+  with two unchanged Fast Refresh warnings; Prettier, frontend and E2E
+  TypeScript checks, the production build, both zero-vulnerability npm audits,
+  and `git diff --check` passed. The final bundle contains 32 JavaScript chunks
+  totaling 608,510 bytes raw / 185,409 bytes aggregate gzip; the largest and
+  initial chunk remains 326,503 bytes raw / 100,600 bytes gzip, and no warning
+  exceeds 500 kB. The 16 CSS chunks remain 172,437 bytes raw / 35,619 bytes
+  gzip. All bundle deltas from H2B are below 0.21 percent; all 17 lazily split
+  feature page routes remain lazy while the landing route remains eager, names
+  remain content-hashed, the graph has no static cycle, and React remains
+  single-copy. Stage 20, H1, H2A, H2B, D-060, D-077,
+  backend/API/type/security contracts, the development database, `.env`,
+  dependencies, infrastructure, Git history, and the staged index were
+  preserved. Assets remain byte-identical with unchanged paths, hashes, and
+  mtimes: 15 menu PNG, 45 menu WebP, 16 original brand PNG, and 7 approved brand
+  WebP derivatives. `USER BRAND ASSETS PRESERVED: 16 PNG`.
+- **Stage 21-I:** complete on 2026-09-05 - Final visual QA and pre-deployment
+  frontend acceptance reviewed every current product screen, both shells,
+  route loading and root error states, supported asynchronous states, and the
+  full seven-viewport matrix with synthetic loopback-only data. Reproduced
+  delayed-focus defects were repaired within exactly eight existing
+  source/test paths and the existing responsive/accessibility E2E path: route
+  loading and session recovery, account order-detail retry, and delayed Cart
+  validation now restore focus when appropriate without stealing a later user
+  focus intent. Review covered Nordic Hearth hierarchy, responsive menu and
+  landing imagery, long content, keyboard-only flows, forced colors,
+  deterministic 200-percent reflow, reduced motion, status semantics, and
+  customer/administrator interaction consistency. All 315 temporary visual
+  review screenshots were inspected and removed. Final acceptance passed 1,073
+  frontend tests, 631 customer-targeted tests, 330 administrator-targeted
+  tests, 28 shared primitive tests, 90 route tests, 270 H2B/H3 regression
+  tests, and 23/23 synthetic production-preview Chromium scenarios. ESLint
+  reported zero errors with two unchanged Fast Refresh warnings; Prettier,
+  frontend and E2E TypeScript checks, the production build, both npm audits
+  with zero vulnerabilities, and `git diff --check` passed. The final bundle
+  contains 32 JavaScript chunks totaling 610,725 bytes raw / 185,921 bytes
+  aggregate gzip; the largest and initial chunk is 327,965 bytes raw / 100,901
+  bytes gzip, with no warning above 500 kB. Sixteen CSS chunks remain 172,437
+  bytes raw / 35,619 bytes gzip, and all JavaScript deltas from H3 remain below
+  0.5 percent. The independent second review reported P0=0, P1=0, and two
+  justified non-blocking P2 observations. D-060, D-077, backend/API/type and
+  security contracts, the development database, `.env`, dependencies, Stage
+  20 files, infrastructure, HEAD/origin, and the empty staged index were
+  preserved. Assets remain byte-identical with unchanged paths, bytes,
+  SHA-256 digests, and mtimes: 15 menu PNG, 45 menu WebP, 16 original brand
+  PNG, and 7 approved brand WebP derivatives totaling 235,402 bytes.
+  `USER BRAND ASSETS PRESERVED: 16 PNG`.
+- **Stage 21-H (Motion, Feedback, and Performance Polish):** complete through
+  Stage 21-H1, Stage 21-H2A, Stage 21-H2B, and Stage 21-H3.
+- **Stage 21-G (Responsive + Accessibility Hardening):** complete through
+  Stage 21-G1, Stage 21-G2, and Stage 21-G3.
+- **Stage 21 customer UX:** complete through Stage 21-E2B; Stage 21-D3A,
+  Stage 21-D3B1, Stage 21-D3B2A, Stage 21-D3B2B, Stage 21-E1, Stage 21-E2A,
+  and Stage 21-E2B are complete.
+- **Stage 21 administrator UX:** complete through Stage 21-F4B; Stage 21-F1,
+  Stage 21-F2A, Stage 21-F2B, Stage 21-F3A-R1, Stage 21-F3B, Stage 21-F4A,
+  and Stage 21-F4B are complete.
+- **Stage 21 — UI/UX Redesign & Product Polish:** complete through customer and
+  administrator UX, responsive and accessibility hardening, Nordic Hearth brand
+  integration, route-level code splitting, motion and performance polish, and
+  Stage 21-I final visual/pre-deployment acceptance. Current acceptance is
+  1,073/1,073 frontend tests and 23/23 synthetic production-preview Playwright
+  scenarios, with no JavaScript chunk above 500 kB. This status does not claim a
+  production deployment or public URL.
+- **Stage 22 — Production Deployment & Public Acceptance:** not started. Stage
+  22-A owns infrastructure provisioning; Stage 22-B owns a separate, preferably
+  ordinary-admin, safe read-only or resettable demo mode and deterministic
+  synthetic dataset of approximately 90 days and 500–1,000 realistic orders
+  with no real PII; Stage 22-C owns the first controlled online release; Stage
+  22-D owns public demo acceptance. A recruiter/portfolio URL may exist only
+  after Stage 22-D passes.
+- **Stage 23 — Portfolio Documentation & Case Study:** not started. Final
+  recruiter-facing README/case study, screenshots, architecture presentation,
+  and CV-facing material remain future work.
 
 ## Known limitations
 
@@ -239,19 +688,26 @@
   exposes no `payment_summary`, and Stage 12 exposes no StripeEvent diagnostic
   API.
 - Stage 13 provides no RestaurantTable administration, menu DELETE, refund,
-  actor attribution, generic audit log, cost or margin analytics, time series,
-  or frontend analytics. Stage 14 CSV exports are synchronous and buffered in
-  memory; streaming and background exports are deferred until measured scale
-  justifies them.
+  actor attribution, generic audit log, cost or margin analytics, or time
+  series. Stage 21-F4A presents only the existing authoritative aggregate
+  Analytics contract and adds no trend, FX, payment-reconciliation, or margin
+  inference. Stage 14 CSV exports are synchronous and buffered in memory;
+  Stage 21-F4B presents only those existing downloads and adds no scheduling,
+  history, formats, or shared Analytics state. D-064 keeps downloaded Blob bytes
+  opaque, so validation remains bounded to a successful response, `text/csv`
+  MIME metadata, and the safe filename contract rather than content sniffing.
+  Streaming and background exports are deferred until measured scale justifies
+  them.
 - A real Stripe CLI smoke remains optional and manual. Automated tests use
   injected adapters or the test-only fake provider and synthetic signed
   webhooks; Stage 18 performs no real Stripe traffic.
 - The seed is restricted to the exact local development database and is not a
   production bootstrap process.
-- Stage 17 provides a repeatable loopback-only local container stack, not a
-  public deployment. HTTPS, a public ingress boundary, managed secrets, and a
-  least-privilege production database role remain Stage 20 deployment work; the
-  current local database role is accepted only for the loopback Stage 17 scope.
+- Stage 17 provides a repeatable loopback-only local container stack. Stage 20
+  adds deployment-ready configuration, security contracts, portable images,
+  migration isolation, and an immutable release blueprint, but does not itself
+  provision a public deployment. Public infrastructure, managed production
+  secrets, and the first controlled online release remain Stage 22 work.
 - Stage 17 acceptance used programmatic SPA and API HTTP smoke, not browser E2E.
   Stage 18 now supplies the required browser proof through Playwright Test
   1.62.1 and real Chromium only. The in-app browser was unavailable and is not
@@ -261,12 +717,16 @@
   management, Order ownership, read-only own-order API and frontend, and
   `/admin/users` UI are implemented. Refresh tokens, password recovery, MFA,
   and refunds have not started. Continuous integration is implemented and live
-  acceptance-verified. Deployment and portfolio documentation have not started.
+  acceptance-verified, and Stage 20 deployment readiness is complete. Public
+  infrastructure and the first controlled release remain Stage 22; portfolio
+  documentation remains Stage 23.
 
-## Last verification
+## Historical Stage 19 verification
 
-Stage 19-1 through Stage 19-4 completed by 2026-08-24. Stage 19 is complete but
-uncommitted during C1, and Stage 19-C2 has not started:
+Stage 19-1 through Stage 19-4 completed by 2026-08-24. During the historical C1
+boundary, Stage 19 was complete but uncommitted and Stage 19-C2 had not started.
+C2 subsequently completed independent review and the final commit at
+`ad637053e2fb4979cf1bf5f5cc8c3a7f95317079`:
 
 - The GitHub Actions workflow runs on `ubuntu-24.04` for pull requests, pushes
   to `main`, and manual dispatch. Concurrency cancels superseded runs, and
@@ -305,14 +765,16 @@ uncommitted during C1, and Stage 19-C2 has not started:
   ESLint, Prettier, the production build, and zero vulnerabilities in both npm
   audits. Alembic has the single `0008_add_order_ownership` head, and migration
   round-trip/no-drift passed 8/8
-- C1 touches exactly six authoritative documents. The cumulative post-C1 Stage
-  19 union is exactly 12 physical paths, `A3 / M9 / D0`, with an empty index.
-  Stage 19 remains uncommitted, and Stage 19-C2 has not started
+- At the historical C1 boundary, C1 touched exactly six authoritative documents.
+  The cumulative Stage 19 union was exactly 12 physical paths, `A3 / M9 / D0`,
+  with an empty index. C2 subsequently passed and Stage 19 was committed at
+  `ad637053e2fb4979cf1bf5f5cc8c3a7f95317079`
 - The real `.env`, host and development PostgreSQL instances, development
   database fingerprint, and retained acceptance volumes remain unchanged. No
-  acceptance container or network is running. Stage 20 deployment and Stage 21
-  portfolio documentation have not started; there is no public deployment
-  claim
+  acceptance container or network is running. At that historical boundary,
+  Stage 20 readiness and Stage 21 UI/UX work had not started. Both subsequently
+  completed locally; no public deployment is claimed, and actual public
+  deployment remains Stage 22 work
 
 Historical Stage 18 verification completed by 2026-08-23. Stage 18-C2 then
 completed independent review and the final commit at

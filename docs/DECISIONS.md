@@ -232,9 +232,14 @@ and `pending_payment` are not `order_status` values.
   backend and frontend before end-to-end tests.
 - **Rationale:** E2E requires a repeatable environment for the entire system,
   while an earlier PostgreSQL container reduces manual local configuration.
-- **Consequences:** the final order is full-system Docker as Stage 17, E2E as
-  Stage 18, CI as Stage 19, deployment as Stage 20, and portfolio documentation
-  as Stage 21.
+- **Historical consequence:** when this decision was accepted, the roadmap
+  placed deployment in Stage 20 and portfolio documentation in Stage 21. Later
+  planning split repository deployment readiness from public deployment and
+  inserted the Nordic Hearth UI/UX stage. The current sequence is Stage 20
+  Production Deployment Readiness, Stage 21 UI/UX Redesign & Product Polish,
+  Stage 22 Production Deployment & Public Acceptance, and Stage 23 Portfolio
+  Documentation & Case Study. This does not change the Docker-before-E2E
+  ordering.
 
 ## D-016: Cancellation Blocked by an Active or Successful Payment Attempt
 
@@ -1470,8 +1475,50 @@ while preserving these financial concurrency rules.
 - **Consequences:** changes must satisfy the three independent quality jobs
   before isolated browser validation can run, and the protected branch requires
   all four successful contexts. CI remains synthetic and least-privilege; it
-  does not approve a public deployment. HTTPS, managed secrets, public ingress,
-  and a least-privilege production database role remain Stage 20 work.
+  does not approve a public deployment. Stage 20 later supplied repository-ready
+  production configuration, ingress, secret-input, database-role separation,
+  and release contracts. Actual infrastructure and managed-secret provisioning,
+  controlled release, and public exposure remain Stage 22 work.
+
+## D-077 — NOK-Only Administrator Menu Money Contract
+
+- **Status:** accepted on 2026-08-27
+- **Decision:** Nordic Hearth menu administration accepts only `NOK`. NOK has a
+  fixed minor-unit scale of two. Administrator forms display and accept exact
+  major-unit decimal strings, while the API and database continue to transport
+  and persist integer minor-unit amounts.
+- **Conversion boundary:** the frontend converts decimal strings by splitting
+  whole and fractional components, padding to two fractional digits, and
+  checking integer bounds before transport. It never uses floating-point
+  multiplication, silent rounding, or `toFixed()` as the source of truth.
+- **Enforcement:** Admin Menu create and update request validation accepts only
+  exact `NOK`; omission on create retains the existing `NOK` default. No model,
+  database constraint, migration, or public menu response change is required.
+- **Consequences:** arbitrary multi-currency menu administration and a generic
+  currency-scale framework are intentionally out of scope. Historical order,
+  payment, analytics, and reporting currency contracts remain unchanged.
+
+## D-078 — Repository-Ready Deployment Boundary and Immutable Release Contract
+
+- **Status:** accepted on 2026-09-15
+- **Decision:** Stage 20 completes Production Deployment Readiness in the
+  repository only. Production settings fail closed, backend and frontend images
+  are portable, runtime and migration database credentials remain separate, and
+  the GHCR/Render release contract identifies the backend/migrator image by an
+  immutable digest.
+- **Migration boundary:** the long-running backend uses `DATABASE_URL` and
+  performs only a read-only schema-head check. The one-shot migrator uses
+  `MIGRATION_DATABASE_URL`, constrained role elevation, a session-level advisory
+  lock, and exact-head verification.
+- **Release boundary:** completing Stage 20 does not mean the manual release
+  workflow was dispatched or that GHCR, Render, managed production secrets,
+  production Stripe, a public URL, or production data were created. Release
+  execution must remain fail-closed until its live-runtime proof is explicitly
+  accepted.
+- **Consequences:** Stage 22 owns infrastructure provisioning, the deterministic
+  and resettable synthetic demo dataset, the first controlled online release,
+  and public demo acceptance. The application becomes intentionally public to
+  recruiters or a portfolio audience only after Stage 22-D passes.
 
 ## History of Decisions That Required Resolution
 

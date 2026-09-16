@@ -1,4 +1,4 @@
-# System Architecture
+# Nordic Hearth System Architecture
 
 ## 1. Architectural Goals
 
@@ -16,16 +16,16 @@ job interview.
 - Pydantic 2;
 - SQLAlchemy 2;
 - Alembic;
-- PostgreSQL;
+- PostgreSQL 17;
 - pytest;
 - Ruff, Black, and isort in accordance with repository rules.
 
 ### Frontend
 
-- React;
-- TypeScript;
-- Vite;
-- React Router;
+- React 19;
+- TypeScript 6;
+- Vite 8;
+- React Router 7;
 - React Context for the cart and canonical application authentication session;
 - CSS Modules and shared CSS design tokens;
 - native `fetch`, `sessionStorage`, Vitest, and React Testing Library.
@@ -39,12 +39,13 @@ sufficient; Zustand and Recharts were not required.
 - Stripe Checkout and Stripe webhooks in test mode;
 - Docker and Docker Compose;
 - GitHub Actions;
-- planned hosting: Vercel for the frontend, Render for the backend, and Neon for
-  PostgreSQL.
+- a prepared Render target with an Nginx frontend web service, private backend
+  service from an immutable GHCR digest, isolated migrator, and managed
+  PostgreSQL 17.
 
-Hosting services are planned for the demo version and are not required for the
-initial local stages. Their limitations and current terms must be reviewed
-before the deployment stage.
+The Stage 20 Blueprint and manual release workflow are repository configuration
+only. Neither has been executed, no production resource or public URL exists,
+and provisioning remains Stage 22 work.
 
 ## 3. Architecture Style: Modular Monolith
 
@@ -839,9 +840,12 @@ activate a refresh gate before another action.
 
 Menu administration uses GET/POST/PATCH only. PATCH bodies contain changed
 fields only, and no optimistic mutation is applied. An ambiguous result requires
-Refresh before resubmission. Money fields remain integer minor units, inactive
-categories returned by the backend remain operationally selectable for item
-reassignment, and catalog changes never rewrite historical OrderItem snapshots.
+Refresh before resubmission. Administrator forms are NOK-only at fixed scale
+two and accept exact major-unit decimal strings; string/BigInt conversion
+preserves the API's integer minor-unit contract without floating-point parsing
+or silent rounding. Inactive categories returned by the backend remain
+operationally selectable for item reassignment, and catalog changes never
+rewrite historical OrderItem snapshots.
 
 The shared reporting date helper accepts only date values, computes
 Europe/Oslo local midnight with an explicit offset, and converts the selected
@@ -850,6 +854,8 @@ inclusive end date to the next local midnight for an aware half-open
 zone; `datetime-local` is not used. Analytics starts four requests in parallel
 under one generation AbortController, ignores stale generations, preserves
 section-level partial results, and performs no polling or automatic retry.
+Draft filters remain distinct from the last successfully applied filters. A
+failed Apply preserves both the previous valid data and its applied context.
 Currency groups remain isolated and are never combined or converted.
 
 CSV exports use GET-only `adminRequestBlob`, sharing the JSON transport's path
@@ -1316,8 +1322,62 @@ exact required checks `Backend`, `Migrations`, `Frontend`, and `Browser E2E`,
 and with strict status checks enabled. Force pushes and deletion are disabled.
 Administrator enforcement is intentionally disabled at this stage, and no
 repository ruleset adds another policy. This CI and branch-protection boundary
-does not constitute public deployment: HTTPS, managed secrets, public ingress,
-and a least-privilege production database role remain Stage 20 work.
+did not constitute public deployment. Stage 20 has since completed the
+repository-side production readiness contracts; Stage 22 still must provision
+HTTPS ingress, managed secrets, and least-privilege application and migration
+roles before any public release.
+
+### 5.26. Implemented Stage 20 Production Deployment Readiness
+
+Production settings fail closed around the explicit production environment,
+debug mode, trusted hosts and proxy mode, same-origin HTTPS URLs, Stripe test
+mode, release identity, and expected Alembic head. The backend and Nginx images
+use portable entry points and runtime environment templating rather than
+provider-specific build-time values.
+
+Production schema change and application startup have separate authority. The
+backend consumes only `DATABASE_URL` and performs a read-only head check. The
+isolated runner consumes only `MIGRATION_DATABASE_URL`, requires the
+`roa_migrator` login and `roa_owner` owner roles, applies `SET LOCAL ROLE`
+inside the caller-owned transaction, uses a PostgreSQL advisory lock, and
+verifies the expected head before commit.
+
+The manual release contract binds an exact current-`main` SHA to successful
+required checks and an immutable GHCR digest. The Render Blueprint describes a
+target Nginx frontend, private image-backed backend, isolated no-op migrator
+resource, and managed PostgreSQL 17 database with automatic deployment
+disabled. The release controller intentionally stops before any Render mutation
+until the live migrator artifact identity can be proved safely. The workflow
+has not been dispatched, no cloud resource has been provisioned or changed, and
+no production deployment or public URL is claimed; those actions belong to
+Stage 22.
+
+### 5.27. Implemented Stage 21 Frontend Architecture
+
+The unified React application now presents the Nordic Hearth identity through
+shared branding, design tokens, Button, Notice, StatusBadge, AppShell, and
+AdminShell primitives. Customer, account, and administrator feature modules
+retain their existing API, authorization, ownership, and state-machine
+boundaries.
+
+Seventeen non-landing feature page routes use React `lazy` and `Suspense` at
+the route boundary. The landing route, authentication and role guards remain
+eager, one application-wide provider state remains mounted, and navigation
+retains focus management. Landing and
+menu imagery use local responsive WebP source sets with explicit `sizes` and
+original-image fallbacks; no external image delivery service is required.
+
+Payment return and cancellation routes remain neutral and cannot infer a
+Payment outcome. Administrator menu forms use the NOK-only, fixed-scale-two
+major-unit contract while APIs retain exact integer minor units. No-hard-delete,
+separate active and available states, separated analytics currencies, and
+distinct draft and applied filter contexts remain unchanged.
+
+Final Stage 21 acceptance passed 1,073 frontend tests and 23/23 synthetic
+production-preview Chromium scenarios across responsive, keyboard, focus,
+forced-colors, reduced-motion, network, and route-loading behavior. No
+JavaScript chunk exceeds 500 kB. This is local pre-deployment evidence, not a
+claim of a live service.
 
 ## 6. Architecture Diagram
 

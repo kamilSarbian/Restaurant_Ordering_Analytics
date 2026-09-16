@@ -1,4 +1,4 @@
-# Restaurant Ordering & Analytics System — Project Context
+# Nordic Hearth — Restaurant Ordering & Analytics System Project Context
 
 ## 1. Business Problem
 
@@ -26,21 +26,24 @@ The goal is to build a secure web application that:
 - provides basic KPIs, reports, and CSV exports;
 - can run locally through Docker Compose and be deployed as a demo.
 
-Stages 1 through 18 are complete, verified, and committed. Stage 17's backend
+Stages 1 through 19 are complete, verified, and committed. Stage 17's backend
 and frontend images, four-service Compose runtime, readiness/startup gates, and
-isolated container acceptance all passed. Stage 18's Playwright tooling,
-isolated authentication/account and guest/payment/administrator E2E,
-responsive/accessibility/runtime coverage, final acceptance, independent
-review, and final commit are complete at
-`a1999f9ce22d92876c38a71e24ad9ff8c43075d2`.
+isolated container acceptance passed. Stage 18's isolated browser E2E and final
+acceptance are committed at
+`a1999f9ce22d92876c38a71e24ad9ff8c43075d2`. Stage 19's deterministic GitHub
+Actions CI, four required gates, GREEN -> RED -> GREEN acceptance, and protected
+`main` branch checks are committed at
+`ad637053e2fb4979cf1bf5f5cc8c3a7f95317079`, the repository baseline immediately
+before Stage 20.
 
-Stage 19-1 through Stage 19-4 are complete. Deterministic GitHub Actions CI,
-the migration and frontend gates, isolated Browser E2E, live
-GREEN -> RED -> GREEN acceptance, hosted responsive fixes, and `main` branch
-protection are implemented and verified. Stage 19 remains uncommitted during
-Stage 19-C1 documentation and pre-commit validation; Stage 19-C2 independent
-review and final commit have not started. Stage 20 Deployment and Stage 21
-Portfolio Documentation have not started, and no public deployment is claimed.
+Stage 20 — Production Deployment Readiness is complete in the repository, but
+its Render/GHCR release architecture has not been dispatched or deployed.
+Stage 21 — UI/UX Redesign & Product Polish is complete under the official
+Nordic Hearth identity; final acceptance passed 1,073 frontend tests and 23/23
+synthetic production-preview Chromium scenarios, with no JavaScript chunk above
+500 kB. Stage 22 — Production Deployment & Public Acceptance and Stage 23 —
+Portfolio Documentation & Case Study have not started. No public deployment or
+public URL is claimed.
 
 ## 3. Users
 
@@ -459,11 +462,11 @@ on 5432 was untouched. A local credential-hygiene issue was remediated by
 rotation without recording a credential value, database URL, or repository
 artifact.
 
-The current automated baseline is 1654/1654 passing backend tests, 890/890
-passing frontend tests, and 8/8 passing Alembic migration round-trip/no-drift
-tests at the single `0008_add_order_ownership` head. Stage 16G G4 final
-integrated acceptance remains complete as a historical in-process acceptance
-snapshot.
+The historical Stage 18 acceptance baseline was 1654/1654 passing backend
+tests, 890/890 passing frontend tests, and 8/8 passing Alembic migration
+round-trip/no-drift tests at the single `0008_add_order_ownership` head.
+Stage 16G G4 final integrated acceptance remains a historical in-process
+acceptance snapshot.
 
 Stage 16F was committed at
 `dae2d8f12ed4f4de94337dfc730422504b2e528f`. Stage 16G implementation,
@@ -471,9 +474,10 @@ acceptance, independent review, and security sign-off were committed at
 `8f50374759574fe7f7fea80c2eb7229cf12d3a0f`. Stage 17 implementation and
 isolated acceptance were committed at
 `7c7595aed2aa0571248a867d34386c72c71f3024`. Stage 18 implementation, final
-acceptance, independent review, and final commit are complete at current HEAD
-`a1999f9ce22d92876c38a71e24ad9ff8c43075d2`. Stage 19-1 through Stage 19-4 are
-complete but remain uncommitted during Stage 19-C1; Stage 19-C2 has not started.
+acceptance, independent review, and final commit are recorded at
+`a1999f9ce22d92876c38a71e24ad9ff8c43075d2`. Stage 19 is complete and committed
+at `ad637053e2fb4979cf1bf5f5cc8c3a7f95317079`, the repository baseline
+immediately before Stage 20.
 
 ### 4.9. Local Full-System Container Runtime
 
@@ -509,10 +513,11 @@ The application services have read-only root filesystems, bounded `/tmp`
 tmpfs mounts, all Linux capabilities dropped, and
 `no-new-privileges`. Nginx overwrites client forwarding headers at the trusted
 proxy hop, while Uvicorn disables proxy-header trust. These controls and the
-loopback host bindings define a local runtime, not a public deployment. HTTPS,
-managed secret storage, and a least-privilege production database role remain
-future Stage 20 deployment work. The current single database role is accepted
-only for the loopback Stage 17 environment.
+loopback host bindings describe the historical Stage 17 local runtime, not a
+public deployment. Stage 20 now defines repository-ready HTTPS, managed-secret,
+trusted-proxy, application-role, and migration-role contracts. No corresponding
+production infrastructure has been provisioned; Stage 22 must provision and
+validate it before public release.
 
 Stage 17-5 validated the runtime under the unique isolated Compose project
 `roa-stage17-accept-7975ee`, with synthetic configuration, separate loopback
@@ -638,9 +643,50 @@ horizontal-overflow assertion.
 After acceptance, classic protection on `main` was configured to require the
 exact `Backend`, `Migrations`, `Frontend`, and `Browser E2E` status checks with
 strict mode enabled. Admin enforcement is intentionally false at this stage;
-force pushes and deletions are disabled. This completes Stage 19-4, but the
-cumulative Stage 19 changes remain uncommitted until Stage 19-C2 independent
-review and final commit.
+force pushes and deletions are disabled. Stage 19 is complete and committed at
+`ad637053e2fb4979cf1bf5f5cc8c3a7f95317079`, the repository baseline immediately
+before Stage 20.
+
+### 4.12. Production Deployment Readiness
+
+Stage 20 implements fail-closed production settings, portable backend and
+Nginx entry points, and separate database authority for application runtime and
+migrations. The backend consumes only `DATABASE_URL`; the migration runner
+consumes only `MIGRATION_DATABASE_URL`, validates the expected
+`roa_migrator` login and `roa_owner` owner roles, changes role only within its
+transaction, serializes migration execution, and verifies the single expected
+Alembic head.
+
+The repository contains a Render target blueprint and a manual release workflow
+that binds a release to current `main`, the four required CI checks, and an
+immutable GHCR digest. The release controller intentionally stops before a
+Render mutation until live migrator artifact identity can be proved safely.
+The workflow has not been dispatched, no Render or GHCR resource has been
+changed, and no production deployment or public URL exists. Infrastructure
+provisioning and controlled online release remain Stage 22 work.
+
+### 4.13. Nordic Hearth UI/UX Redesign and Product Polish
+
+Stage 21 establishes Nordic Hearth as the product identity and applies one
+shared design system across customer, account, and administrator experiences.
+Responsive local image delivery, mobile-through-desktop layouts, keyboard and
+focus behavior, forced-colors and reduced-motion handling, truthful asynchronous
+feedback, and shared accessible primitives passed final acceptance.
+
+Public payment return and cancellation remain neutral navigation outcomes and
+never infer payment success. Administrator menu money is NOK-only at fixed scale
+two: forms use exact major-unit decimal strings and string/BigInt conversion,
+while the API and database retain integer minor units without floating-point
+parsing or silent rounding. No-hard-delete, distinct active and available menu
+states, separated analytics currencies, and distinct draft and applied filters
+remain intact.
+
+Seventeen non-landing feature page routes are loaded at route level without
+changing their URLs, guards, or shared provider state. Final acceptance passed
+1,073 frontend tests
+and 23/23 synthetic production-preview Chromium scenarios, and no JavaScript
+chunk exceeds 500 kB. This evidence is local and pre-deployment; it does not
+claim a public application.
 
 ## 5. MVP Scope
 
@@ -662,7 +708,8 @@ The MVP includes:
 - CSV exports for orders, product sales, and payments;
 - tests for critical logic;
 - local execution through Docker Compose;
-- CI and a deployed demo version.
+- CI and a deployment-ready demo architecture; public deployment and
+  acceptance remain Stage 22.
 
 ## 6. Features Outside the MVP
 
@@ -699,6 +746,9 @@ The following remain outside the MVP:
 - Amounts are integers in the currency's smallest units.
 - Currency is stored explicitly; `float` is not used for money.
 - A value of `12900` in NOK means `129.00 NOK`.
+- Administrator menu forms are NOK-only at fixed scale two. They accept exact
+  major-unit decimal strings and convert them without floating point or silent
+  rounding; API and database amounts remain integer minor units.
 
 ### 7.2. Sales History
 
@@ -828,24 +878,20 @@ discounts. Dine-in orders additionally preserve `table_number_snapshot`.
 
 ## 8. Expected Portfolio Value
 
-Stages 11 through 15 and Stage 16F are complete, verified, and committed. Stage
-16 implements the administrator operations, unified User/authentication/RBAC
-backend, Order ownership, mixed guest/authenticated ordering, personal account,
-and super-admin User-management frontend. Stage 16F adds the landing/menu route
-split, one canonical browser session, login and registration, personal account
-screens, and `/admin/users`. The developer/user completed its required manual
-local-browser verification after the final responsive and navigation fixes.
-Stage 16G canonical-auth cleanup, integrated acceptance, independent review,
-final commit, and security sign-off are complete. Stage 17 local full-system
-containerisation and isolated acceptance are complete, verified, and committed.
-Stage 18's Playwright tooling, isolated authentication/account, guest payment,
-administrator, responsive/accessibility/runtime coverage, two-run final
-acceptance, independent review, and final commit are complete at
-`a1999f9ce22d92876c38a71e24ad9ff8c43075d2`. Stage 19-1 through Stage 19-4 add
-deterministic least-privilege CI, four required gates, isolated hosted browser
-acceptance, and branch protection; they are complete but uncommitted during
-Stage 19-C1. Stage 19-C2, Stage 20 Deployment, and Stage 21 Portfolio
-Documentation have not started, and no public deployment is claimed.
+Stages 11 through 19 are complete, verified, and committed. They establish the
+transactional ordering and payment model, unified authentication and RBAC,
+customer and administrator applications, local container runtime, isolated
+browser acceptance, deterministic CI, and protected required checks. Stage 19
+is committed at `ad637053e2fb4979cf1bf5f5cc8c3a7f95317079`, the repository
+baseline immediately before Stage 20.
+
+Stage 20 — Production Deployment Readiness and Stage 21 — UI/UX Redesign &
+Product Polish are complete in the local repository. They add the prepared
+production security and release boundary and the accepted Nordic Hearth product
+experience without claiming a live service. Stage 22 — Production Deployment &
+Public Acceptance and Stage 23 — Portfolio Documentation & Case Study have not
+started. A recruiter-facing URL can exist only after Stage 22-D public-demo
+acceptance.
 
 The project should demonstrate to a recruiter that its author can:
 
@@ -856,5 +902,6 @@ The project should demonstrate to a recruiter that its author can:
 - protect financial history with snapshots and constraints;
 - define KPIs before writing analytical queries;
 - test positive, negative, and boundary scenarios;
-- connect a backend, frontend, database, containers, CI, and deployment;
+- connect a backend, frontend, database, containers, and CI, and prepare a
+  deployment architecture whose live acceptance remains Stage 22;
 - document decisions and deliberately limit MVP scope.

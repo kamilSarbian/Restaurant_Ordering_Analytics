@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {
   createMemoryRouter,
@@ -15,6 +15,18 @@ import {
 } from '../features/auth/authStorage';
 import { installFetchStub } from '../test/fetchStub';
 import { adminRoutes } from './adminRoutes';
+
+vi.mock('../features/admin-home/AdminHomePage', () => ({
+  default: () => (
+    <section aria-labelledby="admin-workspace-heading">
+      <h1 id="admin-workspace-heading">Administrator workspace</h1>
+      <p>
+        Manage orders, menu availability, analytics, and CSV exports from the
+        administrator tools.
+      </p>
+    </section>
+  ),
+}));
 
 const SYNTHETIC_TOKEN = 'test-admin-token';
 const FIXED_NOW = new Date('2026-08-12T12:00:00+02:00');
@@ -166,7 +178,8 @@ describe('administrator authentication routes and guard', () => {
     'renders AdminShell and the safe %s profile after successful /me validation',
     async (role, profile) => {
       storeToken();
-      installFetchStub({ json: profile });
+      installFetchStub({ json: profile }, { json: EMPTY_ORDERS_RESPONSE });
+      const user = userEvent.setup();
 
       renderAdminRoute('/admin');
 
@@ -185,10 +198,23 @@ describe('administrator authentication routes and guard', () => {
       expect(
         screen.getByRole('navigation', { name: 'Administrator navigation' }),
       ).toBeInTheDocument();
+      const brand = screen.getByRole('link', {
+        name: 'Nordic Hearth',
+      });
+      expect(brand).toHaveAttribute('href', '/admin');
+      expect(brand).not.toHaveAttribute('aria-current');
+      expect(brand.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
+      expect(brand.querySelector('svg')).toHaveAttribute('width', '24');
+      expect(brand.querySelector('[role="img"]')).toBeNull();
+      const logoutButton = screen.getByRole('button', { name: 'Log out' });
+      expect(logoutButton).toHaveAttribute('data-size', 'md');
+      expect(logoutButton).toHaveAttribute('data-variant', 'secondary');
+      expect(logoutButton).toHaveAttribute('type', 'button');
       expect(screen.getByRole('link', { name: 'Admin home' })).toHaveAttribute(
         'aria-current',
         'page',
       );
+      expect(document.querySelectorAll('a[aria-current="page"]')).toHaveLength(1);
       expect(screen.getByRole('link', { name: 'Orders' })).toHaveAttribute(
         'href',
         '/admin/orders',
@@ -214,6 +240,12 @@ describe('administrator authentication routes and guard', () => {
         expect(screen.queryByRole('link', { name: 'Users' })).not.toBeInTheDocument();
       }
       expect(screen.queryByText(SYNTHETIC_TOKEN)).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole('link', { name: 'Orders' }));
+      expect(
+        await screen.findByRole('heading', { level: 1, name: 'Orders' }),
+      ).toBeVisible();
+      expect(screen.getByRole('main')).toHaveFocus();
     },
   );
 
@@ -340,6 +372,49 @@ describe('administrator authentication routes and guard', () => {
       await screen.findByRole('heading', { name: 'Administrator workspace' }),
     ).toBeInTheDocument();
     expect(stub.calls).toHaveLength(2);
+  });
+
+  it('restores Retry validation focus after another temporary failure', async () => {
+    storeToken();
+    const stub = installFetchStub({ status: 503 }, { status: 503 });
+    const user = userEvent.setup();
+
+    renderAdminRoute('/admin');
+
+    await user.click(await screen.findByRole('button', { name: 'Retry validation' }));
+
+    await waitFor(() => {
+      expect(stub.calls).toHaveLength(2);
+      expect(screen.getByRole('button', { name: 'Retry validation' })).toHaveFocus();
+    });
+    expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toContain(SYNTHETIC_TOKEN);
+  });
+
+  it('does not steal Retry validation focus after the user moves elsewhere', async () => {
+    storeToken();
+    let resolveRetry!: (response: Response) => void;
+    const retryResponse = new Promise<Response>((resolve) => {
+      resolveRetry = resolve;
+    });
+    installFetchStub({ status: 503 }, { responsePromise: retryResponse });
+    const user = userEvent.setup();
+
+    renderAdminRoute('/admin');
+
+    await user.click(await screen.findByRole('button', { name: 'Retry validation' }));
+    render(<button type={'button'}>Persistent focus target</button>);
+    const focusTarget = screen.getByRole('button', { name: 'Persistent focus target' });
+    focusTarget.focus();
+    expect(focusTarget).toHaveFocus();
+
+    await act(async () => {
+      resolveRetry(new Response(null, { status: 503 }));
+    });
+
+    expect(
+      await screen.findByRole('button', { name: 'Retry validation' }),
+    ).not.toHaveFocus();
+    expect(focusTarget).toHaveFocus();
   });
 
   it('keeps a stored token after a /me timeout', async () => {

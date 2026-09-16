@@ -1,17 +1,30 @@
+import { lazy, Suspense, type ComponentType } from 'react';
 import { Navigate, type RouteObject } from 'react-router-dom';
 
+import AsyncNotice from '../components/AsyncNotice';
 import AdminShell from '../components/admin/AdminShell';
-import AdminAnalyticsPage from '../features/admin-analytics/AdminAnalyticsPage';
-import AdminExportsPage from '../features/admin-exports/AdminExportsPage';
-import AdminMenuPage from '../features/admin-menu/AdminMenuPage';
-import AdminOrderDetailPage from '../features/admin-orders/AdminOrderDetailPage';
-import AdminOrdersPage from '../features/admin-orders/AdminOrdersPage';
-import AdminUsersPage from '../features/admin-users/AdminUsersPage';
 import {
   AdministratorRouteGuard,
   SuperAdminRouteGuard,
 } from '../features/auth/RouteGuards';
 import AdminNotFoundPage from './AdminNotFoundPage';
+
+function routeLoadingFallback() {
+  return (
+    <div aria-busy="true">
+      <AsyncNotice title="Loading page">Preparing the requested page.</AsyncNotice>
+    </div>
+  );
+}
+
+function lazyRoute(load: () => Promise<{ default: ComponentType }>) {
+  const Page = lazy(load);
+  return (
+    <Suspense fallback={routeLoadingFallback()}>
+      <Page />
+    </Suspense>
+  );
+}
 
 export const adminRoutes: RouteObject = {
   path: '/admin',
@@ -28,7 +41,9 @@ export const adminRoutes: RouteObject = {
           children: [
             {
               path: 'users',
-              element: <AdminUsersPage />,
+              element: lazyRoute(
+                () => import('../features/admin-users/AdminUsersPage'),
+              ),
             },
           ],
         },
@@ -42,41 +57,35 @@ export const adminRoutes: RouteObject = {
           children: [
             {
               index: true,
-              element: (
-                <section
-                  className="foundation-page"
-                  aria-labelledby="admin-workspace-heading"
-                >
-                  <div>
-                    <p className="eyebrow">Administrator workspace</p>
-                    <h1 id="admin-workspace-heading">Administrator workspace</h1>
-                    <p>
-                      Manage orders, menu availability, analytics, and CSV exports from
-                      the administrator tools.
-                    </p>
-                  </div>
-                </section>
-              ),
+              element: lazyRoute(() => import('../features/admin-home/AdminHomePage')),
             },
             {
               path: 'orders',
-              element: <AdminOrdersPage />,
+              element: lazyRoute(
+                () => import('../features/admin-orders/AdminOrdersPage'),
+              ),
             },
             {
               path: 'orders/:publicOrderNumber',
-              element: <AdminOrderDetailPage />,
+              element: lazyRoute(
+                () => import('../features/admin-orders/AdminOrderDetailPage'),
+              ),
             },
             {
               path: 'menu',
-              element: <AdminMenuPage />,
+              element: lazyRoute(() => import('../features/admin-menu/AdminMenuPage')),
             },
             {
               path: 'analytics',
-              element: <AdminAnalyticsPage />,
+              element: lazyRoute(
+                () => import('../features/admin-analytics/AdminAnalyticsPage'),
+              ),
             },
             {
               path: 'exports',
-              element: <AdminExportsPage />,
+              element: lazyRoute(
+                () => import('../features/admin-exports/AdminExportsPage'),
+              ),
             },
             {
               path: '*',

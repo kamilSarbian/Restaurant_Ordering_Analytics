@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {
   createMemoryRouter,
@@ -19,6 +19,18 @@ import {
 } from '../features/checkout/orderAccessStorage';
 import { installFetchStub } from '../test/fetchStub';
 import { routes } from './router';
+
+vi.mock('../features/admin-home/AdminHomePage', () => ({
+  default: () => (
+    <section aria-labelledby="admin-workspace-heading">
+      <h1 id="admin-workspace-heading">Administrator workspace</h1>
+      <p>
+        Manage orders, menu availability, analytics, and CSV exports from the
+        administrator tools.
+      </p>
+    </section>
+  ),
+}));
 
 const ROUTER_MENU = {
   categories: [
@@ -160,6 +172,75 @@ describe('customer frontend routing foundation', () => {
     ).toBeInTheDocument();
   });
 
+  it.each([
+    ['Log in', 'Sign in'],
+    ['Create account', 'Create account'],
+  ])(
+    'focuses standalone main after customer navigation through %s',
+    async (linkName, headingName) => {
+      const user = userEvent.setup();
+      renderRoute('/');
+      const navigation = screen.getByRole('navigation', {
+        name: 'Customer navigation',
+      });
+
+      await user.click(within(navigation).getByRole('link', { name: linkName }));
+
+      expect(
+        await screen.findByRole('heading', { level: 1, name: headingName }),
+      ).toBeVisible();
+      expect(screen.getByRole('main')).toHaveFocus();
+    },
+  );
+
+  it('renders a focused, non-technical root error page for route failures', async () => {
+    const privateErrorMarker = 'private route failure details';
+    const consoleErrorSpy = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => undefined);
+    const rootRoute = routes[0]!;
+    const BrokenRoute = () => {
+      throw new Error(privateErrorMarker);
+    };
+    const errorRouter = createMemoryRouter(
+      [
+        {
+          element: rootRoute.element,
+          errorElement: rootRoute.errorElement,
+          children: [
+            {
+              path: '/broken-route',
+              element: <BrokenRoute />,
+            },
+          ],
+        },
+      ],
+      { initialEntries: ['/broken-route'] },
+    );
+
+    try {
+      render(<RouterProvider router={errorRouter} />);
+
+      expect(
+        await screen.findByRole('heading', { level: 1, name: 'Page unavailable' }),
+      ).toBeVisible();
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'The page could not be loaded',
+      );
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'Please return home and try again.',
+      );
+      expect(screen.getByRole('link', { name: 'Return home' })).toHaveAttribute(
+        'href',
+        '/',
+      );
+      expect(screen.queryByText(privateErrorMarker)).not.toBeInTheDocument();
+      await waitFor(() => expect(screen.getByRole('main')).toHaveFocus());
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
+  });
+
   it('redirects the administrator login bookmark to the shared login route', async () => {
     const { router } = renderRoute('/admin/login');
 
@@ -193,14 +274,20 @@ describe('customer frontend routing foundation', () => {
     expect(screen.queryByText('Administrator workspace')).not.toBeInTheDocument();
   });
 
-  it('renders the exact unauthenticated customer navigation in AppShell', () => {
+  it('renders the exact unauthenticated customer navigation in AppShell', async () => {
+    const user = userEvent.setup();
     renderRoute('/');
 
     const navigation = screen.getByRole('navigation', { name: 'Customer navigation' });
-    expect(within(navigation).getByRole('link', { name: 'Home' })).toHaveAttribute(
-      'href',
-      '/',
-    );
+    const brand = screen.getByRole('link', { name: 'Nordic Hearth home' });
+    const homeLink = within(navigation).getByRole('link', { name: 'Home' });
+    expect(brand).toHaveTextContent('Nordic Hearth');
+    expect(brand.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
+    expect(brand.querySelector('svg')).toHaveAttribute('width', '32');
+    expect(within(brand).queryByRole('img')).not.toBeInTheDocument();
+    expect(navigation.querySelectorAll('[data-navigation-group]')).toHaveLength(2);
+    expect(homeLink).toHaveAttribute('href', '/');
+    expect(homeLink).toHaveAttribute('aria-current', 'page');
     expect(within(navigation).getByRole('link', { name: 'Menu' })).toHaveAttribute(
       'href',
       '/menu',
@@ -226,6 +313,105 @@ describe('customer frontend routing foundation', () => {
     expect(
       screen.queryByRole('navigation', { name: 'Administrator navigation' }),
     ).not.toBeInTheDocument();
+
+    await user.click(within(navigation).getByRole('link', { name: 'Menu' }));
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Our menu' }),
+    ).toBeVisible();
+    expect(screen.getByRole('main')).toHaveFocus();
+  });
+
+  it.each(['/missing-page', '/accounting', '/orders/example/unknown'])(
+    'announces a temporarily unavailable session from the customer shell at %s',
+    async (path) => {
+      storeAuthToken();
+      installFetchStub({ status: 503 });
+
+      renderRoute(path);
+
+      expect(await screen.findByText('Session unavailable')).toBeVisible();
+      expect(screen.getByRole('status')).toHaveTextContent('Session unavailable');
+    },
+  );
+
+  it('does not duplicate a page-owned unavailable-session announcement', async () => {
+    storeAuthToken();
+    installFetchStub({ status: 503 });
+
+    renderRoute('/');
+
+    expect(await screen.findByText('Session validation is unavailable')).toBeVisible();
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('moves abandoned focus to customer main after a successful landing retry', async () => {
+    storeAuthToken();
+    let resolveRetry!: (response: Response) => void;
+    const retryResponse = new Promise<Response>((resolve) => {
+      resolveRetry = resolve;
+    });
+    installFetchStub({ status: 503 }, { responsePromise: retryResponse });
+    const user = userEvent.setup();
+
+    renderRoute('/');
+    await user.click(await screen.findByRole('button', { name: 'Retry validation' }));
+    await act(async () => {
+      resolveRetry(Response.json(currentUser('customer')));
+    });
+
+    expect(await screen.findByText(/Signed in as/u)).toBeVisible();
+    await waitFor(() => expect(screen.getByRole('main')).toHaveFocus());
+  });
+
+  it('preserves connected focus moved during a successful landing retry', async () => {
+    storeAuthToken();
+    let resolveRetry!: (response: Response) => void;
+    const retryResponse = new Promise<Response>((resolve) => {
+      resolveRetry = resolve;
+    });
+    installFetchStub({ status: 503 }, { responsePromise: retryResponse });
+    const user = userEvent.setup();
+
+    renderRoute('/');
+    await user.click(await screen.findByRole('button', { name: 'Retry validation' }));
+    const homeLink = screen.getByRole('link', { name: 'Home' });
+    homeLink.focus();
+    await act(async () => {
+      resolveRetry(Response.json(currentUser('customer')));
+    });
+    await screen.findByRole('link', { name: 'My account' });
+    await act(async () => {
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+    });
+
+    expect(homeLink).toHaveFocus();
+  });
+
+  it('moves abandoned landing retry focus to main after another failure', async () => {
+    storeAuthToken();
+    installFetchStub({ status: 503 }, { status: 503 });
+    const user = userEvent.setup();
+
+    renderRoute('/');
+    await user.click(await screen.findByRole('button', { name: 'Retry validation' }));
+
+    expect(await screen.findByText('Session validation is unavailable')).toBeVisible();
+    await waitFor(() => expect(screen.getByRole('main')).toHaveFocus());
+  });
+
+  it('does not duplicate a page-owned session announcement with a trailing slash', async () => {
+    storeAuthToken();
+    installFetchStub({ status: 503 });
+
+    renderRoute('/cart/');
+
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Your cart' }),
+    ).toBeVisible();
+    expect(screen.getByText('Session unavailable')).not.toHaveAttribute('role');
+    expect(screen.getAllByRole('status')).toHaveLength(1);
+    expect(screen.getByRole('status')).toHaveTextContent('Your cart is empty.');
   });
 
   it('logs out from the guarded account route to Home and preserves customer state', async () => {
@@ -246,7 +432,11 @@ describe('customer frontend routing foundation', () => {
     expect(
       within(navigation).getByRole('link', { name: 'My account' }),
     ).toHaveAttribute('href', '/account');
-    expect(within(navigation).getByRole('button', { name: 'Log out' })).toBeEnabled();
+    const logoutButton = within(navigation).getByRole('button', { name: 'Log out' });
+    expect(logoutButton).toBeEnabled();
+    expect(logoutButton).toHaveAttribute('data-size', 'sm');
+    expect(logoutButton).toHaveAttribute('data-variant', 'ghost');
+    expect(logoutButton).toHaveAttribute('type', 'button');
     expect(
       within(navigation).queryByRole('link', { name: 'Log in' }),
     ).not.toBeInTheDocument();
@@ -257,7 +447,7 @@ describe('customer frontend routing foundation', () => {
       within(navigation).queryByRole('link', { name: 'Admin' }),
     ).not.toBeInTheDocument();
 
-    await user.click(within(navigation).getByRole('button', { name: 'Log out' }));
+    await user.click(logoutButton);
 
     expect(
       await screen.findByRole('heading', {
@@ -308,15 +498,19 @@ describe('customer frontend routing foundation', () => {
       </>,
     );
 
-    expect(screen.getByRole('status')).toHaveAttribute('aria-live', 'polite');
-    expect(screen.getByRole('alert')).toHaveAttribute('aria-live', 'assertive');
+    const status = screen.getByRole('status');
+    const alert = screen.getByRole('alert');
+    expect(status).toHaveAttribute('aria-live', 'polite');
+    expect(status).toHaveAttribute('data-variant', 'info');
+    expect(alert).toHaveAttribute('aria-live', 'assertive');
+    expect(alert).toHaveAttribute('data-variant', 'danger');
   });
 
-  it('renders the exact cart route with an empty-cart state', () => {
+  it('renders the exact cart route with an empty-cart state', async () => {
     renderRoute('/cart');
 
     expect(
-      screen.getByRole('heading', { level: 1, name: 'Your cart' }),
+      await screen.findByRole('heading', { level: 1, name: 'Your cart' }),
     ).toBeInTheDocument();
     expect(screen.getByText('Your cart is empty.')).toBeInTheDocument();
   });
@@ -339,14 +533,14 @@ describe('customer frontend routing foundation', () => {
     expect(screen.getByLabelText('Seasonal bowl quantity')).toHaveTextContent('1');
   });
 
-  it('renders the exact order checkout route without starting a request', () => {
+  it('renders the exact order checkout route without starting a request', async () => {
     const publicOrderNumber = 'ROA-23456789ABCD';
     saveOrderAccess(publicOrderNumber, 'private-guest-access-token');
 
     renderRoute(`/orders/${publicOrderNumber}/checkout`);
 
     expect(
-      screen.getByRole('heading', { level: 1, name: 'Order created' }),
+      await screen.findByRole('heading', { level: 1, name: 'Order created' }),
     ).toBeInTheDocument();
     expect(screen.getByText(publicOrderNumber)).toBeVisible();
     expect(
@@ -355,13 +549,13 @@ describe('customer frontend routing foundation', () => {
     expect(screen.queryByText('private-guest-access-token')).not.toBeInTheDocument();
   });
 
-  it('renders the neutral payment-return route without guest access', () => {
+  it('renders the neutral payment-return route without guest access', async () => {
     const publicOrderNumber = 'ROA-23456789ABCD';
 
     renderRoute(`/orders/${publicOrderNumber}/payment-return`);
 
     expect(
-      screen.getByRole('heading', {
+      await screen.findByRole('heading', {
         level: 1,
         name: 'You returned from secure checkout',
       }),
@@ -369,24 +563,30 @@ describe('customer frontend routing foundation', () => {
     expect(screen.getByText(publicOrderNumber)).toBeVisible();
   });
 
-  it('renders the neutral checkout-cancelled route without guest access', () => {
+  it('renders the neutral checkout-cancelled route without guest access', async () => {
     const publicOrderNumber = 'ROA-23456789ABCD';
 
     renderRoute(`/orders/${publicOrderNumber}/checkout-cancelled`);
 
     expect(
-      screen.getByRole('heading', { level: 1, name: 'You left secure checkout' }),
+      await screen.findByRole('heading', {
+        level: 1,
+        name: 'You left secure checkout',
+      }),
     ).toBeInTheDocument();
     expect(screen.getByText(publicOrderNumber)).toBeVisible();
   });
 
-  it('renders the protected order-status route with safe missing-token recovery', () => {
+  it('renders the protected order-status route with safe missing-token recovery', async () => {
     const publicOrderNumber = 'ROA-23456789ABCD';
 
     renderRoute(`/orders/${publicOrderNumber}/status`);
 
     expect(
-      screen.getByRole('heading', { level: 1, name: 'Order status unavailable' }),
+      await screen.findByRole('heading', {
+        level: 1,
+        name: 'Order status unavailable',
+      }),
     ).toBeInTheDocument();
     expect(screen.queryByText(/private-guest-access-token/i)).not.toBeInTheDocument();
   });
@@ -404,11 +604,11 @@ describe('customer frontend routing foundation', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('renders the public registration page without a role selector', () => {
+  it('renders the public registration page without a role selector', async () => {
     renderRoute('/register');
 
     expect(
-      screen.getByRole('heading', { level: 1, name: 'Create account' }),
+      await screen.findByRole('heading', { level: 1, name: 'Create account' }),
     ).toBeInTheDocument();
     expect(screen.queryByRole('combobox', { name: /role/i })).not.toBeInTheDocument();
   });
@@ -501,11 +701,60 @@ describe('customer frontend routing foundation', () => {
 
     expect(await screen.findByText('Session validation is unavailable')).toBeVisible();
     expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toContain(AUTH_TOKEN);
-    await user.click(screen.getByRole('button', { name: 'Retry validation' }));
+    const retryButton = screen.getByRole('button', { name: 'Retry validation' });
+    const logoutButton = screen.getByRole('button', { name: 'Log out' });
+    expect(retryButton).toHaveAttribute('data-size', 'md');
+    expect(logoutButton).toHaveAttribute('data-size', 'md');
+    await user.click(retryButton);
     expect(
       await screen.findByRole('heading', { level: 1, name: 'My orders' }),
     ).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('main')).toHaveFocus());
     expect(stub.calls).toHaveLength(3);
+  });
+
+  it('restores account retry focus after another temporary session failure', async () => {
+    storeAuthToken();
+    const stub = installFetchStub({ status: 503 }, { status: 503 });
+    const user = userEvent.setup();
+
+    renderRoute('/account');
+
+    const retryButton = await screen.findByRole('button', {
+      name: 'Retry validation',
+    });
+    await user.click(retryButton);
+
+    await waitFor(() => {
+      expect(stub.calls).toHaveLength(2);
+      expect(screen.getByRole('button', { name: 'Retry validation' })).toHaveFocus();
+    });
+  });
+
+  it('does not steal account retry focus after the user moves elsewhere', async () => {
+    storeAuthToken();
+    let resolveRetry!: (response: Response) => void;
+    const retryResponse = new Promise<Response>((resolve) => {
+      resolveRetry = resolve;
+    });
+    installFetchStub({ status: 503 }, { responsePromise: retryResponse });
+    const user = userEvent.setup();
+
+    renderRoute('/account');
+
+    await user.click(await screen.findByRole('button', { name: 'Retry validation' }));
+    const homeLink = screen.getByRole('link', { name: 'Home' });
+    homeLink.focus();
+    expect(homeLink).toHaveFocus();
+
+    await act(async () => {
+      resolveRetry(new Response(null, { status: 503 }));
+    });
+
+    expect(
+      await screen.findByRole('button', { name: 'Retry validation' }),
+    ).not.toHaveFocus();
+    expect(homeLink).toHaveFocus();
   });
 
   it('allows an unavailable account session to be cleared explicitly', async () => {

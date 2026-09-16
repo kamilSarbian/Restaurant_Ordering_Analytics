@@ -515,10 +515,12 @@
   the cumulative Stage 17 union was exactly 17 physical paths,
   `A6 / M11 / D0`, with an empty index. All C1 gates passed, and C2 completed
   independent review and the final commit.
-- **Deployment boundary:** this is a loopback-only local container contract, not
-  a public deployment. The current local database role is accepted only for
-  Stage 17. HTTPS, public ingress, a secret manager, and a least-privilege
-  production database role remain future Stage 20 work.
+- **Historical deployment boundary:** Stage 17 defines a loopback-only local
+  container contract, not a public deployment. At that stage boundary, HTTPS,
+  public ingress, managed production secrets, and least-privilege production
+  database roles remained future work. Stage 20 subsequently completed the
+  repository-side readiness contracts; infrastructure provisioning and public
+  exposure remain Stage 22 work.
 
 ## 18. End-to-End Test
 
@@ -586,9 +588,10 @@
 
 ## 19. CI
 
-- **Status:** Stage 19-1 through Stage 19-4 are complete. Live GitHub Actions
-  `GREEN -> RED -> GREEN` acceptance and `main` branch protection are complete.
-  Stage 19 is complete but uncommitted during C1; Stage 19-C2 has not started.
+- **Status:** complete, independently reviewed, and committed at
+  `ad637053e2fb4979cf1bf5f5cc8c3a7f95317079`. Stage 19-1 through Stage 19-4,
+  live `GREEN -> RED -> GREEN` acceptance, `main` branch protection, Stage 19-C1,
+  and Stage 19-C2 are complete.
 - **Goal:** automatically block quality and functional regressions.
 - **Outcome:** one GitHub Actions workflow on `ubuntu-24.04` exposes exactly
   four jobs and required checks: `Backend`, `Migrations`, `Frontend`, and
@@ -626,57 +629,92 @@
   exactly `Backend`, `Migrations`, `Frontend`, and `Browser E2E`, with strict
   status checks enabled. Administrator enforcement is intentionally disabled at
   this stage; force pushes and branch deletion remain disabled.
-- **C1 scope and next gate:** C1 touches exactly six authoritative documents.
-  The cumulative post-C1 Stage 19 union is exactly 12 physical paths,
-  `A3 / M9 / D0`, with an empty index. Stage 19 remains uncommitted, and the
-  next gate is Stage 19-C2 independent review and final commit.
+- **Historical C1/C2 gate:** C1 touched exactly six authoritative documents.
+  The cumulative Stage 19 union was exactly 12 physical paths, `A3 / M9 / D0`,
+  with an empty index. C2 completed independent review and the final commit at
+  the hash recorded above.
 
-## 20. Deployment
+## 20. Production Deployment Readiness
+
+- **Status:** complete at the repository, security, and release-contract level;
+  not deployed.
+- **Goal:** prepare a fail-closed, reproducible production target without
+  provisioning or exposing live infrastructure.
+- **Outcome:** production configuration and trusted-origin contracts, portable
+  backend and Nginx frontend images, isolated runtime and migration database
+  roles, and an immutable GHCR/Render release blueprint are implemented and
+  locally verified. The manual release workflow has not been dispatched, and
+  no Render or GHCR cloud mutation, production Stripe use, public URL, or public
+  deployment is claimed.
+- **Boundary:** infrastructure provisioning, managed production secrets, the
+  first controlled online release, and public acceptance belong to Stage 22.
+
+## 21. UI/UX Redesign & Product Polish
+
+- **Status:** complete locally; not publicly deployed.
+- **Goal:** deliver the Nordic Hearth customer and administrator experience with
+  responsive, accessible, secure, and performant interactions.
+- **Outcome:** Nordic Hearth brand integration, customer and administrator
+  redesigns, responsive/accessibility hardening, route-level code splitting,
+  motion and feedback polish, and final visual/pre-deployment acceptance are
+  complete. Acceptance passed 1,073/1,073 frontend tests and 23/23 synthetic
+  production-preview Playwright scenarios, and no JavaScript chunk exceeds
+  500 kB.
+
+## 22. Production Deployment & Public Acceptance
 
 - **Status:** not started.
-- **Goal:** make a secure demo version available.
-- **Outcome:** frontend, backend, and PostgreSQL on approved services, HTTPS,
-  restricted CORS, migrations, test-mode Stripe, and basic error monitoring.
-- **Dependencies:** Stage 19, hosting accounts, domains/URLs, and environment
-  secrets.
-- **Completion criterion:** the demo works over HTTPS, production URLs are
-  correct, the webhook is verified, and deployment instructions make the setup
-  reproducible.
-- **Test:** deployment smoke test, test payment and webhook, administrator
-  sign-in, CSV, and a CORS check. This stage requires manual configuration of
-  services and secrets.
+- **Goal:** provision, release, and accept a safe public demo using the Stage 20
+  target architecture and the accepted Stage 21 product.
 
-## 21. Portfolio Documentation
+### 22-A — Infrastructure Provisioning
+
+Provision the approved production infrastructure, managed secrets, trusted
+public origins, and least-privilege database roles without enabling production
+Stripe.
+
+### 22-B — Demo Mode & Synthetic Production Dataset
+
+Provide a separate demo administrator, preferably an ordinary `admin` rather
+than `super_admin`, with safe read-only or resettable behavior. Use a
+deterministic synthetic dataset covering approximately 90 days and targeting
+approximately 500–1,000 realistic orders, payments, cancellations, weekdays,
+and hours. It must contain no real PII and must have a deterministic reset/import
+strategy.
+
+### 22-C — First Controlled Online Release
+
+Execute the first explicitly authorized immutable-image release, migration,
+health, and smoke-test sequence against the provisioned environment.
+
+### 22-D — Public Demo Acceptance
+
+Complete public security, functional, responsive, accessibility, and
+operational acceptance. A recruiter/portfolio URL may exist and be advertised
+only after this slice passes.
+
+## 23. Portfolio Documentation & Case Study
 
 - **Status:** not started.
-- **Goal:** prepare the project for independent review by a recruiter.
-- **Outcome:** current README, ERD, diagrams, and descriptions of security, API,
-  tests, Stripe, deployment, decisions, limitations, and sample screens.
-- **Dependencies:** completed and verified MVP.
-- **Completion criterion:** the documentation does not promise unimplemented
-  features, includes demonstration instructions, and supports explanation of
-  the most important decisions.
-- **Test:** follow the instructions from a fresh clone and review links,
-  diagrams, commands, and documentation consistency with actual behavior.
+- **Goal:** produce the final recruiter-facing README, case study, screenshots,
+  architecture presentation, and CV-facing material after Stage 22-D
+  acceptance.
+- **Boundary:** current reconciliation keeps repository documentation truthful;
+  it is not the Stage 23 portfolio deliverable.
 
 ## Next Recommended Stage
 
-Stage 1 through Stage 15, the Stage 16 administrator operational frontend,
-Stage 16D unified User/authentication/RBAC, Stage 16E Order ownership and account
-API, and Stage 16F unified frontend/account/User-governance work are complete
-and committed. Stage 16G security remediation, final acceptance, independent
-review, security sign-off, and final commit are complete.
+Stages 1 through 19 are complete and committed. At the 2026-09-15
+documentation-reconciliation boundary, Stage 20 Production Deployment Readiness
+and Stage 21 UI/UX Redesign & Product Polish were complete locally and awaited
+the renewed pre-commit independent review and logical commit-plan confirmation.
+Neither stage claims a live deployment or public URL.
 
-Stage 17 full-system Docker work and Stage 18 browser E2E work are complete,
-independently reviewed, and committed. Stage 18 is committed at
-`a1999f9ce22d92876c38a71e24ad9ff8c43075d2`.
+Stage 22 Production Deployment & Public Acceptance and Stage 23 Portfolio
+Documentation & Case Study have not started. At that reconciliation boundary,
+the immediate repository gate was the renewed pre-commit review. After a
+separately authorized commit and deployment decision, the next implementation
+slice is Stage 22-A Infrastructure Provisioning.
 
-Stage 19-1 through Stage 19-4, live `GREEN -> RED -> GREEN` GitHub Actions
-acceptance, hosted-Chromium responsive fixes, and `main` branch protection are
-complete but uncommitted. The cumulative post-C1 union is exactly 12 paths,
-`A3 / M9 / D0`; Stage 19-C2 has not started. The next gate is **Stage 19-C2
-independent review and final commit** after every C1 validation gate passes.
-Stages 20 and 21 have not started. There is no public deployment claim; HTTPS,
-a secret manager, and a least-privilege production database role remain Stage
-20 work. Repository, Alembic, and the development database remain at
+Repository, Alembic, and the development database remain at
 `0008_add_order_ownership`.
