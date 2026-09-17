@@ -644,6 +644,11 @@ async function applyAdminTransition(
     name: transition.confirmation,
   });
   await expect(confirmation).toBeVisible();
+  const confirmButton = confirmation.getByRole('button', {
+    name: `Confirm ${transition.actionLabel}`,
+    exact: true,
+  });
+  await expect(confirmButton).toBeEnabled();
 
   const mutationResponse = waitForApiResponse(page, 'PATCH', statusPath);
   const refreshResponse = waitForApiResponse(
@@ -651,7 +656,7 @@ async function applyAdminTransition(
     'GET',
     `/api/v1/admin/orders/${publicOrderNumber}`,
   );
-  await confirmation.getByRole('button', { name: 'Confirm', exact: true }).click();
+  await confirmButton.click();
   await Promise.all([
     assertResponseStatus(mutationResponse, 200, 'ORDER_TRANSITION_STATUS_MISMATCH'),
     assertResponseStatus(refreshResponse, 200, 'ORDER_TRANSITION_REFRESH_MISMATCH'),
@@ -1095,8 +1100,16 @@ async function assertAdminDetailTouchTarget(
   locator: Locator,
   code: string,
 ): Promise<void> {
-  const box = await locator.boundingBox();
-  safeInvariant(box !== null && box.width >= 44 && box.height >= 44, code);
+  await expect(locator).toBeVisible();
+  await expect
+    .poll(
+      async () => {
+        const box = await locator.boundingBox();
+        return box === null ? 0 : Math.min(box.width, box.height);
+      },
+      { message: code },
+    )
+    .toBeGreaterThanOrEqual(44);
 }
 
 async function assertAdminDetailElementNotClipped(

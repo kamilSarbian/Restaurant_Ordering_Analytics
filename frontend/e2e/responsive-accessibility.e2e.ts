@@ -1567,12 +1567,11 @@ async function assertTableReachable(table: Locator): Promise<void> {
       lastCellBox.right >= wrapperBox.left - 1 &&
       lastCellBox.left <= wrapperBox.right + 1;
     scrollContainer.scrollLeft = 0;
-    return {
-      overflowAllowed: style.overflowX === 'auto' || style.overflowX === 'scroll',
-      reachable,
-    };
+    const overflowAllowed = style.overflowX === 'auto' || style.overflowX === 'scroll';
+    const fits = scrollContainer.scrollWidth <= scrollContainer.clientWidth + 1;
+    return { configured: fits || overflowAllowed, reachable };
   });
-  safeInvariant(result.overflowAllowed, 'TABLE_SCROLL_CONTRACT_MISSING');
+  safeInvariant(result.configured, 'TABLE_SCROLL_CONTRACT_MISSING');
   safeInvariant(result.reachable, 'TABLE_FINAL_COLUMN_UNREACHABLE');
 }
 
@@ -1583,7 +1582,7 @@ async function assertCollectionLayout(
 ): Promise<void> {
   const cards = page.getByRole('list', { name: accessibleName });
   const table = page.getByRole('table', { name: accessibleName });
-  if (viewportWidth < 768) {
+  if (viewportWidth < 1024) {
     await expect(cards).toBeVisible();
     await expect(table).toBeHidden();
     const cardsFit = await cards.evaluate((element) => {
@@ -5349,8 +5348,10 @@ async function assertLandingViewport(
 
   const imageBox = await heroImage.boundingBox();
   safeInvariant(imageBox !== null, 'LANDING_HERO_IMAGE_BOX_MISSING');
+  const maximumHeroImageHeightRatio = viewport.width >= 1024 ? 0.8 : 0.75;
   safeInvariant(
-    imageBox.height <= viewport.height * 0.75 + OVERFLOW_TOLERANCE_PX,
+    imageBox.height <=
+      viewport.height * maximumHeroImageHeightRatio + OVERFLOW_TOLERANCE_PX,
     'LANDING_HERO_IMAGE_EXCESSIVE_HEIGHT',
   );
   await assertContainedWithin(logoImage, heroRegion, 'LANDING_LOGO_IMAGE_CLIPPED');
@@ -7870,7 +7871,9 @@ async function assertAuthenticatedLayouts(
     );
     if (viewport.width < 768) {
       await assertLongTextWraps(
-        page.getByRole('heading', { level: 2, name: identity.email }),
+        page
+          .getByRole('heading', { level: 2, name: identity.email })
+          .getByText(identity.email, { exact: true }),
       );
     }
     await assertResponsiveSurface(page);

@@ -509,7 +509,9 @@ test('isolates canonical customer authentication and personally owned orders', a
   ).toBeVisible();
   await expect(page.getByText(publicOrderNumber, { exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Order received' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Order summary' })).toBeVisible();
+  await expect(
+    page.getByRole('heading', { exact: true, level: 2, name: 'What you ordered' }),
+  ).toBeVisible();
   await assertCustomerSafeMainContent(page, identities);
   await logoutToHome(page);
 
