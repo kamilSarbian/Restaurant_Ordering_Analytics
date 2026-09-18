@@ -33,6 +33,7 @@ from app.core.config import (
     AppEnvironment,
     normalize_database_url,
     validate_alembic_head,
+    validate_neon_database_url,
 )
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
@@ -145,6 +146,11 @@ class MigrationSettings(BaseSettings):
             or self.migration_owner_role != PRODUCTION_MIGRATION_OWNER_ROLE
         ):
             raise ValueError("Production migration roles must match the role contract")
+        validate_neon_database_url(
+            self.migration_database_url,
+            purpose="migration",
+            expected_username=PRODUCTION_MIGRATION_LOGIN_ROLE,
+        )
         return self
 
     model_config = SettingsConfigDict(

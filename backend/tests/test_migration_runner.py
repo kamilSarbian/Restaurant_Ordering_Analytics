@@ -19,6 +19,7 @@ from app.database import migration_runner
 EXPECTED_HEAD = "0008_add_order_ownership"
 MIGRATION_SECRET_MARKER = "migration-password-secret-marker"
 RUNTIME_SECRET_MARKER = "runtime-password-secret-marker"
+NEON_MIGRATION_HOST = "ep-roa-migration.eu-central-1.aws.neon.tech"
 
 
 class FakeResult:
@@ -207,6 +208,11 @@ def migration_settings(
     if environment == "production":
         values.update(
             {
+                "migration_database_url": (
+                    "postgresql://roa_migrator:"
+                    f"{MIGRATION_SECRET_MARKER}@{NEON_MIGRATION_HOST}/restaurant"
+                    "?sslmode=require&channel_binding=require"
+                ),
                 "migration_expected_login_role": "roa_migrator",
                 "migration_owner_role": "roa_owner",
             }
@@ -316,6 +322,89 @@ def test_development_does_not_require_production_role_variables() -> None:
     assert settings.app_environment == "development"
     assert settings.migration_expected_login_role is None
     assert settings.migration_owner_role is None
+
+
+def test_production_accepts_the_direct_neon_migration_contract() -> None:
+    """Accept one credentialed direct Neon URL without opening a connection."""
+    settings = migration_settings(environment="production")
+
+    assert NEON_MIGRATION_HOST in str(settings.migration_database_url)
+
+
+@pytest.mark.parametrize(
+    "database_url",
+    [
+        (
+            "postgresql://roa_migrator:secret-marker@"
+            "ep-roa-migration-pooler.eu-central-1.aws.neon.tech/restaurant"
+            "?sslmode=require&channel_binding=require"
+        ),
+        (
+            "postgresql://wrong_role:secret-marker@"
+            f"{NEON_MIGRATION_HOST}/restaurant"
+            "?sslmode=require&channel_binding=require"
+        ),
+        (
+            "postgresql://roa_migrator:secret-marker@db.internal/restaurant"
+            "?sslmode=require&channel_binding=require"
+        ),
+        (
+            "postgresql://roa_migrator:secret-marker@"
+            f"{NEON_MIGRATION_HOST}/restaurant?sslmode=require"
+        ),
+        (
+            "postgresql://roa_migrator:secret-marker@"
+            f"{NEON_MIGRATION_HOST}/restaurant"
+            "?sslmode=require&channel_binding=require#fragment"
+        ),
+        (
+            "postgresql://roa_migrator:secret-marker@"
+            f"{NEON_MIGRATION_HOST}/restaurant"
+            "?sslmode=require&channel_binding=require#"
+        ),
+        (
+            "postgresql://roa_migrator:secret-marker@ep-_.neon.tech/restaurant"
+            "?sslmode=require&channel_binding=require"
+        ),
+        *(
+            (
+                "postgresql://roa_migrator:secret-marker@"
+                f"{NEON_MIGRATION_HOST}/restaurant"
+                "?sslmode=require&channel_binding=require&"
+                f"{override}"
+            )
+            for override in (
+                "host=attacker.example",
+                "hostaddr=203.0.113.10",
+                "port=6543",
+                "user=other",
+                "password=other",
+                "dbname=other",
+                "database=other",
+                "service=other",
+                "servicefile=/tmp/service.conf",
+                "passfile=/tmp/passfile",
+                "options=-csearch_path%3Dattacker",
+                "application_name=roa",
+                "sslmode=require&sslmode=require",
+                "%68ost=attacker.example",
+                "host=attacker.example&port=6543&user=other",
+            )
+        ),
+    ],
+)
+def test_production_rejects_non_direct_or_weak_neon_migration_urls(
+    database_url: str,
+) -> None:
+    """Reject invalid endpoint, TLS, fragment, or query-override contracts."""
+    with pytest.raises(ValidationError) as caught:
+        migration_settings(
+            environment="production",
+            migration_database_url=database_url,
+        )
+
+    assert "secret-marker" not in str(caught.value)
+    assert "secret-marker" not in repr(caught.value)
 
 
 @pytest.mark.parametrize(

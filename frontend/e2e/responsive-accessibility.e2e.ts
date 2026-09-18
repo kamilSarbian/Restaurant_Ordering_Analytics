@@ -8668,17 +8668,17 @@ async function assertAdminAnalyticsViewport(
     successfulApplyResponses,
     'ADMIN_ANALYTICS_SUCCESSFUL_APPLY_STATUS_MISMATCH',
   );
-  await visibleExactText(
-    products,
-    ADMIN_ANALYTICS_FILTERED_PRODUCT_NAME,
-    'ADMIN_ANALYTICS_FILTERED_PRODUCT_MISSING',
-  );
   const filteredAppliedContext = await assertAppliedAnalyticsContext(page, {
     currency: 'NOK',
     endDate: '2026-08-07',
     limit: '7 per currency',
     startDate: '2026-08-01',
   });
+  await visibleExactText(
+    products,
+    ADMIN_ANALYTICS_FILTERED_PRODUCT_NAME,
+    'ADMIN_ANALYTICS_FILTERED_PRODUCT_MISSING',
+  );
   if (movedAnalyticsFocusTarget === null) {
     await expect(filteredAppliedContext).toBeFocused();
     await assertVisibleKeyboardFocus(filteredAppliedContext);

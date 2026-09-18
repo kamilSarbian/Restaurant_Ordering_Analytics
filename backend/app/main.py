@@ -3,9 +3,13 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
 from sqlalchemy.orm import Session, sessionmaker
+from starlette.datastructures import MutableHeaders
 from starlette.middleware.trustedhost import TrustedHostMiddleware
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.analytics.router import router as analytics_router
 from app.api.health import router as health_router
@@ -27,6 +31,57 @@ from app.payments.stripe_checkout import StripeCheckoutClient
 from app.payments.stripe_webhook import StripeWebhookVerifier
 from app.payments.webhook_router import router as webhook_router
 from app.reports.router import router as reports_router
+
+API_SECURITY_HEADERS = (
+    (
+        "Content-Security-Policy",
+        "default-src 'none'; base-uri 'none'; form-action 'none'; "
+        "frame-ancestors 'none'; object-src 'none'",
+    ),
+    ("Cache-Control", "no-store"),
+    (
+        "Permissions-Policy",
+        "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+    ),
+    ("Referrer-Policy", "no-referrer"),
+    ("X-Content-Type-Options", "nosniff"),
+    ("X-Frame-Options", "DENY"),
+    ("X-Permitted-Cross-Domain-Policies", "none"),
+    ("X-XSS-Protection", "0"),
+)
+HSTS_HEADER_VALUE = "max-age=31536000; includeSubDomains"
+
+
+class ApiSecurityHeadersMiddleware:
+    """Apply the API response security contract without changing payloads."""
+
+    def __init__(self, app: ASGIApp, *, include_hsts: bool) -> None:
+        """Initialize the middleware for one application environment."""
+        self.app = app
+        self.include_hsts = include_hsts
+
+    async def __call__(
+        self,
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+    ) -> None:
+        """Add headers to every HTTP response, including handled failures."""
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_with_security_headers(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                for name, value in API_SECURITY_HEADERS:
+                    if name not in headers:
+                        headers[name] = value
+                if self.include_hsts and "Strict-Transport-Security" not in headers:
+                    headers["Strict-Transport-Security"] = HSTS_HEADER_VALUE
+            await send(message)
+
+        await self.app(scope, receive, send_with_security_headers)
 
 
 def create_app(
@@ -60,6 +115,7 @@ def create_app(
         Configured FastAPI application.
     """
     resolved_settings = settings or Settings()
+    is_production = resolved_settings.app_environment == "production"
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
@@ -87,13 +143,60 @@ def create_app(
         title=resolved_settings.app_name,
         version=resolved_settings.app_version,
         debug=resolved_settings.app_debug,
+        docs_url=None if is_production else "/docs",
         lifespan=lifespan,
+        openapi_url=None if is_production else "/openapi.json",
+        redoc_url=None if is_production else "/redoc",
     )
-    if resolved_settings.app_environment == "production":
+    if is_production:
+
+        async def production_server_error_handler(
+            request: Request,
+            _exception: Exception,
+        ) -> PlainTextResponse:
+            """Return a generic 500 with the production security headers."""
+            headers = dict(API_SECURITY_HEADERS)
+            headers["Strict-Transport-Security"] = HSTS_HEADER_VALUE
+            if request.headers.get("origin") == resolved_settings.public_app_origin:
+                headers["Access-Control-Allow-Origin"] = (
+                    resolved_settings.public_app_origin
+                )
+                headers["Vary"] = "Origin"
+            return PlainTextResponse(
+                "Internal Server Error",
+                status_code=500,
+                headers=headers,
+            )
+
+        application.add_exception_handler(
+            Exception,
+            production_server_error_handler,
+        )
+        if resolved_settings.public_app_origin is None:
+            raise RuntimeError("Production public application origin is unavailable")
+        application.add_middleware(
+            CORSMiddleware,
+            allow_credentials=False,
+            allow_headers=[
+                "Accept",
+                "Authorization",
+                "Content-Type",
+                "Idempotency-Key",
+                "X-Order-Access-Token",
+            ],
+            allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
+            allow_origins=[resolved_settings.public_app_origin],
+            expose_headers=["Content-Disposition", "Retry-After"],
+            max_age=600,
+        )
         application.add_middleware(
             TrustedHostMiddleware,
             allowed_hosts=list(resolved_settings.trusted_hosts),
             www_redirect=False,
+        )
+        application.add_middleware(
+            ApiSecurityHeadersMiddleware,
+            include_hsts=True,
         )
     application.state.order_creation_rate_limiter = (
         order_creation_rate_limiter
@@ -132,7 +235,8 @@ def create_app(
                 resolved_settings.stripe_secret_key,
                 expected_livemode=resolved_settings.stripe_expected_livemode,
             )
-            if resolved_settings.stripe_secret_key is not None
+            if resolved_settings.payment_provider == "stripe_test"
+            and resolved_settings.stripe_secret_key is not None
             else None
         )
     )
@@ -144,10 +248,13 @@ def create_app(
                 resolved_settings.stripe_webhook_secret,
                 expected_livemode=resolved_settings.stripe_expected_livemode,
             )
-            if resolved_settings.stripe_webhook_secret is not None
+            if resolved_settings.payment_provider == "stripe_test"
+            and resolved_settings.stripe_webhook_secret is not None
             else None
         )
     )
+    application.state.payment_provider = resolved_settings.payment_provider
+    application.state.portfolio_demo_mode = resolved_settings.portfolio_demo_mode
     application.state.stripe_success_url = resolved_settings.stripe_success_url
     application.state.stripe_cancel_url = resolved_settings.stripe_cancel_url
     application.state.checkout_now_provider = checkout_now_provider or utc_now
@@ -164,16 +271,17 @@ def create_app(
     application.include_router(payments_router)
     application.include_router(webhook_router)
 
-    default_openapi = application.openapi
+    if not is_production:
+        default_openapi = application.openapi
 
-    def openapi_schema() -> dict[str, Any]:
-        document = default_openapi()
-        document["components"]["schemas"]["PublicMenuResponse"][
-            "example"
-        ] = PublicMenuResponse.model_json_schema()["example"]
-        return document
+        def openapi_schema() -> dict[str, Any]:
+            document = default_openapi()
+            document["components"]["schemas"]["PublicMenuResponse"][
+                "example"
+            ] = PublicMenuResponse.model_json_schema()["example"]
+            return document
 
-    application.openapi = openapi_schema
+        application.openapi = openapi_schema
     return application
 
 

@@ -14,7 +14,12 @@ COPY --chown=1000:1000 index.html vite.config.ts tsconfig.json tsconfig.app.json
 COPY --chown=1000:1000 src ./src
 COPY --chown=1000:1000 public ./public
 
-RUN npm run build \
+ARG VITE_BUILD_MODE=production
+RUN case "$VITE_BUILD_MODE" in \
+        production|e2e) ;; \
+        *) printf '%s\n' 'Unsupported frontend build mode.' >&2; exit 1 ;; \
+    esac \
+    && npm run build -- --mode "$VITE_BUILD_MODE" \
     && test -z "$(find dist -type f -name '*.map' -print -quit)" \
     && ! grep -R -I -E 'sourceMappingURL=|sourcesContent' dist
 

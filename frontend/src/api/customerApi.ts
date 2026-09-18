@@ -1,4 +1,9 @@
-import { ApiRequestError, buildApiUrl, requestJson } from './client';
+import {
+  ApiRequestError,
+  buildApiUrl,
+  requestJson,
+  resolveApiRequestTimeoutMs,
+} from './client';
 import type {
   CheckoutSessionResponse,
   MenuCategory,
@@ -36,7 +41,6 @@ const QUOTE_LINE_KEYS = [
   'quantity',
   'unit_price_amount',
 ];
-const QUOTE_TIMEOUT_MS = 10_000;
 const PUBLIC_ORDER_NUMBER_PATTERN = /^ROA-[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{12}$/;
 const ORDER_RESPONSE_KEYS = [
   'currency',
@@ -79,8 +83,6 @@ const PAYMENT_STATUSES = new Set(['expired', 'failed', 'pending', 'succeeded']);
 const CANONICAL_UUID_V4_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const AWARE_DATETIME_PATTERN = /(?:Z|[+-][0-9]{2}:[0-9]{2})$/;
-const CHECKOUT_TIMEOUT_MS = 10_000;
-const ORDER_STATUS_TIMEOUT_MS = 10_000;
 
 export interface CreateOrderOptions {
   accessToken?: string;
@@ -371,6 +373,7 @@ async function requestPostJson(
     'Content-Type': 'application/json',
   },
 ): Promise<unknown> {
+  const timeoutMs = resolveApiRequestTimeoutMs();
   const controller = new AbortController();
   let timeoutTriggered = false;
   let responseReceived = false;
@@ -383,7 +386,7 @@ async function requestPostJson(
   const timeoutId = window.setTimeout(() => {
     timeoutTriggered = true;
     controller.abort();
-  }, QUOTE_TIMEOUT_MS);
+  }, timeoutMs);
 
   try {
     const response = await fetch(buildApiUrl(path), {
@@ -664,6 +667,7 @@ export async function createCheckoutSession(
     throw invalidCheckoutResponse();
   }
 
+  const timeoutMs = resolveApiRequestTimeoutMs();
   const controller = new AbortController();
   let timeoutTriggered = false;
   let responseReceived = false;
@@ -676,7 +680,7 @@ export async function createCheckoutSession(
   const timeoutId = window.setTimeout(() => {
     timeoutTriggered = true;
     controller.abort();
-  }, CHECKOUT_TIMEOUT_MS);
+  }, timeoutMs);
 
   try {
     const response = await fetch(
@@ -796,7 +800,7 @@ export function parseOrderStatusResponse(
   };
 }
 
-/** Fetch one mixed-access order snapshot with the ordinary 10-second timeout. */
+/** Fetch one mixed-access order snapshot with the configured ordinary timeout. */
 export async function fetchOrderStatus(
   publicOrderNumber: string,
   options: OrderStatusOptions,
@@ -813,6 +817,7 @@ export async function fetchOrderStatus(
     invalidOrderStatusResponse,
   );
 
+  const timeoutMs = resolveApiRequestTimeoutMs();
   const controller = new AbortController();
   let timeoutTriggered = false;
   let responseReceived = false;
@@ -825,7 +830,7 @@ export async function fetchOrderStatus(
   const timeoutId = window.setTimeout(() => {
     timeoutTriggered = true;
     controller.abort();
-  }, ORDER_STATUS_TIMEOUT_MS);
+  }, timeoutMs);
 
   try {
     const response = await fetch(

@@ -1,11 +1,15 @@
-import { ApiRequestError, type ApiRequestErrorKind, buildApiUrl } from './client';
+import {
+  ApiRequestError,
+  type ApiRequestErrorKind,
+  buildApiUrl,
+  resolveApiRequestTimeoutMs,
+} from './client';
 
 const AUTH_ME_PATH = '/api/v1/auth/me';
 const ACCOUNT_ORDERS_PATH = '/api/v1/account/orders';
 const ACCOUNT_ORDER_DETAIL_PATTERN =
   /^\/api\/v1\/account\/orders\/ROA-[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{12}$/;
 const PATH_VALIDATION_ORIGIN = 'http://authenticated-api.local';
-const DEFAULT_AUTHENTICATED_TIMEOUT_MS = 10_000;
 
 interface AuthenticatedApiRequestErrorOptions {
   cause?: unknown;
@@ -128,12 +132,6 @@ function createBearerHeaders(accessToken: string): Headers {
   });
 }
 
-function validateTimeout(timeoutMs: number): void {
-  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
-    throw invalidRequest('The authenticated API timeout is not valid.');
-  }
-}
-
 /** Send one explicit-Bearer JSON GET to the strict canonical protected allowlist. */
 export async function authenticatedRequestJson(
   path: string,
@@ -141,8 +139,12 @@ export async function authenticatedRequestJson(
 ): Promise<unknown> {
   validateAuthenticatedPath(path);
   const headers = createBearerHeaders(options.accessToken);
-  const timeoutMs = options.timeoutMs ?? DEFAULT_AUTHENTICATED_TIMEOUT_MS;
-  validateTimeout(timeoutMs);
+  let timeoutMs: number;
+  try {
+    timeoutMs = resolveApiRequestTimeoutMs(options.timeoutMs);
+  } catch (error: unknown) {
+    throw invalidRequest('The authenticated API timeout is not valid.', error);
+  }
 
   const controller = new AbortController();
   let timeoutTriggered = false;

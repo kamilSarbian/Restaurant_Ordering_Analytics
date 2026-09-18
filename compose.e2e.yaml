@@ -85,6 +85,9 @@ services:
       com.restaurant-ordering-analytics.e2e-run-id: ${E2E_RUN_ID:?E2E_RUN_ID is required}
 
   frontend:
+    build:
+      args:
+        VITE_BUILD_MODE: e2e
     image: roa-stage18-frontend:${E2E_RUN_ID:?E2E_RUN_ID is required}
     ports: !override
       - "127.0.0.1:${E2E_FRONTEND_PORT:?E2E_FRONTEND_PORT is required}:8080"

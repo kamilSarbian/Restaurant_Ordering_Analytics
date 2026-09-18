@@ -33,7 +33,38 @@ ROLE_OWNER = "roa_owner"
 ROLE_MIGRATOR = "roa_migrator"
 ROLE_RUNTIME = "roa_runtime"
 RUNTIME_URL_MARKER = "runtime-url-must-not-be-used"
-PUBLIC_ORIGIN = "https://restaurant.example"
+PUBLIC_ORIGIN = "https://app.restaurant.example"
+PUBLIC_API_ORIGIN = "https://api.restaurant.example"
+LOCAL_PRODUCTION_RUNNER_SCRIPT = """
+import sys
+
+from app.core import config as app_config
+
+
+def allow_isolated_local_database(database_url, *, purpose, expected_username):
+    return database_url
+
+
+app_config.validate_neon_database_url = allow_isolated_local_database
+from app.database import migration_runner
+
+raise SystemExit(migration_runner.main())
+""".strip()
+LOCAL_PRODUCTION_ALEMBIC_SCRIPT = """
+import sys
+
+from app.core import config as app_config
+
+
+def allow_isolated_local_database(database_url, *, purpose, expected_username):
+    return database_url
+
+
+app_config.validate_neon_database_url = allow_isolated_local_database
+from alembic.config import CommandLine
+
+CommandLine(prog="alembic").main(argv=sys.argv[1:])
+""".strip()
 APP_TABLES = {
     "categories",
     "menu_items",
@@ -432,6 +463,27 @@ def _runner_environment(
 
 
 def _run_runner(environment: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    """Run production semantics with provider URL validation test-isolated."""
+    try:
+        return subprocess.run(
+            [sys.executable, "-c", LOCAL_PRODUCTION_RUNNER_SCRIPT],
+            cwd=BACKEND_ROOT,
+            env=environment,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=60,
+            check=False,
+        )
+    except subprocess.SubprocessError as exc:
+        raise RuntimeError("Migration runner subprocess failed") from exc
+
+
+def _run_unpatched_runner(
+    environment: dict[str, str],
+) -> subprocess.CompletedProcess[str]:
+    """Run the real CLI to prove local production URLs fail before connection."""
     try:
         return subprocess.run(
             [sys.executable, "-m", "app.database.migration_runner"],
@@ -454,7 +506,7 @@ def _run_alembic(
 ) -> subprocess.CompletedProcess[str]:
     try:
         return subprocess.run(
-            [sys.executable, "-m", "alembic", *arguments],
+            [sys.executable, "-c", LOCAL_PRODUCTION_ALEMBIC_SCRIPT, *arguments],
             cwd=BACKEND_ROOT,
             env=environment,
             capture_output=True,
@@ -518,6 +570,8 @@ def _production_alembic_environment(
     environment.update(
         {
             "APP_DEBUG": "false",
+            "PORTFOLIO_DEMO_MODE": "false",
+            "PAYMENT_PROVIDER": "stripe_test",
             "DATABASE_URL": harness.connection_url(
                 role="postgres",
                 password=harness.admin_password,
@@ -533,7 +587,8 @@ def _production_alembic_environment(
             ),
             "AUTH_JWT_SECRET": "d2a-" + ("a" * 32),
             "PUBLIC_APP_ORIGIN": PUBLIC_ORIGIN,
-            "TRUSTED_HOSTS": '["restaurant.example"]',
+            "PUBLIC_API_ORIGIN": PUBLIC_API_ORIGIN,
+            "TRUSTED_HOSTS": '["api.restaurant.example"]',
             "TRUSTED_PROXY_MODE": "direct",
             "STRIPE_EXPECTED_LIVEMODE": "false",
             "RELEASE_SHA": "a" * 40,
@@ -641,6 +696,18 @@ def test_exact_upgrade_is_idempotent_role_owned_and_seed_free(
     assert membership == (False, False, True)
 
 
+def test_real_production_cli_rejects_local_database_url(
+    fresh_database: tuple[DisposablePostgres, str],
+) -> None:
+    """Keep the real production CLI fail-closed for non-Neon database URLs."""
+    harness, database_name = fresh_database
+
+    completed = _run_unpatched_runner(_runner_environment(harness, database_name))
+
+    _assert_runner_failure(completed, harness, "Migration configuration invalid.")
+    assert _public_tables(harness, database_name) == set()
+
+
 def test_held_session_lock_fails_immediately_without_mutation(
     fresh_database: tuple[DisposablePostgres, str],
 ) -> None:
@@ -732,6 +799,11 @@ def test_final_verification_failure_rolls_back_migration_ddl(
 ) -> None:
     """Roll back the exact upgrade when its same-transaction postcheck fails."""
     harness, database_name = fresh_database
+    monkeypatch.setattr(
+        migration_runner,
+        "validate_neon_database_url",
+        lambda database_url, **_: database_url,
+    )
     settings = migration_runner.MigrationSettings(
         _env_file=None,
         app_environment="production",

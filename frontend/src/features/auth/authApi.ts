@@ -2,12 +2,15 @@ import {
   AuthenticatedApiRequestError,
   authenticatedRequestJson,
 } from '../../api/authenticatedApi';
-import { ApiRequestError, buildApiUrl } from '../../api/client';
+import {
+  ApiRequestError,
+  buildApiUrl,
+  resolveApiRequestTimeoutMs,
+} from '../../api/client';
 
 const LOGIN_PATH = '/api/v1/auth/login';
 const REGISTER_PATH = '/api/v1/auth/register';
 const ME_PATH = '/api/v1/auth/me';
-const AUTH_REQUEST_TIMEOUT_MS = 10_000;
 const TOKEN_RESPONSE_KEYS = ['access_token', 'expires_in', 'token_type'];
 const USER_RESPONSE_KEYS = ['email', 'id', 'is_active', 'role'];
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -115,6 +118,7 @@ async function requestAuthToken(
   password: string,
   signal?: AbortSignal,
 ): Promise<AuthTokenResponse> {
+  const timeoutMs = resolveApiRequestTimeoutMs();
   const controller = new AbortController();
   let timeoutTriggered = false;
   let responseReceived = false;
@@ -128,7 +132,7 @@ async function requestAuthToken(
   const timeoutId = window.setTimeout(() => {
     timeoutTriggered = true;
     controller.abort();
-  }, AUTH_REQUEST_TIMEOUT_MS);
+  }, timeoutMs);
 
   try {
     const response = await fetch(buildApiUrl(path), {

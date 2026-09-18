@@ -8,7 +8,9 @@ from pydantic_settings import SettingsError
 
 from app.core.config import Settings
 
-PUBLIC_ORIGIN = "https://restaurant.example"
+PUBLIC_ORIGIN = "https://app.restaurant.example"
+PUBLIC_API_ORIGIN = "https://api.restaurant.example"
+NEON_RUNTIME_HOST = "ep-roa-runtime-pooler.eu-central-1.aws.neon.tech"
 RELEASE_SHA = "a" * 40
 DATABASE_PASSWORD_MARKER = "database-password-marker"
 STRIPE_SECRET_MARKER = "sk_test_stripe-secret-marker"
@@ -22,9 +24,9 @@ def _production_values() -> dict[str, object]:
         "app_environment": "production",
         "app_debug": False,
         "database_url": (
-            "postgresql://runtime:"
-            f"{DATABASE_PASSWORD_MARKER}@db.internal/restaurant"
-            "?sslmode=require&application_name=roa"
+            "postgresql://roa_runtime:"
+            f"{DATABASE_PASSWORD_MARKER}@{NEON_RUNTIME_HOST}/restaurant"
+            "?sslmode=require&channel_binding=require"
         ),
         "stripe_secret_key": STRIPE_SECRET_MARKER,
         "stripe_webhook_secret": WEBHOOK_SECRET_MARKER,
@@ -36,7 +38,8 @@ def _production_values() -> dict[str, object]:
         ),
         "auth_jwt_secret": JWT_SECRET_MARKER,
         "public_app_origin": PUBLIC_ORIGIN,
-        "trusted_hosts": ("restaurant.example",),
+        "public_api_origin": PUBLIC_API_ORIGIN,
+        "trusted_hosts": ("api.restaurant.example",),
         "trusted_proxy_mode": "direct",
         "stripe_expected_livemode": False,
         "expected_alembic_head": "0008_add_order_ownership",
@@ -61,7 +64,7 @@ def test_complete_production_contract_is_accepted_and_normalized() -> None:
 
     assert settings.app_environment == "production"
     assert settings.app_debug is False
-    assert settings.trusted_hosts == ("restaurant.example",)
+    assert settings.trusted_hosts == ("api.restaurant.example",)
     assert settings.trusted_proxy_mode == "direct"
     assert settings.stripe_expected_livemode is False
     assert settings.log_level == "INFO"
@@ -69,7 +72,7 @@ def test_complete_production_contract_is_accepted_and_normalized() -> None:
     rendered_database_url = str(settings.database_url)
     assert rendered_database_url.startswith("postgresql+psycopg://")
     assert rendered_database_url.endswith(
-        "/restaurant?sslmode=require&application_name=roa"
+        "/restaurant?sslmode=require&channel_binding=require"
     )
     for marker in (
         DATABASE_PASSWORD_MARKER,
@@ -88,8 +91,11 @@ def test_complete_production_contract_loads_from_environment_strings(
     environment = {
         "APP_ENVIRONMENT": "production",
         "APP_DEBUG": "false",
+        "PORTFOLIO_DEMO_MODE": "false",
+        "PAYMENT_PROVIDER": "stripe_test",
         "DATABASE_URL": (
-            "postgresql://runtime:synthetic@db.internal/restaurant?sslmode=require"
+            f"postgresql://roa_runtime:synthetic@{NEON_RUNTIME_HOST}/restaurant"
+            "?sslmode=require&channel_binding=require"
         ),
         "STRIPE_SECRET_KEY": "sk_test_synthetic",
         "STRIPE_WEBHOOK_SECRET": "whsec_synthetic",
@@ -101,7 +107,8 @@ def test_complete_production_contract_loads_from_environment_strings(
         ),
         "AUTH_JWT_SECRET": "a" * 32,
         "PUBLIC_APP_ORIGIN": PUBLIC_ORIGIN,
-        "TRUSTED_HOSTS": '["restaurant.example"]',
+        "PUBLIC_API_ORIGIN": PUBLIC_API_ORIGIN,
+        "TRUSTED_HOSTS": '["api.restaurant.example"]',
         "TRUSTED_PROXY_MODE": "direct",
         "STRIPE_EXPECTED_LIVEMODE": "false",
         "EXPECTED_ALEMBIC_HEAD": "0008_add_order_ownership",
@@ -114,12 +121,134 @@ def test_complete_production_contract_loads_from_environment_strings(
     settings = Settings(_env_file=None)
 
     assert settings.app_environment == "production"
-    assert settings.trusted_hosts == ("restaurant.example",)
+    assert settings.trusted_hosts == ("api.restaurant.example",)
     assert settings.trusted_proxy_mode == "direct"
     assert settings.stripe_expected_livemode is False
     assert settings.log_level == "WARNING"
     assert settings.database_url is not None
     assert str(settings.database_url).startswith("postgresql+psycopg://")
+
+
+def _production_environment_strings() -> dict[str, str]:
+    """Return one complete synthetic production environment mapping."""
+    return {
+        "APP_ENVIRONMENT": "production",
+        "APP_DEBUG": "false",
+        "PORTFOLIO_DEMO_MODE": "false",
+        "PAYMENT_PROVIDER": "stripe_test",
+        "DATABASE_URL": (
+            f"postgresql://roa_runtime:synthetic@{NEON_RUNTIME_HOST}/restaurant"
+            "?sslmode=require&channel_binding=require"
+        ),
+        "STRIPE_SECRET_KEY": "sk_test_synthetic",
+        "STRIPE_WEBHOOK_SECRET": "whsec_synthetic",
+        "STRIPE_SUCCESS_URL": (
+            f"{PUBLIC_ORIGIN}/orders/{{public_order_number}}/payment-return"
+        ),
+        "STRIPE_CANCEL_URL": (
+            f"{PUBLIC_ORIGIN}/orders/{{public_order_number}}/checkout-cancelled"
+        ),
+        "AUTH_JWT_SECRET": "a" * 32,
+        "PUBLIC_APP_ORIGIN": PUBLIC_ORIGIN,
+        "PUBLIC_API_ORIGIN": PUBLIC_API_ORIGIN,
+        "TRUSTED_HOSTS": '["api.restaurant.example"]',
+        "TRUSTED_PROXY_MODE": "direct",
+        "STRIPE_EXPECTED_LIVEMODE": "false",
+        "EXPECTED_ALEMBIC_HEAD": "0008_add_order_ownership",
+        "RELEASE_SHA": RELEASE_SHA,
+    }
+
+
+def _load_production_environment(
+    monkeypatch: pytest.MonkeyPatch,
+    environment: Mapping[str, str],
+) -> Settings:
+    """Load synthetic strings through the same settings boundary as deployment."""
+    for name in _production_environment_strings():
+        monkeypatch.delenv(name, raising=False)
+    for name, value in environment.items():
+        monkeypatch.setenv(name, value)
+    return Settings(_env_file=None)
+
+
+@pytest.mark.parametrize(
+    ("demo_mode", "payment_provider"),
+    [("false", "stripe_test"), ("true", "demo")],
+)
+def test_demo_mode_and_provider_parse_from_environment_strings(
+    monkeypatch: pytest.MonkeyPatch,
+    demo_mode: str,
+    payment_provider: str,
+) -> None:
+    """Parse the two explicit provider modes without implicit enablement."""
+    environment = _production_environment_strings()
+    environment["PORTFOLIO_DEMO_MODE"] = demo_mode
+    environment["PAYMENT_PROVIDER"] = payment_provider
+    if payment_provider == "demo":
+        for name in (
+            "STRIPE_SECRET_KEY",
+            "STRIPE_WEBHOOK_SECRET",
+            "STRIPE_SUCCESS_URL",
+            "STRIPE_CANCEL_URL",
+            "STRIPE_EXPECTED_LIVEMODE",
+        ):
+            environment.pop(name)
+
+    settings = _load_production_environment(monkeypatch, environment)
+
+    assert settings.portfolio_demo_mode is (demo_mode == "true")
+    assert settings.payment_provider == payment_provider
+    if payment_provider == "demo":
+        assert settings.stripe_secret_key is None
+        assert settings.stripe_webhook_secret is None
+
+
+@pytest.mark.parametrize(
+    "invalid_value",
+    ["sometimes", "1", "yes", "on", "TRUE", "False", " true", "false "],
+)
+def test_invalid_demo_boolean_environment_string_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+    invalid_value: str,
+) -> None:
+    """Reject every noncanonical demo-mode string at the provider boundary."""
+    environment = _production_environment_strings()
+    environment["PORTFOLIO_DEMO_MODE"] = invalid_value
+
+    with pytest.raises(ValidationError):
+        _load_production_environment(monkeypatch, environment)
+
+
+def test_invalid_payment_provider_environment_string_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reject provider names outside the exact two-value contract."""
+    environment = _production_environment_strings()
+    environment["PAYMENT_PROVIDER"] = "stripe_live"
+
+    with pytest.raises(ValidationError):
+        _load_production_environment(monkeypatch, environment)
+
+
+def test_stripe_environment_keeps_secret_and_test_key_requirements(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Preserve webhook presence and live-key rejection for env-loaded Stripe."""
+    missing_webhook = _production_environment_strings()
+    missing_webhook.pop("STRIPE_WEBHOOK_SECRET")
+    with pytest.raises(ValidationError):
+        _load_production_environment(monkeypatch, missing_webhook)
+
+    live_key = _production_environment_strings()
+    live_key["STRIPE_SECRET_KEY"] = "sk_live_synthetic-marker"
+    with pytest.raises(ValidationError, match="Stripe test key") as caught:
+        _load_production_environment(monkeypatch, live_key)
+    assert "sk_live_synthetic-marker" not in str(caught.value)
+
+    live_mode = _production_environment_strings()
+    live_mode["STRIPE_EXPECTED_LIVEMODE"] = "true"
+    with pytest.raises(ValidationError, match="test mode"):
+        _load_production_environment(monkeypatch, live_mode)
 
 
 def test_malformed_trusted_hosts_environment_value_is_rejected(
@@ -141,6 +270,7 @@ def test_malformed_trusted_hosts_environment_value_is_rejected(
         ("stripe_cancel_url", ""),
         ("auth_jwt_secret", None),
         ("public_app_origin", None),
+        ("public_api_origin", None),
         ("trusted_hosts", ()),
         ("trusted_proxy_mode", None),
         ("stripe_expected_livemode", None),
@@ -231,10 +361,18 @@ def test_trusted_hosts_reject_duplicates_after_case_normalization() -> None:
         )
 
 
-def test_public_origin_host_must_be_explicitly_trusted() -> None:
-    """Prevent a syntactically valid but unreachable production application."""
-    with pytest.raises(ValidationError, match="PUBLIC_APP_ORIGIN"):
+def test_public_api_origin_host_must_be_explicitly_trusted() -> None:
+    """Require the backend hostname rather than the static-site hostname."""
+    with pytest.raises(ValidationError, match="PUBLIC_API_ORIGIN"):
         production_settings({"trusted_hosts": ("other.example",)})
+
+
+def test_public_app_origin_does_not_need_backend_host_trust() -> None:
+    """Keep frontend CORS authority separate from backend Host validation."""
+    settings = production_settings()
+
+    assert "app.restaurant.example" not in settings.trusted_hosts
+    assert "api.restaurant.example" in settings.trusted_hosts
 
 
 @pytest.mark.parametrize(
@@ -297,6 +435,128 @@ def test_provider_postgresql_urls_normalize_to_psycopg3(scheme: str) -> None:
     assert rendered.startswith("postgresql+psycopg://")
     assert rendered.endswith("@db.internal/restaurant?sslmode=require")
     assert DATABASE_PASSWORD_MARKER not in repr(settings)
+
+
+@pytest.mark.parametrize(
+    "database_url",
+    [
+        (
+            "postgresql://roa_runtime:secret@"
+            "ep-roa-runtime.eu-central-1.aws.neon.tech/restaurant"
+            "?sslmode=require&channel_binding=require"
+        ),
+        (
+            "postgresql://roa_runtime:secret@db.internal/restaurant"
+            "?sslmode=require&channel_binding=require"
+        ),
+        (
+            f"postgresql://wrong_role:secret@{NEON_RUNTIME_HOST}/restaurant"
+            "?sslmode=require&channel_binding=require"
+        ),
+        (
+            f"postgresql://roa_runtime:secret@{NEON_RUNTIME_HOST}/restaurant"
+            "?sslmode=require"
+        ),
+        (
+            f"postgresql://roa_runtime:secret@{NEON_RUNTIME_HOST}/restaurant"
+            "?sslmode=require&channel_binding=require#fragment"
+        ),
+        (
+            f"postgresql://roa_runtime:secret@{NEON_RUNTIME_HOST}/restaurant"
+            "?sslmode=require&channel_binding=require#"
+        ),
+        (
+            "postgresql://roa_runtime:secret@ep-_-pooler.neon.tech/restaurant"
+            "?sslmode=require&channel_binding=require"
+        ),
+        *(
+            (
+                f"postgresql://roa_runtime:secret@{NEON_RUNTIME_HOST}/restaurant"
+                "?sslmode=require&channel_binding=require&"
+                f"{override}"
+            )
+            for override in (
+                "host=attacker.example",
+                "hostaddr=203.0.113.10",
+                "port=6543",
+                "user=other",
+                "password=other",
+                "dbname=other",
+                "database=other",
+                "service=other",
+                "servicefile=/tmp/service.conf",
+                "passfile=/tmp/passfile",
+                "options=-csearch_path%3Dattacker",
+                "application_name=roa",
+                "sslmode=require&sslmode=require",
+                "%68ost=attacker.example",
+                "host=attacker.example&port=6543&user=other",
+            )
+        ),
+    ],
+)
+def test_production_runtime_database_requires_pooled_neon_contract(
+    database_url: str,
+) -> None:
+    """Reject invalid endpoint, TLS, fragment, or query-override contracts."""
+    with pytest.raises(ValidationError) as caught:
+        production_settings({"database_url": database_url})
+
+    assert "secret" not in str(caught.value)
+    assert "secret" not in repr(caught.value)
+
+
+def test_demo_provider_starts_without_stripe_configuration() -> None:
+    """Allow the future demo adapter contract without requiring Stripe secrets."""
+    settings = production_settings(
+        {
+            "portfolio_demo_mode": True,
+            "payment_provider": "demo",
+            "stripe_secret_key": None,
+            "stripe_webhook_secret": None,
+            "stripe_success_url": None,
+            "stripe_cancel_url": None,
+            "stripe_expected_livemode": None,
+        }
+    )
+
+    assert settings.portfolio_demo_mode is True
+    assert settings.payment_provider == "demo"
+    assert settings.stripe_secret_key is None
+
+
+@pytest.mark.parametrize(
+    ("portfolio_demo_mode", "payment_provider"),
+    [(False, "demo"), (True, "stripe_test")],
+)
+def test_demo_mode_and_provider_must_change_together(
+    portfolio_demo_mode: bool,
+    payment_provider: str,
+) -> None:
+    """Fail closed when runtime mode and provider selection disagree."""
+    with pytest.raises(ValidationError, match="enabled together"):
+        Settings(
+            _env_file=None,
+            portfolio_demo_mode=portfolio_demo_mode,
+            payment_provider=payment_provider,
+        )
+
+
+def test_demo_provider_rejects_stale_stripe_configuration() -> None:
+    """Prevent inactive Stripe credentials from remaining in demo runtime config."""
+    with pytest.raises(ValidationError, match="must not include Stripe"):
+        production_settings(
+            {
+                "portfolio_demo_mode": True,
+                "payment_provider": "demo",
+            }
+        )
+
+
+def test_public_api_origin_uses_the_same_strict_https_contract() -> None:
+    """Reject an insecure public backend origin before CORS is configured."""
+    with pytest.raises(ValidationError):
+        production_settings({"public_api_origin": "http://api.restaurant.example"})
 
 
 @pytest.mark.parametrize(
@@ -397,6 +657,9 @@ def test_nonproduction_defaults_remain_backward_compatible() -> None:
     for environment in ("development", "test", "e2e"):
         settings = Settings(_env_file=None, app_environment=environment)
         assert settings.public_app_origin is None
+        assert settings.public_api_origin is None
+        assert settings.portfolio_demo_mode is False
+        assert settings.payment_provider == "stripe_test"
         assert settings.trusted_hosts == ()
         assert settings.trusted_proxy_mode is None
         assert settings.stripe_expected_livemode is None
@@ -436,3 +699,34 @@ def test_create_app_wires_expected_livemode_to_both_stripe_adapters(
     assert captured == {"checkout": False, "webhook": False}
     assert application.state.stripe_checkout_client is checkout_adapter
     assert application.state.stripe_webhook_verifier is webhook_adapter
+
+
+def test_create_app_does_not_initialize_stripe_for_demo_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Keep Slice 1 demo mode provider-neutral and unavailable by default."""
+    from app import main as app_main
+
+    def unexpected_factory(*args: object, **kwargs: object) -> object:
+        pytest.fail("Stripe adapter initialized in demo mode")
+
+    monkeypatch.setattr(app_main, "StripeCheckoutClient", unexpected_factory)
+    monkeypatch.setattr(app_main, "StripeWebhookVerifier", unexpected_factory)
+    settings = production_settings(
+        {
+            "portfolio_demo_mode": True,
+            "payment_provider": "demo",
+            "stripe_secret_key": None,
+            "stripe_webhook_secret": None,
+            "stripe_success_url": None,
+            "stripe_cancel_url": None,
+            "stripe_expected_livemode": None,
+        }
+    )
+
+    application = app_main.create_app(settings=settings)
+
+    assert application.state.payment_provider == "demo"
+    assert application.state.portfolio_demo_mode is True
+    assert application.state.stripe_checkout_client is None
+    assert application.state.stripe_webhook_verifier is None

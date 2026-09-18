@@ -1,8 +1,12 @@
-import { ApiRequestError, type ApiRequestErrorKind, buildApiUrl } from './client';
+import {
+  ApiRequestError,
+  type ApiRequestErrorKind,
+  buildApiUrl,
+  resolveApiRequestTimeoutMs,
+} from './client';
 
 const ADMIN_PATH_PREFIX = '/api/v1/admin/';
 const DEFAULT_ADMIN_BLOB_TIMEOUT_MS = 30_000;
-const DEFAULT_ADMIN_JSON_TIMEOUT_MS = 10_000;
 const ADMIN_PATH_VALIDATION_ORIGIN = 'http://admin-api.local';
 
 export type AdminHttpMethod = 'GET' | 'PATCH' | 'POST';
@@ -202,6 +206,7 @@ export async function adminRequestJson(
   options: AdminRequestJsonOptions = {},
 ): Promise<unknown> {
   const headers = createAdminHeaders(options.accessToken, 'application/json');
+  const timeoutMs = resolveApiRequestTimeoutMs(options.timeoutMs);
 
   let serializedBody: string | undefined;
   if (options.body !== undefined) {
@@ -216,7 +221,7 @@ export async function adminRequestJson(
       headers,
       method: options.method ?? 'GET',
       signal: options.signal,
-      timeoutMs: options.timeoutMs ?? DEFAULT_ADMIN_JSON_TIMEOUT_MS,
+      timeoutMs,
     },
     (response) => response.json(),
     'The administrator API response was not valid JSON.',
@@ -229,6 +234,10 @@ export async function adminRequestBlob(
   options: AdminRequestBlobOptions,
 ): Promise<AdminBlobResponse> {
   const headers = createAdminHeaders(options.accessToken, 'text/csv');
+  const timeoutMs =
+    options.timeoutMs === undefined
+      ? Math.max(DEFAULT_ADMIN_BLOB_TIMEOUT_MS, resolveApiRequestTimeoutMs())
+      : resolveApiRequestTimeoutMs(options.timeoutMs);
 
   return executeAdminRequest(
     path,
@@ -236,7 +245,7 @@ export async function adminRequestBlob(
       headers,
       method: 'GET',
       signal: options.signal,
-      timeoutMs: options.timeoutMs ?? DEFAULT_ADMIN_BLOB_TIMEOUT_MS,
+      timeoutMs,
     },
     async (response) => ({
       blob: await response.blob(),
