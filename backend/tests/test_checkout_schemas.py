@@ -50,10 +50,17 @@ def test_checkout_response_accepts_the_exact_public_contract() -> None:
         "stripe_checkout_session_id",
         "request_idempotency_key",
         "stripe_idempotency_key",
+        "data_origin",
+        "provider",
+        "provider_idempotency_key",
+        "provider_session_id",
+        "provider_checkout_url",
+        "provider_checkout_expires_at",
+        "succeeded_at",
     ],
 )
-def test_checkout_response_rejects_internal_identifiers(field_name: str) -> None:
-    """Forbid representative internal identifiers as extra response fields."""
+def test_checkout_response_rejects_internal_fields(field_name: str) -> None:
+    """Forbid persistence-only data as extra response fields."""
     values = _response_values()
     values[field_name] = str(uuid4())
     with pytest.raises(ValidationError):

@@ -12,6 +12,8 @@ from app.orders.admin_schemas import (
     AdminOrderListItem,
     AdminOrderListResponse,
     AdminOrderStatusHistoryEntry,
+    AdminOrderStatusUpdateRequest,
+    AdminOrderStatusUpdateResponse,
     AdminPaymentSummary,
 )
 from app.orders.schemas import OrderType
@@ -115,6 +117,25 @@ def test_response_schemas_require_aware_datetimes() -> None:
         )
 
 
+def test_status_update_request_has_exact_contract_and_forbids_internals() -> None:
+    """Keep persistence-only order and payment fields out of admin mutations."""
+    assert set(AdminOrderStatusUpdateRequest.model_fields) == {"status"}
+    for field_name in (
+        "data_origin",
+        "provider",
+        "request_idempotency_key",
+        "provider_idempotency_key",
+        "provider_session_id",
+        "provider_checkout_url",
+        "provider_checkout_expires_at",
+        "succeeded_at",
+    ):
+        with pytest.raises(ValidationError):
+            AdminOrderStatusUpdateRequest.model_validate(
+                {"status": "accepted", field_name: "internal"}
+            )
+
+
 def test_valid_detail_includes_internal_order_and_payment_identifiers() -> None:
     """Allow internal identifiers only in the trusted detail contract."""
     detail = AdminOrderDetail(
@@ -147,6 +168,7 @@ def test_sensitive_and_stripe_event_fields_are_absent() -> None:
         AdminOrderDetail.model_fields,
         AdminOrderItem.model_fields,
         AdminOrderStatusHistoryEntry.model_fields,
+        AdminOrderStatusUpdateResponse.model_fields,
         AdminPaymentSummary.model_fields,
     )
     assert {
@@ -156,6 +178,13 @@ def test_sensitive_and_stripe_event_fields_are_absent() -> None:
         "stripe_checkout_url",
         "stripe_idempotency_key",
         "request_idempotency_key",
+        "data_origin",
+        "provider",
+        "provider_idempotency_key",
+        "provider_session_id",
+        "provider_checkout_url",
+        "provider_checkout_expires_at",
+        "succeeded_at",
         "stripe_event_id",
         "stripe_events",
     }.isdisjoint(all_fields)

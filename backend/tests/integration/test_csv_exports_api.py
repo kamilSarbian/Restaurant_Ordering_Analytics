@@ -30,6 +30,7 @@ from app.orders.models import Order, OrderItem, OrderStatusHistory
 from app.orders.schemas import OrderType
 from app.orders.statuses import OrderStatus
 from app.payments.models import Payment, StripeEvent
+from app.payments.providers import PaymentProvider
 from app.payments.statuses import PaymentStatus
 from app.payments.stripe_webhook import StripeWebhookEventType
 from app.payments.webhook import WebhookProcessingOutcome
@@ -277,6 +278,8 @@ def _store_financial_order(
     order_currency: str | None = None,
     amount: int = 100,
     receipts: tuple[ReceiptFixture, ...] = (),
+    provider: PaymentProvider = PaymentProvider.STRIPE_TEST,
+    succeeded_at: datetime | None = None,
     lines: tuple[SnapshotLine, ...] = (),
     order_created_at: datetime | None = None,
     payment_updated_at: datetime | None = None,
@@ -323,6 +326,8 @@ def _store_financial_order(
             currency=payment_currency,
             amount=amount,
             receipts=receipts,
+            provider=provider,
+            succeeded_at=succeeded_at,
             updated_at=payment_updated_at,
         )
         return StoredFinancialOrder(
@@ -340,6 +345,8 @@ def _add_payment(
     currency: str,
     amount: int,
     receipts: tuple[ReceiptFixture, ...] = (),
+    provider: PaymentProvider = PaymentProvider.STRIPE_TEST,
+    succeeded_at: datetime | None = None,
     updated_at: datetime | None = None,
 ) -> UUID:
     with session_factory.begin() as session:
@@ -350,6 +357,8 @@ def _add_payment(
             currency=currency,
             amount=amount,
             receipts=receipts,
+            provider=provider,
+            succeeded_at=succeeded_at,
             updated_at=updated_at,
         )
 
@@ -362,17 +371,35 @@ def _add_payment_to_session(
     currency: str,
     amount: int,
     receipts: tuple[ReceiptFixture, ...],
+    provider: PaymentProvider,
+    succeeded_at: datetime | None,
     updated_at: datetime | None,
 ) -> UUID:
+    if status is PaymentStatus.SUCCEEDED and succeeded_at is None:
+        qualifying_times = tuple(
+            receipt.success_at
+            for receipt in receipts
+            if receipt.processing_result is WebhookProcessingOutcome.TRANSITIONED
+            and receipt.event_type
+            in {
+                StripeWebhookEventType.COMPLETED,
+                StripeWebhookEventType.ASYNC_PAYMENT_SUCCEEDED,
+            }
+        )
+        if not qualifying_times:
+            raise AssertionError("Succeeded export fixture requires succeeded_at")
+        succeeded_at = min(qualifying_times)
     payment_id = uuid.uuid4()
     payment = Payment(
         id=payment_id,
         order_id=order_id,
+        provider=provider.value,
         status=status.value,
         amount=amount,
         currency=currency,
         request_idempotency_key=uuid.uuid4(),
-        stripe_idempotency_key=f"checkout-session:{payment_id}",
+        provider_idempotency_key=f"checkout-session:{payment_id}",
+        succeeded_at=succeeded_at,
         created_at=RANGE_START - timedelta(days=20),
         updated_at=updated_at or RANGE_START - timedelta(days=20),
     )
@@ -1181,11 +1208,27 @@ def test_payments_csv_exports_only_qualified_succeeded_rows_and_currency_filters
             payment_status=status,
             receipts=(_transitioned_receipt(RANGE_START + timedelta(minutes=30)),),
         )
-    _store_financial_order(
+    demo = _store_financial_order(
         export_client.session_factory,
         payment_status=PaymentStatus.SUCCEEDED,
+        provider=PaymentProvider.DEMO,
+        succeeded_at=RANGE_START + timedelta(minutes=30),
+        amount=3403,
         receipts=(),
     )
+    with export_client.session_factory() as session:
+        assert (
+            session.scalar(
+                select(Payment.provider).where(Payment.id == demo.payment_id)
+            )
+            == PaymentProvider.DEMO.value
+        )
+        assert (
+            session.scalar(
+                select(StripeEvent.id).where(StripeEvent.payment_id == demo.payment_id)
+            )
+            is None
+        )
 
     def rows(currency: str) -> list[dict[str, str]]:
         response = export_client.client.get(
@@ -1210,6 +1253,7 @@ def test_payments_csv_exports_only_qualified_succeeded_rows_and_currency_filters
     assert [row["public_order_number"] for row in unfiltered] == [
         nok.public_order_number,
         eur.public_order_number,
+        demo.public_order_number,
     ]
     assert list(unfiltered[0]) == PAYMENTS_HEADERS
     assert unfiltered[0]["payment_status"] == "succeeded"
@@ -1217,15 +1261,18 @@ def test_payments_csv_exports_only_qualified_succeeded_rows_and_currency_filters
     assert unfiltered[0]["amount"] == "1201"
     assert unfiltered[1]["currency"] == "EUR"
     assert unfiltered[1]["amount"] == "2302"
+    assert unfiltered[2]["currency"] == "NOK"
+    assert unfiltered[2]["amount"] == "3403"
     assert [row["public_order_number"] for row in rows("NOK")] == [
-        nok.public_order_number
+        nok.public_order_number,
+        demo.public_order_number,
     ]
     assert [row["public_order_number"] for row in rows("EUR")] == [
         eur.public_order_number
     ]
 
 
-def test_payments_csv_collapses_receipts_and_ignores_prior_attempts(
+def test_payments_csv_uses_persisted_success_time_and_ignores_prior_attempts(
     export_client: ExportClient,
 ) -> None:
     stored = _store_financial_order(
@@ -1247,6 +1294,7 @@ def test_payments_csv_collapses_receipts_and_ignores_prior_attempts(
         status=PaymentStatus.SUCCEEDED,
         currency="NOK",
         amount=505,
+        succeeded_at=first_success,
         receipts=(
             ReceiptFixture(
                 StripeWebhookEventType.COMPLETED,
@@ -1361,9 +1409,9 @@ def test_analytics_export_executes_one_report_select_and_zero_dml(
     assert "FROM categories" not in report_selects[0]
     assert "JOIN categories" not in report_selects[0]
     normalized_sql = " ".join(report_selects[0].lower().split())
+    assert "stripe_events" not in normalized_sql
+    assert "payments.succeeded_at" in normalized_sql
     if path == PAYMENTS_EXPORT_PATH:
-        assert normalized_sql.count("from stripe_events") == 1
-        assert "join stripe_events" not in normalized_sql
         assert (
             "order by qualified_succeeded_payments.success_at asc, "
             "orders.public_order_number asc, "

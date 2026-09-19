@@ -30,7 +30,7 @@ jobs:
       EXPECTED_REPOSITORY: kamilSarbian/Restaurant_Ordering_Analytics
       SOURCE_URL: https://github.com/kamilSarbian/Restaurant_Ordering_Analytics
       GHCR_REPOSITORY: ghcr.io/kamilsarbian/restaurant-ordering-analytics-backend
-      EXPECTED_ALEMBIC_HEAD: 0008_add_order_ownership
+      EXPECTED_ALEMBIC_HEAD: 0009_add_portfolio_demo_origin_and_payment_provider
       RELEASE_SHA: ${{ inputs.release_sha }}
       CONFIRM: ${{ inputs.confirm }}
 

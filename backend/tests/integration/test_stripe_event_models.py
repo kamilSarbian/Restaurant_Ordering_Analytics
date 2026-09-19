@@ -80,7 +80,8 @@ def _payment(order: Order) -> Payment:
         amount=100,
         currency="NOK",
         request_idempotency_key=uuid.uuid4(),
-        stripe_idempotency_key=f"checkout-session:{payment_id}",
+        provider="stripe_test",
+        provider_idempotency_key=f"checkout-session:{payment_id}",
     )
 
 

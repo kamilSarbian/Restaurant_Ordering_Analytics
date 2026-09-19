@@ -559,7 +559,8 @@ def test_account_detail_reuses_exact_safe_public_status_response(
                 amount=stored.total_amount,
                 currency=stored.currency,
                 request_idempotency_key=uuid4(),
-                stripe_idempotency_key=build_stripe_idempotency_key(payment_id),
+                provider="stripe_test",
+                provider_idempotency_key=build_stripe_idempotency_key(payment_id),
             )
         )
 
@@ -587,6 +588,16 @@ def test_account_detail_reuses_exact_safe_public_status_response(
         "created_at",
         "updated_at",
     }
+    assert {
+        "data_origin",
+        "provider",
+        "provider_idempotency_key",
+        "provider_session_id",
+        "provider_checkout_url",
+        "provider_checkout_expires_at",
+        "succeeded_at",
+        "request_idempotency_key",
+    }.isdisjoint(account_payload)
     assert len(account_payload["items"]) == 1
     assert set(account_payload["items"][0]) == {
         "menu_item_id",

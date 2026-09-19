@@ -327,10 +327,12 @@ def _store_detail_order(
                 amount=500,
                 currency="NOK",
                 request_idempotency_key=uuid.uuid4(),
-                stripe_idempotency_key=f"checkout-session:{payment_ids[0]}",
-                stripe_checkout_session_id="cs_test_synthetic_admin_detail",
-                stripe_checkout_url="https://example.invalid/checkout",
-                stripe_checkout_expires_at=FIXED_NOW + timedelta(hours=1),
+                provider="stripe_test",
+                provider_idempotency_key=f"checkout-session:{payment_ids[0]}",
+                provider_session_id="cs_test_synthetic_admin_detail",
+                provider_checkout_url="https://example.invalid/checkout",
+                provider_checkout_expires_at=FIXED_NOW + timedelta(hours=1),
+                succeeded_at=FIXED_NOW + timedelta(minutes=4),
                 created_at=FIXED_NOW + timedelta(minutes=3),
                 updated_at=FIXED_NOW + timedelta(minutes=4),
             ),
@@ -341,7 +343,8 @@ def _store_detail_order(
                 amount=500,
                 currency="NOK",
                 request_idempotency_key=uuid.uuid4(),
-                stripe_idempotency_key=f"checkout-session:{payment_ids[1]}",
+                provider="stripe_test",
+                provider_idempotency_key=f"checkout-session:{payment_ids[1]}",
                 created_at=FIXED_NOW + timedelta(minutes=1),
                 updated_at=FIXED_NOW + timedelta(minutes=1),
             ),
@@ -352,7 +355,8 @@ def _store_detail_order(
                 amount=500,
                 currency="NOK",
                 request_idempotency_key=uuid.uuid4(),
-                stripe_idempotency_key=f"checkout-session:{payment_ids[2]}",
+                provider="stripe_test",
+                provider_idempotency_key=f"checkout-session:{payment_ids[2]}",
                 created_at=FIXED_NOW + timedelta(minutes=2),
                 updated_at=FIXED_NOW + timedelta(minutes=2),
             ),
@@ -448,7 +452,13 @@ def _store_transition_order(
                     amount=order.total_amount,
                     currency=order.currency,
                     request_idempotency_key=uuid.uuid4(),
-                    stripe_idempotency_key=f"checkout-session:{payment_id}",
+                    provider="stripe_test",
+                    provider_idempotency_key=f"checkout-session:{payment_id}",
+                    succeeded_at=(
+                        base_time + timedelta(seconds=position)
+                        if payment_status is PaymentStatus.SUCCEEDED
+                        else None
+                    ),
                     created_at=base_time + timedelta(seconds=position),
                     updated_at=base_time + timedelta(seconds=position),
                 )
@@ -680,6 +690,13 @@ def test_order_list_exposes_exact_safe_fields(admin_client: AdminClient) -> None
             "account",
             "guest_access_token",
             "guest_access_token_hash",
+            "data_origin",
+            "provider",
+            "provider_idempotency_key",
+            "provider_session_id",
+            "provider_checkout_url",
+            "provider_checkout_expires_at",
+            "succeeded_at",
         }
     )
     assert all(
@@ -829,6 +846,13 @@ def test_admin_order_detail_returns_ordered_snapshot_history_and_payments(
             "account",
             "guest_access_token",
             "guest_access_token_hash",
+            "data_origin",
+            "provider",
+            "provider_idempotency_key",
+            "provider_session_id",
+            "provider_checkout_url",
+            "provider_checkout_expires_at",
+            "succeeded_at",
         }
     )
 
@@ -841,6 +865,13 @@ def test_admin_order_detail_returns_ordered_snapshot_history_and_payments(
             "stripe_checkout_session_id",
             "stripe_checkout_url",
             "stripe_idempotency_key",
+            "provider",
+            "provider_session_id",
+            "provider_checkout_url",
+            "provider_checkout_expires_at",
+            "provider_idempotency_key",
+            "succeeded_at",
+            "data_origin",
             "request_idempotency_key",
             "stripe_event",
         )

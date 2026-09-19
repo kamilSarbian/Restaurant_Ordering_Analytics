@@ -162,7 +162,7 @@ def test_revision_is_the_single_child_of_unified_user_migration() -> None:
     assert revision is not None
     assert revision.revision == REVISION_0008
     assert revision.down_revision == REVISION_0007
-    assert script.get_current_head() == REVISION_0008 == HEAD_REVISION
+    assert script.get_current_head() == HEAD_REVISION
 
 
 def test_upgrade_adds_exact_schema_and_preserves_historical_order(

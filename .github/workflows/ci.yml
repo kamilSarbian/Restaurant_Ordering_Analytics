@@ -204,7 +204,7 @@ jobs:
           heads = tuple(
               ScriptDirectory.from_config(Config("alembic.ini")).get_heads()
           )
-          if heads != ("0008_add_order_ownership",):
+          if heads != ("0009_add_portfolio_demo_origin_and_payment_provider",):
               raise SystemExit("Alembic head validation failed")
           PY
 

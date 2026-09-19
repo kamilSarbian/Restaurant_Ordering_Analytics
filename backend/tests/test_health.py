@@ -38,7 +38,7 @@ def _production_settings() -> Settings:
         trusted_hosts=(PRODUCTION_HOST,),
         trusted_proxy_mode="direct",
         stripe_expected_livemode=False,
-        expected_alembic_head="0008_add_order_ownership",
+        expected_alembic_head="0009_add_portfolio_demo_origin_and_payment_provider",
         release_sha="a" * 40,
     )
 

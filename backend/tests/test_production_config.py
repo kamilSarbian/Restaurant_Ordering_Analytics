@@ -42,7 +42,7 @@ def _production_values() -> dict[str, object]:
         "trusted_hosts": ("api.restaurant.example",),
         "trusted_proxy_mode": "direct",
         "stripe_expected_livemode": False,
-        "expected_alembic_head": "0008_add_order_ownership",
+        "expected_alembic_head": "0009_add_portfolio_demo_origin_and_payment_provider",
         "release_sha": RELEASE_SHA,
         "log_level": "info",
     }
@@ -111,7 +111,7 @@ def test_complete_production_contract_loads_from_environment_strings(
         "TRUSTED_HOSTS": '["api.restaurant.example"]',
         "TRUSTED_PROXY_MODE": "direct",
         "STRIPE_EXPECTED_LIVEMODE": "false",
-        "EXPECTED_ALEMBIC_HEAD": "0008_add_order_ownership",
+        "EXPECTED_ALEMBIC_HEAD": "0009_add_portfolio_demo_origin_and_payment_provider",
         "RELEASE_SHA": RELEASE_SHA,
         "LOG_LEVEL": "warning",
     }
@@ -154,7 +154,7 @@ def _production_environment_strings() -> dict[str, str]:
         "TRUSTED_HOSTS": '["api.restaurant.example"]',
         "TRUSTED_PROXY_MODE": "direct",
         "STRIPE_EXPECTED_LIVEMODE": "false",
-        "EXPECTED_ALEMBIC_HEAD": "0008_add_order_ownership",
+        "EXPECTED_ALEMBIC_HEAD": "0009_add_portfolio_demo_origin_and_payment_provider",
         "RELEASE_SHA": RELEASE_SHA,
     }
 

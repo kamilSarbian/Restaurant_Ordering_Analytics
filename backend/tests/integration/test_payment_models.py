@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.orders.models import Order
 from app.payments.models import Payment
+from app.payments.providers import PaymentProvider
 from app.payments.statuses import PaymentStatus
 
 pytestmark = pytest.mark.integration
@@ -41,17 +42,22 @@ def _order(**values: object) -> Order:
     return Order(**defaults)
 
 
-def _stripe_key() -> str:
+def _provider_key() -> str:
     return f"checkout-session:{uuid.uuid4()}"
 
 
 def _payment(order: Order, **values: object) -> Payment:
+    status = values.get("status", PaymentStatus.PENDING.value)
     defaults: dict[str, object] = {
         "order": order,
         "amount": 100,
         "currency": "NOK",
         "request_idempotency_key": uuid.uuid4(),
-        "stripe_idempotency_key": _stripe_key(),
+        "provider": PaymentProvider.STRIPE_TEST.value,
+        "provider_idempotency_key": _provider_key(),
+        "succeeded_at": (
+            datetime.now(UTC) if status == PaymentStatus.SUCCEEDED.value else None
+        ),
     }
     defaults.update(values)
     return Payment(**defaults)
@@ -74,20 +80,22 @@ def test_payment_schema_has_exact_columns_and_types(
         column["name"]: column
         for column in inspector.get_columns("payments", schema="public")
     }
-    assert list(columns) == [
+    assert set(columns) == {
         "id",
         "order_id",
         "status",
         "amount",
         "currency",
         "request_idempotency_key",
-        "stripe_idempotency_key",
-        "stripe_checkout_session_id",
-        "stripe_checkout_url",
-        "stripe_checkout_expires_at",
+        "provider",
+        "provider_idempotency_key",
+        "provider_session_id",
+        "provider_checkout_url",
+        "provider_checkout_expires_at",
+        "succeeded_at",
         "created_at",
         "updated_at",
-    ]
+    }
     assert isinstance(columns["id"]["type"], PostgreSQLUUID)
     assert isinstance(columns["order_id"]["type"], PostgreSQLUUID)
     assert isinstance(columns["request_idempotency_key"]["type"], PostgreSQLUUID)
@@ -96,11 +104,13 @@ def test_payment_schema_has_exact_columns_and_types(
     assert isinstance(columns["amount"]["type"], BigInteger)
     assert isinstance(columns["currency"]["type"], String)
     assert columns["currency"]["type"].length == 3
-    assert columns["stripe_idempotency_key"]["type"].length == 64
-    assert columns["stripe_checkout_session_id"]["type"].length == 255
-    assert isinstance(columns["stripe_checkout_url"]["type"], Text)
+    assert columns["provider"]["type"].length == 11
+    assert columns["provider_idempotency_key"]["type"].length == 64
+    assert columns["provider_session_id"]["type"].length == 255
+    assert isinstance(columns["provider_checkout_url"]["type"], Text)
     for column_name in (
-        "stripe_checkout_expires_at",
+        "provider_checkout_expires_at",
+        "succeeded_at",
         "created_at",
         "updated_at",
     ):
@@ -115,7 +125,8 @@ def test_payment_schema_has_exact_columns_and_types(
             "amount",
             "currency",
             "request_idempotency_key",
-            "stripe_idempotency_key",
+            "provider",
+            "provider_idempotency_key",
             "created_at",
             "updated_at",
         )
@@ -123,11 +134,13 @@ def test_payment_schema_has_exact_columns_and_types(
     assert all(
         columns[column_name]["nullable"] is True
         for column_name in (
-            "stripe_checkout_session_id",
-            "stripe_checkout_url",
-            "stripe_checkout_expires_at",
+            "provider_session_id",
+            "provider_checkout_url",
+            "provider_checkout_expires_at",
+            "succeeded_at",
         )
     )
+    assert columns["provider"]["default"] is None
 
 
 def test_payment_defaults_uuid_pending_timestamps_and_bigint(
@@ -140,6 +153,7 @@ def test_payment_defaults_uuid_pending_timestamps_and_bigint(
     db_session.flush()
     assert isinstance(payment.id, uuid.UUID)
     assert payment.status == PaymentStatus.PENDING.value
+    assert payment.provider == PaymentProvider.STRIPE_TEST.value
     assert payment.amount == amount
     assert payment.created_at.tzinfo is not None
     assert payment.updated_at.tzinfo is not None
@@ -160,6 +174,103 @@ def test_payment_accepts_every_approved_status(
 def test_payment_rejects_unknown_status(db_session: Session) -> None:
     """Reject values outside the payment-attempt lifecycle."""
     _assert_database_error(db_session, _payment(_order(), status="refunded"))
+
+
+@pytest.mark.parametrize("provider", list(PaymentProvider))
+def test_payment_accepts_every_approved_provider(
+    db_session: Session,
+    provider: PaymentProvider,
+) -> None:
+    """Persist every approved payment provider."""
+    payment = _payment(
+        _order(),
+        provider=provider.value,
+        status=PaymentStatus.FAILED.value,
+    )
+    db_session.add(payment)
+    db_session.flush()
+    assert payment.provider == provider.value
+
+
+def test_payment_rejects_unknown_provider(db_session: Session) -> None:
+    """Reject payment-provider identities outside the approved contract."""
+    _assert_database_error(
+        db_session,
+        _payment(
+            _order(),
+            provider="stripe_live",
+            status=PaymentStatus.FAILED.value,
+        ),
+    )
+
+
+def test_payment_requires_explicit_provider(db_session: Session) -> None:
+    """Reject new payment rows without an explicitly selected provider."""
+    _assert_database_error(
+        db_session,
+        _payment(_order(), provider=None, status=PaymentStatus.FAILED.value),
+    )
+
+
+@pytest.mark.parametrize("provider_key", ["", " ", "\t", "\n"])
+def test_payment_rejects_blank_provider_idempotency_key(
+    db_session: Session,
+    provider_key: str,
+) -> None:
+    """Require a non-blank provider idempotency key."""
+    _assert_database_error(
+        db_session,
+        _payment(
+            _order(),
+            provider_idempotency_key=provider_key,
+            status=PaymentStatus.FAILED.value,
+        ),
+    )
+
+
+def test_succeeded_payment_requires_succeeded_at(db_session: Session) -> None:
+    """Reject a succeeded payment without its authoritative success time."""
+    _assert_database_error(
+        db_session,
+        _payment(
+            _order(),
+            status=PaymentStatus.SUCCEEDED.value,
+            succeeded_at=None,
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    "status",
+    [PaymentStatus.PENDING, PaymentStatus.FAILED, PaymentStatus.EXPIRED],
+)
+def test_non_succeeded_payment_rejects_succeeded_at(
+    db_session: Session,
+    status: PaymentStatus,
+) -> None:
+    """Reject an authoritative success time on a non-succeeded payment."""
+    _assert_database_error(
+        db_session,
+        _payment(
+            _order(),
+            status=status.value,
+            succeeded_at=datetime.now(UTC),
+        ),
+    )
+
+
+def test_succeeded_at_round_trips_timezone_aware(db_session: Session) -> None:
+    """Persist the exact timezone-aware authoritative success time."""
+    succeeded_at = datetime(2026, 9, 18, 12, 30, tzinfo=UTC)
+    payment = _payment(
+        _order(),
+        status=PaymentStatus.SUCCEEDED.value,
+        succeeded_at=succeeded_at,
+    )
+    db_session.add(payment)
+    db_session.flush()
+    assert payment.succeeded_at == succeeded_at
+    assert payment.succeeded_at.tzinfo is not None
 
 
 @pytest.mark.parametrize("amount", [0, -1])
@@ -199,9 +310,9 @@ def test_checkout_session_accepts_all_null_fields(db_session: Session) -> None:
     payment = _payment(_order(), status=PaymentStatus.FAILED.value)
     db_session.add(payment)
     db_session.flush()
-    assert payment.stripe_checkout_session_id is None
-    assert payment.stripe_checkout_url is None
-    assert payment.stripe_checkout_expires_at is None
+    assert payment.provider_session_id is None
+    assert payment.provider_checkout_url is None
+    assert payment.provider_checkout_expires_at is None
 
 
 def test_checkout_session_accepts_all_populated_fields(db_session: Session) -> None:
@@ -210,32 +321,32 @@ def test_checkout_session_accepts_all_populated_fields(db_session: Session) -> N
     payment = _payment(
         _order(),
         status=PaymentStatus.FAILED.value,
-        stripe_checkout_session_id=f"cs_test_{uuid.uuid4().hex}",
-        stripe_checkout_url="https://checkout.stripe.example/session",
-        stripe_checkout_expires_at=expires_at,
+        provider_session_id=f"cs_test_{uuid.uuid4().hex}",
+        provider_checkout_url="https://checkout.stripe.example/session",
+        provider_checkout_expires_at=expires_at,
     )
     db_session.add(payment)
     db_session.flush()
-    assert payment.stripe_checkout_expires_at == expires_at
+    assert payment.provider_checkout_expires_at == expires_at
 
 
 @pytest.mark.parametrize(
     "session_fields",
     [
-        {"stripe_checkout_session_id": "cs_test_incomplete"},
-        {"stripe_checkout_url": "https://checkout.stripe.example/session"},
-        {"stripe_checkout_expires_at": datetime.now(UTC)},
+        {"provider_session_id": "cs_test_incomplete"},
+        {"provider_checkout_url": "https://checkout.stripe.example/session"},
+        {"provider_checkout_expires_at": datetime.now(UTC)},
         {
-            "stripe_checkout_session_id": "cs_test_incomplete",
-            "stripe_checkout_url": "https://checkout.stripe.example/session",
+            "provider_session_id": "cs_test_incomplete",
+            "provider_checkout_url": "https://checkout.stripe.example/session",
         },
         {
-            "stripe_checkout_session_id": "cs_test_incomplete",
-            "stripe_checkout_expires_at": datetime.now(UTC),
+            "provider_session_id": "cs_test_incomplete",
+            "provider_checkout_expires_at": datetime.now(UTC),
         },
         {
-            "stripe_checkout_url": "https://checkout.stripe.example/session",
-            "stripe_checkout_expires_at": datetime.now(UTC),
+            "provider_checkout_url": "https://checkout.stripe.example/session",
+            "provider_checkout_expires_at": datetime.now(UTC),
         },
     ],
 )
@@ -290,14 +401,16 @@ def test_same_request_key_is_allowed_for_different_orders(
     assert {payment.request_idempotency_key for payment in payments} == {request_key}
 
 
-def test_stripe_idempotency_key_is_globally_unique(db_session: Session) -> None:
-    """Reject reuse of one provider idempotency key across attempts."""
-    stripe_key = _stripe_key()
+def test_provider_idempotency_key_is_unique_within_provider(
+    db_session: Session,
+) -> None:
+    """Reject reuse of one idempotency key within a provider."""
+    provider_key = _provider_key()
     db_session.add(
         _payment(
             _order(),
             status=PaymentStatus.FAILED.value,
-            stripe_idempotency_key=stripe_key,
+            provider_idempotency_key=provider_key,
         )
     )
     db_session.commit()
@@ -306,28 +419,72 @@ def test_stripe_idempotency_key_is_globally_unique(db_session: Session) -> None:
         _payment(
             _order(),
             status=PaymentStatus.FAILED.value,
-            stripe_idempotency_key=stripe_key,
+            provider_idempotency_key=provider_key,
         ),
     )
 
 
-def test_non_null_checkout_session_id_is_globally_unique(
+def test_provider_idempotency_key_may_repeat_across_providers(
     db_session: Session,
 ) -> None:
-    """Reject reuse of one non-null provider Checkout Session ID."""
+    """Scope provider idempotency uniqueness to the provider identity."""
+    provider_key = _provider_key()
+    payments = [
+        _payment(
+            _order(),
+            provider=provider.value,
+            provider_idempotency_key=provider_key,
+            status=PaymentStatus.FAILED.value,
+        )
+        for provider in PaymentProvider
+    ]
+    db_session.add_all(payments)
+    db_session.flush()
+    assert {payment.provider for payment in payments} == {
+        PaymentProvider.STRIPE_TEST.value,
+        PaymentProvider.DEMO.value,
+    }
+
+
+def test_non_null_session_id_is_unique_within_provider(
+    db_session: Session,
+) -> None:
+    """Reject reuse of one non-null session ID within a provider."""
     session_id = f"cs_test_{uuid.uuid4().hex}"
     fields = {
         "status": PaymentStatus.FAILED.value,
-        "stripe_checkout_session_id": session_id,
-        "stripe_checkout_url": "https://checkout.stripe.example/session",
-        "stripe_checkout_expires_at": datetime.now(UTC) + timedelta(hours=1),
+        "provider_session_id": session_id,
+        "provider_checkout_url": "https://checkout.stripe.example/session",
+        "provider_checkout_expires_at": datetime.now(UTC) + timedelta(hours=1),
     }
     db_session.add(_payment(_order(), **fields))
     db_session.commit()
     _assert_database_error(db_session, _payment(_order(), **fields))
 
 
-def test_multiple_null_checkout_session_ids_are_allowed(db_session: Session) -> None:
+def test_non_null_session_id_may_repeat_across_providers(
+    db_session: Session,
+) -> None:
+    """Scope non-null session identity uniqueness to the provider."""
+    session_id = f"session_{uuid.uuid4().hex}"
+    expires_at = datetime.now(UTC) + timedelta(hours=1)
+    payments = [
+        _payment(
+            _order(),
+            provider=provider.value,
+            status=PaymentStatus.FAILED.value,
+            provider_session_id=session_id,
+            provider_checkout_url="https://provider.example/session",
+            provider_checkout_expires_at=expires_at,
+        )
+        for provider in PaymentProvider
+    ]
+    db_session.add_all(payments)
+    db_session.flush()
+    assert {payment.provider_session_id for payment in payments} == {session_id}
+
+
+def test_multiple_null_session_ids_are_allowed(db_session: Session) -> None:
     """Permit multiple attempts that do not yet have a provider session."""
     order = _order()
     payments = [
@@ -336,7 +493,7 @@ def test_multiple_null_checkout_session_ids_are_allowed(db_session: Session) -> 
     ]
     db_session.add_all(payments)
     db_session.flush()
-    assert all(payment.stripe_checkout_session_id is None for payment in payments)
+    assert all(payment.provider_session_id is None for payment in payments)
 
 
 @pytest.mark.parametrize(

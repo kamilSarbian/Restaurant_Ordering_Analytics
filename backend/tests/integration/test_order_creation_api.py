@@ -293,6 +293,7 @@ def test_successful_takeaway_persists_exact_snapshot_and_status_access(
         history = session.scalars(select(OrderStatusHistory)).one()
         assert order.status == "created"
         assert order.customer_user_id is None
+        assert order.data_origin == "live"
         assert order.currency == "NOK"
         assert order.subtotal_amount == order.total_amount == 53700
         assert order.table_id is None
@@ -327,6 +328,8 @@ def test_successful_takeaway_persists_exact_snapshot_and_status_access(
     assert "order_access_token" not in status_payload
     assert "order_access_token_hash" not in status_payload
     assert "id" not in status_payload
+    assert "data_origin" not in status_payload
+    assert "provider" not in status_payload
 
 
 def test_guest_creation_skips_unconfigured_authentication_and_user_lookup(
@@ -417,6 +420,8 @@ def test_order_request_rejects_every_ownership_identity_field(
         "owner_id": str(uuid4()),
         "role": "super_admin",
         "email": "attacker@example.com",
+        "data_origin": "portfolio_seed",
+        "provider": "demo",
     }
     for field, value in forbidden_values.items():
         payload = _takeaway_payload(menu_records)
@@ -1145,5 +1150,12 @@ def test_openapi_documents_creation_without_payment_or_internal_fields(
             "customer_user_id",
             "owner_id",
             "user_id",
+            "data_origin",
+            "provider",
+            "provider_idempotency_key",
+            "provider_session_id",
+            "provider_checkout_url",
+            "provider_checkout_expires_at",
+            "succeeded_at",
         )
     )

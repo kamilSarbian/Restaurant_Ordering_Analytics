@@ -53,12 +53,14 @@ class Payment(Base):
     request_idempotency_key: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), nullable=False
     )
-    stripe_idempotency_key: Mapped[str] = mapped_column(String(64), nullable=False)
-    stripe_checkout_session_id: Mapped[str | None] = mapped_column(
-        String(255), nullable=True
+    provider: Mapped[str] = mapped_column(String(11), nullable=False)
+    provider_idempotency_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    provider_session_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    provider_checkout_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    provider_checkout_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
-    stripe_checkout_url: Mapped[str | None] = mapped_column(Text, nullable=True)
-    stripe_checkout_expires_at: Mapped[datetime | None] = mapped_column(
+    succeeded_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
@@ -78,16 +80,30 @@ class Payment(Base):
             "status IN ('pending', 'succeeded', 'failed', 'expired')",
             name="status_allowed",
         ),
+        CheckConstraint(
+            "provider IN ('stripe_test', 'demo')",
+            name="provider_allowed",
+        ),
+        CheckConstraint(
+            "provider_idempotency_key ~ '[^[:space:]]'",
+            name="provider_idempotency_key_not_blank",
+        ),
         CheckConstraint("amount > 0", name="amount_positive"),
         CheckConstraint("currency ~ '^[A-Z]{3}$'", name="currency_format"),
         CheckConstraint(
-            "(stripe_checkout_session_id IS NULL "
-            "AND stripe_checkout_url IS NULL "
-            "AND stripe_checkout_expires_at IS NULL) OR "
-            "(stripe_checkout_session_id IS NOT NULL "
-            "AND stripe_checkout_url IS NOT NULL "
-            "AND stripe_checkout_expires_at IS NOT NULL)",
+            "(provider_session_id IS NULL "
+            "AND provider_checkout_url IS NULL "
+            "AND provider_checkout_expires_at IS NULL) OR "
+            "(provider_session_id IS NOT NULL "
+            "AND provider_checkout_url IS NOT NULL "
+            "AND provider_checkout_expires_at IS NOT NULL)",
             name="checkout_session_fields_consistent",
+        ),
+        CheckConstraint(
+            "(status = 'succeeded' AND succeeded_at IS NOT NULL) OR "
+            "(status IN ('pending', 'failed', 'expired') "
+            "AND succeeded_at IS NULL)",
+            name="succeeded_at_status_consistent",
         ),
         UniqueConstraint(
             "order_id",
@@ -95,12 +111,14 @@ class Payment(Base):
             name="uq_payments_order_id_request_idempotency_key",
         ),
         UniqueConstraint(
-            "stripe_idempotency_key",
-            name="uq_payments_stripe_idempotency_key",
+            "provider",
+            "provider_idempotency_key",
+            name="uq_payments_provider_provider_idempotency_key",
         ),
         UniqueConstraint(
-            "stripe_checkout_session_id",
-            name="uq_payments_stripe_checkout_session_id",
+            "provider",
+            "provider_session_id",
+            name="uq_payments_provider_provider_session_id",
         ),
         Index(
             "ix_payments_order_pending_unique",
@@ -119,6 +137,12 @@ class Payment(Base):
             "order_id",
             "created_at",
             "id",
+        ),
+        Index(
+            "ix_payments_succeeded_at_id",
+            "succeeded_at",
+            "id",
+            postgresql_where=text("status = 'succeeded'"),
         ),
     )
 

@@ -57,7 +57,7 @@ services:
       - key: STRIPE_EXPECTED_LIVEMODE
         value: "false"
       - key: EXPECTED_ALEMBIC_HEAD
-        value: 0008_add_order_ownership
+        value: 0009_add_portfolio_demo_origin_and_payment_provider
       - key: LOG_LEVEL
         value: INFO
       - key: DATABASE_URL
@@ -94,7 +94,7 @@ services:
       - key: APP_ENVIRONMENT
         value: production
       - key: EXPECTED_ALEMBIC_HEAD
-        value: 0008_add_order_ownership
+        value: 0009_add_portfolio_demo_origin_and_payment_provider
       - key: MIGRATION_EXPECTED_LOGIN_ROLE
         value: roa_migrator
       - key: MIGRATION_OWNER_ROLE

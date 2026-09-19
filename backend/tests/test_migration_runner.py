@@ -16,7 +16,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from alembic.config import Config
 from app.database import migration_runner
 
-EXPECTED_HEAD = "0008_add_order_ownership"
+EXPECTED_HEAD = "0009_add_portfolio_demo_origin_and_payment_provider"
 MIGRATION_SECRET_MARKER = "migration-password-secret-marker"
 RUNTIME_SECRET_MARKER = "runtime-password-secret-marker"
 NEON_MIGRATION_HOST = "ep-roa-migration.eu-central-1.aws.neon.tech"

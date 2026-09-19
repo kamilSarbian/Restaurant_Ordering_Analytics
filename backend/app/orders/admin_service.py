@@ -280,7 +280,7 @@ def _build_payment_summary(payment: Payment) -> AdminPaymentSummary:
         currency=payment.currency,
         created_at=payment.created_at,
         updated_at=payment.updated_at,
-        checkout_expires_at=payment.stripe_checkout_expires_at,
+        checkout_expires_at=payment.provider_checkout_expires_at,
     )
 
 

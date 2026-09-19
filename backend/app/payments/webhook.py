@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.orders.models import Order
 from app.payments.models import Payment, StripeEvent
+from app.payments.providers import PaymentProvider
 from app.payments.statuses import PaymentStatus
 from app.payments.stripe_webhook import (
     IgnoredStripeEvent,
@@ -67,6 +68,13 @@ def process_verified_stripe_event(
         if payment is None:
             return _insert_reconciliation_receipt(session, event, payment_id=None)
 
+        if payment.provider != PaymentProvider.STRIPE_TEST.value:
+            return _insert_reconciliation_receipt(
+                session,
+                event,
+                payment_id=payment.id,
+            )
+
         if not _integrity_matches(event, order=order, payment=payment):
             return _insert_reconciliation_receipt(
                 session,
@@ -93,6 +101,8 @@ def process_verified_stripe_event(
             return WebhookProcessingOutcome.DUPLICATE
         if next_status is not None:
             payment.status = next_status.value
+            if next_status is PaymentStatus.SUCCEEDED:
+                payment.succeeded_at = event.stripe_created_at
         return outcome
 
 
@@ -186,8 +196,8 @@ def _integrity_matches(
     if event.metadata_public_order_number != order.public_order_number:
         return False
     if (
-        payment.stripe_checkout_session_id is not None
-        and payment.stripe_checkout_session_id != event.stripe_checkout_session_id
+        payment.provider_session_id is not None
+        and payment.provider_session_id != event.stripe_checkout_session_id
     ):
         return False
     if event.mode != "payment" or event.amount_total != payment.amount:

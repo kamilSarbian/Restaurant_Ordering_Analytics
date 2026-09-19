@@ -354,11 +354,12 @@ def test_same_key_concurrency_creates_one_payment_and_one_session_semantics(
     assert len(payments) == 1
     payment = payments[0]
     assert payment.request_idempotency_key == request_key
-    assert payment.stripe_idempotency_key == build_stripe_idempotency_key(payment.id)
-    assert payment.stripe_checkout_session_id == CHECKOUT_RESULT.session_id
+    assert payment.provider == "stripe_test"
+    assert payment.provider_idempotency_key == build_stripe_idempotency_key(payment.id)
+    assert payment.provider_session_id == CHECKOUT_RESULT.session_id
     assert len(fake.requests) == 2
     assert {request.stripe_idempotency_key for request in fake.requests} == {
-        payment.stripe_idempotency_key
+        payment.provider_idempotency_key
     }
     assert {outcome.created for outcome in outcomes} == {True, False}
     assert len({outcome.response.checkout_url for outcome in outcomes}) == 1
@@ -432,10 +433,10 @@ def test_owned_order_same_key_owner_and_capability_callers_converge(
     assert len(payments) == 1
     payment = payments[0]
     assert payment.request_idempotency_key == request_key
-    assert payment.stripe_idempotency_key == build_stripe_idempotency_key(payment.id)
+    assert payment.provider_idempotency_key == build_stripe_idempotency_key(payment.id)
     assert len(fake.requests) == 2
     assert {request.stripe_idempotency_key for request in fake.requests} == {
-        payment.stripe_idempotency_key
+        payment.provider_idempotency_key
     }
     assert {outcome.created for outcome in outcomes} == {True, False}
     assert {outcome.response.checkout_url for outcome in outcomes} == {
@@ -662,7 +663,7 @@ def test_stale_definitive_failure_cannot_overwrite_concurrent_success(
         payment = session.scalar(select(Payment))
     assert payment is not None
     assert payment.status == PaymentStatus.PENDING.value
-    assert payment.stripe_checkout_session_id == CHECKOUT_RESULT.session_id
+    assert payment.provider_session_id == CHECKOUT_RESULT.session_id
     assert len(outcomes) == 2
     assert all(
         outcome.response.checkout_url == CHECKOUT_RESULT.checkout_url
@@ -696,7 +697,9 @@ def test_real_cancellation_uses_the_same_order_payment_lock_protocol(
                 amount=53700,
                 currency="NOK",
                 request_idempotency_key=uuid4(),
-                stripe_idempotency_key=build_stripe_idempotency_key(payment_id),
+                provider="stripe_test",
+                provider_idempotency_key=build_stripe_idempotency_key(payment_id),
+                succeeded_at=NOW if status is PaymentStatus.SUCCEEDED else None,
             )
         )
     assert _run_cancellation(checkout_session_factory, public_number) is expected

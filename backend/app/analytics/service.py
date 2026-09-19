@@ -23,17 +23,11 @@ from app.analytics.schemas import (
     AnalyticsRangeResponse,
 )
 from app.orders.models import Order, OrderItem
-from app.payments.models import Payment, StripeEvent
+from app.payments.models import Payment
 from app.payments.statuses import PaymentStatus
-from app.payments.stripe_webhook import StripeWebhookEventType
-from app.payments.webhook import WebhookProcessingOutcome
 
 ANALYTICS_TIMEZONE_NAME = "Europe/Oslo"
 ANALYTICS_TIMEZONE = ZoneInfo(ANALYTICS_TIMEZONE_NAME)
-SUCCESS_EVENT_TYPES = (
-    StripeWebhookEventType.COMPLETED.value,
-    StripeWebhookEventType.ASYNC_PAYMENT_SUCCEEDED.value,
-)
 
 
 def get_analytics_overview(
@@ -253,43 +247,22 @@ def build_qualified_succeeded_payments(
         currency: Optional exact Payment currency filter.
 
     Returns:
-        A CTE containing one row per succeeded Payment with its earliest
-        transitioned success-capable Stripe event time.
+        A CTE containing one row per succeeded Payment with its persisted
+        provider-neutral success time.
     """
 
-    authoritative_receipts = (
-        select(
-            StripeEvent.payment_id.label("payment_id"),
-            func.min(StripeEvent.stripe_created_at).label("success_at"),
-        )
-        .where(
-            StripeEvent.payment_id.is_not(None),
-            StripeEvent.processing_result
-            == WebhookProcessingOutcome.TRANSITIONED.value,
-            StripeEvent.event_type.in_(SUCCESS_EVENT_TYPES),
-        )
-        .group_by(StripeEvent.payment_id)
-        .cte("authoritative_success_receipts")
-    )
-
-    qualified_payments_statement = (
-        select(
-            Payment.id.label("payment_id"),
-            Payment.order_id.label("order_id"),
-            Payment.status.label("payment_status"),
-            Payment.amount.label("amount"),
-            Payment.currency.label("currency"),
-            authoritative_receipts.c.success_at.label("success_at"),
-        )
-        .join(
-            authoritative_receipts,
-            authoritative_receipts.c.payment_id == Payment.id,
-        )
-        .where(
-            Payment.status == PaymentStatus.SUCCEEDED.value,
-            authoritative_receipts.c.success_at >= start_utc,
-            authoritative_receipts.c.success_at < end_utc,
-        )
+    qualified_payments_statement = select(
+        Payment.id.label("payment_id"),
+        Payment.order_id.label("order_id"),
+        Payment.status.label("payment_status"),
+        Payment.amount.label("amount"),
+        Payment.currency.label("currency"),
+        Payment.succeeded_at.label("success_at"),
+    ).where(
+        Payment.status == PaymentStatus.SUCCEEDED.value,
+        Payment.succeeded_at.is_not(None),
+        Payment.succeeded_at >= start_utc,
+        Payment.succeeded_at < end_utc,
     )
     if currency is not None:
         qualified_payments_statement = qualified_payments_statement.where(

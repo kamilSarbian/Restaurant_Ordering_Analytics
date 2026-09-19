@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import secrets
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy.orm import Session
@@ -46,7 +47,9 @@ def _payment(order: Order, status: PaymentStatus) -> Payment:
         amount=order.total_amount,
         currency=order.currency,
         request_idempotency_key=uuid.uuid4(),
-        stripe_idempotency_key=f"checkout-session:{uuid.uuid4()}",
+        provider="stripe_test",
+        provider_idempotency_key=f"checkout-session:{uuid.uuid4()}",
+        succeeded_at=(datetime.now(UTC) if status is PaymentStatus.SUCCEEDED else None),
     )
 
 

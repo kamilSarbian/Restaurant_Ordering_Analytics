@@ -51,6 +51,7 @@ EXPECTED_INDEXES = {
     "ix_payments_order_created_at_id",
     "ix_payments_order_pending_unique",
     "ix_payments_order_succeeded_unique",
+    "ix_payments_succeeded_at_id",
     "ix_stripe_events_payment_created_at_id",
     "ix_stripe_events_session_created_at_id",
 }

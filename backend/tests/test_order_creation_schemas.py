@@ -191,6 +191,22 @@ def test_order_create_request_rejects_invalid_table_structure(
         ("request", "subtotal_amount", 100),
         ("request", "total_amount", 100),
         ("request", "payment", {}),
+        ("request", "data_origin", "portfolio_seed"),
+        ("request", "provider", "demo"),
+        ("request", "request_idempotency_key", str(uuid4())),
+        ("request", "provider_idempotency_key", "demo-payment:synthetic"),
+        ("request", "provider_session_id", "demo_session_synthetic"),
+        (
+            "request",
+            "provider_checkout_url",
+            "https://checkout.example.invalid/synthetic",
+        ),
+        (
+            "request",
+            "provider_checkout_expires_at",
+            datetime(2026, 8, 7, 13, tzinfo=UTC),
+        ),
+        ("request", "succeeded_at", datetime(2026, 8, 7, 12, tzinfo=UTC)),
         ("item", "price_amount", 100),
         ("item", "name", "Client Name"),
         ("item", "cost_amount", 50),
@@ -274,6 +290,14 @@ def test_order_create_response_has_exact_public_fields() -> None:
         {"id": uuid4()},
         {"order_access_token_hash": "a" * 64},
         {"payment_summary": None},
+        {"data_origin": "portfolio_seed"},
+        {"provider": "demo"},
+        {"request_idempotency_key": uuid4()},
+        {"provider_idempotency_key": "demo-payment:synthetic"},
+        {"provider_session_id": "demo_session_synthetic"},
+        {"provider_checkout_url": "https://checkout.example.invalid/synthetic"},
+        {"provider_checkout_expires_at": datetime(2026, 8, 7, 13, tzinfo=UTC)},
+        {"succeeded_at": datetime(2026, 8, 7, 12, tzinfo=UTC)},
     ],
 )
 def test_order_create_response_rejects_invalid_or_internal_fields(
@@ -305,6 +329,14 @@ def test_order_status_response_has_exact_public_fields_without_token() -> None:
         "order_access_token",
         "order_access_token_hash",
         "payment_summary",
+        "data_origin",
+        "provider",
+        "request_idempotency_key",
+        "provider_idempotency_key",
+        "provider_session_id",
+        "provider_checkout_url",
+        "provider_checkout_expires_at",
+        "succeeded_at",
     }.isdisjoint(fields)
 
 
@@ -316,6 +348,14 @@ def test_order_status_response_has_exact_public_fields_without_token() -> None:
         {"order_access_token": "token"},
         {"id": uuid4()},
         {"payment_summary": None},
+        {"data_origin": "portfolio_seed"},
+        {"provider": "demo"},
+        {"request_idempotency_key": uuid4()},
+        {"provider_idempotency_key": "demo-payment:synthetic"},
+        {"provider_session_id": "demo_session_synthetic"},
+        {"provider_checkout_url": "https://checkout.example.invalid/synthetic"},
+        {"provider_checkout_expires_at": datetime(2026, 8, 7, 13, tzinfo=UTC)},
+        {"succeeded_at": datetime(2026, 8, 7, 12, tzinfo=UTC)},
     ],
 )
 def test_order_status_response_requires_aware_objects_and_forbids_extras(

@@ -137,7 +137,11 @@ def _store_order(
                 amount=order.total_amount,
                 currency=order.currency,
                 request_idempotency_key=uuid.uuid4(),
-                stripe_idempotency_key=build_stripe_idempotency_key(payment_id),
+                provider="stripe_test",
+                provider_idempotency_key=build_stripe_idempotency_key(payment_id),
+                succeeded_at=(
+                    NOW if payment_status is PaymentStatus.SUCCEEDED else None
+                ),
             )
             session.add(payment)
     return order, payment

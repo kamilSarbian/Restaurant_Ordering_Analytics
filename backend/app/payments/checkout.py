@@ -12,6 +12,7 @@ from app.orders.access import OrderNotFoundError, can_access_order
 from app.orders.models import Order
 from app.orders.statuses import OrderStatus
 from app.payments.models import Payment
+from app.payments.providers import PaymentProvider
 from app.payments.schemas import CheckoutSessionResponse
 from app.payments.statuses import PaymentStatus
 from app.payments.stripe_checkout import (
@@ -245,7 +246,7 @@ def _resolve_same_key_payment(
     if session_state == "partial":
         raise PaymentSessionReconciliationRequiredError
     if session_state == "complete":
-        expires_at = _as_utc(payment.stripe_checkout_expires_at)
+        expires_at = _as_utc(payment.provider_checkout_expires_at)
         if expires_at <= now:
             raise PaymentSessionReconciliationRequiredError
         return (
@@ -292,7 +293,8 @@ def _create_pending_attempt(
         amount=order.total_amount,
         currency=order.currency,
         request_idempotency_key=request_idempotency_key,
-        stripe_idempotency_key=build_stripe_idempotency_key(payment_id),
+        provider=PaymentProvider.STRIPE_TEST.value,
+        provider_idempotency_key=build_stripe_idempotency_key(payment_id),
     )
     session.add(payment)
     session.flush()
@@ -305,7 +307,7 @@ def _create_pending_attempt(
             payment_id=payment.id,
             success_url=success_url,
             cancel_url=cancel_url,
-            stripe_idempotency_key=payment.stripe_idempotency_key,
+            stripe_idempotency_key=payment.provider_idempotency_key,
         ),
         created=True,
     )
@@ -333,7 +335,7 @@ def _provider_request(
         payment_id=payment.id,
         success_url=success_url,
         cancel_url=cancel_url,
-        stripe_idempotency_key=payment.stripe_idempotency_key,
+        stripe_idempotency_key=payment.provider_idempotency_key,
     )
 
 
@@ -395,9 +397,9 @@ def _persist_provider_success(
         if session_state == "partial":
             raise PaymentSessionReconciliationRequiredError
         if session_state == "empty":
-            payment.stripe_checkout_session_id = provider_result.session_id
-            payment.stripe_checkout_url = provider_result.checkout_url
-            payment.stripe_checkout_expires_at = provider_expires_at
+            payment.provider_session_id = provider_result.session_id
+            payment.provider_checkout_url = provider_result.checkout_url
+            payment.provider_checkout_expires_at = provider_expires_at
         elif not _provider_result_matches(
             payment, provider_result, provider_expires_at
         ):
@@ -460,9 +462,9 @@ def _resolve_definitive_failure(
 
 def _session_field_state(payment: Payment) -> str:
     values = (
-        payment.stripe_checkout_session_id,
-        payment.stripe_checkout_url,
-        payment.stripe_checkout_expires_at,
+        payment.provider_session_id,
+        payment.provider_checkout_url,
+        payment.provider_checkout_expires_at,
     )
     populated = sum(value is not None for value in values)
     if populated == 0:
@@ -478,13 +480,13 @@ def _stored_response(
 ) -> CheckoutSessionResponse:
     if _session_field_state(payment) != "complete":
         raise PaymentSessionReconciliationRequiredError
-    if payment.stripe_checkout_url is None:
+    if payment.provider_checkout_url is None:
         raise PaymentSessionReconciliationRequiredError
     return CheckoutSessionResponse(
         public_order_number=public_order_number,
         payment_status=PaymentStatus(payment.status),
-        checkout_url=payment.stripe_checkout_url,
-        expires_at=_as_utc(payment.stripe_checkout_expires_at),
+        checkout_url=payment.provider_checkout_url,
+        expires_at=_as_utc(payment.provider_checkout_expires_at),
     )
 
 
@@ -494,9 +496,9 @@ def _provider_result_matches(
     provider_expires_at: datetime,
 ) -> bool:
     return (
-        payment.stripe_checkout_session_id == provider_result.session_id
-        and payment.stripe_checkout_url == provider_result.checkout_url
-        and _as_utc(payment.stripe_checkout_expires_at) == provider_expires_at
+        payment.provider_session_id == provider_result.session_id
+        and payment.provider_checkout_url == provider_result.checkout_url
+        and _as_utc(payment.provider_checkout_expires_at) == provider_expires_at
     )
 
 

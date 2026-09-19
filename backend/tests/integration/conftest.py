@@ -26,7 +26,7 @@ ADMIN_DATABASE_NAME = "postgres"
 ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
 REQUIRED_DRIVER = "postgresql+psycopg"
 REQUIRED_PORT = 5433
-HEAD_REVISION = "0008_add_order_ownership"
+HEAD_REVISION = "0009_add_portfolio_demo_origin_and_payment_provider"
 BASELINE_REVISION = "0001_database_baseline"
 
 

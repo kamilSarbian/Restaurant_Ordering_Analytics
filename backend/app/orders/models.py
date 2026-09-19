@@ -21,6 +21,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base
+from app.orders.origins import OrderDataOrigin
 from app.orders.statuses import OrderStatus
 from app.payments.models import Payment
 
@@ -43,6 +44,12 @@ class Order(Base):
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
+    )
+    data_origin: Mapped[str] = mapped_column(
+        String(17),
+        default=OrderDataOrigin.LIVE.value,
+        server_default=text("'live'"),
+        nullable=False,
     )
     order_type: Mapped[str] = mapped_column(String(16), nullable=False)
     table_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -94,6 +101,10 @@ class Order(Base):
             "status IN ('created', 'accepted', 'preparing', 'ready', "
             "'completed', 'cancelled')",
             name="status_allowed",
+        ),
+        CheckConstraint(
+            "data_origin IN ('live', 'portfolio_seed', 'portfolio_runtime')",
+            name="data_origin_allowed",
         ),
         CheckConstraint(
             "order_type IN ('dine_in', 'takeaway')",

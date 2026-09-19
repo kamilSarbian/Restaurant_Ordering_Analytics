@@ -104,7 +104,7 @@ def test_revision_is_the_single_child_of_admin_user_migration() -> None:
     assert revision.revision == REVISION_0007
     assert revision.down_revision == REVISION_0006
     assert script.get_current_head() == HEAD_REVISION
-    assert HEAD_REVISION == "0008_add_order_ownership"
+    assert HEAD_REVISION == "0009_add_portfolio_demo_origin_and_payment_provider"
 
 
 def test_zero_row_upgrade_creates_empty_constrained_users_table(

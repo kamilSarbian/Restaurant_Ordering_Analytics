@@ -619,7 +619,7 @@ if ! database_state="$("${COMPOSE[@]}" exec -T postgres sh -ec \
 SELECT CASE WHEN
     current_database() = 'restaurant_ordering_analytics_e2e'
     AND current_user = 'e2e_app'
-    AND (SELECT count(*) FROM alembic_version WHERE version_num = '0008_add_order_ownership') = 1
+    AND (SELECT count(*) FROM alembic_version WHERE version_num = '0009_add_portfolio_demo_origin_and_payment_provider') = 1
     AND (SELECT count(*) FROM users) = 4
     AND (SELECT count(*) FROM users WHERE role = 'customer') = 2
     AND (SELECT count(*) FROM users WHERE role = 'admin') = 1

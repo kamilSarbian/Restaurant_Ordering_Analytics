@@ -154,7 +154,6 @@ def test_payment_model_matches_migration_and_alembic_has_no_drift(
     test_database_engine: Engine,
 ) -> None:
     """Compare the Payment columns and run Alembic drift detection."""
-    _assert_payment_schema(test_database_engine)
     inspector = inspect(test_database_engine)
     migrated_columns = {
         column["name"]: column for column in inspector.get_columns("payments")
@@ -175,9 +174,13 @@ def test_payment_model_matches_migration_and_alembic_has_no_drift(
     assert isinstance(migrated_columns["status"]["type"], String)
     assert isinstance(migrated_columns["amount"]["type"], BigInteger)
     assert isinstance(migrated_columns["currency"]["type"], String)
-    assert isinstance(migrated_columns["stripe_checkout_url"]["type"], Text)
+    assert isinstance(migrated_columns["provider"]["type"], String)
+    assert isinstance(migrated_columns["provider_idempotency_key"]["type"], String)
+    assert isinstance(migrated_columns["provider_session_id"]["type"], String)
+    assert isinstance(migrated_columns["provider_checkout_url"]["type"], Text)
     for column_name in (
-        "stripe_checkout_expires_at",
+        "provider_checkout_expires_at",
+        "succeeded_at",
         "created_at",
         "updated_at",
     ):

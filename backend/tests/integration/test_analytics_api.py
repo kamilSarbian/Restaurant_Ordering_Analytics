@@ -26,6 +26,7 @@ from app.orders.access import generate_public_order_number
 from app.orders.models import Order, OrderItem, OrderStatusHistory
 from app.orders.statuses import OrderStatus
 from app.payments.models import Payment, StripeEvent
+from app.payments.providers import PaymentProvider
 from app.payments.statuses import PaymentStatus
 from app.payments.stripe_webhook import StripeWebhookEventType
 from app.payments.webhook import WebhookProcessingOutcome
@@ -173,9 +174,25 @@ def _store_payment(
     payment_status: PaymentStatus = PaymentStatus.SUCCEEDED,
     order_status: OrderStatus = OrderStatus.CREATED,
     receipts: tuple[ReceiptSpec, ...] = (),
+    provider: PaymentProvider = PaymentProvider.STRIPE_TEST,
+    succeeded_at: datetime | None = None,
     payment_updated_at: datetime | None = None,
     order_id: uuid.UUID | None = None,
 ) -> uuid.UUID:
+    if payment_status is PaymentStatus.SUCCEEDED and succeeded_at is None:
+        qualifying_times = tuple(
+            receipt.stripe_created_at
+            for receipt in receipts
+            if receipt.processing_result is WebhookProcessingOutcome.TRANSITIONED
+            and receipt.event_type
+            in {
+                StripeWebhookEventType.COMPLETED,
+                StripeWebhookEventType.ASYNC_PAYMENT_SUCCEEDED,
+            }
+        )
+        if not qualifying_times:
+            raise AssertionError("Succeeded analytics fixture requires succeeded_at")
+        succeeded_at = min(qualifying_times)
     with session_factory.begin() as session:
         if order_id is None:
             order = _new_order(
@@ -194,11 +211,13 @@ def _store_payment(
         payment = Payment(
             id=payment_id,
             order_id=order.id,
+            provider=provider.value,
             status=payment_status.value,
             amount=amount,
             currency=currency,
             request_idempotency_key=uuid.uuid4(),
-            stripe_idempotency_key=f"checkout-session:{payment_id}",
+            provider_idempotency_key=f"checkout-session:{payment_id}",
+            succeeded_at=succeeded_at,
             created_at=RANGE_START - timedelta(days=20),
             updated_at=payment_updated_at or RANGE_START - timedelta(days=20),
         )
@@ -309,6 +328,8 @@ def _store_paid_order_with_lines(
     payment_amount: int | None = None,
     prior_attempts: bool = False,
     additional_receipt: bool = False,
+    provider: PaymentProvider = PaymentProvider.STRIPE_TEST,
+    persist_stripe_receipt: bool = True,
     order_status: OrderStatus = OrderStatus.CREATED,
 ) -> uuid.UUID:
     line_total = sum(line.quantity * line.unit_price_amount for line in lines)
@@ -358,11 +379,12 @@ def _store_paid_order_with_lines(
                     Payment(
                         id=attempt_id,
                         order_id=order.id,
+                        provider=provider.value,
                         status=status.value,
                         amount=payment_amount or line_total,
                         currency=currency,
                         request_idempotency_key=uuid.uuid4(),
-                        stripe_idempotency_key=f"checkout-session:{attempt_id}",
+                        provider_idempotency_key=f"checkout-session:{attempt_id}",
                     )
                 )
         payment_id = uuid.uuid4()
@@ -370,26 +392,29 @@ def _store_paid_order_with_lines(
             Payment(
                 id=payment_id,
                 order_id=order.id,
+                provider=provider.value,
                 status=PaymentStatus.SUCCEEDED.value,
                 amount=payment_amount or line_total,
                 currency=currency,
                 request_idempotency_key=uuid.uuid4(),
-                stripe_idempotency_key=f"checkout-session:{payment_id}",
+                provider_idempotency_key=f"checkout-session:{payment_id}",
+                succeeded_at=success_at,
             )
         )
         session.flush()
-        receipt_id = uuid.uuid4().hex
-        session.add(
-            StripeEvent(
-                stripe_event_id=f"evt_synthetic_{receipt_id}",
-                event_type=StripeWebhookEventType.COMPLETED.value,
-                livemode=False,
-                stripe_created_at=success_at,
-                stripe_checkout_session_id=f"cs_test_{receipt_id}",
-                payment_id=payment_id,
-                processing_result=WebhookProcessingOutcome.TRANSITIONED.value,
+        if persist_stripe_receipt:
+            receipt_id = uuid.uuid4().hex
+            session.add(
+                StripeEvent(
+                    stripe_event_id=f"evt_synthetic_{receipt_id}",
+                    event_type=StripeWebhookEventType.COMPLETED.value,
+                    livemode=False,
+                    stripe_created_at=success_at,
+                    stripe_checkout_session_id=f"cs_test_{receipt_id}",
+                    payment_id=payment_id,
+                    processing_result=WebhookProcessingOutcome.TRANSITIONED.value,
+                )
             )
-        )
         if additional_receipt:
             extra_id = uuid.uuid4().hex
             session.add(
@@ -634,18 +659,20 @@ def test_overview_counts_payment_once_with_additional_receipts(
     ]
 
 
-def test_overview_uses_only_transitioned_success_receipts_for_succeeded_payments(
+def test_overview_uses_persisted_success_state_not_stripe_receipt_shape(
     analytics_client: AnalyticsClient,
 ) -> None:
     at = RANGE_START + timedelta(days=2)
     _store_payment(
         analytics_client.session_factory,
         amount=11,
+        succeeded_at=at,
         receipts=(_success_receipt(at),),
     )
     _store_payment(
         analytics_client.session_factory,
         amount=13,
+        succeeded_at=at,
         receipts=(
             _success_receipt(
                 at,
@@ -653,10 +680,11 @@ def test_overview_uses_only_transitioned_success_receipts_for_succeeded_payments
             ),
         ),
     )
-    _store_payment(analytics_client.session_factory, amount=17)
+    _store_payment(analytics_client.session_factory, amount=17, succeeded_at=at)
     _store_payment(
         analytics_client.session_factory,
         amount=19,
+        succeeded_at=at,
         receipts=(
             _success_receipt(
                 at,
@@ -667,6 +695,7 @@ def test_overview_uses_only_transitioned_success_receipts_for_succeeded_payments
     _store_payment(
         analytics_client.session_factory,
         amount=23,
+        succeeded_at=at,
         receipts=(
             _success_receipt(
                 at,
@@ -677,6 +706,7 @@ def test_overview_uses_only_transitioned_success_receipts_for_succeeded_payments
     _store_payment(
         analytics_client.session_factory,
         amount=29,
+        succeeded_at=at,
         receipts=(
             _success_receipt(
                 at,
@@ -701,19 +731,20 @@ def test_overview_uses_only_transitioned_success_receipts_for_succeeded_payments
     assert response.json()["currencies"] == [
         {
             "currency": "NOK",
-            "collected_revenue_amount": 24,
-            "succeeded_orders_count": 2,
-            "average_order_value_amount": 12,
+            "collected_revenue_amount": 112,
+            "succeeded_orders_count": 6,
+            "average_order_value_amount": 19,
         }
     ]
 
 
-def test_overview_uses_earliest_success_receipt_and_half_open_boundaries(
+def test_overview_uses_persisted_success_time_and_half_open_boundaries(
     analytics_client: AnalyticsClient,
 ) -> None:
     _store_payment(
         analytics_client.session_factory,
         amount=10,
+        succeeded_at=RANGE_START - timedelta(seconds=1),
         receipts=(
             _success_receipt(RANGE_START - timedelta(seconds=1)),
             _success_receipt(
@@ -725,17 +756,20 @@ def test_overview_uses_earliest_success_receipt_and_half_open_boundaries(
     _store_payment(
         analytics_client.session_factory,
         amount=20,
+        succeeded_at=RANGE_START,
         receipts=(_success_receipt(RANGE_START),),
         payment_updated_at=RANGE_END + timedelta(days=100),
     )
     _store_payment(
         analytics_client.session_factory,
         amount=30,
+        succeeded_at=RANGE_END - timedelta(microseconds=1),
         receipts=(_success_receipt(RANGE_END - timedelta(microseconds=1)),),
     )
     _store_payment(
         analytics_client.session_factory,
         amount=40,
+        succeeded_at=RANGE_END,
         receipts=(_success_receipt(RANGE_END),),
     )
 
@@ -893,7 +927,6 @@ def test_valid_http_request_executes_one_analytics_select_and_no_dml(
         statement
         for statement in statements
         if "qualified_succeeded_payments" in statement
-        and "authoritative_success_receipts" in statement
     ]
     assert len(analytics_selects) == 1
     normalized = [statement.lstrip().lower() for statement in statements]
@@ -902,6 +935,8 @@ def test_valid_http_request_executes_one_analytics_select_and_no_dml(
         for statement in normalized
     )
     assert " join orders " not in analytics_selects[0].lower()
+    assert "stripe_events" not in analytics_selects[0].lower()
+    assert "payments.succeeded_at" in analytics_selects[0].lower()
 
 
 def test_breakdown_routes_require_admin_and_validate_shared_queries(
@@ -1528,7 +1563,7 @@ def test_corrupted_payment_currency_keeps_finance_and_snapshots_isolated(
         (StripeWebhookEventType.EXPIRED, WebhookProcessingOutcome.TRANSITIONED),
     ],
 )
-def test_nonqualifying_receipts_exclude_succeeded_payment_from_every_endpoint(
+def test_stripe_receipt_shape_does_not_override_persisted_success_time(
     analytics_client: AnalyticsClient,
     event_type: StripeWebhookEventType,
     outcome: WebhookProcessingOutcome,
@@ -1558,39 +1593,35 @@ def test_nonqualifying_receipts_exclude_succeeded_payment_from_every_endpoint(
         body = analytics_client.client.get(
             path, params=_params(), headers=analytics_client.headers
         ).json()
-        assert body.get("currencies", body.get("items")) == []
+        assert body.get("currencies", body.get("items"))
 
 
-def test_succeeded_payment_without_receipt_is_excluded_from_every_endpoint(
+def test_demo_payment_with_no_stripe_receipt_qualifies_for_every_endpoint(
     analytics_client: AnalyticsClient,
 ) -> None:
     item_id, _ = _store_catalog_item(
         analytics_client.session_factory,
-        item_name="Missing Receipt Item",
-        category_name="Missing Receipt Category",
+        item_name="Demo Item",
+        category_name="Demo Category",
     )
-    order_id = _store_paid_order_with_lines(
+    _store_paid_order_with_lines(
         analytics_client.session_factory,
-        lines=(
-            LineSpec(
-                item_id, "Missing Receipt Item", "Missing Receipt Category", 1, 100
-            ),
-        ),
+        lines=(LineSpec(item_id, "Demo Item", "Demo Category", 1, 100),),
         success_at=RANGE_START + timedelta(days=11),
+        provider=PaymentProvider.DEMO,
+        persist_stripe_receipt=False,
     )
-    with analytics_client.session_factory.begin() as session:
-        payment_id = session.scalar(
-            select(Payment.id).where(Payment.order_id == order_id)
-        )
-        session.execute(delete(StripeEvent).where(StripeEvent.payment_id == payment_id))
+    with analytics_client.session_factory() as session:
+        assert session.scalar(select(Payment.provider)) == PaymentProvider.DEMO.value
+        assert session.scalars(select(StripeEvent.id)).all() == []
     for path in (OVERVIEW_PATH, PRODUCTS_PATH, CATEGORIES_PATH, ORDER_TYPES_PATH):
         body = analytics_client.client.get(
             path, params=_params(), headers=analytics_client.headers
         ).json()
-        assert body.get("currencies", body.get("items")) == []
+        assert body.get("currencies", body.get("items"))
 
 
-def test_earliest_transitioned_success_time_controls_every_endpoint(
+def test_persisted_success_time_controls_every_endpoint(
     analytics_client: AnalyticsClient,
 ) -> None:
     item_id, _ = _store_catalog_item(
@@ -1617,7 +1648,7 @@ def test_earliest_transitioned_success_time_controls_every_endpoint(
                 stripe_event_id=f"evt_synthetic_{extra_id}",
                 event_type=StripeWebhookEventType.ASYNC_PAYMENT_SUCCEEDED.value,
                 livemode=False,
-                stripe_created_at=first + timedelta(days=1),
+                stripe_created_at=first - timedelta(days=1),
                 stripe_checkout_session_id=f"cs_test_{extra_id}",
                 payment_id=payment_id,
                 processing_result=WebhookProcessingOutcome.TRANSITIONED.value,
@@ -1632,8 +1663,8 @@ def test_earliest_transitioned_success_time_controls_every_endpoint(
         excluded = analytics_client.client.get(
             path,
             params=_params(
-                start=first + timedelta(hours=1),
-                end=first + timedelta(days=2),
+                start=first - timedelta(days=2),
+                end=first,
             ),
             headers=analytics_client.headers,
         ).json()

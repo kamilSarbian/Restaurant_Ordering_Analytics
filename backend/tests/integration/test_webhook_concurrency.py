@@ -169,7 +169,11 @@ def _store_payment(
         amount=order.total_amount,
         currency=order.currency,
         request_idempotency_key=uuid4(),
-        stripe_idempotency_key=build_stripe_idempotency_key(payment_id),
+        provider="stripe_test",
+        provider_idempotency_key=build_stripe_idempotency_key(payment_id),
+        succeeded_at=(
+            NOW - timedelta(days=1) if status is PaymentStatus.SUCCEEDED else None
+        ),
     )
     with session_factory.begin() as session:
         session.add(payment)
@@ -311,6 +315,7 @@ def test_concurrent_known_duplicate_transitions_once_and_stores_one_receipt(
     }
     assert stored_payment is not None
     assert stored_payment.status == PaymentStatus.SUCCEEDED.value
+    assert stored_payment.succeeded_at == NOW
     assert len(receipts) == 1
 
 
@@ -460,9 +465,10 @@ def test_webhook_success_before_checkout_phase_three_fills_session_tuple(
     assert outcome.response.payment_status is PaymentStatus.SUCCEEDED
     assert stored_payment is not None
     assert stored_payment.status == PaymentStatus.SUCCEEDED.value
-    assert stored_payment.stripe_checkout_session_id == CHECKOUT_RESULT.session_id
-    assert stored_payment.stripe_checkout_url == CHECKOUT_RESULT.checkout_url
-    assert stored_payment.stripe_checkout_expires_at == CHECKOUT_RESULT.expires_at
+    assert stored_payment.succeeded_at == NOW
+    assert stored_payment.provider_session_id == CHECKOUT_RESULT.session_id
+    assert stored_payment.provider_checkout_url == CHECKOUT_RESULT.checkout_url
+    assert stored_payment.provider_checkout_expires_at == CHECKOUT_RESULT.expires_at
     assert len(receipts) == 1
 
 
@@ -514,9 +520,10 @@ def test_failed_or_expired_webhook_before_phase_three_remains_incompatible(
         if event_type is StripeWebhookEventType.ASYNC_PAYMENT_FAILED
         else PaymentStatus.EXPIRED.value
     )
-    assert stored_payment.stripe_checkout_session_id is None
-    assert stored_payment.stripe_checkout_url is None
-    assert stored_payment.stripe_checkout_expires_at is None
+    assert stored_payment.succeeded_at is None
+    assert stored_payment.provider_session_id is None
+    assert stored_payment.provider_checkout_url is None
+    assert stored_payment.provider_checkout_expires_at is None
 
 
 def _run_cancellation(
@@ -587,6 +594,9 @@ def test_webhook_and_real_cancellation_share_lock_order_without_deadlock(
             else PaymentStatus.EXPIRED.value
         )
     )
+    assert stored_payment.succeeded_at == (
+        NOW if event_type is StripeWebhookEventType.COMPLETED else None
+    )
 
 
 def test_pending_payment_blocks_real_cancellation(
@@ -638,6 +648,7 @@ def test_cancellation_attempt_before_success_webhook_cannot_create_invalid_state
     assert stored_payment is not None
     assert stored_order.status == OrderStatus.CREATED.value
     assert stored_payment.status == PaymentStatus.SUCCEEDED.value
+    assert stored_payment.succeeded_at == NOW
     assert [entry.sequence for entry in history] == [0]
 
 

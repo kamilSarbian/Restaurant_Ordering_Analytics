@@ -6,7 +6,7 @@ import secrets
 import uuid
 
 import pytest
-from sqlalchemy import BigInteger, inspect, select
+from sqlalchemy import BigInteger, String, inspect, select
 from sqlalchemy.dialects.postgresql import UUID as PostgreSQLUUID
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import DataError, IntegrityError
@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.categories.models import Category
 from app.menu.models import MenuItem
 from app.orders.models import Order, OrderItem, OrderStatusHistory
+from app.orders.origins import OrderDataOrigin
 from app.orders.statuses import OrderStatus
 from app.restaurant_tables.models import RestaurantTable
 
@@ -26,6 +27,7 @@ EXPECTED_CHECKS = {
     "orders": {
         "ck_orders_access_token_hash_format",
         "ck_orders_currency_format",
+        "ck_orders_data_origin_allowed",
         "ck_orders_order_type_allowed",
         "ck_orders_order_type_table_consistency",
         "ck_orders_public_order_number_format",
@@ -252,6 +254,24 @@ def test_order_ownership_column_and_index_match_the_persistence_contract(
     assert ownership_index["unique"] is False
 
 
+def test_order_data_origin_column_matches_the_persistence_contract(
+    test_database_engine: Engine,
+) -> None:
+    """Keep order provenance non-null, bounded, and safely defaulted to live."""
+    inspector = inspect(test_database_engine)
+    columns = {column["name"]: column for column in inspector.get_columns("orders")}
+    origin_column = columns["data_origin"]
+    assert isinstance(origin_column["type"], String)
+    assert origin_column["type"].length == 17
+    assert origin_column["nullable"] is False
+    assert "live" in str(origin_column["default"])
+
+    model_column = Order.__table__.columns["data_origin"]
+    assert model_column.default is not None
+    assert model_column.default.arg == OrderDataOrigin.LIVE.value
+    assert model_column.server_default is not None
+
+
 def test_schema_uses_bigint_and_has_no_unapproved_order_item_fields(
     test_database_engine: Engine,
 ) -> None:
@@ -307,6 +327,7 @@ def test_takeaway_order_defaults_uuid_status_timestamps_and_bigint(
     db_session.flush()
     assert isinstance(order.id, uuid.UUID)
     assert order.status == OrderStatus.CREATED.value
+    assert order.data_origin == OrderDataOrigin.LIVE.value
     assert order.customer_user_id is None
     assert order.table_id is None
     assert order.table_number_snapshot is None
@@ -346,6 +367,23 @@ def test_order_accepts_every_approved_status(
 def test_order_rejects_unknown_status(db_session: Session) -> None:
     """Reject payment and unknown values from the fulfilment lifecycle."""
     _assert_database_error(db_session, _order(status="paid"))
+
+
+@pytest.mark.parametrize("origin", list(OrderDataOrigin))
+def test_order_accepts_every_approved_data_origin(
+    db_session: Session,
+    origin: OrderDataOrigin,
+) -> None:
+    """Persist every approved live or portfolio-demo provenance value."""
+    order = _order(data_origin=origin.value)
+    db_session.add(order)
+    db_session.flush()
+    assert order.data_origin == origin.value
+
+
+def test_order_rejects_unknown_data_origin(db_session: Session) -> None:
+    """Reject provenance values outside the approved contract."""
+    _assert_database_error(db_session, _order(data_origin="synthetic"))
 
 
 @pytest.mark.parametrize(

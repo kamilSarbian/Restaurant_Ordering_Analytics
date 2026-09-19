@@ -104,6 +104,7 @@ def _store_order_and_payment(
     *,
     payment_status: PaymentStatus = PaymentStatus.PENDING,
     stored_session_id: str | None = None,
+    provider: str = "stripe_test",
 ) -> tuple[Order, Payment]:
     order = Order(
         id=uuid4(),
@@ -125,13 +126,19 @@ def _store_order_and_payment(
         amount=53700,
         currency="NOK",
         request_idempotency_key=uuid4(),
-        stripe_idempotency_key=build_stripe_idempotency_key(payment_id),
-        stripe_checkout_session_id=stored_session_id,
-        stripe_checkout_url=(
+        provider=provider,
+        provider_idempotency_key=build_stripe_idempotency_key(payment_id),
+        provider_session_id=stored_session_id,
+        provider_checkout_url=(
             "https://checkout.example.test/synthetic" if stored_session_id else None
         ),
-        stripe_checkout_expires_at=(
+        provider_checkout_expires_at=(
             NOW + timedelta(hours=1) if stored_session_id else None
+        ),
+        succeeded_at=(
+            NOW - timedelta(days=1)
+            if payment_status is PaymentStatus.SUCCEEDED
+            else None
         ),
     )
     with session_factory.begin() as session:
@@ -464,6 +471,18 @@ def test_transition_matrix_is_durable_and_never_overwrites_terminal_state(
     assert response.status_code == 200
     assert response.json() == {"received": True}
     assert payments[0].status == expected_status.value
+    expected_succeeded_at = (
+        NOW
+        if initial_status is PaymentStatus.PENDING
+        and expected_status is PaymentStatus.SUCCEEDED
+        and expected_result == "transitioned"
+        else (
+            NOW - timedelta(days=1)
+            if initial_status is PaymentStatus.SUCCEEDED
+            else None
+        )
+    )
+    assert payments[0].succeeded_at == expected_succeeded_at
     assert len(receipts) == 1
     assert receipts[0].processing_result == expected_result
     assert receipts[0].payment_id == payment.id
@@ -497,6 +516,7 @@ def test_completed_unexpected_provider_state_requires_reconciliation(
         assert _post(client).status_code == 200
     payments, receipts = _stored_state(webhook_session_factory)
     assert payments[0].status == PaymentStatus.PENDING.value
+    assert payments[0].succeeded_at is None
     assert receipts[0].processing_result == "reconciliation_required"
 
 
@@ -571,6 +591,7 @@ def test_correlation_and_integrity_failures_create_reconciliation_receipts(
     payments, receipts = _stored_state(webhook_session_factory)
     assert response.status_code == 200
     assert payments[0].status == PaymentStatus.PENDING.value
+    assert payments[0].succeeded_at is None
     assert len(receipts) == 1
     assert receipts[0].processing_result == "reconciliation_required"
     assert (receipts[0].payment_id == payment.id) is expected_payment_link
@@ -588,7 +609,8 @@ def test_null_stored_session_correlates_through_verified_metadata(
         assert _post(client).status_code == 200
     payments, receipts = _stored_state(webhook_session_factory)
     assert payments[0].status == PaymentStatus.SUCCEEDED.value
-    assert payments[0].stripe_checkout_session_id is None
+    assert payments[0].succeeded_at == NOW
+    assert payments[0].provider_session_id is None
     assert receipts[0].processing_result == "transitioned"
 
 
@@ -607,7 +629,9 @@ def test_second_succeeded_attempt_is_reconciled_without_constraint_failure(
                 amount=order.total_amount,
                 currency=order.currency,
                 request_idempotency_key=uuid4(),
-                stripe_idempotency_key=build_stripe_idempotency_key(succeeded_id),
+                provider="stripe_test",
+                provider_idempotency_key=build_stripe_idempotency_key(succeeded_id),
+                succeeded_at=NOW - timedelta(days=1),
             )
         )
     verified = _verified_event(order, pending_payment)
@@ -636,7 +660,32 @@ def test_sequential_duplicate_is_acknowledged_once(
     payments, receipts = _stored_state(webhook_session_factory)
     assert first.status_code == second.status_code == 200
     assert payments[0].status == PaymentStatus.SUCCEEDED.value
+    assert payments[0].succeeded_at == NOW
     assert len(receipts) == 1
+
+
+def test_stripe_event_cannot_transition_demo_provider_payment(
+    webhook_session_factory: sessionmaker[Session],
+) -> None:
+    """Audit a verified Stripe event without mutating a demo Payment."""
+    order, payment = _store_order_and_payment(
+        webhook_session_factory,
+        provider="demo",
+    )
+    verified = _verified_event(order, payment)
+    with TestClient(
+        _application(webhook_session_factory, StaticVerifier(verified))
+    ) as client:
+        response = _post(client)
+
+    payments, receipts = _stored_state(webhook_session_factory)
+    assert response.status_code == 200
+    assert response.json() == {"received": True}
+    assert payments[0].status == PaymentStatus.PENDING.value
+    assert payments[0].succeeded_at is None
+    assert len(receipts) == 1
+    assert receipts[0].payment_id == payment.id
+    assert receipts[0].processing_result == "reconciliation_required"
 
 
 def test_livemode_is_persisted_without_environment_rejection(

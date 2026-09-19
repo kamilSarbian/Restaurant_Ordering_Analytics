@@ -20,7 +20,7 @@ RENDER_API_BASE_URL = "https://api.render.com/v1"
 GHCR_REPOSITORY = "ghcr.io/kamilsarbian/restaurant-ordering-analytics-backend"
 BOOTSTRAP_IMAGE = f"{GHCR_REPOSITORY}:stage20-bootstrap"
 GITHUB_REPOSITORY = "https://github.com/kamilSarbian/Restaurant_Ordering_Analytics"
-EXPECTED_ALEMBIC_HEAD = "0008_add_order_ownership"
+EXPECTED_ALEMBIC_HEAD = "0009_add_portfolio_demo_origin_and_payment_provider"
 MIGRATION_COMMAND = "/usr/local/bin/run-migrations"
 MIGRATOR_ARTIFACT_PROOF_PENDING = "MIGRATOR ARTIFACT PROMOTION NEEDS LIVE RUNTIME PROOF"
 

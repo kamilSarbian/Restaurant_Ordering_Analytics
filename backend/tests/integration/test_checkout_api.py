@@ -196,13 +196,15 @@ def _store_payment(
         amount=53700,
         currency="NOK",
         request_idempotency_key=request_key,
-        stripe_idempotency_key=build_stripe_idempotency_key(payment_id),
+        provider="stripe_test",
+        provider_idempotency_key=build_stripe_idempotency_key(payment_id),
+        succeeded_at=NOW if status is PaymentStatus.SUCCEEDED else None,
         created_at=created_at,
     )
     if complete:
-        payment.stripe_checkout_session_id = "cs_stored_example"
-        payment.stripe_checkout_url = CHECKOUT_URL
-        payment.stripe_checkout_expires_at = expires_at or NOW + timedelta(hours=1)
+        payment.provider_session_id = "cs_stored_example"
+        payment.provider_checkout_url = CHECKOUT_URL
+        payment.provider_checkout_expires_at = expires_at or NOW + timedelta(hours=1)
     with session_factory.begin() as session:
         session.add(payment)
     return payment_id
@@ -344,10 +346,11 @@ def test_new_checkout_uses_durable_money_and_persists_one_pending_attempt(
     assert payment.amount == 53700
     assert payment.currency == "NOK"
     assert payment.request_idempotency_key == request_key
-    assert payment.stripe_idempotency_key == build_stripe_idempotency_key(payment.id)
-    assert payment.stripe_checkout_session_id == "cs_fake_example"
-    assert payment.stripe_checkout_url == CHECKOUT_URL
-    assert payment.stripe_checkout_expires_at == NOW + timedelta(hours=1)
+    assert payment.provider == "stripe_test"
+    assert payment.provider_idempotency_key == build_stripe_idempotency_key(payment.id)
+    assert payment.provider_session_id == "cs_fake_example"
+    assert payment.provider_checkout_url == CHECKOUT_URL
+    assert payment.provider_checkout_expires_at == NOW + timedelta(hours=1)
     assert token not in repr(payment)
 
 
@@ -853,10 +856,10 @@ def test_incomplete_pending_uses_the_exact_twenty_three_hour_boundary(
         assert payment.status == PaymentStatus.PENDING.value
         if provider_calls:
             assert fake.requests[0].stripe_idempotency_key == (
-                payment.stripe_idempotency_key
+                payment.provider_idempotency_key
             )
         else:
-            assert payment.stripe_checkout_session_id is None
+            assert payment.provider_session_id is None
 
 
 def test_different_key_is_blocked_by_an_active_pending_attempt(
@@ -961,7 +964,7 @@ def test_provider_failures_preserve_definitive_and_ambiguous_semantics(
         payment = session.scalar(select(Payment))
     assert payment is not None
     assert payment.status == expected_payment_status.value
-    assert payment.stripe_checkout_session_id is None
+    assert payment.provider_session_id is None
 
 
 def test_ambiguous_retry_recovers_the_same_payment_and_stripe_key(
@@ -979,7 +982,7 @@ def test_ambiguous_retry_recovers_the_same_payment_and_stripe_key(
         original = session.scalar(select(Payment))
         assert original is not None
         original_payment_id = original.id
-        original_stripe_key = original.stripe_idempotency_key
+        original_provider_key = original.provider_idempotency_key
 
     recovery = FakeStripeClient()
     with TestClient(
@@ -991,11 +994,11 @@ def test_ambiguous_retry_recovers_the_same_payment_and_stripe_key(
     assert retry_response.status_code == 200
     assert len(recovery.requests) == 1
     assert recovery.requests[0].payment_id == original_payment_id
-    assert recovery.requests[0].stripe_idempotency_key == original_stripe_key
+    assert recovery.requests[0].stripe_idempotency_key == original_provider_key
     with api_session_factory() as session:
         payments = session.scalars(select(Payment)).all()
     assert len(payments) == 1
-    assert payments[0].stripe_checkout_session_id == "cs_fake_example"
+    assert payments[0].provider_session_id == "cs_fake_example"
 
 
 @pytest.mark.parametrize("matching", [True, False])
@@ -1015,15 +1018,15 @@ def test_concurrent_provider_persistence_is_identical_or_requires_reconciliation
         with api_session_factory.begin() as session:
             payment = session.get(Payment, request.payment_id)
             assert payment is not None
-            payment.stripe_checkout_session_id = (
+            payment.provider_session_id = (
                 provider_result.session_id if matching else "cs_different_result"
             )
-            payment.stripe_checkout_url = (
+            payment.provider_checkout_url = (
                 provider_result.checkout_url
                 if matching
                 else "https://checkout.example.test/session/different"
             )
-            payment.stripe_checkout_expires_at = provider_result.expires_at
+            payment.provider_checkout_expires_at = provider_result.expires_at
 
     fake = FakeStripeClient(result=provider_result, callback=persist_during_provider)
     with TestClient(_application(api_session_factory, stripe_client=fake)) as client:
@@ -1034,7 +1037,7 @@ def test_concurrent_provider_persistence_is_identical_or_requires_reconciliation
     with api_session_factory() as session:
         payment = session.scalar(select(Payment))
     assert payment is not None
-    assert payment.stripe_checkout_session_id == (
+    assert payment.provider_session_id == (
         "cs_provider_result" if matching else "cs_different_result"
     )
 
@@ -1183,8 +1186,10 @@ def test_openapi_documents_the_complete_checkout_transport_contract(
         for internal in (
             "payment_id",
             "order_id",
-            "stripe_checkout_session_id",
+            "provider",
+            "provider_session_id",
             "request_idempotency_key",
-            "stripe_idempotency_key",
+            "provider_idempotency_key",
+            "succeeded_at",
         )
     )
