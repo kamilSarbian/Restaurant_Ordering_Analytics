@@ -30,12 +30,10 @@ pipeline, independent backend, migration, and frontend gates, dependent
 isolated Browser E2E gate, GREEN -> RED -> GREEN acceptance, and protected
 `main` branch checks are the committed CI baseline.
 
-Stage 20 — Production Deployment Readiness is complete in the repository. It
-provides fail-closed production configuration, portable hardened containers,
-Nginx runtime templating, isolated migration execution, a Render target
-blueprint, and a manual immutable-GHCR release contract. This is readiness work
-only: the release workflow has not been dispatched, no Render or GHCR resource
-has been mutated, no production Stripe traffic occurred, and no public
+Stage 20 — Production Deployment Readiness is complete in the repository. Its
+original Render/GHCR private-service, managed-PostgreSQL, and cron/migrator
+target is preserved as historical readiness work, but superseded for the
+zero-base-cost portfolio demo by the Stage 22 free-tier contract. No public
 deployment or public URL is claimed.
 
 Stage 21 — UI/UX Redesign & Product Polish is complete under the official
@@ -45,11 +43,14 @@ route-level code splitting passed final visual and pre-deployment acceptance.
 The accepted frontend baseline is 1,073/1,073 tests and 23/23 synthetic
 production-preview Chromium scenarios; no JavaScript chunk exceeds 500 kB.
 
-Stage 22 — Production Deployment & Public Acceptance has not started. It will
-cover infrastructure provisioning, Demo Mode and a deterministic synthetic
-production dataset, the first controlled online release, and public-demo
-acceptance. A recruiter-facing public URL may be claimed only after Stage 22-D.
-Stage 23 — Portfolio Documentation & Case Study has not started.
+Stage 22 — Production Deployment & Public Acceptance is **in progress**.
+AF1+B1-1 (runtime/config/security), AF1+B1-2 (provider-neutral persistence),
+and AF1+B1-3 (free-tier repository deployment contract) are complete,
+committed, pushed, and CI-verified. AF1+B1-4 is this documentation and
+integration-acceptance slice. Provisioning, the deterministic B2 seed, demo
+payment and administrator behavior, online release, and public acceptance have
+not been executed. A recruiter-facing public URL may be claimed only after
+Stage 22-D. Stage 23 — Portfolio Documentation & Case Study is **not started**.
 
 The FastAPI backend provides public menu and quote APIs, anonymous or owned
 Order creation, owner-or-capability status and idempotent Stripe Checkout,
@@ -59,8 +60,10 @@ administrator operations. Historical acceptance counts remain documented in
 their stage-specific sections below.
 
 Local development uses PostgreSQL 17, synchronous SQLAlchemy 2, Psycopg 3,
-Alembic, and an explicit demonstration menu seed. Code and the development
-database are both at migration `0008_add_order_ownership`. A local
+Alembic, and an explicit demonstration menu seed. The repository's single
+Alembic head is `0009_add_portfolio_demo_origin_and_payment_provider`; the
+local development database remains at `0008_add_order_ownership` and has not
+been upgraded by this documentation slice. A local
 credential-hygiene issue was remediated by rotation without documenting or
 tracking any credential value. Stage 17 provides repeatable local full-system
 containers, Stage 18 provides isolated browser E2E, Stage 19 provides the
@@ -204,8 +207,15 @@ without introducing infrastructure that is unnecessary for a single venue.
 - GitHub Actions CI with independent backend, migration, and frontend gates and
   a dependent isolated Browser E2E gate.
 - Fail-closed production configuration, portable container entry points,
-  migration-only database execution, and a repository-ready immutable
-  GHCR/Render release architecture that has not been dispatched or deployed.
+  migration-only database execution, and a historical immutable GHCR/Render
+  release architecture that was superseded for the portfolio demo without a
+  public deployment.
+- Provider-neutral Order and Payment persistence at migration 0009, with
+  `Order.data_origin`, `Payment.provider`, provider-neutral Checkout fields,
+  and authoritative `Payment.succeeded_at` for analytics and reports.
+- A repository-ready free-tier target: Render Static Site Free, Render Docker
+  Web Service Free, Neon PostgreSQL Free, and a manual direct-URL migration
+  workflow. No provider resources or production database have been created.
 - A Nordic Hearth design system and polished customer, account, and
   administrator experiences with responsive WebP delivery, accessibility
   hardening, and route-level lazy loading.
@@ -222,10 +232,12 @@ without introducing infrastructure that is unnecessary for a single venue.
   `sessionStorage`, Vitest, React Testing Library, multi-stage container builds,
   an unprivileged static Nginx runtime, Playwright Test 1.62.1, Chromium browser
   E2E, and GitHub Actions CI.
-- Prepared, not live: the Stage 20 Render/GHCR production target and manual
-  immutable release contract.
-- Planned: Stage 22 Production Deployment & Public Acceptance and Stage 23
-  Portfolio Documentation & Case Study.
+- Prepared, not live: the Stage 22 free-tier Render Static Site, Render Docker
+  Web Service, Neon PostgreSQL, and manual GitHub migration contract.
+- Historical and superseded for the portfolio demo: the Stage 20 paid
+  Render/GHCR private-service, cron/migrator, and managed-database target.
+- In progress: Stage 22 Production Deployment & Public Acceptance. Not
+  started: Stage 23 Portfolio Documentation & Case Study.
 
 ## Repository structure
 
@@ -423,20 +435,49 @@ baseline immediately before Stage 20.
 
 ## Stage 20 production deployment readiness
 
-Stage 20 adds a fail-closed production configuration contract, portable backend
-and Nginx runtimes, and explicit application-versus-migration database
-boundaries. The production backend accepts only its application
-`DATABASE_URL`; the isolated migrator accepts only `MIGRATION_DATABASE_URL`,
-validates the expected login and owner roles, uses a transaction-scoped role,
-serializes migration execution, and verifies the exact Alembic head.
+Stage 20 added a fail-closed production configuration contract, portable
+backend and Nginx runtimes, and explicit application-versus-migration database
+boundaries. Its original isolated migrator required `MIGRATION_DATABASE_URL`
+and separate login/owner roles. That paid Render/GHCR topology is historical,
+not the current portfolio-demo deployment target.
 
-The repository also contains a Render target blueprint and a manual GitHub
-Actions release contract tied to current `main`, required CI checks, and an
-immutable GHCR digest. The release path intentionally stops before Render
-mutation until its live migrator artifact can be proved safely. The workflow
-has not been dispatched, no cloud resource has been changed, and this section
-does not claim a production deployment or public URL. Provisioning and the
-first controlled online release belong to Stage 22.
+The historical manual GHCR release workflow and paid Blueprint were removed
+by AF1+B1-3; D-078 records the original decision. No public resource or URL
+was created by Stage 20 or the subsequent repository adaptation. Provisioning
+and the first controlled online release still require separate Stage 22
+authorization.
+
+## Stage 22 free-tier repository contract and remaining demo work
+
+AF1+B1-1, AF1+B1-2, and AF1+B1-3 are complete and committed. The current
+repository target is a Render Static Site Free frontend calling a Render Docker
+Web Service Free backend directly over HTTPS with exact-origin CORS; backend
+runtime uses a Neon PostgreSQL Free pooled URL. The manual
+`migrate-neon.yml` workflow uses a separate direct Neon migration URL, exact
+required CI checks, and a final current-`main` SHA recheck before running the
+migrator. The named `production-neon` GitHub Environment and its migration
+secret still require operator verification/configuration; a workflow reference
+does not establish live protection rules. No workflow has been dispatched and
+no Render or Neon resource, migration, seed, or public deployment is claimed.
+
+Migration `0009_add_portfolio_demo_origin_and_payment_provider` adds
+`Order.data_origin` (`live`, `portfolio_seed`, or `portfolio_runtime`),
+`Payment.provider` (`stripe_test` or `demo`), provider-neutral
+`provider_idempotency_key`, `provider_session_id`,
+`provider_checkout_url`, and `provider_checkout_expires_at`, plus
+`Payment.succeeded_at`. Existing payments are backfilled as `stripe_test`;
+successful historical payments require authoritative Stripe transition
+evidence. `Order.data_origin` is internal, server-owned provenance: the
+public Order creation request does not accept it and rejects unknown fields.
+Ordinary runtime defaults to `live`; only future server-side seed/demo flows
+may assign `portfolio_seed` or `portfolio_runtime`. The Stripe
+Checkout/webhook path remains implemented. The
+`PAYMENT_PROVIDER=demo` configuration and schema are foundations only: public
+demo payment, deterministic seed, and demo administrator behavior are not yet
+implemented. The next implementation slice after this documentation-only
+AF1+B1-4 is B2, the deterministic seed: exactly 500 synthetic Orders over 60
+completed days. Later B3-B6 cover fake payment, bounded demo administration,
+recruiter UX, and acceptance.
 
 ## Stage 21 Nordic Hearth UI/UX redesign and product polish
 
@@ -542,8 +583,11 @@ nullable `orders.customer_user_id`, its `users.id` foreign key with
 `ON DELETE SET NULL`, and the composite personal-history index without changing
 historical rows.
 
-Repository code, Alembic, and the current development database are at
-`0008_add_order_ownership`. During Stage 16F manual-QA environment preparation,
+The repository and Alembic head are now at
+`0009_add_portfolio_demo_origin_and_payment_provider`. The current development
+database remains at `0008_add_order_ownership`; no development migration was
+run for AF1+B1-2 or this documentation slice. During Stage 16F manual-QA
+environment preparation,
 the development database was backed up outside the repository and upgraded
 additively through `0006_create_admin_user_model` ->
 `0007_unify_user_auth_roles` -> `0008_add_order_ownership`. The historical
@@ -730,11 +774,11 @@ analytics routes.
 The six KPIs are collected revenue, succeeded paid-order count, average order
 value, product quantity and value, category quantity and value, and dine-in
 versus takeaway paid-order count and collected revenue. Financial KPIs use
-`Payment.amount` only for `Payment(status=succeeded)` records with a matching
-`transitioned` `checkout.session.completed` or
-`checkout.session.async_payment_succeeded` receipt. The earliest matching
-`StripeEvent.stripe_created_at` is the authoritative success time. Paid-order
-count uses distinct `Payment.order_id`; AOV is calculated per currency in
+`Payment.amount` only for `Payment(status=succeeded)` records with non-null
+`Payment.succeeded_at`. This persisted timestamp is the current authoritative
+success-time source; StripeEvent receipts remain Stripe audit and deduplication
+evidence, not the analytics time source. Paid-order count uses distinct
+`Payment.order_id`; AOV is calculated per currency in
 integer minor units with `ROUND_HALF_UP`. `Order.total_amount` is not collected
 revenue.
 
@@ -792,8 +836,8 @@ values carrying the applicable `Europe/Oslo` offset.
 
 The three datasets intentionally use different time sources. `orders.csv`
 selects by `Order.created_at`. `product-sales.csv` and `payments.csv` select by
-the authoritative Payment success time: the earliest successful StripeEvent
-whose processing result is `transitioned` for a succeeded Payment.
+`Payment.succeeded_at` for a succeeded Payment; StripeEvent is not their
+current success-time source.
 
 `orders.csv` contains these columns in order:
 
@@ -826,11 +870,14 @@ range_start,range_end,timezone,public_order_number,payment_status,success_at,cur
 ```
 
 It returns one row per qualified succeeded Payment. Currency and integer
-minor-unit amount come from Payment, while `success_at` is the earliest
-qualifying transitioned success receipt. Non-success attempts are excluded,
-and duplicate receipts do not duplicate rows. The export contains no Payment
-ID, Stripe ID, Checkout URL, event data, idempotency key, guest credential,
-administrator identity, cost, or personal data.
+minor-unit amount come from Payment, while `success_at` comes directly from
+persisted `Payment.succeeded_at`. Qualification requires
+`Payment.status=succeeded` and `Payment.succeeded_at` within the requested
+half-open range. Current reporting does not query StripeEvent for success time;
+provider audit receipts do not create report rows. Non-success attempts are
+excluded. The export contains no Payment ID, Stripe ID, Checkout URL, event
+data, idempotency key, guest credential, administrator identity, cost, or
+personal data.
 
 During CSV serialization, text that could be interpreted as a spreadsheet
 formula is prefixed with an apostrophe. This covers `=`, `+`, `-`, and `@`,

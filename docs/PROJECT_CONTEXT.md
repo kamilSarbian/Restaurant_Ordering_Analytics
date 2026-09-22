@@ -36,14 +36,16 @@ Actions CI, four required gates, GREEN -> RED -> GREEN acceptance, and protected
 `ad637053e2fb4979cf1bf5f5cc8c3a7f95317079`, the repository baseline immediately
 before Stage 20.
 
-Stage 20 — Production Deployment Readiness is complete in the repository, but
-its Render/GHCR release architecture has not been dispatched or deployed.
+Stage 20 — Production Deployment Readiness is complete in the repository. Its
+original paid Render/GHCR release architecture is historical and superseded
+for the zero-base-cost portfolio demo; it was not dispatched or deployed.
 Stage 21 — UI/UX Redesign & Product Polish is complete under the official
 Nordic Hearth identity; final acceptance passed 1,073 frontend tests and 23/23
 synthetic production-preview Chromium scenarios, with no JavaScript chunk above
-500 kB. Stage 22 — Production Deployment & Public Acceptance and Stage 23 —
-Portfolio Documentation & Case Study have not started. No public deployment or
-public URL is claimed.
+500 kB. Stage 22 — Production Deployment & Public Acceptance is **in
+progress**: AF1+B1-1, AF1+B1-2, and AF1+B1-3 are complete and committed;
+AF1+B1-4 reconciles their documentation. Stage 23 — Portfolio Documentation &
+Case Study is **not started**. No public deployment or public URL is claimed.
 
 ## 3. Users
 
@@ -96,7 +98,9 @@ Migration `0007_unify_user_auth_roles` implements the rename from `admin_users`
 to `users`, the constrained role, safe zero/one-row upgrade, atomic multi-row
 failure, and guarded downgrade. Its child `0008_add_order_ownership` adds the
 nullable Order owner foreign key and personal-history index without a backfill.
-Repository and Alembic head are `0008_add_order_ownership`. During the approved
+The repository and Alembic head are
+`0009_add_portfolio_demo_origin_and_payment_provider`. The local development
+database remains at `0008_add_order_ownership`. During the approved
 Stage 16F local-QA preparation, the development database was backed up outside
 the repository and upgraded through `0006 -> 0007 -> 0008`. The historical
 administrator remains active as `super_admin`; `users`, the ownership foreign
@@ -311,9 +315,10 @@ table is absent.
 5. Stage 13 exposes the six KPIs through four administrator-only backend
    endpoints. There are no public analytics routes.
 6. Financial metrics use `Payment.amount` from succeeded payments whose
-   success time is the earliest matching transitioned successful StripeEvent.
-   `Payment.updated_at` and `Order.total_amount` are not analytics event time or
-   collected revenue.
+   authoritative success time is non-null `Payment.succeeded_at`.
+   `StripeEvent` remains Stripe audit and deduplication evidence, not the
+   current analytics time source. `Payment.updated_at` and
+   `Order.total_amount` are not analytics event time or collected revenue.
 7. Product and category breakdowns use immutable `OrderItem` snapshots rather
    than current catalog rows. Currencies remain separate and are never
    converted or combined.
@@ -326,8 +331,7 @@ table is absent.
     full historical product sales without the Stage 13 JSON top-N cutoff, and
     qualified succeeded payments. There are no public export routes.
 11. Orders are selected by `Order.created_at`, while product-sales and payment
-    exports use the earliest qualifying transitioned successful StripeEvent as
-    authoritative Payment success time. These source boundaries are
+    exports use `Payment.succeeded_at`. These source boundaries are
     intentionally different.
 12. CSV responses are synchronous and buffered, use deterministic ASCII
     filenames and a fixed UTF-8-SIG, single-BOM, comma, minimal-quoting, CRLF
@@ -439,7 +443,8 @@ A guest capability does not bypass this boundary. Responses expose no owner,
 customer PII, Payment, Stripe, cost, or margin data, and there is no account
 mutation, ownership reassignment, or retroactive guest-Order claim.
 
-The development database is now at `0008_add_order_ownership`. Its approved
+The development database remains at `0008_add_order_ownership`, separate from
+the repository's 0009 head. Its approved
 `0006 -> 0007 -> 0008` upgrade used an external backup, preserved the active
 historical administrator as `super_admin`, and verified the unified User and
 ownership schema. Its safe post-G4 fingerprint is one User with role counts
@@ -649,21 +654,17 @@ before Stage 20.
 
 ### 4.12. Production Deployment Readiness
 
-Stage 20 implements fail-closed production settings, portable backend and
+Stage 20 implemented fail-closed production settings, portable backend and
 Nginx entry points, and separate database authority for application runtime and
-migrations. The backend consumes only `DATABASE_URL`; the migration runner
-consumes only `MIGRATION_DATABASE_URL`, validates the expected
-`roa_migrator` login and `roa_owner` owner roles, changes role only within its
-transaction, serializes migration execution, and verifies the single expected
-Alembic head.
+migrations. Its original paid-Render migrator used a dedicated
+`MIGRATION_DATABASE_URL`, validated the expected `roa_migrator` login and
+`roa_owner` owner roles, serialized migration execution, and verified the
+exact Alembic head. These remain historical security/readiness decisions; the
+paid topology is not the current portfolio-demo release path.
 
-The repository contains a Render target blueprint and a manual release workflow
-that binds a release to current `main`, the four required CI checks, and an
-immutable GHCR digest. The release controller intentionally stops before a
-Render mutation until live migrator artifact identity can be proved safely.
-The workflow has not been dispatched, no Render or GHCR resource has been
-changed, and no production deployment or public URL exists. Infrastructure
-provisioning and controlled online release remain Stage 22 work.
+The historical GHCR workflow and paid Blueprint were removed in AF1+B1-3.
+Their repository-ready design never established a deployed service. There is
+still no production deployment or public URL.
 
 ### 4.13. Nordic Hearth UI/UX Redesign and Product Polish
 
@@ -687,6 +688,51 @@ changing their URLs, guards, or shared provider state. Final acceptance passed
 and 23/23 synthetic production-preview Chromium scenarios, and no JavaScript
 chunk exceeds 500 kB. This evidence is local and pre-deployment; it does not
 claim a public application.
+
+### 4.14. Stage 22 Free-Tier Repository Adaptation
+
+Stage 22 is in progress at the repository level. AF1+B1-1 established
+fail-closed public-origin, runtime, security-header, documentation-exposure,
+Neon URL, and frontend API-base contracts. AF1+B1-2 added migration
+`0009_add_portfolio_demo_origin_and_payment_provider`: Orders have
+`data_origin=live|portfolio_seed|portfolio_runtime`; Payments have
+`provider=stripe_test|demo`, provider-neutral idempotency/session/URL/expiry
+fields, and `succeeded_at`. Existing Payments are backfilled as
+`stripe_test`; historical successful Payments without authoritative Stripe
+transition evidence fail the migration rather than receiving a guessed
+timestamp. The Stripe Checkout adapter and webhook remain implemented, while
+current analytics and payment/product-sales reports use
+`Payment.succeeded_at` instead of StripeEvent for success time.
+
+`Order.data_origin` is internal, server-owned persistence/provenance
+metadata, not client authority. Ordinary runtime defaults it to `live`. The
+public `OrderCreateRequest` does not accept `data_origin` and forbids unknown
+fields, so only future server-side seed/demo flows may assign
+`portfolio_seed` or `portfolio_runtime`.
+
+AF1+B1-3 replaced the repository deployment target with exactly two Render
+Free services (Static Site frontend and Docker Web Service backend) and Neon
+PostgreSQL Free. The browser calls the backend directly through HTTPS and
+exact-origin CORS; the backend uses a pooled runtime URL. Manual GitHub Actions
+`workflow_dispatch` migration uses a separate direct Neon URL, successful
+required checks, and a final current-`main` SHA check. Named GitHub
+Environment/secret references in the workflow do not prove those operator
+controls have been configured. No Render or Neon provisioning, migration,
+seed, or public release has occurred.
+
+The approved future portfolio dataset is exactly 500 deterministic synthetic
+Orders over 60 completed days, without real PII. B2 will implement that seed.
+B3 remains not implemented: its future runtime binding is
+`PAYMENT_PROVIDER=demo`, makes zero real Stripe requests, and produces the
+backend-authoritative deterministic outcomes `success`, `fail`, or
+`expired`. D-060 remains strict: return/cancel URL state, browser query
+parameters, and navigation outcomes cannot decide payment status; the backend
+demo provider remains authoritative. The existing Stripe Checkout adapter,
+signed webhook verification, StripeEvent persistence, and
+idempotency/correlation tests and contracts remain in the repository. B4 will
+implement constrained demo administration; B5 will complete recruiter UX; B6
+will accept the integrated demo. None of B2-B6 is implemented by AF1+B1-4, and
+Stage 23 remains not started.
 
 ## 5. MVP Scope
 
@@ -886,12 +932,13 @@ is committed at `ad637053e2fb4979cf1bf5f5cc8c3a7f95317079`, the repository
 baseline immediately before Stage 20.
 
 Stage 20 — Production Deployment Readiness and Stage 21 — UI/UX Redesign &
-Product Polish are complete in the local repository. They add the prepared
-production security and release boundary and the accepted Nordic Hearth product
-experience without claiming a live service. Stage 22 — Production Deployment &
-Public Acceptance and Stage 23 — Portfolio Documentation & Case Study have not
-started. A recruiter-facing URL can exist only after Stage 22-D public-demo
-acceptance.
+Product Polish are complete. The original Stage 20 paid Render/GHCR target is
+historical and superseded for the portfolio demo, while its security principles
+remain relevant. Stage 22 — Production Deployment & Public Acceptance is in
+progress through three committed repository slices and this documentation
+reconciliation, but is not deployed. Stage 23 — Portfolio Documentation &
+Case Study is not started. A recruiter-facing URL can be claimed only after
+Stage 22-D public-demo acceptance.
 
 The project should demonstrate to a recruiter that its author can:
 

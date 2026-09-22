@@ -643,9 +643,10 @@
 - **Outcome:** production configuration and trusted-origin contracts, portable
   backend and Nginx frontend images, isolated runtime and migration database
   roles, and an immutable GHCR/Render release blueprint are implemented and
-  locally verified. The manual release workflow has not been dispatched, and
-  no Render or GHCR cloud mutation, production Stripe use, public URL, or public
-  deployment is claimed.
+  locally verified as historical readiness work. AF1+B1-3 later removed the
+  paid Blueprint and manual GHCR release workflow and superseded that topology
+  for the portfolio demo. No Render or GHCR cloud mutation, production Stripe
+  use, public URL, or public deployment is claimed.
 - **Boundary:** infrastructure provisioning, managed production secrets, the
   first controlled online release, and public acceptance belong to Stage 22.
 
@@ -663,35 +664,83 @@
 
 ## 22. Production Deployment & Public Acceptance
 
-- **Status:** not started.
-- **Goal:** provision, release, and accept a safe public demo using the Stage 20
-  target architecture and the accepted Stage 21 product.
+- **Status:** in progress at the repository-contract level, not deployed.
+- **Goal:** prepare, provision, release, and accept a safe zero-base-cost
+  portfolio demo using Render Static Site Free, Render Docker Web Service Free,
+  and Neon PostgreSQL Free. The Stage 20 paid/GHCR target is historical, not
+  the current release plan.
+- **Completed and committed:** AF1+B1-1 runtime/config/security contract;
+  AF1+B1-2 provider-neutral persistence and migration
+  `0009_add_portfolio_demo_origin_and_payment_provider`; AF1+B1-3 free-tier
+  Blueprint and manual, direct-Neon-URL migration workflow. They establish
+  repository contracts only, not live infrastructure or demo behavior.
+- **Current slice:** AF1+B1-4 integration acceptance and documentation
+  reconciliation. It changes only the six authoritative documents and does
+  not run CI or provision resources.
 
-### 22-A — Infrastructure Provisioning
+### 22-A — Free-Tier Provisioning and Release Prerequisites
 
-Provision the approved production infrastructure, managed secrets, trusted
-public origins, and least-privilege database roles without enabling production
-Stripe.
+The earlier read-only A0/A1 planning and architecture pivot did not create
+resources. Future separately authorized operator work must verify Render/Neon
+free-tier capability, prepare Render service settings and exact HTTPS origins,
+provision Neon only under an approved DB-only boundary, and configure/check
+the `production-neon` GitHub Environment and migration secret. A repository
+workflow reference does not prove live protection rules. Public Render
+Static/Web service creation or activation belongs to the separately approved
+controlled 22-C release unless a proven no-deploy procedure is approved.
+The manual migration workflow must be dispatched only after required CI and
+exact current-`main` checks.
 
-### 22-B — Demo Mode & Synthetic Production Dataset
+### 22-B — Portfolio Demo Implementation
 
-Provide a separate demo administrator, preferably an ordinary `admin` rather
-than `super_admin`, with safe read-only or resettable behavior. Use a
-deterministic synthetic dataset covering approximately 90 days and targeting
-approximately 500–1,000 realistic orders, payments, cancellations, weekdays,
-and hours. It must contain no real PII and must have a deterministic reset/import
-strategy.
+- **B0 design:** approved, read-only; not runtime implementation.
+- **B1-1 through B1-3:** complete and committed as above. **B1-4:** current
+  documentation-only slice.
+- **B2 — deterministic seed:** next implementation slice. Produce exactly 500
+  deterministic synthetic Orders over 60 completed days, with an explicit
+  reference end time, version `portfolio-60d-v1`, RNG seed `220060500`,
+  realistic status/payment distributions, the existing five categories and
+  fifteen products, no real PII, expected data comfortably below 10 MiB,
+  and idempotent/reproducible behavior. Stable Orders use
+  `portfolio_seed`; visitor demo Orders will use `portfolio_runtime`;
+  ordinary data remains `live`. A 250-order portfolio-runtime cap is a
+  future proposal, not an implemented control. B2 has not been implemented.
+- **B3 — public fake/demo payment:** future and **not implemented**. Its
+  runtime binding will be `PAYMENT_PROVIDER=demo`, with zero real Stripe
+  requests and backend-authoritative deterministic outcomes `success`,
+  `fail`, or `expired`. D-060 remains strict: return/cancel URL state,
+  browser query parameters, and navigation outcomes cannot decide payment
+  status; the backend demo provider remains authoritative. The existing Stripe
+  Checkout adapter, signed webhook verification, StripeEvent persistence, and
+  idempotency/correlation tests and contracts remain in the repository.
+- **B4 — constrained demo administrator:** future one-click session using a
+  normal JWT and exact `admin` role, never `super_admin` or a public
+  password; stable seed data read-only, only tightly bounded legal mutations
+  of `portfolio_runtime` data, and public registration/password login
+  disabled in portfolio mode.
+- **B5 — recruiter journey/UX:** future; clearly label synthetic data and demo
+  payment.
+- **B6 — integrated acceptance:** future; verify security, data boundaries,
+  deterministic behavior, and operator reset before public release.
+
+The current database schema supports `Order.data_origin`,
+`Payment.provider`, provider-neutral Checkout fields, and
+`Payment.succeeded_at`, but no seed, fake payment flow, or demo administrator
+is implemented. D-060 payment neutrality and D-077 NOK-only Admin Menu remain
+unchanged.
 
 ### 22-C — First Controlled Online Release
 
-Execute the first explicitly authorized immutable-image release, migration,
-health, and smoke-test sequence against the provisioned environment.
+After separate approval and completed prerequisites, run the manual exact-SHA
+Neon migration through its direct URL, configure the pooled runtime URL,
+release the two Render Free services, and perform health/readiness and smoke
+checks. No such operation has occurred.
 
 ### 22-D — Public Demo Acceptance
 
 Complete public security, functional, responsive, accessibility, and
-operational acceptance. A recruiter/portfolio URL may exist and be advertised
-only after this slice passes.
+operational acceptance. A recruiter/portfolio URL may be advertised only after
+this slice passes.
 
 ## 23. Portfolio Documentation & Case Study
 
@@ -710,11 +759,13 @@ and Stage 21 UI/UX Redesign & Product Polish were complete locally and awaited
 the renewed pre-commit independent review and logical commit-plan confirmation.
 Neither stage claims a live deployment or public URL.
 
-Stage 22 Production Deployment & Public Acceptance and Stage 23 Portfolio
-Documentation & Case Study have not started. At that reconciliation boundary,
-the immediate repository gate was the renewed pre-commit review. After a
-separately authorized commit and deployment decision, the next implementation
-slice is Stage 22-A Infrastructure Provisioning.
+That paragraph records the historical 2026-09-15 reconciliation boundary,
+not the current state. Stage 22 is now in progress through three committed
+AF1+B1 repository slices and this AF1+B1-4 documentation slice, with no live
+deployment. Stage 23 remains not started. The next implementation slice after
+AF1+B1-4 is B2 deterministic seed, subject to its separate authorization.
 
-Repository, Alembic, and the development database remain at
-`0008_add_order_ownership`.
+The repository and Alembic head are
+`0009_add_portfolio_demo_origin_and_payment_provider`. The development
+database remains at `0008_add_order_ownership`; no migration is performed by
+this documentation stage.

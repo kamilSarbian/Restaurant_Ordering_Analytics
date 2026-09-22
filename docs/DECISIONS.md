@@ -1519,6 +1519,75 @@ while preserving these financial concurrency rules.
   and resettable synthetic demo dataset, the first controlled online release,
   and public demo acceptance. The application becomes intentionally public to
   recruiters or a portfolio audience only after Stage 22-D passes.
+- **Current applicability:** this decision remains historical acceptance of
+  Stage 20 readiness and its security principles. D-080 operationally
+  supersedes its paid Render/private-service/GHCR/cron deployment topology for
+  the zero-base-cost portfolio demo; the historical decision is not deleted.
+
+## D-079 — Provider-Neutral Portfolio Demo Persistence
+
+- **Status:** accepted on 2026-09-19 with the AF1+B1-2 commit.
+- **Decision:** migration
+  `0009_add_portfolio_demo_origin_and_payment_provider` establishes
+  `Order.data_origin` with exact values `live`, `portfolio_seed`, and
+  `portfolio_runtime`, and `Payment.provider` with exact values
+  `stripe_test` and `demo`. Persisted Payment Checkout fields are renamed
+  to provider-neutral idempotency key, session ID, URL, and expiry fields.
+  Provider-aware uniqueness and the existing at-most-one-pending and
+  at-most-one-succeeded Payment per Order invariants remain enforced.
+- **Success-time authority:** `Payment.succeeded_at` is required for a
+  succeeded Payment and is the current analytics and payment/product-sales
+  report time source. `StripeEvent` remains a Stripe-specific webhook audit
+  and deduplication record, not the ongoing analytics time source. This
+  supersedes the success-time source originally recorded in D-056 and D-058
+  without rewriting their historical acceptance.
+- **Migration safety:** existing Orders become `live` and existing Payments
+  become `stripe_test`. The migration derives historical succeeded timestamps
+  from the earliest authoritative transitioned Stripe success event and fails
+  closed when evidence is absent. Downgrade cannot silently erase demo
+  Payments. Stripe webhook transitions are provider-guarded and write
+  `succeeded_at` atomically.
+- **Boundary:** the existing Stripe test Checkout/webhook integration remains
+  implemented and preserved. A public demo payment provider, seeded Orders,
+  and runtime provenance assignment are later slices, not consequences of
+  this migration alone. The repository head is 0009, while the local
+  development database may remain at 0008 until separately authorized
+  migration.
+
+## D-080 — Zero-Cost Portfolio Demo Deployment Contract
+
+- **Status:** accepted on 2026-09-22 with the AF1+B1-3 commit.
+- **Decision:** the current repository target is exactly two Render Free
+  services: a Static Site frontend and a Docker Web Service backend, with an
+  external Neon PostgreSQL Free database. No Render database, private
+  service, cron/migrator service, persistent disk, GHCR publish, or paid plan
+  is part of the portfolio-demo target. Zero paid resources are a target,
+  not an SLA or a promise of unlimited free usage.
+- **Origins and runtime:** the Static Site API base uses Render-provided
+  backend URL wiring. Backend public frontend/API origins and release identity
+  derive from Render-provided values, with exact HTTPS origins, strict CORS,
+  trusted-host derivation, direct browser-to-API calls, and DB-independent
+  `/health` plus DB-aware `/ready`. There is no `/api/*` static proxy.
+  The eventual demo Render configuration sets `PORTFOLIO_DEMO_MODE=true`
+  and `PAYMENT_PROVIDER=demo` without Stripe secrets; the Static Site uses
+  the bounded 90-second API timeout for Free-tier cold starts. These are
+  repository settings, not evidence that demo payment or public hosting exists.
+- **Migration boundary:** application runtime uses the Neon pooled URL.
+  A separately authorized manual GitHub `workflow_dispatch` migration uses
+  the direct Neon URL, the four required CI checks, exact current-`main`
+  identity, the `MIGRATE_NEON_PRODUCTION` confirmation phrase, pinned actions,
+  minimal read permissions, and a final remote-main recheck immediately
+  before the runner. Only the migration step receives the direct-URL secret;
+  the runner checks `roa_migrator`, `roa_owner`, and the exact 0009 head.
+  The named `production-neon` GitHub Environment and secret require actual operator
+  configuration and verification; repository text does not prove live rules.
+- **Release boundary:** exact live-origin CSP remains deferred to public
+  acceptance without a wildcard relaxation. The historical D-078 paid
+  Render/GHCR topology is operationally superseded for this portfolio demo,
+  but its fail-closed configuration, least-privilege migration, no hidden
+  startup migration, and immutable-source principles remain. No public
+  deployment, Neon migration, or cloud provisioning is claimed by this
+  repository decision.
 
 ## History of Decisions That Required Resolution
 

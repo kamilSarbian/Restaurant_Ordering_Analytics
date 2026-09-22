@@ -1,8 +1,8 @@
 # Implementation Status
 
-- **Repository documentation baseline:** maintained through Stage 21; final
-  portfolio documentation and case-study work remain Stage 23 and have not
-  started
+- **Repository documentation baseline:** reconciled through AF1+B1-4;
+  recruiter-facing portfolio documentation and case-study work remain Stage
+  23 and have not started
 - **Stage 1:** completed
 - **Stage 2:** completed
 - **Stage 3:** completed
@@ -19,14 +19,14 @@
 - **Stage 14:** completed
 - **Stage 15:** completed
 - **Current stage:** Stage 20 Production Deployment Readiness and Stage 21 UI/UX
-  Redesign & Product Polish are complete locally. Stage 21-I final visual,
-  responsive, interaction, accessibility, performance, network, and
-  preservation acceptance passed on 2026-09-05, including an independent second
-  review with zero P0 or P1 findings. At the 2026-09-15
-  documentation-reconciliation boundary, the Stage 20/21 working tree remained
-  uncommitted and required a renewed pre-commit independent review and logical
-  commit-plan confirmation. Stage 22 and Stage 23 have not started. No
-  production deployment, release-workflow dispatch, or public URL is claimed.
+  Redesign & Product Polish are complete. Stage 22 Production Deployment &
+  Public Acceptance is **in progress**: AF1+B1-1, AF1+B1-2, and AF1+B1-3
+  are complete and committed; AF1+B1-4 is the current documentation-only
+  reconciliation, pending independent review and commit. The original
+  Stage 20 paid Render/GHCR topology is historical and superseded for the
+  free-tier portfolio demo. Stage 23 is **not started**. No Render/Neon
+  provisioning, production migration, demo seed, public deployment, or public
+  URL is claimed.
 - **Backend:** FastAPI, database foundation, menu models, local seed data,
   public menu, transient quoting, persistent order creation, and secure public
   order status, Payment persistence, Stripe Checkout, and verified Stripe
@@ -44,10 +44,13 @@
   and migration startup gates, isolated full-stack acceptance, and isolated
   browser-E2E Compose overlay are complete
 - **Database:** PostgreSQL, Alembic, menu, order, Payment, StripeEvent, and User
-  models and deterministic menu seed completed; repository and development
-  database are both at `0008_add_order_ownership`. The controlled ENV1 upgrade
-  preserved the historical administrator as an active `super_admin`
-- **Seed data:** completed and verified
+  models and deterministic local menu seed completed. Repository/Alembic head
+  is `0009_add_portfolio_demo_origin_and_payment_provider`; the local
+  development database remains at `0008_add_order_ownership` and has not
+  been upgraded by AF1+B1-4. The controlled Stage 16F ENV1 upgrade preserved
+  the historical administrator as an active `super_admin`
+- **Local menu seed data:** completed and verified; the B2 portfolio Order
+  seed is not implemented
 - **Public menu API:** list, availability filter, item details, and 404 contract
   completed and verified
 - **Menu write API:** administrator category and item list, create, partial
@@ -217,9 +220,12 @@
 - **Overall Stage 19:** complete and committed
 - **Stage 20 — Production Deployment Readiness:** complete and preserved.
   Production configuration and security contracts, portable containers and Nginx
-  templating, isolated migration execution, and the immutable Render/GHCR
-  release blueprint are implemented. No production infrastructure was
-  provisioned and no public deployment is claimed; those remain Stage 22 work.
+  templating, isolated migration execution, and the original immutable
+  Render/GHCR release blueprint were accepted as repository readiness. That
+  paid deployment topology and workflow were removed/superseded for the
+  portfolio demo by AF1+B1-3, while the historical decision and security
+  principles remain. No production infrastructure or public deployment is
+  claimed.
 - **Stage 21-D3A:** complete on 2026-08-26 — the customer cart now has a
   compact Nordic hierarchy, safe responsive thumbnails with a stable fallback,
   server-authoritative quote continuity, accessible quantity and removal
@@ -650,13 +656,62 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   1,073/1,073 frontend tests and 23/23 synthetic production-preview Playwright
   scenarios, with no JavaScript chunk above 500 kB. This status does not claim a
   production deployment or public URL.
-- **Stage 22 — Production Deployment & Public Acceptance:** not started. Stage
-  22-A owns infrastructure provisioning; Stage 22-B owns a separate, preferably
-  ordinary-admin, safe read-only or resettable demo mode and deterministic
-  synthetic dataset of approximately 90 days and 500–1,000 realistic orders
-  with no real PII; Stage 22-C owns the first controlled online release; Stage
-  22-D owns public demo acceptance. A recruiter/portfolio URL may exist only
-  after Stage 22-D passes.
+- **Stage 22 — Production Deployment & Public Acceptance:** **IN PROGRESS**
+  in repository contracts only; no public deployment.
+- **AF1+B1-1 — runtime/config/security:** complete and committed on
+  2026-09-18 at `bbb27b97c23ef4360bd4e00e8b1c86daa5ddd838`.
+  Fail-closed portfolio/payment configuration, strict public origins/CORS,
+  production docs and security headers, Neon pooled/direct URL validation,
+  and frontend API-base/timeout contracts are implemented.
+- **AF1+B1-2 — provider-neutral persistence:** complete and committed on
+  2026-09-19 at `a9e2ef0450b01acdc41a8b272d6b9a24219a550f`.
+  Migration 0009 adds `Order.data_origin`, `Payment.provider`,
+  provider-neutral Checkout columns, and `Payment.succeeded_at`; historical
+  Stripe Payments backfill with fail-closed success evidence. Stripe Checkout
+  and webhook remain, with provider guard and atomic success timestamp.
+  Analytics and payment/product-sales exports now use
+  `Payment.succeeded_at`, not StripeEvent, for success time.
+- **AF1+B1-3 — free-tier repository deployment contract:** complete and
+  committed on 2026-09-22 at
+  `22df98f778f434e0c046543aa4b40cfdae0fd4af`. The current target is
+  Render Static Site Free, Render Docker Web Service Free, and Neon PostgreSQL
+  Free; the manual direct-Neon-URL migration workflow is gated on exact
+  current-main identity and the four required checks. In GitHub run
+  `35732521329`, the original Browser E2E attempt had one scenario fail at the
+  transport level with `request-failed:GET:/api/v1/admin/orders`; it did not
+  confirm an HTTP 4xx/5xx product failure, and the exact root cause was not
+  proven. Read-only diagnosis classified it as
+  `LIKELY NONDETERMINISTIC CI TRANSPORT/CANCELLATION FLAKE`, as a likelihood
+  rather than a proven causal diagnosis. On the exact committed B1-3 SHA
+  `22df98f778f434e0c046543aa4b40cfdae0fd4af`, canonical local RUN #1 and RUN
+  #2 each executed `bash .github/scripts/run-browser-e2e.sh` and recorded
+  `32/32 PASS` without retries, skip changes, timeout inflation, or source
+  changes. One
+  separately authorized rerun of only the failed Browser E2E job in the same
+  workflow run, attempt 2, then recorded `32/32 PASS`. No source,
+  configuration, or test change occurred between the original failure, the
+  local diagnostic runs, and the successful GitHub rerun. The final required
+  checks were Backend —
+  success, Migrations — success, Frontend — success, and Browser E2E — success.
+  The workflow's `production-neon` Environment and secret still require real operator
+  verification/configuration; the workflow has not been dispatched.
+- **AF1+B1-4 — integration acceptance and documentation reconciliation:**
+  completed locally in exactly six authoritative documents, pending
+  independent review and a separately authorized commit. No CI rerun, code,
+  schema, config, workflow, test, or cloud change belongs to this slice.
+- **Stage 22-B0 demo design:** approved as design only. B2 is the next
+  implementation slice: exactly 500 deterministic synthetic Orders over 60
+  completed days, version `portfolio-60d-v1`, RNG seed `220060500`,
+  explicit reference end time, existing five categories/fifteen products,
+  no real PII, and provenance separating `portfolio_seed` from future
+  `portfolio_runtime`. B2 seed, B3 backend-authoritative fake payment, B4
+  constrained ordinary-admin demo, B5 recruiter UX, and B6 integrated
+  acceptance are **not implemented**.
+- **Stage 22-A/C/D:** actual Render/Neon provisioning, live GitHub
+  Environment/secret controls, direct-URL production migration, first
+  controlled release, and public acceptance remain future separately
+  authorized work. A recruiter/portfolio URL may be advertised only after
+  Stage 22-D passes.
 - **Stage 23 — Portfolio Documentation & Case Study:** not started. Final
   recruiter-facing README/case study, screenshots, architecture presentation,
   and CV-facing material remain future work.
@@ -670,7 +725,8 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   is completed and acceptance-verified.
 - Unified authentication has no refresh, logout, revocation, password
   reset/change, or MFA. Its limiter is per process and resets on restart.
-- Repository migration 0008 is implemented and verified. During Stage 16F ENV1,
+- Repository migration 0009 is implemented and verified; the local development
+  database remains at 0008. During Stage 16F ENV1,
   the development database was backed up outside the repository and upgraded
   through the approved `0006 -> 0007 -> 0008` path. The historical
   administrator remains an active `super_admin`; current Compose binds project

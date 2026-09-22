@@ -36,16 +36,18 @@ sufficient; Zustand and Recharts were not required.
 
 ### Integrations and Infrastructure
 
-- Stripe Checkout and Stripe webhooks in test mode;
-- Docker and Docker Compose;
-- GitHub Actions;
-- a prepared Render target with an Nginx frontend web service, private backend
-  service from an immutable GHCR digest, isolated migrator, and managed
-  PostgreSQL 17.
+- Stripe Checkout and Stripe webhooks in test mode for the currently
+  implemented payment flow;
+- Docker and Docker Compose for local development and isolated acceptance;
+- GitHub Actions CI and a manual, separately gated Neon migration workflow;
+- the current portfolio-demo target: Render Static Site Free frontend, Render
+  Docker Web Service Free backend, and Neon PostgreSQL Free.
 
-The Stage 20 Blueprint and manual release workflow are repository configuration
-only. Neither has been executed, no production resource or public URL exists,
-and provisioning remains Stage 22 work.
+The Stage 20 private-service/GHCR/managed-Render-database/cron target is
+historical and superseded by AF1+B1-3 for the portfolio demo. The current
+free-tier Blueprint and migration workflow are repository contracts only; no
+production resource, migration, or public URL exists. Provisioning and live
+release remain separately authorized Stage 22 work.
 
 ## 3. Architecture Style: Modular Monolith
 
@@ -250,11 +252,12 @@ and keep currencies separate. The service owns the shared qualified-payment
 source and set-based PostgreSQL aggregation; it performs no DML, provider call,
 or current-catalog join.
 
-The shared source includes only `Payment(status=succeeded)` rows with a matching
-StripeEvent for the same Payment, a transition-capable successful event type,
-and `processing_result=transitioned`. Its authoritative success time is
-`MIN(StripeEvent.stripe_created_at)`. A succeeded Payment without such a
-receipt is excluded from time-bounded analytics; there is no fallback to
+The current shared source includes only `Payment(status=succeeded)` rows
+with authoritative non-null `Payment.succeeded_at`. Migration 0009 backfills
+that timestamp for historical Stripe successes from the earliest qualifying
+transitioned success event and fails closed if the evidence is missing.
+StripeEvent remains the Stripe webhook audit/deduplication record, not the
+current analytics success-time source. There is no fallback to
 `Payment.updated_at`.
 
 The six metrics are collected revenue, succeeded paid-order count, average
@@ -302,8 +305,9 @@ set-based data retrieval and CSV row mapping. The router owns the canonical
 The reports service reuses the analytics service's qualified
 succeeded-Payment source. Product aggregation is also shared: Stage 13 JSON
 applies a per-currency top-N rank, while product-sales CSV invokes the same
-aggregation without a cutoff. Success-event qualification is therefore not
-duplicated, and reports do not call analytics endpoints over HTTP.
+aggregation without a cutoff. Provider-neutral succeeded-Payment selection is
+therefore not duplicated, and reports do not call analytics endpoints over
+HTTP.
 
 The query boundary is one report SELECT after administrator authentication for
 each dataset:
@@ -391,6 +395,7 @@ erDiagram
         varchar public_order_number UK
         varchar order_access_token_hash UK
         uuid customer_user_id FK
+        varchar data_origin
         varchar order_type
         uuid table_id FK
         int table_number_snapshot
@@ -429,14 +434,16 @@ erDiagram
     PAYMENTS {
         uuid id PK
         uuid order_id FK
+        varchar provider
         varchar status
         bigint amount
         varchar currency
         uuid request_idempotency_key UK
-        varchar stripe_idempotency_key UK
-        varchar stripe_checkout_session_id UK
-        text stripe_checkout_url
-        timestamptz stripe_checkout_expires_at
+        varchar provider_idempotency_key
+        varchar provider_session_id
+        text provider_checkout_url
+        timestamptz provider_checkout_expires_at
+        timestamptz succeeded_at
         timestamptz created_at
         timestamptz updated_at
     }
@@ -493,7 +500,7 @@ total. The Order stores currency, subtotal, and total. Derived totals use
 Historical snapshots are not changed by later MenuItem, Category, or
 RestaurantTable updates.
 
-Stage 9 adds `Payment` as one persisted Checkout attempt in the
+Historically, Stage 9 added `Payment` as one persisted Checkout attempt in the
 `Order 1:N Payment` relationship. The Order foreign key uses
 `ON DELETE RESTRICT`; the ORM has `passive_deletes="all"` and no delete or
 delete-orphan cascade. `UNIQUE(order_id, request_idempotency_key)` scopes
@@ -502,7 +509,27 @@ Session IDs are globally unique. Partial unique indexes enforce at most one
 `pending` and one `succeeded` attempt per Order. The non-unique
 `(order_id, created_at, id)` index gives deterministic payment history access.
 Checkout fields are either all null or all populated, amount is positive, and
-currency is exactly three uppercase ASCII letters.
+currency is exactly three uppercase ASCII letters. These Stripe-specific
+column names describe the original Stage 9 design, not the current schema.
+
+Migration `0009_add_portfolio_demo_origin_and_payment_provider` extends the
+current model without implementing a demo payment endpoint. Order
+`data_origin` is exactly `live`, `portfolio_seed`, or `portfolio_runtime`
+and defaults to `live`. It is internal, server-owned provenance metadata:
+the public `OrderCreateRequest` excludes it and rejects unknown fields.
+Only future server-side seed/demo flows may assign `portfolio_seed` or
+`portfolio_runtime`; an ordinary caller cannot select its data class.
+Payment `provider` is exactly `stripe_test` or `demo`. Former
+Stripe-specific Payment idempotency, session, URL, and expiry columns are
+renamed to `provider_idempotency_key`,
+`provider_session_id`, `provider_checkout_url`, and
+`provider_checkout_expires_at`. Provider-aware unique constraints protect
+idempotency and non-null session IDs; Checkout fields are pairwise null or
+populated. `Payment.succeeded_at` is required for succeeded status and absent
+otherwise. Existing Payments backfill as `stripe_test`; historical succeeded
+Payments derive their timestamp from the earliest authoritative transitioned
+Stripe success event or abort migration. The Stripe webhook cannot transition
+a `demo` Payment and writes success status and timestamp atomically.
 
 Stage 10 adds StripeEvent as a durable receipt for one in-scope provider event.
 The globally unique `stripe_event_id` makes redelivery idempotent across process
@@ -1025,8 +1052,10 @@ discarding customer data. Migration validation uses only the disposable exact
 test database on the project PostgreSQL listener at 5433; it does not mutate the
 development database or host PostgreSQL at 5432.
 Migration `0008_add_order_ownership` is the schema-only child of 0007 and adds
-the nullable foreign key plus the composite owner-history index. Repository,
-Alembic, and the development database are now at 0008. The development upgrade
+the nullable foreign key plus the composite owner-history index. At Stage 16F
+acceptance, repository, Alembic, and development database were at 0008. The
+current repository/Alembic head is 0009, while the local development database
+still remains at 0008. The development upgrade
 ran additively through `0006 -> 0007 -> 0008` after an external backup; it
 preserved the historical administrator as an active `super_admin`, replaced
 `admin_users` with `users`, and verified the ownership foreign key and index.
@@ -1327,30 +1356,27 @@ repository-side production readiness contracts; Stage 22 still must provision
 HTTPS ingress, managed secrets, and least-privilege application and migration
 roles before any public release.
 
-### 5.26. Implemented Stage 20 Production Deployment Readiness
+### 5.26. Historical Stage 20 Production Deployment Readiness
 
-Production settings fail closed around the explicit production environment,
-debug mode, trusted hosts and proxy mode, same-origin HTTPS URLs, Stripe test
-mode, release identity, and expected Alembic head. The backend and Nginx images
-use portable entry points and runtime environment templating rather than
-provider-specific build-time values.
+At Stage 20 acceptance, production settings failed closed around the explicit
+production environment, debug mode, trusted hosts and proxy mode, same-origin
+HTTPS URLs, Stripe test mode, release identity, and expected Alembic head. The
+backend and Nginx images used portable entry points and runtime environment
+templating rather than provider-specific build-time values.
 
-Production schema change and application startup have separate authority. The
-backend consumes only `DATABASE_URL` and performs a read-only head check. The
-isolated runner consumes only `MIGRATION_DATABASE_URL`, requires the
-`roa_migrator` login and `roa_owner` owner roles, applies `SET LOCAL ROLE`
-inside the caller-owned transaction, uses a PostgreSQL advisory lock, and
-verifies the expected head before commit.
+That historical topology gave production schema change and application startup
+separate authority. The backend consumed only `DATABASE_URL` and performed a
+read-only head check. The isolated runner consumed only
+`MIGRATION_DATABASE_URL`, required the `roa_migrator` login and `roa_owner`
+owner roles, applied `SET LOCAL ROLE` inside the caller-owned transaction,
+used a PostgreSQL advisory lock, and verified the expected head before commit.
 
-The manual release contract binds an exact current-`main` SHA to successful
-required checks and an immutable GHCR digest. The Render Blueprint describes a
+The original manual release contract bound an exact current-`main` SHA to
+required checks and an immutable GHCR digest. Its Blueprint described a
 target Nginx frontend, private image-backed backend, isolated no-op migrator
-resource, and managed PostgreSQL 17 database with automatic deployment
-disabled. The release controller intentionally stops before any Render mutation
-until the live migrator artifact identity can be proved safely. The workflow
-has not been dispatched, no cloud resource has been provisioned or changed, and
-no production deployment or public URL is claimed; those actions belong to
-Stage 22.
+resource, and managed PostgreSQL 17 database. AF1+B1-3 removed that workflow
+and paid Blueprint. D-078 preserves their historical rationale, not an active
+release instruction. No cloud resource, deployment, or public URL is claimed.
 
 ### 5.27. Implemented Stage 21 Frontend Architecture
 
@@ -1378,6 +1404,57 @@ production-preview Chromium scenarios across responsive, keyboard, focus,
 forced-colors, reduced-motion, network, and route-loading behavior. No
 JavaScript chunk exceeds 500 kB. This is local pre-deployment evidence, not a
 claim of a live service.
+
+### 5.28. Stage 22 Free-Tier Repository Contract
+
+AF1+B1-1, AF1+B1-2, and AF1+B1-3 are complete and committed; AF1+B1-4
+reconciles their documentation. The present repository target is:
+
+```text
+Browser -> Render Static Site Free -> direct HTTPS/CORS -> Render Docker Web Service Free -> Neon pooled runtime URL
+Manual GitHub workflow_dispatch -> Neon direct migration URL
+```
+
+The Blueprint contains exactly two free Render services and no Render
+database, private service, cron, persistent disk, or GHCR image. Automatic
+deployment is disabled. The static site uses the backend's Render-provided
+external URL as its API base; the backend derives a trusted host only from
+Render-provided hostname metadata, not request headers. Production API origins
+are exact HTTPS origins with credential-free CORS. The backend has DB-independent
+`/health` and DB-aware `/ready`. Static assets have immutable caching, the
+HTML entry point is no-store, and no broad overlapping Cache-Control rule is
+present. A final live-origin Content Security Policy remains deferred to
+Stage 22-D; this does not authorize a wildcard policy.
+
+The eventual demo Render configuration specifies
+`PORTFOLIO_DEMO_MODE=true` and `PAYMENT_PROVIDER=demo`, without a Stripe
+secret in that environment. This is a repository target, not a deployed
+runtime or an implemented demo payment flow. The Static Site sets
+`VITE_API_TIMEOUT_MS=90000` as a bounded 90-second Free-tier cold-start
+allowance; the ordinary API client default remains 10 seconds.
+
+Runtime `DATABASE_URL` must be the Neon pooled TLS URL; manual
+`NEON_MIGRATION_DATABASE_URL` must be the direct migration URL. The
+`migrate-neon.yml` workflow is `workflow_dispatch` only, gates on the four
+required checks (Backend, Migrations, Frontend, Browser E2E), requires an
+exact full current-`main` SHA and `MIGRATE_NEON_PRODUCTION` confirmation,
+uses pinned actions and minimal read permissions, and repeats the
+remote-main comparison inside the migration step immediately before the
+runner. Only that step receives the migration secret. The runner validates
+the `roa_migrator` login and `roa_owner` owner roles and verifies exact
+Alembic head 0009. The named `production-neon` Environment is a repository
+reference, not proof that live
+GitHub protection rules or the secret have been configured. No migration
+workflow has been dispatched, no cloud resources have been provisioned, and no
+public deployment exists.
+
+The schema already represents future demo provenance and provider-neutral
+payment state, but the current Checkout route remains Stripe test and creates
+`provider=stripe_test` Payments. B2 will add the approved deterministic
+500-Order/60-completed-day synthetic seed; B3 demo
+payment, B4 constrained demo administrator, B5 recruiter experience, and B6
+acceptance are future implementation slices. Neither the schema nor the
+configuration flag is evidence that those flows exist.
 
 ## 6. Architecture Diagram
 
