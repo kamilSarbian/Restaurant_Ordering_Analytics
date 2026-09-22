@@ -10,6 +10,7 @@ from app.core.config import Settings
 
 PUBLIC_ORIGIN = "https://app.restaurant.example"
 PUBLIC_API_ORIGIN = "https://api.restaurant.example"
+RENDER_EXTERNAL_HOSTNAME = "api.restaurant.example"
 NEON_RUNTIME_HOST = "ep-roa-runtime-pooler.eu-central-1.aws.neon.tech"
 RELEASE_SHA = "a" * 40
 DATABASE_PASSWORD_MARKER = "database-password-marker"
@@ -88,6 +89,7 @@ def test_complete_production_contract_loads_from_environment_strings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Exercise the exact string boundary used by the deployment provider."""
+    monkeypatch.delenv("RENDER_EXTERNAL_HOSTNAME", raising=False)
     environment = {
         "APP_ENVIRONMENT": "production",
         "APP_DEBUG": "false",
@@ -166,6 +168,7 @@ def _load_production_environment(
     """Load synthetic strings through the same settings boundary as deployment."""
     for name in _production_environment_strings():
         monkeypatch.delenv(name, raising=False)
+    monkeypatch.delenv("RENDER_EXTERNAL_HOSTNAME", raising=False)
     for name, value in environment.items():
         monkeypatch.setenv(name, value)
     return Settings(_env_file=None)
@@ -358,6 +361,105 @@ def test_trusted_hosts_reject_duplicates_after_case_normalization() -> None:
     with pytest.raises(ValidationError, match="duplicate"):
         production_settings(
             {"trusted_hosts": ("restaurant.example", "RESTAURANT.EXAMPLE")}
+        )
+
+
+def test_render_hostname_derives_one_exact_trusted_host_from_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Trust only Render's validated assigned hostname when no list is explicit."""
+    environment = _production_environment_strings()
+    environment.pop("TRUSTED_HOSTS")
+    environment["RENDER_EXTERNAL_HOSTNAME"] = RENDER_EXTERNAL_HOSTNAME.upper()
+
+    settings = _load_production_environment(monkeypatch, environment)
+
+    assert settings.render_external_hostname == RENDER_EXTERNAL_HOSTNAME
+    assert settings.trusted_hosts == (RENDER_EXTERNAL_HOSTNAME,)
+
+
+@pytest.mark.parametrize(
+    "render_hostname",
+    [
+        "",
+        "*",
+        "*.restaurant.example",
+        "https://api.restaurant.example",
+        "api.restaurant.example:443",
+        "api.restaurant.example/path",
+        "api.restaurant.example?query=value",
+        "api.restaurant.example#fragment",
+        "user@api.restaurant.example",
+        " api.restaurant.example",
+        "api.restaurant.example ",
+    ],
+)
+def test_render_hostname_rejects_noncanonical_or_unsafe_values(
+    render_hostname: str,
+) -> None:
+    """Reject Render hostname syntax that could broaden backend host trust."""
+    with pytest.raises(ValidationError):
+        production_settings(
+            {
+                "trusted_hosts": (),
+                "render_external_hostname": render_hostname,
+            }
+        )
+
+
+def test_matching_explicit_and_render_hosts_are_accepted() -> None:
+    """Accept an explicit singleton only when it matches Render exactly."""
+    settings = production_settings(
+        {
+            "trusted_hosts": (RENDER_EXTERNAL_HOSTNAME.upper(),),
+            "render_external_hostname": RENDER_EXTERNAL_HOSTNAME.upper(),
+        }
+    )
+
+    assert settings.trusted_hosts == (RENDER_EXTERNAL_HOSTNAME,)
+    assert settings.render_external_hostname == RENDER_EXTERNAL_HOSTNAME
+
+
+@pytest.mark.parametrize(
+    "trusted_hosts",
+    [
+        ("other.restaurant.example",),
+        (RENDER_EXTERNAL_HOSTNAME, "other.restaurant.example"),
+    ],
+)
+def test_explicit_trusted_hosts_must_exactly_match_render_hostname(
+    trusted_hosts: tuple[str, ...],
+) -> None:
+    """Reject mismatched or broader explicit trust on a Render deployment."""
+    with pytest.raises(ValidationError, match="RENDER_EXTERNAL_HOSTNAME"):
+        production_settings(
+            {
+                "trusted_hosts": trusted_hosts,
+                "render_external_hostname": RENDER_EXTERNAL_HOSTNAME,
+            }
+        )
+
+
+def test_render_hostname_must_match_public_api_origin() -> None:
+    """Keep the public API identity inside the derived exact host set."""
+    with pytest.raises(ValidationError, match="PUBLIC_API_ORIGIN"):
+        production_settings(
+            {
+                "public_api_origin": "https://other.restaurant.example",
+                "trusted_hosts": (),
+                "render_external_hostname": RENDER_EXTERNAL_HOSTNAME,
+            }
+        )
+
+
+def test_public_api_origin_does_not_implicitly_create_host_trust() -> None:
+    """Require configured trust instead of deriving it from request identity."""
+    with pytest.raises(ValidationError, match="TRUSTED_HOSTS"):
+        production_settings(
+            {
+                "trusted_hosts": (),
+                "render_external_hostname": None,
+            }
         )
 
 
@@ -661,6 +763,7 @@ def test_nonproduction_defaults_remain_backward_compatible() -> None:
         assert settings.portfolio_demo_mode is False
         assert settings.payment_provider == "stripe_test"
         assert settings.trusted_hosts == ()
+        assert settings.render_external_hostname is None
         assert settings.trusted_proxy_mode is None
         assert settings.stripe_expected_livemode is None
 

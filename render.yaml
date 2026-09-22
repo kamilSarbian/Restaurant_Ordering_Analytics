@@ -1,61 +1,35 @@
-# Render Blueprint bootstrap contract for Stage 20.
+# Render Blueprint for the zero-cost public portfolio demo.
 #
-# The backend and migrator use this bootstrap-only tag for initial resource
-# creation. The release workflow creates the tag once and never moves it.
-# Production promotion must always use the exact digest returned by GHCR.
+# Exact-origin CSP remains a Stage 22-D live-acceptance requirement because a
+# Static Site header cannot interpolate the backend-assigned external URL.
 previews:
-  generation: off
-
-databases:
-  - name: roa-production-db
-    plan: basic-256mb
-    region: frankfurt
-    postgresMajorVersion: "17"
-    ipAllowList: []
-    connectionPool: none
-    storageAutoscalingEnabled: false
+  generation: "off"
 
 services:
   - type: web
-    name: roa-production-frontend
+    name: roa-portfolio-backend
     runtime: docker
     repo: https://github.com/kamilSarbian/Restaurant_Ordering_Analytics
     branch: main
     region: frankfurt
-    plan: starter
-    numInstances: 1
-    dockerfilePath: ./frontend/Dockerfile
-    dockerContext: ./frontend
-    autoDeployTrigger: off
-    healthCheckPath: /healthz
-    envVars:
-      - key: BACKEND_UPSTREAM
-        fromService:
-          type: pserv
-          name: roa-production-backend
-          property: hostport
-
-  - type: pserv
-    name: roa-production-backend
-    runtime: image
-    region: frankfurt
-    plan: starter
-    numInstances: 1
-    image:
-      # Prebuilt-image releases are promoted by exact digest through the
-      # release controller; Render's Git auto-deploy setting is not applicable.
-      url: ghcr.io/kamilsarbian/restaurant-ordering-analytics-backend:stage20-bootstrap
+    plan: free
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    autoDeployTrigger: "off"
+    healthCheckPath: /health
     envVars:
       - key: APP_ENVIRONMENT
         value: production
       - key: APP_DEBUG
         value: "false"
+      - key: PORTFOLIO_DEMO_MODE
+        value: "true"
+      - key: PAYMENT_PROVIDER
+        value: demo
       - key: TRUSTED_PROXY_MODE
         value: direct
       - key: AUTH_ACCESS_TOKEN_EXPIRE_MINUTES
         value: "30"
-      - key: STRIPE_EXPECTED_LIVEMODE
-        value: "false"
       - key: EXPECTED_ALEMBIC_HEAD
         value: 0009_add_portfolio_demo_origin_and_payment_provider
       - key: LOG_LEVEL
@@ -63,41 +37,72 @@ services:
       - key: DATABASE_URL
         sync: false
       - key: AUTH_JWT_SECRET
-        sync: false
-      - key: STRIPE_SECRET_KEY
-        sync: false
-      - key: STRIPE_WEBHOOK_SECRET
-        sync: false
+        generateValue: true
       - key: PUBLIC_APP_ORIGIN
-        sync: false
-      - key: TRUSTED_HOSTS
-        sync: false
-      - key: STRIPE_SUCCESS_URL
-        sync: false
-      - key: STRIPE_CANCEL_URL
-        sync: false
+        fromService:
+          type: web
+          name: roa-portfolio-frontend
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: PUBLIC_API_ORIGIN
+        fromService:
+          type: web
+          name: roa-portfolio-backend
+          envVarKey: RENDER_EXTERNAL_URL
       - key: RELEASE_SHA
-        sync: false
+        fromService:
+          type: web
+          name: roa-portfolio-backend
+          envVarKey: RENDER_GIT_COMMIT
 
-  - type: cron
-    name: roa-production-migrator
-    runtime: image
-    region: frankfurt
-    plan: starter
-    schedule: "0 0 1 1 *"
-    dockerCommand: /bin/sh -c 'exit 0'
-    image:
-      # The scheduled no-op and future one-off migration share the explicitly
-      # promoted backend digest; mutable-tag auto-deploy is never the authority.
-      url: ghcr.io/kamilsarbian/restaurant-ordering-analytics-backend:stage20-bootstrap
+  - type: web
+    name: roa-portfolio-frontend
+    runtime: static
+    repo: https://github.com/kamilSarbian/Restaurant_Ordering_Analytics
+    branch: main
+    rootDir: frontend
+    buildCommand: npm ci --ignore-scripts --no-audit --no-fund && npm run build
+    staticPublishPath: ./dist
+    autoDeployTrigger: "off"
     envVars:
-      - key: APP_ENVIRONMENT
-        value: production
-      - key: EXPECTED_ALEMBIC_HEAD
-        value: 0009_add_portfolio_demo_origin_and_payment_provider
-      - key: MIGRATION_EXPECTED_LOGIN_ROLE
-        value: roa_migrator
-      - key: MIGRATION_OWNER_ROLE
-        value: roa_owner
-      - key: MIGRATION_DATABASE_URL
-        sync: false
+      - key: VITE_API_BASE_URL
+        fromService:
+          type: web
+          name: roa-portfolio-backend
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: VITE_API_TIMEOUT_MS
+        value: "90000"
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /index.html
+        name: Cache-Control
+        value: no-store
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: Cross-Origin-Opener-Policy
+        value: same-origin
+      - path: /*
+        name: Cross-Origin-Resource-Policy
+        value: same-origin
+      - path: /*
+        name: Permissions-Policy
+        value: camera=(), geolocation=(), microphone=(), payment=(), usb=()
+      - path: /*
+        name: Referrer-Policy
+        value: no-referrer
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: X-Permitted-Cross-Domain-Policies
+        value: none
+      - path: /*
+        name: X-XSS-Protection
+        value: "0"

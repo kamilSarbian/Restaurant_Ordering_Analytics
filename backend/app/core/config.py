@@ -59,6 +59,7 @@ class Settings(BaseSettings):
     public_app_origin: str | None = None
     public_api_origin: str | None = None
     trusted_hosts: tuple[str, ...] = ()
+    render_external_hostname: str | None = None
     trusted_proxy_mode: Literal["direct"] | None = None
     stripe_expected_livemode: bool | None = None
     expected_alembic_head: str | None = None
@@ -122,6 +123,14 @@ class Settings(BaseSettings):
             raise ValueError("Trusted hosts must not contain duplicate entries")
         return validated
 
+    @field_validator("render_external_hostname")
+    @classmethod
+    def validate_render_external_hostname(cls, hostname: str | None) -> str | None:
+        """Validate Render's assigned hostname using the exact-host contract."""
+        if hostname is None:
+            return None
+        return _validate_exact_host(hostname)
+
     @field_validator("expected_alembic_head")
     @classmethod
     def validate_expected_alembic_head(cls, value: str | None) -> str | None:
@@ -158,6 +167,15 @@ class Settings(BaseSettings):
 
         if self.app_environment != "production":
             return self
+
+        if self.render_external_hostname is not None:
+            render_trusted_hosts = (self.render_external_hostname,)
+            if self.trusted_hosts and self.trusted_hosts != render_trusted_hosts:
+                raise ValueError(
+                    "TRUSTED_HOSTS must exactly match RENDER_EXTERNAL_HOSTNAME"
+                )
+            if not self.trusted_hosts:
+                self.trusted_hosts = render_trusted_hosts
 
         required_values = {
             "DATABASE_URL": self.database_url,

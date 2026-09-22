@@ -72,7 +72,7 @@ jobs:
         run: >-
           python -m ruff check --no-cache
           .
-          ../.github/scripts/render_release.py
+          ../.github/scripts/free_tier_contract.py
 
       - name: Check Black formatting
         shell: bash
@@ -80,7 +80,7 @@ jobs:
         run: >-
           python -m black --check --no-cache --workers 1
           .
-          ../.github/scripts/render_release.py
+          ../.github/scripts/free_tier_contract.py
 
       - name: Check import ordering
         shell: bash
@@ -88,7 +88,7 @@ jobs:
         run: >-
           python -m isort --check-only
           .
-          ../.github/scripts/render_release.py
+          ../.github/scripts/free_tier_contract.py
 
       - name: Run backend tests
         shell: bash
@@ -143,38 +143,9 @@ jobs:
           python -m pip install --isolated --only-binary=:all: --require-hashes -r backend/requirements.lock
           python -m pip check
 
-      - name: Validate deployment release contracts
+      - name: Validate free-tier deployment contracts
         shell: bash
-        run: |
-          python - <<'PY'
-          import importlib.util
-          import sys
-          from pathlib import Path
-
-          import yaml
-
-          helper_path = Path(".github/scripts/render_release.py")
-          spec = importlib.util.spec_from_file_location("render_release", helper_path)
-          if spec is None or spec.loader is None:
-              raise SystemExit("Release helper import failed")
-          release = importlib.util.module_from_spec(spec)
-          sys.modules[spec.name] = release
-          spec.loader.exec_module(release)
-
-          render_config = yaml.load(
-              Path("render.yaml").read_text(encoding="utf-8"),
-              Loader=yaml.BaseLoader,
-          )
-          release_workflow = yaml.load(
-              Path(".github/workflows/release.yml").read_text(encoding="utf-8"),
-              Loader=yaml.BaseLoader,
-          )
-          release.validate_repository_contract(render_config, release_workflow)
-
-          heads = release.find_alembic_heads(Path("backend/alembic/versions"))
-          if heads != (release.EXPECTED_ALEMBIC_HEAD,):
-              raise SystemExit("Release Alembic head validation failed")
-          PY
+        run: python .github/scripts/free_tier_contract.py
 
       - name: Verify migration target and graph
         shell: bash
@@ -269,7 +240,7 @@ jobs:
         run: >-
           npm run format:check --
           ../.github/workflows/ci.yml
-          ../.github/workflows/release.yml
+          ../.github/workflows/migrate-neon.yml
           ../render.yaml
           ../README.md
           ../docs/PROJECT_CONTEXT.md
