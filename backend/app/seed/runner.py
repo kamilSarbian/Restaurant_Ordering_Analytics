@@ -159,10 +159,17 @@ def _upsert_menu_items(session: Session) -> None:
 def seed_menu_data(session_factory: sessionmaker[Session]) -> SeedResult:
     """Seed the canonical menu in one transaction using the supplied factory."""
     with session_factory.begin() as session:
-        _preflight_category_conflicts(session)
-        _preflight_menu_item_conflicts(session)
-        _upsert_categories(session)
-        _upsert_menu_items(session)
+        result = seed_menu_data_in_session(session)
+
+    return result
+
+
+def seed_menu_data_in_session(session: Session) -> SeedResult:
+    """Seed the canonical menu through an already transaction-owned session."""
+    _preflight_category_conflicts(session)
+    _preflight_menu_item_conflicts(session)
+    _upsert_categories(session)
+    _upsert_menu_items(session)
 
     return SeedResult(
         categories_processed=len(CATEGORY_SEEDS),
@@ -170,4 +177,112 @@ def seed_menu_data(session_factory: sessionmaker[Session]) -> SeedResult:
     )
 
 
-__all__ = ["SeedConflictError", "SeedResult", "seed_menu_data"]
+def require_exact_menu_data(session: Session) -> SeedResult:
+    """Verify the canonical menu without mutating any database row."""
+    _preflight_category_conflicts(session)
+    _preflight_menu_item_conflicts(session)
+
+    category_ids = tuple(seed.id for seed in CATEGORY_SEEDS)
+    actual_categories = {
+        category_id: (name, description, display_order, is_active)
+        for category_id, name, description, display_order, is_active in session.execute(
+            select(
+                Category.id,
+                Category.name,
+                Category.description,
+                Category.display_order,
+                Category.is_active,
+            ).where(Category.id.in_(category_ids))
+        )
+    }
+    expected_categories = {
+        seed.id: (
+            seed.name,
+            seed.description,
+            seed.display_order,
+            seed.is_active,
+        )
+        for seed in CATEGORY_SEEDS
+    }
+
+    menu_item_ids = tuple(seed.id for seed in MENU_ITEM_SEEDS)
+    actual_menu_items = {
+        menu_item_id: (
+            category_id,
+            name,
+            description,
+            image_url,
+            price_amount,
+            cost_amount,
+            currency,
+            tuple(allergens),
+            display_order,
+            is_active,
+            is_available,
+        )
+        for (
+            menu_item_id,
+            category_id,
+            name,
+            description,
+            image_url,
+            price_amount,
+            cost_amount,
+            currency,
+            allergens,
+            display_order,
+            is_active,
+            is_available,
+        ) in session.execute(
+            select(
+                MenuItem.id,
+                MenuItem.category_id,
+                MenuItem.name,
+                MenuItem.description,
+                MenuItem.image_url,
+                MenuItem.price_amount,
+                MenuItem.cost_amount,
+                MenuItem.currency,
+                MenuItem.allergens,
+                MenuItem.display_order,
+                MenuItem.is_active,
+                MenuItem.is_available,
+            ).where(MenuItem.id.in_(menu_item_ids))
+        )
+    }
+    expected_menu_items = {
+        seed.id: (
+            seed.category_id,
+            seed.name,
+            seed.description,
+            seed.image_url,
+            seed.price_amount,
+            seed.cost_amount,
+            seed.currency,
+            seed.allergens,
+            seed.display_order,
+            seed.is_active,
+            seed.is_available,
+        )
+        for seed in MENU_ITEM_SEEDS
+    }
+
+    if (
+        actual_categories != expected_categories
+        or actual_menu_items != expected_menu_items
+    ):
+        raise SeedConflictError("Canonical menu data is not exact.")
+
+    return SeedResult(
+        categories_processed=len(CATEGORY_SEEDS),
+        menu_items_processed=len(MENU_ITEM_SEEDS),
+    )
+
+
+__all__ = [
+    "require_exact_menu_data",
+    "SeedConflictError",
+    "SeedResult",
+    "seed_menu_data",
+    "seed_menu_data_in_session",
+]
