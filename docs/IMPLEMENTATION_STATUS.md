@@ -1,8 +1,12 @@
 # Implementation Status
 
-- **Repository documentation baseline:** reconciled through AF1+B1-4;
-  recruiter-facing portfolio documentation and case-study work remain Stage
-  23 and have not started
+- **Repository documentation baseline:** AF1+B1-4, B2-1, and B2-2 are
+  committed. B2-3 is bounded to deterministic portfolio-seed acceptance and
+  documentation reconciliation. This file records durable implementation scope
+  and acceptance evidence; repository history, independent-review records, and
+  CI are authoritative for transient review, commit, and run status.
+  Recruiter-facing portfolio documentation and case-study work remain Stage 23
+  and have not started
 - **Stage 1:** completed
 - **Stage 2:** completed
 - **Stage 3:** completed
@@ -20,13 +24,13 @@
 - **Stage 15:** completed
 - **Current stage:** Stage 20 Production Deployment Readiness and Stage 21 UI/UX
   Redesign & Product Polish are complete. Stage 22 Production Deployment &
-  Public Acceptance is **in progress**: AF1+B1-1, AF1+B1-2, and AF1+B1-3
-  are complete and committed; AF1+B1-4 is the current documentation-only
-  reconciliation, pending independent review and commit. The original
-  Stage 20 paid Render/GHCR topology is historical and superseded for the
-  free-tier portfolio demo. Stage 23 is **not started**. No Render/Neon
-  provisioning, production migration, demo seed, public deployment, or public
-  URL is claimed.
+  Public Acceptance is **in progress**: AF1+B1-1 through AF1+B1-4, B2-1, and
+  B2-2 are complete and committed. B2-3 is bounded to the deterministic
+  portfolio-seed acceptance test and six documentation paths; it neither
+  implements nor authorizes B3-B6. The original Stage 20 paid Render/GHCR
+  topology is historical and superseded for the free-tier portfolio demo. Stage
+  23 is **not started**. No Render/Neon provisioning, production migration/seed,
+  public deployment, or public URL is claimed.
 - **Backend:** FastAPI, database foundation, menu models, local seed data,
   public menu, transient quoting, persistent order creation, and secure public
   order status, Payment persistence, Stripe Checkout, and verified Stripe
@@ -45,12 +49,14 @@
   browser-E2E Compose overlay are complete
 - **Database:** PostgreSQL, Alembic, menu, order, Payment, StripeEvent, and User
   models and deterministic local menu seed completed. Repository/Alembic head
-  is `0009_add_portfolio_demo_origin_and_payment_provider`; the local
-  development database remains at `0008_add_order_ownership` and has not
-  been upgraded by AF1+B1-4. The controlled Stage 16F ENV1 upgrade preserved
-  the historical administrator as an active `super_admin`
-- **Local menu seed data:** completed and verified; the B2 portfolio Order
-  seed is not implemented
+  is `0009_add_portfolio_demo_origin_and_payment_provider`. The latest recorded
+  development-database evidence is the historical 0008 state; B2-3 did not
+  connect to or mutate that database and does not claim its current revision.
+  The controlled Stage 16F ENV1 upgrade preserved the historical administrator
+  as an active `super_admin`
+- **Local seed data:** deterministic menu seed completed and verified. B2-1
+  pure portfolio generation and B2-2 atomic local persistence are committed;
+  B2-3 isolated analytics/CSV acceptance is complete locally
 - **Public menu API:** list, availability filter, item details, and 404 contract
   completed and verified
 - **Menu write API:** administrator category and item list, create, partial
@@ -657,7 +663,8 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   scenarios, with no JavaScript chunk above 500 kB. This status does not claim a
   production deployment or public URL.
 - **Stage 22 — Production Deployment & Public Acceptance:** **IN PROGRESS**
-  in repository contracts only; no public deployment.
+  in repository implementation and isolated local acceptance; no public
+  deployment.
 - **AF1+B1-1 — runtime/config/security:** complete and committed on
   2026-09-18 at `bbb27b97c23ef4360bd4e00e8b1c86daa5ddd838`.
   Fail-closed portfolio/payment configuration, strict public origins/CORS,
@@ -696,17 +703,39 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   The workflow's `production-neon` Environment and secret still require real operator
   verification/configuration; the workflow has not been dispatched.
 - **AF1+B1-4 — integration acceptance and documentation reconciliation:**
-  completed locally in exactly six authoritative documents, pending
-  independent review and a separately authorized commit. No CI rerun, code,
-  schema, config, workflow, test, or cloud change belongs to this slice.
-- **Stage 22-B0 demo design:** approved as design only. B2 is the next
-  implementation slice: exactly 500 deterministic synthetic Orders over 60
-  completed days, version `portfolio-60d-v1`, RNG seed `220060500`,
-  explicit reference end time, existing five categories/fifteen products,
-  no real PII, and provenance separating `portfolio_seed` from future
-  `portfolio_runtime`. B2 seed, B3 backend-authoritative fake payment, B4
-  constrained ordinary-admin demo, B5 recruiter UX, and B6 integrated
-  acceptance are **not implemented**.
+  complete and committed on 2026-09-22 at
+  `bdc171db16573cc5fb59e9b404eff3adde7c0bb7`.
+- **B2-1 — pure deterministic portfolio dataset:** complete and committed on
+  2026-09-23 at `39a6b394bcbacbbb071030894857d0766c3bfa0f`.
+  The immutable `portfolio-60d-v1` plan uses RNG seed `220060500`, exactly
+  500 Orders over 60 completed Europe/Oslo days, the canonical 5/15 catalog, no
+  real PII, deterministic identities, legal histories, demo Payments, and
+  canonical SHA-256
+  `716200cc31feebe72a1dc237175e5c5780075bffa055a7086430dedb823bb9f3`.
+- **B2-2 — atomic persistence and local CLI:** complete and committed on
+  2026-09-24 at `ede6e776c72a154ee9a9dbfd535571e4c884aecc`.
+  The exact opt-in flag preserves menu-only default behavior; schema-0009,
+  local-only persistence uses one transaction, exact reruns issue zero DML, and
+  drift/collisions fail closed.
+- **B2-3 — persisted analytics/CSV acceptance and documentation:** bounded to
+  exactly one integration-test path and six authoritative documents. The dated
+  2026-09-24 local isolated suite passed 38/38 tests. Independent-plan oracles
+  prove all four analytics and all three CSV services: 449 succeeded NOK
+  Payments, 31,542,500 revenue minor units, 70,251 average-order-value minor
+  units, exact 14/5/2 breakdowns, CSV rows 500/14/449, exact
+  headers/filenames/order/Oslo timestamps/half-open ranges, and
+  `Payment.succeeded_at` qualification. In both the canonical full-window and
+  boundary-probe phases, each of the seven service calls has a separate
+  SQL-listener capture after connection checkout; every capture must contain
+  exactly one SQL statement and no DML, including data-modifying CTEs. The
+  canonical B2-1 SHA and size remain unchanged. Repository history,
+  independent-review records, and CI are authoritative for commit and run
+  status rather than this durable implementation summary.
+- **Stage 22-B0 demo design:** approved as design only. B3
+  backend-authoritative fake payment, B4 constrained ordinary-admin demo, B5
+  recruiter UX, and B6 integrated acceptance are **not implemented**. A
+  production reference end, Neon seed, reset/prune policy, and runtime cap have
+  not been selected or authorized.
 - **Stage 22-A/C/D:** actual Render/Neon provisioning, live GitHub
   Environment/secret controls, direct-URL production migration, first
   controlled release, and public acceptance remain future separately
@@ -725,9 +754,11 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   is completed and acceptance-verified.
 - Unified authentication has no refresh, logout, revocation, password
   reset/change, or MFA. Its limiter is per process and resets on restart.
-- Repository migration 0009 is implemented and verified; the local development
-  database remains at 0008. During Stage 16F ENV1,
-  the development database was backed up outside the repository and upgraded
+- Repository migration 0009 is implemented and verified. The latest recorded
+  development-database evidence is the historical 0008 state from Stage 16F
+  ENV1; its current revision is unverified because B2-3 did not connect to or
+  mutate it. During Stage 16F ENV1, the development database was backed up
+  outside the repository and upgraded
   through the approved `0006 -> 0007 -> 0008` path. The historical
   administrator remains an active `super_admin`; current Compose binds project
   PostgreSQL at `127.0.0.1:5433` to container port 5432, and the separate host

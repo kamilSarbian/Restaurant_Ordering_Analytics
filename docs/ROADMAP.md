@@ -672,11 +672,14 @@
 - **Completed and committed:** AF1+B1-1 runtime/config/security contract;
   AF1+B1-2 provider-neutral persistence and migration
   `0009_add_portfolio_demo_origin_and_payment_provider`; AF1+B1-3 free-tier
-  Blueprint and manual, direct-Neon-URL migration workflow. They establish
-  repository contracts only, not live infrastructure or demo behavior.
-- **Current slice:** AF1+B1-4 integration acceptance and documentation
-  reconciliation. It changes only the six authoritative documents and does
-  not run CI or provision resources.
+  Blueprint and manual, direct-Neon-URL migration workflow; AF1+B1-4 integration
+  acceptance and documentation reconciliation; B2-1 pure deterministic dataset
+  generation; and B2-2 atomic local persistence with an opt-in CLI. These do not
+  establish live infrastructure or public demo behavior.
+- **B2-3 acceptance contract:** persisted portfolio analytics/CSV acceptance and
+  documentation reconciliation require the scoped test and quality gates plus a
+  separate independent review. Repository history, review records, and CI are
+  authoritative for transient execution status.
 
 ### 22-A — Free-Tier Provisioning and Release Prerequisites
 
@@ -694,17 +697,32 @@ exact current-`main` checks.
 ### 22-B — Portfolio Demo Implementation
 
 - **B0 design:** approved, read-only; not runtime implementation.
-- **B1-1 through B1-3:** complete and committed as above. **B1-4:** current
-  documentation-only slice.
-- **B2 — deterministic seed:** next implementation slice. Produce exactly 500
-  deterministic synthetic Orders over 60 completed days, with an explicit
-  reference end time, version `portfolio-60d-v1`, RNG seed `220060500`,
-  realistic status/payment distributions, the existing five categories and
-  fifteen products, no real PII, expected data comfortably below 10 MiB,
-  and idempotent/reproducible behavior. Stable Orders use
-  `portfolio_seed`; visitor demo Orders will use `portfolio_runtime`;
-  ordinary data remains `live`. A 250-order portfolio-runtime cap is a
-  future proposal, not an implemented control. B2 has not been implemented.
+- **B1-1 through B1-4:** complete and committed. B1-4 was committed on
+  2026-09-22 at `bdc171db16573cc5fb59e9b404eff3adde7c0bb7`.
+- **B2-1 — pure deterministic dataset:** complete and committed on 2026-09-23
+  at `39a6b394bcbacbbb071030894857d0766c3bfa0f`. It generates exactly 500
+  synthetic Orders over 60 completed Europe/Oslo days, version
+  `portfolio-60d-v1`, RNG seed `220060500`, the existing five categories and
+  fifteen products, stable identities, provider-neutral demo Payments, legal
+  histories, and no real PII without DB/environment/ambient-time access.
+- **B2-2 — atomic persistence and local CLI:** complete and committed on
+  2026-09-24 at `ede6e776c72a154ee9a9dbfd535571e4c884aecc`. The default CLI
+  remains menu-only; exact `--portfolio-reference-end` opts into
+  local-dev-only, exact-revision-0009, one-transaction persistence. Exact
+  reruns perform zero DML; partial/drifted state and collisions fail closed.
+- **B2-3 — persisted acceptance and documentation:** isolated DB acceptance
+  proves all four analytics and three CSV services against independent oracles:
+  449 succeeded NOK Payments, 31,542,500 revenue minor units, 70,251
+  average-order-value minor units, exact 14/5/2 breakdowns, and CSV rows
+  500/14/449. In both the canonical full-window and boundary-probe phases, each
+  of the seven service calls has a separate SQL-listener capture after
+  connection checkout; every capture must contain exactly one SQL statement and
+  no DML, including data-modifying CTEs. Boundary sentinels prove half-open date
+  filters and the provider-neutral success-time source. No production reference
+  end or Neon seed is selected.
+- Stable seed Orders use `portfolio_seed`; visitor demo Orders will use
+  `portfolio_runtime`; ordinary data remains `live`. A 250-order
+  portfolio-runtime cap is a future proposal, not an implemented control.
 - **B3 — public fake/demo payment:** future and **not implemented**. Its
   runtime binding will be `PAYMENT_PROVIDER=demo`, with zero real Stripe
   requests and backend-authoritative deterministic outcomes `success`,
@@ -723,11 +741,11 @@ exact current-`main` checks.
 - **B6 — integrated acceptance:** future; verify security, data boundaries,
   deterministic behavior, and operator reset before public release.
 
-The current database schema supports `Order.data_origin`,
-`Payment.provider`, provider-neutral Checkout fields, and
-`Payment.succeeded_at`, but no seed, fake payment flow, or demo administrator
-is implemented. D-060 payment neutrality and D-077 NOK-only Admin Menu remain
-unchanged.
+The current database schema supports `Order.data_origin`, `Payment.provider`,
+provider-neutral Checkout fields, and `Payment.succeeded_at`; B2's local
+deterministic generator, persistence, and isolated acceptance are implemented.
+Fake payment and demo administrator flows are not. D-060 payment neutrality and
+D-077 NOK-only Admin Menu remain unchanged.
 
 ### 22-C — First Controlled Online Release
 
@@ -760,12 +778,14 @@ the renewed pre-commit independent review and logical commit-plan confirmation.
 Neither stage claims a live deployment or public URL.
 
 That paragraph records the historical 2026-09-15 reconciliation boundary,
-not the current state. Stage 22 is now in progress through three committed
-AF1+B1 repository slices and this AF1+B1-4 documentation slice, with no live
-deployment. Stage 23 remains not started. The next implementation slice after
-AF1+B1-4 is B2 deterministic seed, subject to its separate authorization.
+not the current state. Stage 22 is now in progress through four committed
+AF1+B1 slices, committed B2-1 and B2-2, and the bounded B2-3 acceptance and
+documentation work, with no live deployment. Stage 23 remains not started.
+B2-3 does not start or authorize B3; B3 requires its own planning and
+implementation authorization after the required B2-3 acceptance evidence has
+been recorded.
 
 The repository and Alembic head are
-`0009_add_portfolio_demo_origin_and_payment_provider`. The development
-database remains at `0008_add_order_ownership`; no migration is performed by
-this documentation stage.
+`0009_add_portfolio_demo_origin_and_payment_provider`. The latest recorded
+development-database evidence is the historical 0008 state; B2-3 neither read
+nor mutated the development database, so its current revision is not claimed.

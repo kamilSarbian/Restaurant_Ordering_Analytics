@@ -1589,6 +1589,48 @@ while preserving these financial concurrency rules.
   deployment, Neon migration, or cloud provisioning is claimed by this
   repository decision.
 
+## D-081 — Deterministic Local Portfolio Dataset and Atomic Seed
+
+- **Status:** accepted on 2026-09-24 for the local B2 contract. D-081 records the
+  durable B2-3 acceptance contract; transient worktree, review, commit, and CI
+  status belong to repository, review, and CI records rather than this decision.
+- **Precedence:** this decision supersedes only D-079's acceptance-time
+  statement that seeded Orders were a later slice. D-079's public demo-payment,
+  runtime-provenance, and release boundaries remain unchanged.
+- **Decision:** the portfolio dataset is the pure, immutable
+  `portfolio-60d-v1` plan with RNG seed `220060500`, exactly 500 synthetic
+  Orders over 60 completed Europe/Oslo days, the canonical five-category and
+  fifteen-product catalog, provider-neutral demo Payments, legal status
+  histories, deterministic identities, and no real PII. Its canonical
+  serialization has SHA-256
+  `716200cc31feebe72a1dc237175e5c5780075bffa055a7086430dedb823bb9f3` and size
+  1,456,799 bytes.
+- **Persistence boundary:** the ordinary seed CLI remains menu-only. Portfolio
+  persistence requires the exact `--portfolio-reference-end` opt-in, an aware
+  value resolving to Europe/Oslo midnight, the local development allowlist, and
+  exact schema revision 0009. The menu and full plan are written in one
+  transaction only when portfolio-owned state is empty. An exact rerun performs
+  zero DML; partial/drifted state and identity collisions fail closed without
+  repair, while unrelated rows remain unchanged.
+- **Acceptance evidence:** isolated B2-3 tests derive expectations independently
+  from the immutable plan and compare complete outputs from all four analytics
+  and all three CSV services. They prove 449 succeeded NOK Payments, revenue
+  31,542,500 minor units, average order value 70,251 minor units, exact 14-product,
+  5-category, and 2-order-type breakdowns, exact CSV rows 500/14/449, full
+  headers/filenames/order/time formatting, half-open range behavior, and
+  `Payment.succeeded_at` qualification. In both the canonical full-window and
+  boundary-probe phases, each of the four analytics and three CSV service calls
+  has a separate SQL-listener capture after connection checkout; every capture
+  must contain exactly one SQL statement and no DML, including data-modifying
+  CTEs.
+- **Operational boundary:** the B2-3 reference end is test evidence only. This
+  decision does not choose a production reference end, authorize a Neon seed,
+  define reset/prune/runtime-cap behavior, implement B3 payment, or claim a
+  public deployment. The development database was not an acceptance target and
+  its current revision was not reverified. The evidence recorded here is the
+  dated 2026-09-24 local isolated-DB run; commit and CI results are external
+  execution records and are not part of D-081's durable technical decision.
+
 ## History of Decisions That Required Resolution
 
 ### O-002: Boundary Between Order Creation and Stripe Checkout Session

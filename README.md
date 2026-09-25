@@ -44,13 +44,17 @@ The accepted frontend baseline is 1,073/1,073 tests and 23/23 synthetic
 production-preview Chromium scenarios; no JavaScript chunk exceeds 500 kB.
 
 Stage 22 — Production Deployment & Public Acceptance is **in progress**.
-AF1+B1-1 (runtime/config/security), AF1+B1-2 (provider-neutral persistence),
-and AF1+B1-3 (free-tier repository deployment contract) are complete,
-committed, pushed, and CI-verified. AF1+B1-4 is this documentation and
-integration-acceptance slice. Provisioning, the deterministic B2 seed, demo
-payment and administrator behavior, online release, and public acceptance have
-not been executed. A recruiter-facing public URL may be claimed only after
-Stage 22-D. Stage 23 — Portfolio Documentation & Case Study is **not started**.
+AF1+B1-1 through AF1+B1-4, B2-1 (the pure deterministic generator), and B2-2
+(atomic local persistence and its opt-in CLI) are complete, committed, pushed,
+and CI-verified. B2-3 defines deterministic portfolio-seed acceptance for the
+complete database-to-analytics/CSV path and reconciles the six project
+documents. The dated evidence recorded here is the 2026-09-24 local isolated-DB
+run; repository history, independent-review records, and CI are authoritative
+for transient review, commit, and run status. No Render or Neon resource,
+production migration or seed, demo payment or administrator behavior, online
+release, or public acceptance has been executed. A recruiter-facing public URL
+may be claimed only after Stage 22-D. Stage 23 — Portfolio Documentation & Case
+Study is **not started**.
 
 The FastAPI backend provides public menu and quote APIs, anonymous or owned
 Order creation, owner-or-capability status and idempotent Stripe Checkout,
@@ -60,10 +64,11 @@ administrator operations. Historical acceptance counts remain documented in
 their stage-specific sections below.
 
 Local development uses PostgreSQL 17, synchronous SQLAlchemy 2, Psycopg 3,
-Alembic, and an explicit demonstration menu seed. The repository's single
-Alembic head is `0009_add_portfolio_demo_origin_and_payment_provider`; the
-local development database remains at `0008_add_order_ownership` and has not
-been upgraded by this documentation slice. A local
+Alembic, and explicit demonstration menu and portfolio seed commands. The
+repository's single Alembic head is
+`0009_add_portfolio_demo_origin_and_payment_provider`. The most recent
+historical development-database evidence recorded revision 0008; B2-3 neither
+connected to that database nor reverified its current revision. A local
 credential-hygiene issue was remediated by rotation without documenting or
 tracking any credential value. Stage 17 provides repeatable local full-system
 containers, Stage 18 provides isolated browser E2E, Stage 19 provides the
@@ -449,7 +454,7 @@ authorization.
 
 ## Stage 22 free-tier repository contract and remaining demo work
 
-AF1+B1-1, AF1+B1-2, and AF1+B1-3 are complete and committed. The current
+AF1+B1-1 through AF1+B1-4 are complete and committed. The current
 repository target is a Render Static Site Free frontend calling a Render Docker
 Web Service Free backend directly over HTTPS with exact-origin CORS; backend
 runtime uses a Neon PostgreSQL Free pooled URL. The manual
@@ -457,8 +462,9 @@ runtime uses a Neon PostgreSQL Free pooled URL. The manual
 required CI checks, and a final current-`main` SHA recheck before running the
 migrator. The named `production-neon` GitHub Environment and its migration
 secret still require operator verification/configuration; a workflow reference
-does not establish live protection rules. No workflow has been dispatched and
-no Render or Neon resource, migration, seed, or public deployment is claimed.
+does not establish live protection rules. No workflow has been dispatched, and
+no Render/Neon resource, production migration or seed, or public deployment is
+claimed.
 
 Migration `0009_add_portfolio_demo_origin_and_payment_provider` adds
 `Order.data_origin` (`live`, `portfolio_seed`, or `portfolio_runtime`),
@@ -469,15 +475,17 @@ Migration `0009_add_portfolio_demo_origin_and_payment_provider` adds
 successful historical payments require authoritative Stripe transition
 evidence. `Order.data_origin` is internal, server-owned provenance: the
 public Order creation request does not accept it and rejects unknown fields.
-Ordinary runtime defaults to `live`; only future server-side seed/demo flows
-may assign `portfolio_seed` or `portfolio_runtime`. The Stripe
+Ordinary runtime defaults to `live`; only server-side seed/demo flows may
+assign the other values. B2's explicit local seed assigns `portfolio_seed`;
+`portfolio_runtime` remains reserved for a future demo flow. The Stripe
 Checkout/webhook path remains implemented. The
 `PAYMENT_PROVIDER=demo` configuration and schema are foundations only: public
-demo payment, deterministic seed, and demo administrator behavior are not yet
-implemented. The next implementation slice after this documentation-only
-AF1+B1-4 is B2, the deterministic seed: exactly 500 synthetic Orders over 60
-completed days. Later B3-B6 cover fake payment, bounded demo administration,
-recruiter UX, and acceptance.
+demo payment and demo administrator behavior are not yet implemented. B2-1 and
+B2-2 implement a pure deterministic 500-Order/60-completed-day portfolio plan
+and its atomic, local-only, explicit persistence path. B2-3 now proves the
+persisted plan against all four analytics services and all three CSV services
+in an isolated test database. Later B3-B6 cover fake payment, bounded demo
+administration, recruiter UX, and integrated acceptance.
 
 ## Stage 21 Nordic Hearth UI/UX redesign and product polish
 
@@ -584,9 +592,10 @@ nullable `orders.customer_user_id`, its `users.id` foreign key with
 historical rows.
 
 The repository and Alembic head are now at
-`0009_add_portfolio_demo_origin_and_payment_provider`. The current development
-database remains at `0008_add_order_ownership`; no development migration was
-run for AF1+B1-2 or this documentation slice. During Stage 16F manual-QA
+`0009_add_portfolio_demo_origin_and_payment_provider`. The most recent recorded
+development-database evidence is the historical 0008 state below; its current
+revision was not read during B2-3, and no development migration or seed was
+run. During Stage 16F manual-QA
 environment preparation,
 the development database was backed up outside the repository and upgraded
 additively through `0006_create_admin_user_model` ->
@@ -1050,9 +1059,14 @@ intentional.
 
 ## Local demonstration seed
 
-Stage 5 provides a controlled dataset for local development and portfolio
-demonstrations. It contains five categories and fifteen menu items with fixed
-UUIDs. Stage 6 exposes that data through the read-only public menu API.
+The default command provides the five canonical categories and fifteen menu
+items with fixed UUIDs for local development. Its behavior remains menu-only;
+the portfolio dataset is available only through the explicit B2 opt-in flag.
+The portfolio plan has version `portfolio-60d-v1`, RNG seed `220060500`,
+exactly 500 synthetic Orders over 60 completed Europe/Oslo calendar days, and
+no real PII. Its canonical SHA-256 is
+`716200cc31feebe72a1dc237175e5c5780075bffa055a7086430dedb823bb9f3` and its
+canonical serialized size is 1,456,799 bytes.
 
 Start the PostgreSQL service through Docker Compose and apply migrations before
 running the seed. From the `backend` directory, with the project virtual
@@ -1069,23 +1083,54 @@ directly without activation:
 & .\.venv\Scripts\python.exe -m app.seed
 ```
 
+To persist the portfolio plan as well, pass the exact, unabbreviated flag and an
+explicit timezone-aware ISO-8601 value that resolves to midnight in
+Europe/Oslo:
+
+```powershell
+python -m app.seed --portfolio-reference-end "<aware ISO-8601 Europe/Oslo midnight>"
+```
+
+The reference end is an operator input. This documentation does not select a
+production reference end and does not authorize a Neon or production seed.
+
 The command is local-only. It accepts only the exact
 `restaurant_ordering_analytics_dev` database through the PostgreSQL Psycopg
 driver on `localhost` or `127.0.0.1` and host port 5433. It rejects remote,
 administrative, test, and alternative database targets before creating a
 database engine. It is not a production bootstrap mechanism.
 
-Seed records use deterministic primary-key upserts. Rerunning the command
-restores every canonical field owned by the fixed seed UUIDs, preserves
-`created_at`, and leaves `updated_at` unchanged when no value differs. A rerun
-therefore overwrites manual changes to seed-owned records and recreates a
-seed-owned record that was deleted.
+Without the portfolio flag, menu records use deterministic primary-key upserts.
+Rerunning that menu-only command restores every canonical field owned by the
+fixed seed UUIDs, preserves `created_at`, and leaves `updated_at` unchanged
+when no value differs. A rerun therefore overwrites manual changes to seed-owned
+menu records and recreates a seed-owned menu record that was deleted.
+
+With the portfolio flag, persistence requires exact schema revision 0009 and
+uses one transaction for the canonical menu plus 12 RestaurantTables, 500
+Orders, 1,211 OrderItems, 2,326 status-history rows, and 484 provider-neutral
+demo Payments. An empty portfolio state is inserted atomically; an exact
+identical state is a true zero-DML no-op. Partial or drifted seed-owned data and
+identity collisions fail closed without repair or overwrite, while unrelated
+live/runtime/User and Stripe rows remain untouched.
 
 The seed does not use `DELETE` or `TRUNCATE`, does not claim records by name,
 and does not modify unrelated categories or menu items. A normalized-name
 conflict with another UUID aborts the complete transaction. Imports,
 application startup, `/health`, migrations, Docker Compose startup, CI, and
 deployment never run the seed automatically.
+
+B2-3 isolated-database acceptance compares persisted output with an independent
+in-memory oracle. It verifies 449 succeeded NOK Payments, revenue 31,542,500
+minor units, average order value 70,251 minor units, exact 14-product,
+5-category, and 2-order-type analytics breakdowns, and exact CSV row counts of
+500 Orders, 14 product-sales rows, and 449 Payments. Headers, filenames,
+ordering, Europe/Oslo timestamps, and half-open range semantics are checked in
+full. In both the canonical full-window and boundary-probe phases, the
+integration test opens a separate SQL-listener capture after connection
+checkout for each of the four analytics and three CSV service calls. Every
+per-call capture must contain exactly one SQL statement and no DML, including
+data-modifying CTEs.
 
 Run all seed and regression tests from the `backend` directory:
 

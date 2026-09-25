@@ -43,9 +43,11 @@ Stage 21 — UI/UX Redesign & Product Polish is complete under the official
 Nordic Hearth identity; final acceptance passed 1,073 frontend tests and 23/23
 synthetic production-preview Chromium scenarios, with no JavaScript chunk above
 500 kB. Stage 22 — Production Deployment & Public Acceptance is **in
-progress**: AF1+B1-1, AF1+B1-2, and AF1+B1-3 are complete and committed;
-AF1+B1-4 reconciles their documentation. Stage 23 — Portfolio Documentation &
-Case Study is **not started**. No public deployment or public URL is claimed.
+progress**: AF1+B1-1 through AF1+B1-4, B2-1, and B2-2 are complete and
+committed. B2-3 is the bounded deterministic portfolio-seed acceptance and
+documentation-reconciliation slice described here. Stage 23 — Portfolio
+Documentation & Case Study is **not started**. No public deployment or public
+URL is claimed.
 
 ## 3. Users
 
@@ -99,10 +101,12 @@ to `users`, the constrained role, safe zero/one-row upgrade, atomic multi-row
 failure, and guarded downgrade. Its child `0008_add_order_ownership` adds the
 nullable Order owner foreign key and personal-history index without a backfill.
 The repository and Alembic head are
-`0009_add_portfolio_demo_origin_and_payment_provider`. The local development
-database remains at `0008_add_order_ownership`. During the approved
-Stage 16F local-QA preparation, the development database was backed up outside
-the repository and upgraded through `0006 -> 0007 -> 0008`. The historical
+`0009_add_portfolio_demo_origin_and_payment_provider`. The latest recorded
+development-database evidence is the historical 0008 state from the approved
+Stage 16F local-QA preparation; B2-3 neither connected to that database nor
+reverified its current revision. That earlier preparation backed up the
+development database outside the repository and upgraded it through
+`0006 -> 0007 -> 0008`. The historical
 administrator remains active as `super_admin`; `users`, the ownership foreign
 key, and the owner-history index are present, and the legacy `admin_users`
 table is absent.
@@ -443,8 +447,9 @@ A guest capability does not bypass this boundary. Responses expose no owner,
 customer PII, Payment, Stripe, cost, or margin data, and there is no account
 mutation, ownership reassignment, or retroactive guest-Order claim.
 
-The development database remains at `0008_add_order_ownership`, separate from
-the repository's 0009 head. Its approved
+The last recorded development-database evidence is revision
+`0008_add_order_ownership`, separate from the repository's current 0009 head;
+B2-3 did not read or mutate it. Its approved historical
 `0006 -> 0007 -> 0008` upgrade used an external backup, preserved the active
 historical administrator as `super_admin`, and verified the unified User and
 ownership schema. Its safe post-G4 fingerprint is one User with role counts
@@ -691,7 +696,8 @@ claim a public application.
 
 ### 4.14. Stage 22 Free-Tier Repository Adaptation
 
-Stage 22 is in progress at the repository level. AF1+B1-1 established
+Stage 22 is in progress at the repository and isolated local-acceptance level.
+AF1+B1-1 established
 fail-closed public-origin, runtime, security-header, documentation-exposure,
 Neon URL, and frontend API-base contracts. AF1+B1-2 added migration
 `0009_add_portfolio_demo_origin_and_payment_provider`: Orders have
@@ -707,8 +713,9 @@ current analytics and payment/product-sales reports use
 `Order.data_origin` is internal, server-owned persistence/provenance
 metadata, not client authority. Ordinary runtime defaults it to `live`. The
 public `OrderCreateRequest` does not accept `data_origin` and forbids unknown
-fields, so only future server-side seed/demo flows may assign
-`portfolio_seed` or `portfolio_runtime`.
+fields, so only server-side seed/demo flows may assign the other values. B2's
+explicit local seed assigns `portfolio_seed`; `portfolio_runtime` remains
+reserved for a future demo flow.
 
 AF1+B1-3 replaced the repository deployment target with exactly two Render
 Free services (Static Site frontend and Docker Web Service backend) and Neon
@@ -717,11 +724,38 @@ exact-origin CORS; the backend uses a pooled runtime URL. Manual GitHub Actions
 `workflow_dispatch` migration uses a separate direct Neon URL, successful
 required checks, and a final current-`main` SHA check. Named GitHub
 Environment/secret references in the workflow do not prove those operator
-controls have been configured. No Render or Neon provisioning, migration,
-seed, or public release has occurred.
+controls have been configured. No Render or Neon provisioning, production
+migration or seed, or public release has occurred.
 
-The approved future portfolio dataset is exactly 500 deterministic synthetic
-Orders over 60 completed days, without real PII. B2 will implement that seed.
+AF1+B1-4 is committed at
+`bdc171db16573cc5fb59e9b404eff3adde7c0bb7`. B2-1 is committed at
+`39a6b394bcbacbbb071030894857d0766c3bfa0f` and implements the pure immutable
+`portfolio-60d-v1` plan: RNG seed `220060500`, exactly 500 synthetic Orders
+over 60 completed Europe/Oslo days, five categories, fifteen products, and no
+real PII. B2-2 is committed at
+`ede6e776c72a154ee9a9dbfd535571e4c884aecc` and adds exact-0009, local-only,
+single-transaction persistence behind the explicit
+`--portfolio-reference-end` CLI flag. The ordinary command remains menu-only;
+an exact rerun performs zero DML, while partial/drifted data and collisions fail
+closed.
+
+B2-3 is the bounded deterministic portfolio-seed acceptance and
+documentation-reconciliation slice built on the B2-2 baseline. Its acceptance
+contract is recorded here without asserting transient worktree, review, commit,
+or CI state. The dated 2026-09-24 local isolated test-database proof compares
+persisted rows with an independent in-memory plan oracle across all four
+analytics services and all three CSV services. It verifies 449 succeeded NOK
+Payments, revenue 31,542,500 minor units, average order value 70,251 minor
+units, exact product/category/order-type breakdowns, and exact CSV rows of
+500/14/449. Boundary sentinels prove inclusive start, exclusive end, and
+financial qualification by `Payment.succeeded_at`. In both the canonical and
+boundary-probe phases, the test opens a separate SQL-listener capture after
+connection checkout for each of those seven service calls. Every per-call
+capture must contain exactly one SQL statement and no DML, including
+data-modifying CTEs.
+The fixed test reference end is test-only; no production reference end, Neon
+seed, reset/prune policy, or runtime cap is selected by B2-3.
+
 B3 remains not implemented: its future runtime binding is
 `PAYMENT_PROVIDER=demo`, makes zero real Stripe requests, and produces the
 backend-authoritative deterministic outcomes `success`, `fail`, or
@@ -731,8 +765,8 @@ demo provider remains authoritative. The existing Stripe Checkout adapter,
 signed webhook verification, StripeEvent persistence, and
 idempotency/correlation tests and contracts remain in the repository. B4 will
 implement constrained demo administration; B5 will complete recruiter UX; B6
-will accept the integrated demo. None of B2-B6 is implemented by AF1+B1-4, and
-Stage 23 remains not started.
+will accept the integrated demo. B3-B6 remain future work, and Stage 23 remains
+not started.
 
 ## 5. MVP Scope
 
@@ -934,11 +968,12 @@ baseline immediately before Stage 20.
 Stage 20 — Production Deployment Readiness and Stage 21 — UI/UX Redesign &
 Product Polish are complete. The original Stage 20 paid Render/GHCR target is
 historical and superseded for the portfolio demo, while its security principles
-remain relevant. Stage 22 — Production Deployment & Public Acceptance is in
-progress through three committed repository slices and this documentation
-reconciliation, but is not deployed. Stage 23 — Portfolio Documentation &
-Case Study is not started. A recruiter-facing URL can be claimed only after
-Stage 22-D public-demo acceptance.
+remain relevant. The B2-3 implementation baseline contains committed B1-1
+through B1-4, B2-1, and B2-2. B2-3 consists of the verification and
+documentation work described in this section. Stage 22 — Production Deployment
+& Public Acceptance remains in progress and is not deployed. Stage 23 —
+Portfolio Documentation & Case Study is not started. A recruiter-facing URL can
+be claimed only after Stage 22-D public-demo acceptance.
 
 The project should demonstrate to a recruiter that its author can:
 

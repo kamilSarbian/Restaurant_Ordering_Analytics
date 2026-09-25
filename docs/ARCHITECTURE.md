@@ -517,8 +517,10 @@ current model without implementing a demo payment endpoint. Order
 `data_origin` is exactly `live`, `portfolio_seed`, or `portfolio_runtime`
 and defaults to `live`. It is internal, server-owned provenance metadata:
 the public `OrderCreateRequest` excludes it and rejects unknown fields.
-Only future server-side seed/demo flows may assign `portfolio_seed` or
-`portfolio_runtime`; an ordinary caller cannot select its data class.
+Only server-side seed/demo flows may assign the other values; B2's explicit
+local seed assigns `portfolio_seed`, while `portfolio_runtime` remains
+reserved for a future demo flow. An ordinary caller cannot select its data
+class.
 Payment `provider` is exactly `stripe_test` or `demo`. Former
 Stripe-specific Payment idempotency, session, URL, and expiry columns are
 renamed to `provider_idempotency_key`,
@@ -1054,9 +1056,10 @@ development database or host PostgreSQL at 5432.
 Migration `0008_add_order_ownership` is the schema-only child of 0007 and adds
 the nullable foreign key plus the composite owner-history index. At Stage 16F
 acceptance, repository, Alembic, and development database were at 0008. The
-current repository/Alembic head is 0009, while the local development database
-still remains at 0008. The development upgrade
-ran additively through `0006 -> 0007 -> 0008` after an external backup; it
+current repository/Alembic head is 0009. The latest development-database
+evidence remains that historical 0008 acceptance state; B2-3 did not connect to
+that database or reverify its current revision. The historical development
+upgrade ran additively through `0006 -> 0007 -> 0008` after an external backup; it
 preserved the historical administrator as an active `super_admin`, replaced
 `admin_users` with `users`, and verified the ownership foreign key and index.
 The project PostgreSQL remains exposed on host port 5433 to container port 5432;
@@ -1407,8 +1410,8 @@ claim of a live service.
 
 ### 5.28. Stage 22 Free-Tier Repository Contract
 
-AF1+B1-1, AF1+B1-2, and AF1+B1-3 are complete and committed; AF1+B1-4
-reconciles their documentation. The present repository target is:
+AF1+B1-1 through AF1+B1-4 are complete and committed. The present repository
+target is:
 
 ```text
 Browser -> Render Static Site Free -> direct HTTPS/CORS -> Render Docker Web Service Free -> Neon pooled runtime URL
@@ -1448,13 +1451,59 @@ GitHub protection rules or the secret have been configured. No migration
 workflow has been dispatched, no cloud resources have been provisioned, and no
 public deployment exists.
 
-The schema already represents future demo provenance and provider-neutral
-payment state, but the current Checkout route remains Stripe test and creates
-`provider=stripe_test` Payments. B2 will add the approved deterministic
-500-Order/60-completed-day synthetic seed; B3 demo
-payment, B4 constrained demo administrator, B5 recruiter experience, and B6
-acceptance are future implementation slices. Neither the schema nor the
-configuration flag is evidence that those flows exist.
+The schema represents demo provenance and provider-neutral payment state, while
+the current Checkout route remains Stripe test and creates
+`provider=stripe_test` Payments. B2-1 and B2-2 implement the deterministic
+portfolio plan and explicit local persistence. B3 demo payment, B4 constrained
+demo administrator, B5 recruiter experience, and B6 acceptance remain future
+implementation slices. Neither the schema nor the configuration flag is
+evidence that those flows exist.
+
+### 5.29. Deterministic Portfolio Dataset and Local Persistence
+
+The B2 pipeline has one explicit flow:
+
+```text
+operator-supplied aware Europe/Oslo midnight
+    -> pure deterministic generator
+    -> validated immutable PortfolioSeedPlan
+    -> exact Alembic revision 0009
+    -> one atomic local transaction
+    -> persisted analytics and CSV acceptance
+```
+
+The pure plan is version `portfolio-60d-v1`, uses RNG seed `220060500`, and
+contains exactly 500 Orders across 60 completed local days. Stable IDs, public
+order numbers, non-recoverable capability hashes, timestamps, menu snapshots,
+legal status histories, and provider-neutral demo Payments are derived without
+ambient time, RNG, environment, ORM, or database access. Canonical serialization
+has SHA-256
+`716200cc31feebe72a1dc237175e5c5780075bffa055a7086430dedb823bb9f3` and size
+1,456,799 bytes.
+
+The default `python -m app.seed` path remains the existing menu-only upsert.
+The portfolio path requires the exact `--portfolio-reference-end` flag, the
+exact local development database allowlist, and schema revision 0009. On an
+empty portfolio state it writes the menu and complete plan in one transaction.
+On an exact state it performs no DML. Partial or drifted state and cross-dataset
+identity collisions fail closed; no reset, repair, prune, runtime cap, or cloud
+seed behavior is implied.
+
+B2-3 persists the plan only in the isolated test database and validates all
+four analytics services plus all three CSV services against an independent
+plan-derived oracle. The full range is half-open and uses Europe/Oslo metadata;
+legal boundary sentinels also prove inclusive-start/exclusive-end behavior and
+`Payment.succeeded_at` as the financial time source. Acceptance proves 449
+succeeded Payments in NOK, revenue 31,542,500 minor units, average order value
+70,251 minor units, exact 14-product/5-category/2-order-type groups, and CSV row
+counts 500/14/449 with exact headers, filenames, ordering, and formatted
+timestamps. In both the canonical full-window and boundary-probe phases, the
+integration test opens a separate SQL-listener capture after connection checkout
+for each of the four analytics and three CSV service calls. Every per-call
+capture must contain exactly one SQL statement and no DML, including
+data-modifying CTEs. The development database and cloud are not acceptance
+targets; production reference-end selection and any Neon seed remain separate
+operator decisions.
 
 ## 6. Architecture Diagram
 
