@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Generator
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
@@ -35,8 +36,10 @@ from app.orders.access import (
     hash_order_access_token,
 )
 from app.orders.models import Order, OrderItem, OrderStatusHistory
+from app.orders.origins import OrderDataOrigin
 from app.orders.statuses import OrderStatus
-from app.payments.models import Payment
+from app.payments.models import Payment, StripeEvent
+from app.payments.providers import PaymentProvider
 from app.payments.statuses import PaymentStatus
 from app.payments.stripe_checkout import (
     CheckoutSessionResult,
@@ -57,6 +60,11 @@ SYNTHETIC_SECRET = "s" * 32
 OTHER_SYNTHETIC_SECRET = "o" * 32
 ISSUED_AT = int(NOW.timestamp())
 LEGACY_ADMIN_AUDIENCE = "restaurant-ordering-analytics-admin"
+DATA_WRITING_SQL_VERBS = ("INSERT", "UPDATE", "DELETE", "TRUNCATE", "MERGE")
+DATA_WRITING_CTE_PATTERN = re.compile(
+    rf"(?:\bAS\s*(?:(?:NOT\s+)?MATERIALIZED\s*)?\(\s*|\)\s*)"
+    rf"(?:{'|'.join(DATA_WRITING_SQL_VERBS)})\b"
+)
 
 
 class FakeClock:
@@ -142,6 +150,7 @@ def user_token_service() -> UserTokenService:
 
 def _clear_order_tables(engine: Engine) -> None:
     with engine.begin() as connection:
+        connection.execute(delete(StripeEvent))
         connection.execute(delete(Payment))
         connection.execute(delete(OrderStatusHistory))
         connection.execute(delete(OrderItem))
@@ -156,6 +165,7 @@ def _store_order(
     total_amount: int = 53700,
     currency: str = "NOK",
     customer_user_id: UUID | None = None,
+    data_origin: OrderDataOrigin = OrderDataOrigin.LIVE,
 ) -> tuple[UUID, str, str]:
     token = generate_order_access_token()
     order_id = uuid4()
@@ -169,6 +179,7 @@ def _store_order(
         table_id=None,
         table_number_snapshot=None,
         status=status.value,
+        data_origin=data_origin.value,
         currency=currency,
         subtotal_amount=total_amount,
         total_amount=total_amount,
@@ -217,14 +228,21 @@ def _application(
     limiter: FixedWindowRateLimiter | None = None,
     configured_urls: bool = True,
     user_token_service: UserTokenService | None = None,
+    portfolio_demo_mode: bool = False,
+    payment_provider: PaymentProvider = PaymentProvider.STRIPE_TEST,
 ) -> FastAPI:
+    stripe_urls_enabled = (
+        configured_urls and payment_provider is PaymentProvider.STRIPE_TEST
+    )
     settings = Settings(
         _env_file=None,
         database_url=None,
         auth_jwt_secret=None,
         stripe_secret_key=None,
-        stripe_success_url=SUCCESS_TEMPLATE if configured_urls else None,
-        stripe_cancel_url=CANCEL_TEMPLATE if configured_urls else None,
+        portfolio_demo_mode=portfolio_demo_mode,
+        payment_provider=payment_provider.value,
+        stripe_success_url=SUCCESS_TEMPLATE if stripe_urls_enabled else None,
+        stripe_cancel_url=CANCEL_TEMPLATE if stripe_urls_enabled else None,
     )
     return create_app(
         settings=settings,
@@ -264,6 +282,41 @@ def _post(
         CHECKOUT_PATH.format(public_order_number=public_order_number),
         headers=_headers(token, request_key, authorization=authorization),
     )
+
+
+def _checkout_state_snapshot(
+    engine: Engine,
+) -> tuple[tuple[tuple[object, ...], ...], ...]:
+    """Capture every persisted checkout field for mutation-sensitive assertions."""
+    tables = (
+        Order.__table__,
+        Payment.__table__,
+        OrderStatusHistory.__table__,
+        StripeEvent.__table__,
+    )
+    with engine.connect() as connection:
+        return tuple(
+            tuple(
+                tuple(row)
+                for row in connection.execute(
+                    select(table).order_by(*tuple(table.primary_key.columns))
+                )
+            )
+            for table in tables
+        )
+
+
+def _is_data_writing_statement(statement: str) -> bool:
+    """Identify direct DML and data-writing CTEs without flagging FOR UPDATE."""
+    normalized = " ".join(statement.upper().split())
+    if any(
+        normalized == verb or normalized.startswith(f"{verb} ")
+        for verb in DATA_WRITING_SQL_VERBS
+    ):
+        return True
+    if not normalized.startswith(("WITH ", "WITH RECURSIVE ")):
+        return False
+    return DATA_WRITING_CTE_PATTERN.search(normalized) is not None
 
 
 def _store_user(
@@ -352,6 +405,223 @@ def test_new_checkout_uses_durable_money_and_persists_one_pending_attempt(
     assert payment.provider_checkout_url == CHECKOUT_URL
     assert payment.provider_checkout_expires_at == NOW + timedelta(hours=1)
     assert token not in repr(payment)
+
+
+@pytest.mark.parametrize(
+    "data_origin",
+    [OrderDataOrigin.PORTFOLIO_SEED, OrderDataOrigin.PORTFOLIO_RUNTIME],
+)
+@pytest.mark.parametrize(
+    ("portfolio_demo_mode", "payment_provider"),
+    [
+        (False, PaymentProvider.STRIPE_TEST),
+        (True, PaymentProvider.DEMO),
+    ],
+)
+def test_non_live_origins_never_enter_stripe_checkout(
+    test_database_engine: Engine,
+    api_session_factory: sessionmaker[Session],
+    data_origin: OrderDataOrigin,
+    portfolio_demo_mode: bool,
+    payment_provider: PaymentProvider,
+) -> None:
+    """Reject same- and different-key checkout before DML or provider work."""
+    order_id, public_number, token = _store_order(
+        api_session_factory,
+        data_origin=data_origin,
+    )
+    request_key = uuid4()
+    fake = FakeStripeClient()
+    application = _application(
+        api_session_factory,
+        stripe_client=fake,
+        portfolio_demo_mode=portfolio_demo_mode,
+        payment_provider=payment_provider,
+    )
+    with api_session_factory() as session:
+        order = session.get(Order, order_id)
+        assert order is not None
+        order_snapshot = (order.status, order.data_origin, order.updated_at)
+
+    statements: list[str] = []
+    assert not _is_data_writing_statement("SELECT * FROM orders FOR UPDATE")
+    assert _is_data_writing_statement("UPDATE payments SET status = 'failed'")
+    assert _is_data_writing_statement(
+        "WITH changed AS (UPDATE payments SET status = 'failed' RETURNING id) "
+        "SELECT id FROM changed"
+    )
+    assert _is_data_writing_statement(
+        "WITH changed AS (\n UPDATE payments SET status = 'failed' RETURNING id\n) "
+        "SELECT id FROM changed"
+    )
+    assert _is_data_writing_statement(
+        "WITH removed AS MATERIALIZED (\n DELETE FROM payments RETURNING id\n) "
+        "SELECT id FROM removed"
+    )
+    assert _is_data_writing_statement(
+        "WITH queued AS NOT MATERIALIZED (\n INSERT INTO audit_log DEFAULT VALUES "
+        "RETURNING id\n) SELECT id FROM queued"
+    )
+    assert _is_data_writing_statement(
+        "WITH selected AS (SELECT id FROM payments) "
+        "UPDATE payments SET status = 'failed'"
+    )
+    assert _is_data_writing_statement(
+        "WITH selected AS (SELECT id FROM payments) DELETE FROM payments"
+    )
+
+    def capture_statement(*args: object) -> None:
+        statements.append(str(args[2]))
+
+    event.listen(test_database_engine, "before_cursor_execute", capture_statement)
+    try:
+        with TestClient(application) as client:
+            responses = [
+                _post(client, public_number, token, request_key),
+                _post(client, public_number, token, request_key),
+                _post(client, public_number, token, uuid4()),
+            ]
+    finally:
+        event.remove(test_database_engine, "before_cursor_execute", capture_statement)
+
+    assert [response.status_code for response in responses] == [503, 503, 503]
+    assert all(
+        response.json() == {"detail": "Payment service unavailable"}
+        for response in responses
+    )
+    assert fake.requests == []
+    assert not any(
+        statement.lstrip().upper().startswith(("INSERT", "UPDATE", "DELETE"))
+        for statement in statements
+    )
+    with api_session_factory() as session:
+        order = session.get(Order, order_id)
+        assert order is not None
+        assert (order.status, order.data_origin, order.updated_at) == order_snapshot
+        assert session.scalar(select(Payment)) is None
+        assert session.scalar(select(StripeEvent)) is None
+        assert session.scalar(select(OrderStatusHistory)) is None
+
+
+@pytest.mark.parametrize(
+    "data_origin",
+    [OrderDataOrigin.PORTFOLIO_SEED, OrderDataOrigin.PORTFOLIO_RUNTIME],
+)
+def test_non_live_origin_blocks_stored_same_key_replay(
+    api_session_factory: sessionmaker[Session],
+    data_origin: OrderDataOrigin,
+) -> None:
+    """Apply the origin guard before replaying an existing Stripe session."""
+    order_id, public_number, token = _store_order(
+        api_session_factory,
+        data_origin=data_origin,
+    )
+    request_key = uuid4()
+    payment_id = _store_payment(
+        api_session_factory,
+        order_id=order_id,
+        request_key=request_key,
+        status=PaymentStatus.PENDING,
+        complete=True,
+    )
+    fake = FakeStripeClient()
+    application = _application(api_session_factory, stripe_client=fake)
+
+    with TestClient(application) as client:
+        response = _post(client, public_number, token, request_key)
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Payment service unavailable"}
+    assert fake.requests == []
+    with api_session_factory() as session:
+        payment = session.get(Payment, payment_id)
+        assert payment is not None
+        assert payment.status == PaymentStatus.PENDING.value
+        assert payment.provider == PaymentProvider.STRIPE_TEST.value
+        assert payment.provider_session_id == "cs_stored_example"
+        assert session.scalar(select(StripeEvent)) is None
+
+
+def test_demo_mode_rejects_existing_live_order_without_stripe_work(
+    test_database_engine: Engine,
+    api_session_factory: sessionmaker[Session],
+) -> None:
+    """Keep B3-1 demo mode fail-closed without a Payment or Stripe adapter."""
+    _, public_number, token = _store_order(api_session_factory)
+    application = _application(
+        api_session_factory,
+        stripe_client=None,
+        portfolio_demo_mode=True,
+        payment_provider=PaymentProvider.DEMO,
+    )
+    statements: list[str] = []
+
+    def capture_statement(*args: object) -> None:
+        statements.append(str(args[2]))
+
+    event.listen(test_database_engine, "before_cursor_execute", capture_statement)
+    try:
+        with TestClient(application) as client:
+            responses = [
+                _post(client, public_number, token, uuid4()),
+                _post(client, public_number, token, uuid4()),
+            ]
+    finally:
+        event.remove(test_database_engine, "before_cursor_execute", capture_statement)
+
+    assert [response.status_code for response in responses] == [503, 503]
+    assert all(
+        response.json() == {"detail": "Payment service unavailable"}
+        for response in responses
+    )
+    assert not any(
+        statement.lstrip().upper().startswith(("INSERT", "UPDATE", "DELETE"))
+        for statement in statements
+    )
+    with api_session_factory() as session:
+        assert session.scalar(select(Payment)) is None
+        assert session.scalar(select(StripeEvent)) is None
+
+
+@pytest.mark.parametrize(
+    "data_origin",
+    [OrderDataOrigin.PORTFOLIO_SEED, OrderDataOrigin.PORTFOLIO_RUNTIME],
+)
+def test_non_live_origin_preserves_hidden_access_before_checkout_guard(
+    api_session_factory: sessionmaker[Session],
+    user_token_service: UserTokenService,
+    data_origin: OrderDataOrigin,
+) -> None:
+    """Keep an unauthorized non-live Order indistinguishable from a missing Order."""
+    owner_id = _store_user(api_session_factory)
+    other_id = _store_user(api_session_factory)
+    _, public_number, _ = _store_order(
+        api_session_factory,
+        customer_user_id=owner_id,
+        data_origin=data_origin,
+    )
+    fake = FakeStripeClient()
+    application = _application(
+        api_session_factory,
+        stripe_client=fake,
+        user_token_service=user_token_service,
+    )
+
+    with TestClient(application) as client:
+        response = _post(
+            client,
+            public_number,
+            None,
+            uuid4(),
+            authorization=_bearer(user_token_service.create_access_token(other_id)),
+        )
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Order not found"}
+    assert fake.requests == []
+    with api_session_factory() as session:
+        assert session.scalar(select(Payment)) is None
+        assert session.scalar(select(StripeEvent)) is None
 
 
 @pytest.mark.parametrize("access_case", ["unknown", "wrong", "missing", "malformed"])
@@ -795,6 +1065,122 @@ def test_complete_future_pending_session_replays_without_configuration(
         response = _post(client, public_number, token, request_key)
     assert response.status_code == 200
     assert response.json()["checkout_url"] == CHECKOUT_URL
+
+
+def test_demo_mode_blocks_stored_live_stripe_replay_without_side_effects(
+    test_database_engine: Engine,
+    api_session_factory: sessionmaker[Session],
+    user_token_service: UserTokenService,
+) -> None:
+    """Reject stored Stripe replay after a trusted runtime switch to demo."""
+    owner_id = _store_user(api_session_factory)
+    other_id = _store_user(api_session_factory)
+    _, public_number, _ = _store_order(
+        api_session_factory,
+        customer_user_id=owner_id,
+    )
+    request_key = uuid4()
+    owner_auth = _bearer(user_token_service.create_access_token(owner_id))
+    other_auth = _bearer(user_token_service.create_access_token(other_id))
+
+    initial_fake = FakeStripeClient()
+    stripe_application = _application(
+        api_session_factory,
+        stripe_client=initial_fake,
+        user_token_service=user_token_service,
+    )
+    with TestClient(stripe_application) as client:
+        initial_response = _post(
+            client,
+            public_number,
+            None,
+            request_key,
+            authorization=owner_auth,
+        )
+    assert initial_response.status_code == 201
+    assert initial_response.json()["checkout_url"] == CHECKOUT_URL
+    assert len(initial_fake.requests) == 1
+
+    state_before_replays = _checkout_state_snapshot(test_database_engine)
+    with test_database_engine.connect() as connection:
+        assert connection.execute(select(1)).scalar_one() == 1
+
+    demo_fake = FakeStripeClient()
+    demo_application = _application(
+        api_session_factory,
+        stripe_client=demo_fake,
+        user_token_service=user_token_service,
+        portfolio_demo_mode=True,
+        payment_provider=PaymentProvider.DEMO,
+    )
+    assert demo_application.state.portfolio_demo_mode is True
+    assert demo_application.state.payment_provider == PaymentProvider.DEMO.value
+
+    replay_application = _application(
+        api_session_factory,
+        stripe_client=None,
+        configured_urls=False,
+        user_token_service=user_token_service,
+    )
+    assert replay_application.state.portfolio_demo_mode is False
+    assert (
+        replay_application.state.payment_provider == PaymentProvider.STRIPE_TEST.value
+    )
+
+    statements: list[str] = []
+
+    def capture_statement(*args: object) -> None:
+        statements.append(str(args[2]))
+
+    event.listen(test_database_engine, "before_cursor_execute", capture_statement)
+    try:
+        with TestClient(demo_application) as client:
+            same_key_response = _post(
+                client,
+                public_number,
+                None,
+                request_key,
+                authorization=owner_auth,
+            )
+            different_key_response = _post(
+                client,
+                public_number,
+                None,
+                uuid4(),
+                authorization=owner_auth,
+            )
+            unauthorized_response = _post(
+                client,
+                public_number,
+                None,
+                request_key,
+                authorization=other_auth,
+            )
+        with TestClient(replay_application) as client:
+            stripe_replay_response = _post(
+                client,
+                public_number,
+                None,
+                request_key,
+                authorization=owner_auth,
+            )
+    finally:
+        event.remove(test_database_engine, "before_cursor_execute", capture_statement)
+
+    for response in (same_key_response, different_key_response):
+        assert response.status_code == 503
+        assert response.json() == {"detail": "Payment service unavailable"}
+        assert "checkout_url" not in response.text
+        assert "checkout.example.test" not in response.text
+        assert "session/example" not in response.text
+    assert unauthorized_response.status_code == 404
+    assert unauthorized_response.json() == {"detail": "Order not found"}
+    assert stripe_replay_response.status_code == 200
+    assert stripe_replay_response.json() == initial_response.json()
+    assert demo_fake.requests == []
+    assert len(initial_fake.requests) == 1
+    assert not any(_is_data_writing_statement(statement) for statement in statements)
+    assert _checkout_state_snapshot(test_database_engine) == state_before_replays
 
 
 def test_complete_time_expired_pending_requires_reconciliation(

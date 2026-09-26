@@ -34,7 +34,9 @@ from app.menu.models import MenuItem
 from app.orders.access import hash_order_access_token
 from app.orders.creation import MenuItemNotFoundError, create_order
 from app.orders.models import Order, OrderItem, OrderStatusHistory
+from app.orders.origins import OrderDataOrigin
 from app.orders.schemas import OrderCreateRequest
+from app.payments.providers import PaymentProvider
 from app.restaurant_tables.models import RestaurantTable
 
 pytestmark = pytest.mark.integration
@@ -132,12 +134,16 @@ def _application(
     *,
     user_token_service: UserTokenService | None = None,
     limiter: FixedWindowRateLimiter | None = None,
+    portfolio_demo_mode: bool = False,
+    payment_provider: PaymentProvider = PaymentProvider.STRIPE_TEST,
 ):
     return create_app(
         settings=Settings(
             _env_file=None,
             database_url=None,
             auth_jwt_secret=None,
+            portfolio_demo_mode=portfolio_demo_mode,
+            payment_provider=payment_provider.value,
         ),
         session_factory=session_factory,
         user_token_service=user_token_service,
@@ -330,6 +336,50 @@ def test_successful_takeaway_persists_exact_snapshot_and_status_access(
     assert "id" not in status_payload
     assert "data_origin" not in status_payload
     assert "provider" not in status_payload
+
+
+@pytest.mark.parametrize(
+    ("portfolio_demo_mode", "payment_provider", "expected_origin"),
+    [
+        (False, PaymentProvider.STRIPE_TEST, OrderDataOrigin.LIVE),
+        (True, PaymentProvider.DEMO, OrderDataOrigin.PORTFOLIO_RUNTIME),
+    ],
+)
+def test_public_creation_derives_origin_from_bound_runtime_mode(
+    creation_session_factory: sessionmaker[Session],
+    menu_records: MenuRecords,
+    portfolio_demo_mode: bool,
+    payment_provider: PaymentProvider,
+    expected_origin: OrderDataOrigin,
+) -> None:
+    """Assign the same server-owned provenance for identical public payloads."""
+    application = _application(
+        creation_session_factory,
+        portfolio_demo_mode=portfolio_demo_mode,
+        payment_provider=payment_provider,
+    )
+    with TestClient(application) as test_client:
+        responses = [
+            test_client.post(CREATE_PATH, json=_takeaway_payload(menu_records)),
+            test_client.post(
+                f"{CREATE_PATH}?data_origin=portfolio_seed",
+                json=_takeaway_payload(menu_records),
+                headers={
+                    "X-Order-Data-Origin": "portfolio_seed",
+                    "X-Order-Access-Token": "client-controlled",
+                    "Idempotency-Key": str(uuid4()),
+                },
+            ),
+        ]
+
+    assert [response.status_code for response in responses] == [201, 201]
+    assert all("data_origin" not in response.json() for response in responses)
+    with creation_session_factory() as session:
+        origins = session.scalars(
+            select(Order.data_origin).order_by(Order.created_at.asc(), Order.id.asc())
+        ).all()
+    assert origins == [expected_origin.value, expected_origin.value]
+    assert _aggregate_counts(creation_session_factory) == (2, 4, 2)
 
 
 def test_guest_creation_skips_unconfigured_authentication_and_user_lookup(

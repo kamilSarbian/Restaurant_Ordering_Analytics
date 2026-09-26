@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.orders.access import OrderNotFoundError, can_access_order
 from app.orders.models import Order
+from app.orders.origins import OrderDataOrigin
 from app.orders.statuses import OrderStatus
 from app.payments.models import Payment
 from app.payments.providers import PaymentProvider
@@ -58,7 +59,7 @@ class PaymentSessionReconciliationRequiredError(Exception):
 
 
 class PaymentServiceUnavailableError(Exception):
-    """Report missing or invalid local checkout provider configuration."""
+    """Report unavailable configuration or a disallowed checkout boundary."""
 
 
 @dataclass(frozen=True)
@@ -86,6 +87,7 @@ def checkout_order(
     public_order_number: str,
     access_token: str | None,
     request_idempotency_key: UUID,
+    payment_provider: str,
     stripe_client: StripeCheckoutClient | None,
     stripe_success_url_template: str | None,
     stripe_cancel_url_template: str | None,
@@ -99,6 +101,7 @@ def checkout_order(
         public_order_number: Untrusted public order identifier.
         access_token: Optional raw guest access token.
         request_idempotency_key: Validated canonical request UUIDv4.
+        payment_provider: Trusted current provider from application settings.
         stripe_client: App-scoped Stripe adapter, when configured.
         stripe_success_url_template: Server-owned success redirect template.
         stripe_cancel_url_template: Server-owned cancellation redirect template.
@@ -138,6 +141,15 @@ def checkout_order(
             raise OrderNotFoundError
         if order.status != OrderStatus.CREATED.value:
             raise OrderNotPayableError
+        try:
+            current_provider = PaymentProvider(payment_provider)
+        except (TypeError, ValueError) as error:
+            raise PaymentServiceUnavailableError from error
+        if (
+            order.data_origin != OrderDataOrigin.LIVE.value
+            or current_provider is not PaymentProvider.STRIPE_TEST
+        ):
+            raise PaymentServiceUnavailableError
 
         payments = _lock_payments(session, order.id)
         if any(payment.status == PaymentStatus.SUCCEEDED.value for payment in payments):

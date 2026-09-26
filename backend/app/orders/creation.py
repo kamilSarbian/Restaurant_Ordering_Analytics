@@ -19,6 +19,7 @@ from app.orders.access import (
     hash_order_access_token,
 )
 from app.orders.models import Order, OrderItem, OrderStatusHistory
+from app.orders.origins import OrderDataOrigin
 from app.orders.schemas import OrderCreateRequest, OrderCreateResponse, OrderType
 from app.orders.statuses import OrderStatus
 from app.restaurant_tables.models import RestaurantTable
@@ -164,6 +165,7 @@ def create_order(
     request: OrderCreateRequest,
     *,
     customer_user_id: UUID | None = None,
+    data_origin: OrderDataOrigin = OrderDataOrigin.LIVE,
 ) -> OrderCreateResponse:
     """Create and commit one server-authoritative order aggregate.
 
@@ -171,6 +173,7 @@ def create_order(
         session: Fresh request-scoped session without an active transaction.
         request: Validated public order data containing identifiers and quantities.
         customer_user_id: Trusted current User identity, or None for a guest.
+        data_origin: Trusted server-selected provenance for the new order.
 
     Returns:
         A detached public response containing the one-time raw guest token.
@@ -202,6 +205,7 @@ def create_order(
                 table_id=table_id,
                 table_number_snapshot=table_number_snapshot,
                 status=OrderStatus.CREATED.value,
+                data_origin=data_origin.value,
                 currency=currency,
                 subtotal_amount=subtotal_amount,
                 total_amount=subtotal_amount,

@@ -17,6 +17,7 @@ from app.orders.schemas import (
     OrderQuoteResponse,
     OrderStatusResponse,
 )
+from app.payments.providers import order_data_origin_for_runtime
 
 router = APIRouter(prefix="/api/v1/orders", tags=["orders"])
 DatabaseSession = Annotated[Session, Depends(get_db_session)]
@@ -63,6 +64,10 @@ def create_order_endpoint(
             session,
             payload,
             customer_user_id=(None if current_user is None else current_user.id),
+            data_origin=order_data_origin_for_runtime(
+                portfolio_demo_mode=request.app.state.portfolio_demo_mode,
+                payment_provider=request.app.state.payment_provider,
+            ),
         )
     except creation.InvalidTableError as error:
         raise HTTPException(

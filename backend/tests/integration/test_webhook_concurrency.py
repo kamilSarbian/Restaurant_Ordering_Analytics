@@ -32,6 +32,7 @@ from app.payments.checkout import (
     checkout_order,
 )
 from app.payments.models import Payment, StripeEvent
+from app.payments.providers import PaymentProvider
 from app.payments.statuses import PaymentStatus
 from app.payments.stripe_checkout import (
     CheckoutSessionResult,
@@ -418,6 +419,7 @@ def _run_checkout(
             public_order_number=order.public_order_number,
             access_token=token,
             request_idempotency_key=uuid4(),
+            payment_provider=PaymentProvider.STRIPE_TEST,
             stripe_client=stripe_client,  # type: ignore[arg-type]
             stripe_success_url_template=SUCCESS_TEMPLATE,
             stripe_cancel_url_template=CANCEL_TEMPLATE,

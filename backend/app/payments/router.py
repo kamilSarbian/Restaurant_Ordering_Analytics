@@ -85,6 +85,7 @@ def create_checkout_session_endpoint(
             public_order_number=public_order_number,
             access_token=access_token,
             request_idempotency_key=parsed_idempotency_key,
+            payment_provider=request.app.state.payment_provider,
             stripe_client=request.app.state.stripe_checkout_client,
             stripe_success_url_template=request.app.state.stripe_success_url,
             stripe_cancel_url_template=request.app.state.stripe_cancel_url,
