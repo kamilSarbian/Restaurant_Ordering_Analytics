@@ -7,7 +7,7 @@ import {
   createCheckoutSession,
   fetchOrderStatus,
 } from '../../api/customerApi';
-import type { OrderStatusResponse } from '../../api/types';
+import type { OrderStatusResponse, PaymentStatus } from '../../api/types';
 import BrandMark from '../../components/branding/BrandMark';
 import Button from '../../components/ui/Button';
 import Notice from '../../components/ui/Notice';
@@ -39,6 +39,10 @@ type CheckoutFeedback =
   | { kind: 'retry'; message: string }
   | { kind: 'rate-limit'; retryAt: number | null }
   | { kind: 'definitive' }
+  | {
+      kind: 'terminal';
+      paymentStatus: Exclude<PaymentStatus, 'pending'>;
+    }
   | { checkoutUrl: string; kind: 'redirect-failed' }
   | { kind: 'capability' };
 
@@ -476,6 +480,7 @@ function CheckoutPageForOrder({
   const checkoutDisabled =
     feedback.kind === 'pending' ||
     feedback.kind === 'definitive' ||
+    feedback.kind === 'terminal' ||
     feedback.kind === 'redirect-failed' ||
     feedback.kind === 'capability' ||
     authenticatedFailure ||
@@ -523,12 +528,19 @@ function CheckoutPageForOrder({
       }
       clearCart();
       saveCartState({ items: [] });
-      try {
-        redirectToCheckout(response.checkout_url);
-      } catch {
-        if (mountedRef.current) {
-          setFeedback({ checkoutUrl: response.checkout_url, kind: 'redirect-failed' });
+      if (response.payment_status === 'pending') {
+        try {
+          redirectToCheckout(response.checkout_url);
+        } catch {
+          if (mountedRef.current) {
+            setFeedback({
+              checkoutUrl: response.checkout_url,
+              kind: 'redirect-failed',
+            });
+          }
         }
+      } else {
+        setFeedback({ kind: 'terminal', paymentStatus: response.payment_status });
       }
     } catch (error: unknown) {
       if (mountedRef.current) {
@@ -599,6 +611,8 @@ function CheckoutPageForOrder({
     !summaryMatchesCurrentOrder ||
     orderSummary.kind === 'idle' ||
     orderSummary.kind === 'loading';
+  const terminalPaymentStatus =
+    feedback.kind === 'terminal' ? feedback.paymentStatus : null;
 
   return (
     <div className={styles.page}>
@@ -606,10 +620,21 @@ function CheckoutPageForOrder({
         <CheckoutBrand />
         <p className={styles.eyebrow}>Order received</p>
         <h1 id="order-created-title">Order created</h1>
-        <p className={styles.paymentRequired}>Payment is still required.</p>
+        <p className={styles.paymentRequired}>
+          {terminalPaymentStatus === 'succeeded'
+            ? 'Payment confirmed.'
+            : terminalPaymentStatus === 'failed'
+              ? 'Payment failed. Payment is still required.'
+              : terminalPaymentStatus === 'expired'
+                ? 'The payment attempt expired. Payment is still required.'
+                : 'Payment is still required.'}
+        </p>
         <p className={styles.intro}>
-          Review the details saved with your order, then continue to secure hosted
-          payment in this tab.
+          {terminalPaymentStatus === 'succeeded'
+            ? 'Review the details saved with your order, then follow its current status.'
+            : terminalPaymentStatus === 'failed' || terminalPaymentStatus === 'expired'
+              ? 'Review the details saved with your order, then start a new payment attempt when you are ready.'
+              : 'Review the details saved with your order, then continue to secure hosted payment in this tab.'}
         </p>
         <p className={styles.orderNumberLabel}>Public order number</p>
         <p className={styles.orderNumber}>{validPublicOrderNumber}</p>
@@ -721,26 +746,40 @@ function CheckoutPageForOrder({
 
         <section className={styles.paymentPanel} aria-labelledby="payment-heading">
           <p className={styles.eyebrow}>Secure checkout</p>
-          <h2 id="payment-heading">Continue to payment</h2>
+          <h2 id="payment-heading">
+            {terminalPaymentStatus === 'succeeded'
+              ? 'Payment confirmed'
+              : terminalPaymentStatus === 'failed'
+                ? 'Payment failed'
+                : terminalPaymentStatus === 'expired'
+                  ? 'Payment attempt expired'
+                  : 'Continue to payment'}
+          </h2>
           <p>
-            We will open the hosted payment page in this tab. Your order is not paid
-            until payment is confirmed.
+            {terminalPaymentStatus === 'succeeded'
+              ? 'The backend confirmed this payment. No payment redirect is needed.'
+              : terminalPaymentStatus === 'failed' ||
+                  terminalPaymentStatus === 'expired'
+                ? 'The backend confirmed that this attempt is terminal. A retry starts a separate payment attempt for the same order.'
+                : 'We will open the hosted payment page in this tab. Your order is not paid until payment is confirmed.'}
           </p>
 
-          <div className={styles.actions}>
-            <Button
-              className={styles.primaryAction}
-              disabled={checkoutDisabled}
-              loading={feedback.kind === 'pending'}
-              loadingLabel="Continue to secure payment"
-              onClick={() => void startCheckout()}
-              ref={checkoutButtonRef}
-              size="lg"
-              type="button"
-            >
-              Continue to secure payment
-            </Button>
-          </div>
+          {feedback.kind !== 'terminal' && (
+            <div className={styles.actions}>
+              <Button
+                className={styles.primaryAction}
+                disabled={checkoutDisabled}
+                loading={feedback.kind === 'pending'}
+                loadingLabel="Continue to secure payment"
+                onClick={() => void startCheckout()}
+                ref={checkoutButtonRef}
+                size="lg"
+                type="button"
+              >
+                Continue to secure payment
+              </Button>
+            </div>
+          )}
 
           {feedback.kind === 'pending' && (
             <Notice
@@ -813,6 +852,48 @@ function CheckoutPageForOrder({
                   Start a new payment attempt
                 </Button>
               </Notice>
+            </div>
+          )}
+          {feedback.kind === 'terminal' && (
+            <div className={styles.focusTarget} ref={noticeRef} tabIndex={-1}>
+              {feedback.paymentStatus === 'succeeded' ? (
+                <Notice
+                  className={styles.inlineNotice}
+                  role="status"
+                  title="Payment confirmed"
+                  variant="success"
+                >
+                  <p>Your payment was confirmed by the backend.</p>
+                  <Link to={`/orders/${validPublicOrderNumber}/status`}>
+                    View order status
+                  </Link>
+                </Notice>
+              ) : (
+                <Notice
+                  className={styles.inlineNotice}
+                  role="alert"
+                  title={
+                    feedback.paymentStatus === 'failed'
+                      ? 'Payment failed'
+                      : 'Payment attempt expired'
+                  }
+                  variant={feedback.paymentStatus === 'failed' ? 'danger' : 'warning'}
+                >
+                  <p>
+                    {feedback.paymentStatus === 'failed'
+                      ? 'This payment attempt failed. Your order remains available for another attempt.'
+                      : 'This payment attempt expired. Your order remains available for another attempt.'}
+                  </p>
+                  <Button
+                    className={styles.inlineAction}
+                    onClick={startNewAttempt}
+                    type="button"
+                    variant="secondary"
+                  >
+                    Start a new payment attempt
+                  </Button>
+                </Notice>
+              )}
             </div>
           )}
           {feedback.kind === 'redirect-failed' && (

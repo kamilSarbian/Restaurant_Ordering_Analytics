@@ -79,7 +79,6 @@ const CHECKOUT_RESPONSE_KEYS = [
   'payment_status',
   'public_order_number',
 ];
-const PAYMENT_STATUSES = new Set(['expired', 'failed', 'pending', 'succeeded']);
 const CANONICAL_UUID_V4_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const AWARE_DATETIME_PATTERN = /(?:Z|[+-][0-9]{2}:[0-9]{2})$/;
@@ -621,19 +620,39 @@ export function parseCheckoutSessionResponse(
     !isRecord(value) ||
     !hasExactKeys(value, CHECKOUT_RESPONSE_KEYS) ||
     value.public_order_number !== expectedPublicOrderNumber ||
-    typeof value.payment_status !== 'string' ||
-    !PAYMENT_STATUSES.has(value.payment_status) ||
-    !isSafeCheckoutUrl(value.checkout_url) ||
-    !isAwareDatetime(value.expires_at)
+    typeof value.payment_status !== 'string'
   ) {
     throw invalidCheckoutResponse();
   }
-  return {
-    checkout_url: value.checkout_url,
-    expires_at: value.expires_at,
-    payment_status: value.payment_status as CheckoutSessionResponse['payment_status'],
-    public_order_number: value.public_order_number,
-  };
+
+  if (value.payment_status === 'pending') {
+    if (!isSafeCheckoutUrl(value.checkout_url) || !isAwareDatetime(value.expires_at)) {
+      throw invalidCheckoutResponse();
+    }
+    return {
+      checkout_url: value.checkout_url,
+      expires_at: value.expires_at,
+      payment_status: value.payment_status,
+      public_order_number: value.public_order_number,
+    };
+  }
+
+  if (
+    (value.payment_status === 'expired' ||
+      value.payment_status === 'failed' ||
+      value.payment_status === 'succeeded') &&
+    value.checkout_url === null &&
+    value.expires_at === null
+  ) {
+    return {
+      checkout_url: value.checkout_url,
+      expires_at: value.expires_at,
+      payment_status: value.payment_status,
+      public_order_number: value.public_order_number,
+    };
+  }
+
+  throw invalidCheckoutResponse();
 }
 
 function parsePositiveRetryAfter(value: string | null): number | undefined {

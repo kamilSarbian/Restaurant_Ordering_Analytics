@@ -97,9 +97,19 @@ export interface OrderStatusResponse {
 
 export type PaymentStatus = 'expired' | 'failed' | 'pending' | 'succeeded';
 
-export interface CheckoutSessionResponse {
-  checkout_url: string;
-  expires_at: string;
+interface CheckoutSessionResponseBase {
   payment_status: PaymentStatus;
   public_order_number: string;
 }
+
+export type CheckoutSessionResponse =
+  | (CheckoutSessionResponseBase & {
+      checkout_url: string;
+      expires_at: string;
+      payment_status: 'pending';
+    })
+  | (CheckoutSessionResponseBase & {
+      checkout_url: null;
+      expires_at: null;
+      payment_status: Exclude<PaymentStatus, 'pending'>;
+    });

@@ -108,6 +108,15 @@ const VALID_CHECKOUT = {
   public_order_number: VALID_ORDER.public_order_number,
 };
 
+function terminalCheckoutResponse(paymentStatus: 'expired' | 'failed' | 'succeeded') {
+  return {
+    checkout_url: null,
+    expires_at: null,
+    payment_status: paymentStatus,
+    public_order_number: VALID_ORDER.public_order_number,
+  };
+}
+
 function guestCheckoutOptions(signal?: AbortSignal) {
   return {
     guestAccessToken: VALID_ORDER.order_access_token,
@@ -523,14 +532,66 @@ describe('createCheckoutSession', () => {
     ).resolves.toEqual(VALID_CHECKOUT);
   });
 
+  it.each(['succeeded', 'failed', 'expired'] as const)(
+    'accepts the terminal %s response only with null checkout metadata',
+    async (paymentStatus) => {
+      const response = terminalCheckoutResponse(paymentStatus);
+      installFetchStub({ json: response, status: 200 });
+
+      await expect(
+        createCheckoutSession(VALID_ORDER.public_order_number, guestCheckoutOptions()),
+      ).resolves.toEqual(response);
+    },
+  );
+
   it.each([
     [
       'public number mismatch',
       { ...VALID_CHECKOUT, public_order_number: 'ROA-BCDEFGHJKLMN' },
     ],
     ['unknown status', { ...VALID_CHECKOUT, payment_status: 'processing' }],
+    [
+      'missing checkout URL',
+      {
+        expires_at: VALID_CHECKOUT.expires_at,
+        payment_status: VALID_CHECKOUT.payment_status,
+        public_order_number: VALID_CHECKOUT.public_order_number,
+      },
+    ],
+    [
+      'missing expiry',
+      {
+        checkout_url: VALID_CHECKOUT.checkout_url,
+        payment_status: VALID_CHECKOUT.payment_status,
+        public_order_number: VALID_CHECKOUT.public_order_number,
+      },
+    ],
+    ['empty checkout URL', { ...VALID_CHECKOUT, checkout_url: '' }],
+    ['pending null checkout URL', { ...VALID_CHECKOUT, checkout_url: null }],
+    ['pending null expiry', { ...VALID_CHECKOUT, expires_at: null }],
     ['naive expiry', { ...VALID_CHECKOUT, expires_at: '2026-08-11T15:30:00' }],
     ['invalid expiry', { ...VALID_CHECKOUT, expires_at: 'not-a-date+01:00' }],
+    [
+      'terminal checkout URL',
+      {
+        ...terminalCheckoutResponse('succeeded'),
+        checkout_url: VALID_CHECKOUT.checkout_url,
+      },
+    ],
+    [
+      'terminal expiry',
+      {
+        ...terminalCheckoutResponse('failed'),
+        expires_at: VALID_CHECKOUT.expires_at,
+      },
+    ],
+    [
+      'terminal partial metadata pair',
+      {
+        ...terminalCheckoutResponse('expired'),
+        checkout_url: VALID_CHECKOUT.checkout_url,
+      },
+    ],
     ['extra internal field', { ...VALID_CHECKOUT, stripe_session_id: 'cs_private' }],
   ])('rejects malformed checkout response: %s', async (_label, response) => {
     installFetchStub({ json: response, status: 201 });

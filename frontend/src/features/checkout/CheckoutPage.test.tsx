@@ -112,6 +112,15 @@ const VALID_CHECKOUT = {
   payment_status: 'pending',
   public_order_number: PUBLIC_ORDER_NUMBER,
 };
+
+function terminalCheckoutResponse(paymentStatus: 'expired' | 'failed' | 'succeeded') {
+  return {
+    checkout_url: null,
+    expires_at: null,
+    payment_status: paymentStatus,
+    public_order_number: PUBLIC_ORDER_NUMBER,
+  };
+}
 const VALID_ORDER_SUMMARY: OrderStatusResponse = {
   created_at: '2026-08-11T14:30:00Z',
   currency: 'NOK',
@@ -764,6 +773,113 @@ describe('CheckoutPage', () => {
       ).toEqual({ items: [], version: 1 }),
     );
   });
+
+  it('renders backend-confirmed success without redirect or another payment action', async () => {
+    const user = userEvent.setup();
+    const redirect = vi.fn();
+    const stub = installFetchStub({
+      json: terminalCheckoutResponse('succeeded'),
+      status: 200,
+    });
+    sessionStorage.setItem(
+      'restaurant-ordering:cart:v1',
+      JSON.stringify({
+        items: [{ menuItemId: '00000000-0000-4000-8000-000000000010', quantity: 2 }],
+        version: 1,
+      }),
+    );
+    saveOrderAccess(PUBLIC_ORDER_NUMBER, ACCESS_TOKEN);
+    seedAttempt();
+    renderCheckout(PUBLIC_ORDER_NUMBER, null, redirect);
+
+    await user.click(
+      screen.getByRole('button', { name: 'Continue to secure payment' }),
+    );
+
+    expect(
+      await screen.findByText('Your payment was confirmed by the backend.'),
+    ).toBeVisible();
+    expect(redirect).not.toHaveBeenCalled();
+    expect(stub.calls).toHaveLength(1);
+    expect(screen.getByRole('link', { name: 'View order status' })).toHaveAttribute(
+      'href',
+      `/orders/${PUBLIC_ORDER_NUMBER}/status`,
+    );
+    expect(
+      screen.queryByRole('button', { name: 'Start a new payment attempt' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Continue to secure payment' }),
+    ).not.toBeInTheDocument();
+    expect(loadCheckoutAttempt(PUBLIC_ORDER_NUMBER)?.idempotencyKey).toBe(FIRST_KEY);
+    expect(loadOrderAccess(PUBLIC_ORDER_NUMBER)).toBe(ACCESS_TOKEN);
+    expect(
+      JSON.parse(sessionStorage.getItem('restaurant-ordering:cart:v1') ?? ''),
+    ).toEqual({ items: [], version: 1 });
+  });
+
+  it.each([
+    [
+      'failed',
+      'This payment attempt failed. Your order remains available for another attempt.',
+    ] as const,
+    [
+      'expired',
+      'This payment attempt expired. Your order remains available for another attempt.',
+    ] as const,
+  ])(
+    'allows an explicit new-key retry of the same order after terminal %s',
+    async (paymentStatus, message) => {
+      const user = userEvent.setup();
+      const redirect = vi.fn();
+      vi.mocked(window.crypto.randomUUID).mockReturnValueOnce(SECOND_KEY);
+      const stub = installFetchStub(
+        { json: terminalCheckoutResponse(paymentStatus), status: 201 },
+        { json: VALID_CHECKOUT, status: 201 },
+      );
+      saveOrderAccess(PUBLIC_ORDER_NUMBER, ACCESS_TOKEN);
+      seedAttempt();
+      renderCheckout(PUBLIC_ORDER_NUMBER, null, redirect);
+
+      await user.click(
+        screen.getByRole('button', { name: 'Continue to secure payment' }),
+      );
+
+      expect(await screen.findByText(message)).toBeVisible();
+      expect(redirect).not.toHaveBeenCalled();
+      expect(stub.calls).toHaveLength(1);
+      expect(loadCheckoutAttempt(PUBLIC_ORDER_NUMBER)?.idempotencyKey).toBe(FIRST_KEY);
+      expect(loadOrderAccess(PUBLIC_ORDER_NUMBER)).toBe(ACCESS_TOKEN);
+
+      await user.click(
+        screen.getByRole('button', { name: 'Start a new payment attempt' }),
+      );
+
+      expect(window.crypto.randomUUID).toHaveBeenCalledTimes(1);
+      expect(loadCheckoutAttempt(PUBLIC_ORDER_NUMBER)?.idempotencyKey).toBe(SECOND_KEY);
+      expect(stub.calls).toHaveLength(1);
+      const continueButton = screen.getByRole('button', {
+        name: 'Continue to secure payment',
+      });
+      await waitFor(() => expect(continueButton).toHaveFocus());
+
+      await user.click(continueButton);
+
+      await waitFor(() =>
+        expect(redirect).toHaveBeenCalledWith(VALID_CHECKOUT.checkout_url),
+      );
+      expect(stub.calls).toHaveLength(2);
+      expect(stub.calls.map((call) => call.headers.get('Idempotency-Key'))).toEqual([
+        FIRST_KEY,
+        SECOND_KEY,
+      ]);
+      expect(
+        stub.calls.every((call) =>
+          call.url.endsWith(`/api/v1/orders/${PUBLIC_ORDER_NUMBER}/checkout-session`),
+        ),
+      ).toBe(true);
+    },
+  );
 
   it('sends Bearer and the stored capability for authenticated checkout', async () => {
     seedAuthToken();

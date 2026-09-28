@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import traceback
 from collections.abc import Callable, Generator
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
@@ -38,6 +39,7 @@ from app.orders.access import (
 from app.orders.models import Order, OrderItem, OrderStatusHistory
 from app.orders.origins import OrderDataOrigin
 from app.orders.statuses import OrderStatus
+from app.payments import checkout
 from app.payments.models import Payment, StripeEvent
 from app.payments.providers import PaymentProvider
 from app.payments.statuses import PaymentStatus
@@ -55,6 +57,17 @@ NOW = datetime(2026, 8, 7, 12, tzinfo=UTC)
 SUCCESS_TEMPLATE = "https://restaurant.example.test/orders/{public_order_number}/ok"
 CANCEL_TEMPLATE = "https://restaurant.example.test/orders/{public_order_number}/cancel"
 CHECKOUT_URL = "https://checkout.example.test/session/example"
+UNSAFE_CHECKOUT_URL = (
+    "https://synthetic-user-marker:synthetic-password-marker@"
+    "checkout.example.test/synthetic-path-marker"
+    "?token=synthetic-query-marker"
+)
+UNSAFE_CHECKOUT_MARKERS = (
+    "synthetic-user-marker",
+    "synthetic-password-marker",
+    "synthetic-path-marker",
+    "synthetic-query-marker",
+)
 CHECKOUT_PATH = "/api/v1/orders/{public_order_number}/checkout-session"
 SYNTHETIC_SECRET = "s" * 32
 OTHER_SYNTHETIC_SECRET = "o" * 32
@@ -198,6 +211,7 @@ def _store_payment(
     created_at: datetime = NOW - timedelta(hours=1),
     complete: bool = False,
     expires_at: datetime | None = None,
+    checkout_url: str = CHECKOUT_URL,
 ) -> UUID:
     payment_id = uuid4()
     payment = Payment(
@@ -214,7 +228,7 @@ def _store_payment(
     )
     if complete:
         payment.provider_session_id = "cs_stored_example"
-        payment.provider_checkout_url = CHECKOUT_URL
+        payment.provider_checkout_url = checkout_url
         payment.provider_checkout_expires_at = expires_at or NOW + timedelta(hours=1)
     with session_factory.begin() as session:
         session.add(payment)
@@ -1067,6 +1081,99 @@ def test_complete_future_pending_session_replays_without_configuration(
     assert response.json()["checkout_url"] == CHECKOUT_URL
 
 
+def test_unsafe_stored_checkout_url_returns_sanitized_503_without_dml(
+    test_database_engine: Engine,
+    api_session_factory: sessionmaker[Session],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Reject unsafe replay data without exposing it or mutating persistence."""
+    order_id, public_number, token = _store_order(api_session_factory)
+    request_key = uuid4()
+    _store_payment(
+        api_session_factory,
+        order_id=order_id,
+        request_key=request_key,
+        status=PaymentStatus.PENDING,
+        complete=True,
+        checkout_url=UNSAFE_CHECKOUT_URL,
+    )
+    state_before = _checkout_state_snapshot(test_database_engine)
+    fake = FakeStripeClient()
+    application = _application(api_session_factory, stripe_client=fake)
+    statements: list[str] = []
+
+    def capture_statement(*args: object) -> None:
+        statements.append(str(args[2]))
+
+    event.listen(test_database_engine, "before_cursor_execute", capture_statement)
+    try:
+        with TestClient(application) as client:
+            response = _post(client, public_number, token, request_key)
+    finally:
+        event.remove(test_database_engine, "before_cursor_execute", capture_statement)
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Payment session requires reconciliation"}
+    assert "location" not in response.headers
+    assert fake.requests == []
+    assert not any(_is_data_writing_statement(statement) for statement in statements)
+    assert _checkout_state_snapshot(test_database_engine) == state_before
+    rendered_output = f"{response.text}\n{response.headers!r}\n{caplog.text}"
+    assert UNSAFE_CHECKOUT_URL not in rendered_output
+    assert all(marker not in rendered_output for marker in UNSAFE_CHECKOUT_MARKERS)
+
+
+def test_unsafe_provider_checkout_url_returns_sanitized_503_and_rolls_back_tuple(
+    test_database_engine: Engine,
+    api_session_factory: sessionmaker[Session],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Keep only the recoverable empty pending attempt after unsafe provider data."""
+    order_id, public_number, token = _store_order(api_session_factory)
+    request_key = uuid4()
+    state_before = _checkout_state_snapshot(test_database_engine)
+    fake = FakeStripeClient(
+        result=CheckoutSessionResult(
+            session_id="cs_synthetic_unsafe_url",
+            checkout_url=UNSAFE_CHECKOUT_URL,
+            expires_at=NOW + timedelta(hours=1),
+        )
+    )
+    application = _application(api_session_factory, stripe_client=fake)
+
+    with TestClient(application) as client:
+        response = _post(client, public_number, token, request_key)
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Payment session requires reconciliation"}
+    assert "location" not in response.headers
+    assert len(fake.requests) == 1
+    with api_session_factory() as session:
+        payments = session.scalars(select(Payment).order_by(Payment.created_at)).all()
+        stripe_events = session.scalars(select(StripeEvent)).all()
+    assert len(payments) == 1
+    payment = payments[0]
+    assert payment.order_id == order_id
+    assert payment.request_idempotency_key == request_key
+    assert payment.status == PaymentStatus.PENDING.value
+    assert payment.provider == PaymentProvider.STRIPE_TEST.value
+    assert (
+        payment.provider_session_id,
+        payment.provider_checkout_url,
+        payment.provider_checkout_expires_at,
+    ) == (None, None, None)
+    assert payment.succeeded_at is None
+    assert stripe_events == []
+    state_after = _checkout_state_snapshot(test_database_engine)
+    assert state_after[0] == state_before[0]
+    assert state_after[2:] == state_before[2:]
+    rendered_output = (
+        f"{response.text}\n{response.headers!r}\n{payment!r}\n{caplog.text}"
+    )
+    assert UNSAFE_CHECKOUT_URL not in rendered_output
+    assert all(marker not in rendered_output for marker in UNSAFE_CHECKOUT_MARKERS)
+
+
 def test_demo_mode_blocks_stored_live_stripe_replay_without_side_effects(
     test_database_engine: Engine,
     api_session_factory: sessionmaker[Session],
@@ -1351,6 +1458,94 @@ def test_provider_failures_preserve_definitive_and_ambiguous_semantics(
     assert payment is not None
     assert payment.status == expected_payment_status.value
     assert payment.provider_session_id is None
+
+
+def test_definitive_failure_reconciliation_drops_raw_provider_context(
+    test_database_engine: Engine,
+    api_session_factory: sessionmaker[Session],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Sanitize a concurrent unsafe replay after a definitive provider error."""
+    _, public_number, token = _store_order(api_session_factory)
+    request_key = uuid4()
+    provider_error_marker = "synthetic-provider-private-marker"
+
+    def persist_during_provider(request: StripeCheckoutRequest) -> None:
+        with api_session_factory.begin() as concurrent_session:
+            payment = concurrent_session.get(Payment, request.payment_id)
+            assert payment is not None
+            payment.provider_session_id = "cs_synthetic_unsafe_replay"
+            payment.provider_checkout_url = UNSAFE_CHECKOUT_URL
+            payment.provider_checkout_expires_at = NOW + timedelta(hours=1)
+
+    fake = FakeStripeClient(
+        error=StripeCheckoutDefinitiveError(provider_error_marker),
+        callback=persist_during_provider,
+    )
+    with api_session_factory() as session:
+        with pytest.raises(
+            checkout.PaymentSessionReconciliationRequiredError
+        ) as captured:
+            checkout.checkout_order(
+                session,
+                public_order_number=public_number,
+                access_token=token,
+                request_idempotency_key=request_key,
+                payment_provider=PaymentProvider.STRIPE_TEST.value,
+                stripe_client=fake,
+                stripe_success_url_template=SUCCESS_TEMPLATE,
+                stripe_cancel_url_template=CANCEL_TEMPLATE,
+                now_provider=lambda: NOW,
+            )
+
+    error = captured.value
+    rendered_traceback = "".join(
+        traceback.format_exception(
+            type(error),
+            error,
+            error.__traceback__,
+            chain=True,
+        )
+    )
+    assert error.args == ("Payment session response requires reconciliation.",)
+    assert vars(error) == {}
+    assert error.__cause__ is None
+    assert error.__context__ is None
+    for rendered_value in (
+        str(error),
+        repr(error),
+        repr(error.args),
+        repr(vars(error)),
+        rendered_traceback,
+    ):
+        assert provider_error_marker not in rendered_value
+        assert UNSAFE_CHECKOUT_URL not in rendered_value
+        assert all(marker not in rendered_value for marker in UNSAFE_CHECKOUT_MARKERS)
+
+    state_before_endpoint = _checkout_state_snapshot(test_database_engine)
+    statements: list[str] = []
+
+    def capture_statement(*args: object) -> None:
+        statements.append(str(args[2]))
+
+    application = _application(api_session_factory, stripe_client=fake)
+    event.listen(test_database_engine, "before_cursor_execute", capture_statement)
+    try:
+        with TestClient(application) as client:
+            response = _post(client, public_number, token, request_key)
+    finally:
+        event.remove(test_database_engine, "before_cursor_execute", capture_statement)
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Payment session requires reconciliation"}
+    assert "location" not in response.headers
+    assert len(fake.requests) == 1
+    assert not any(_is_data_writing_statement(statement) for statement in statements)
+    assert _checkout_state_snapshot(test_database_engine) == state_before_endpoint
+    rendered_output = f"{response.text}\n{response.headers!r}\n{caplog.text}"
+    assert provider_error_marker not in rendered_output
+    assert UNSAFE_CHECKOUT_URL not in rendered_output
+    assert all(marker not in rendered_output for marker in UNSAFE_CHECKOUT_MARKERS)
 
 
 def test_ambiguous_retry_recovers_the_same_payment_and_stripe_key(

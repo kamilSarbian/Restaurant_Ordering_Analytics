@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -28,6 +29,7 @@ from app.payments.stripe_checkout import (
 )
 
 PENDING_RETRY_LIMIT = timedelta(hours=23)
+_RESPONSE_RECONCILIATION_MESSAGE = "Payment session response requires reconciliation."
 
 
 class OrderNotPayableError(Exception):
@@ -196,22 +198,24 @@ def checkout_order(
     try:
         provider_result = stripe_client_create(stripe_client, provider_work.request)
     except StripeCheckoutDefinitiveError:
-        return _resolve_definitive_failure(
+        pass
+    except StripeCheckoutAmbiguousError as exc:
+        raise PaymentSessionOutcomeUnknownError from exc
+    else:
+        return _persist_provider_success(
             session,
             order_id=provider_work.request.order_id,
             payment_id=provider_work.request.payment_id,
             public_order_number=provider_work.request.public_order_number,
+            provider_result=provider_result,
             created=provider_work.created,
         )
-    except StripeCheckoutAmbiguousError as exc:
-        raise PaymentSessionOutcomeUnknownError from exc
 
-    return _persist_provider_success(
+    return _resolve_definitive_failure(
         session,
         order_id=provider_work.request.order_id,
         payment_id=provider_work.request.payment_id,
         public_order_number=provider_work.request.public_order_number,
-        provider_result=provider_result,
         created=provider_work.created,
     )
 
@@ -490,16 +494,50 @@ def _stored_response(
     public_order_number: str,
     payment: Payment,
 ) -> CheckoutSessionResponse:
-    if _session_field_state(payment) != "complete":
+    session_state = _session_field_state(payment)
+    if session_state == "partial":
         raise PaymentSessionReconciliationRequiredError
-    if payment.provider_checkout_url is None:
+    payment_status = PaymentStatus(payment.status)
+    if payment_status is not PaymentStatus.PENDING:
+        return _validated_checkout_response(
+            public_order_number=public_order_number,
+            payment_status=payment_status,
+            checkout_url=None,
+            expires_at=None,
+        )
+    if session_state != "complete" or payment.provider_checkout_url is None:
         raise PaymentSessionReconciliationRequiredError
-    return CheckoutSessionResponse(
+    return _validated_checkout_response(
         public_order_number=public_order_number,
-        payment_status=PaymentStatus(payment.status),
+        payment_status=payment_status,
         checkout_url=payment.provider_checkout_url,
         expires_at=_as_utc(payment.provider_checkout_expires_at),
     )
+
+
+def _validated_checkout_response(
+    *,
+    public_order_number: str,
+    payment_status: PaymentStatus,
+    checkout_url: str | None,
+    expires_at: datetime | None,
+) -> CheckoutSessionResponse:
+    response: CheckoutSessionResponse | None = None
+    try:
+        response = CheckoutSessionResponse(
+            public_order_number=public_order_number,
+            payment_status=payment_status,
+            checkout_url=checkout_url,
+            expires_at=expires_at,
+        )
+    except ValidationError:
+        pass
+
+    if response is None:
+        raise PaymentSessionReconciliationRequiredError(
+            _RESPONSE_RECONCILIATION_MESSAGE
+        )
+    return response
 
 
 def _provider_result_matches(

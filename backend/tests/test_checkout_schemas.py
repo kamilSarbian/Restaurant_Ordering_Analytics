@@ -1,5 +1,6 @@
 """Unit tests for checkout schemas, settings, and idempotency helpers."""
 
+import traceback
 from datetime import UTC, datetime
 from uuid import UUID, uuid1, uuid3, uuid4, uuid5
 
@@ -7,6 +8,8 @@ import pytest
 from pydantic import SecretStr, ValidationError
 
 from app.core.config import Settings
+from app.payments import checkout
+from app.payments.models import Payment
 from app.payments.schemas import CheckoutSessionResponse
 from app.payments.statuses import PaymentStatus
 from app.payments.stripe_checkout import (
@@ -40,6 +43,132 @@ def test_checkout_response_accepts_the_exact_public_contract() -> None:
         "checkout_url",
         "expires_at",
     }
+
+
+@pytest.mark.parametrize(
+    "payment_status",
+    [PaymentStatus.SUCCEEDED, PaymentStatus.FAILED, PaymentStatus.EXPIRED],
+)
+def test_checkout_response_accepts_terminal_null_fields(
+    payment_status: PaymentStatus,
+) -> None:
+    """Accept every authoritative terminal status without hosted-session data."""
+    response = CheckoutSessionResponse(
+        public_order_number=PUBLIC_ORDER_NUMBER,
+        payment_status=payment_status,
+        checkout_url=None,
+        expires_at=None,
+    )
+
+    assert response.model_dump(mode="json") == {
+        "public_order_number": PUBLIC_ORDER_NUMBER,
+        "payment_status": payment_status.value,
+        "checkout_url": None,
+        "expires_at": None,
+    }
+
+
+@pytest.mark.parametrize(
+    ("payment_status", "checkout_url", "expires_at"),
+    [
+        (PaymentStatus.PENDING, None, None),
+        (PaymentStatus.PENDING, "https://checkout.stripe.example/session", None),
+        (PaymentStatus.PENDING, None, datetime(2026, 8, 7, 12, tzinfo=UTC)),
+        (
+            PaymentStatus.SUCCEEDED,
+            "https://checkout.stripe.example/session",
+            datetime(2026, 8, 7, 12, tzinfo=UTC),
+        ),
+        (PaymentStatus.FAILED, "https://checkout.stripe.example/session", None),
+        (PaymentStatus.EXPIRED, None, datetime(2026, 8, 7, 12, tzinfo=UTC)),
+    ],
+)
+def test_checkout_response_rejects_crossed_status_shapes(
+    payment_status: PaymentStatus,
+    checkout_url: str | None,
+    expires_at: datetime | None,
+) -> None:
+    """Reject every mix of hosted and terminal response fields."""
+    with pytest.raises(ValidationError):
+        CheckoutSessionResponse(
+            public_order_number=PUBLIC_ORDER_NUMBER,
+            payment_status=payment_status,
+            checkout_url=checkout_url,
+            expires_at=expires_at,
+        )
+
+
+@pytest.mark.parametrize("field_name", ["checkout_url", "expires_at"])
+def test_checkout_response_requires_all_four_fields(field_name: str) -> None:
+    """Reject a response that omits either nullable checkout field."""
+    values = _response_values()
+    values.pop(field_name)
+
+    with pytest.raises(ValidationError):
+        CheckoutSessionResponse(**values)
+
+
+def test_stored_pending_response_preserves_provider_session() -> None:
+    """Keep the established hosted checkout response unchanged while pending."""
+    expires_at = datetime(2026, 8, 7, 12, tzinfo=UTC)
+    payment = Payment(
+        status=PaymentStatus.PENDING.value,
+        provider_session_id="cs_test_pending",
+        provider_checkout_url="https://checkout.stripe.example/session",
+        provider_checkout_expires_at=expires_at,
+    )
+
+    response = checkout._stored_response(  # noqa: SLF001
+        PUBLIC_ORDER_NUMBER,
+        payment,
+    )
+
+    assert response.payment_status is PaymentStatus.PENDING
+    assert response.checkout_url == payment.provider_checkout_url
+    assert response.expires_at == expires_at
+
+
+def test_stored_terminal_response_hides_but_preserves_provider_session() -> None:
+    """Project a webhook race as terminal without mutating stored Stripe fields."""
+    expires_at = datetime(2026, 8, 7, 12, tzinfo=UTC)
+    payment = Payment(
+        status=PaymentStatus.SUCCEEDED.value,
+        provider_session_id="cs_test_completed",
+        provider_checkout_url="https://checkout.stripe.example/session",
+        provider_checkout_expires_at=expires_at,
+    )
+    provider_fields_before = (
+        payment.provider_session_id,
+        payment.provider_checkout_url,
+        payment.provider_checkout_expires_at,
+    )
+
+    response = checkout._stored_response(  # noqa: SLF001
+        PUBLIC_ORDER_NUMBER,
+        payment,
+    )
+
+    assert response.payment_status is PaymentStatus.SUCCEEDED
+    assert response.checkout_url is None
+    assert response.expires_at is None
+    assert (
+        payment.provider_session_id,
+        payment.provider_checkout_url,
+        payment.provider_checkout_expires_at,
+    ) == provider_fields_before
+
+
+def test_stored_terminal_response_rejects_partial_provider_session() -> None:
+    """Do not hide a corrupt partial provider tuple behind a terminal response."""
+    payment = Payment(
+        status=PaymentStatus.SUCCEEDED.value,
+        provider_session_id="cs_test_completed",
+        provider_checkout_url=None,
+        provider_checkout_expires_at=None,
+    )
+
+    with pytest.raises(checkout.PaymentSessionReconciliationRequiredError):
+        checkout._stored_response(PUBLIC_ORDER_NUMBER, payment)  # noqa: SLF001
 
 
 @pytest.mark.parametrize(
@@ -89,6 +218,146 @@ def test_checkout_response_rejects_empty_checkout_url() -> None:
         CheckoutSessionResponse(**values)
 
 
+@pytest.mark.parametrize(
+    "checkout_url",
+    [
+        " ",
+        "not-a-url",
+        "javascript:alert(1)",
+        "https:///checkout",
+        "https://%20checkout.stripe.example/session",
+        "https://checkout.stripe.example/\nmalformed",
+        "https://u:p@127.0.0.1/session",
+        "http://checkout.stripe.example/session",
+    ],
+)
+def test_checkout_response_rejects_unsafe_checkout_url(checkout_url: str) -> None:
+    """Reject malformed, credential-bearing, or non-loopback insecure URLs."""
+    values = _response_values()
+    values["checkout_url"] = checkout_url
+
+    with pytest.raises(ValidationError):
+        CheckoutSessionResponse(**values)
+
+
+@pytest.mark.parametrize(
+    ("checkout_url", "markers"),
+    [
+        (
+            "https://synthetic-user-marker@checkout.example.test/session",
+            ("synthetic-user-marker",),
+        ),
+        (
+            "https://user:synthetic-password-marker@checkout.example.test/session",
+            ("synthetic-password-marker",),
+        ),
+        (
+            "http://checkout.example.test/synthetic-path-marker"
+            "?token=synthetic-query-marker",
+            ("synthetic-path-marker", "synthetic-query-marker"),
+        ),
+    ],
+)
+def test_checkout_response_hides_unsafe_url_from_rendered_validation_error(
+    checkout_url: str,
+    markers: tuple[str, ...],
+) -> None:
+    """Hide rejected URL material from rendered validation diagnostics."""
+    values = _response_values()
+    values["checkout_url"] = checkout_url
+
+    with pytest.raises(ValidationError) as captured:
+        CheckoutSessionResponse(**values)
+
+    error = captured.value
+    rendered_traceback = "".join(
+        traceback.format_exception(
+            type(error),
+            error,
+            error.__traceback__,
+            chain=True,
+        )
+    )
+    for rendered_value in (str(error), repr(error), rendered_traceback):
+        assert checkout_url not in rendered_value
+        assert all(marker not in rendered_value for marker in markers)
+
+
+def test_stored_response_sanitizes_unsafe_checkout_url_validation_error() -> None:
+    """Replace DTO validation details with an unchained reconciliation error."""
+    unsafe_url = (
+        "https://synthetic-user-marker:synthetic-password-marker@"
+        "checkout.example.test/synthetic-path-marker"
+        "?token=synthetic-query-marker"
+    )
+    expires_at = datetime(2026, 8, 7, 12, tzinfo=UTC)
+    payment = Payment(
+        status=PaymentStatus.PENDING.value,
+        provider_session_id="cs_synthetic_unsafe_url",
+        provider_checkout_url=unsafe_url,
+        provider_checkout_expires_at=expires_at,
+    )
+    provider_fields_before = (
+        payment.provider_session_id,
+        payment.provider_checkout_url,
+        payment.provider_checkout_expires_at,
+    )
+
+    with pytest.raises(checkout.PaymentSessionReconciliationRequiredError) as captured:
+        checkout._stored_response(PUBLIC_ORDER_NUMBER, payment)  # noqa: SLF001
+
+    error = captured.value
+    rendered_traceback = "".join(
+        traceback.format_exception(
+            type(error),
+            error,
+            error.__traceback__,
+            chain=True,
+        )
+    )
+    assert error.args == ("Payment session response requires reconciliation.",)
+    assert vars(error) == {}
+    assert error.__cause__ is None
+    assert error.__context__ is None
+    for rendered_value in (
+        str(error),
+        repr(error),
+        repr(error.args),
+        repr(vars(error)),
+        rendered_traceback,
+    ):
+        assert unsafe_url not in rendered_value
+        assert "synthetic-user-marker" not in rendered_value
+        assert "synthetic-password-marker" not in rendered_value
+        assert "synthetic-path-marker" not in rendered_value
+        assert "synthetic-query-marker" not in rendered_value
+    assert (
+        payment.provider_session_id,
+        payment.provider_checkout_url,
+        payment.provider_checkout_expires_at,
+    ) == provider_fields_before
+
+
+@pytest.mark.parametrize(
+    "checkout_url",
+    [
+        "http://localhost:4173/__e2e/checkout#opaque-handle",
+        "http://127.0.0.1:4173/__e2e/checkout#opaque-handle",
+        "http://[::1]:4173/__e2e/checkout#opaque-handle",
+    ],
+)
+def test_checkout_response_accepts_loopback_http_without_normalizing(
+    checkout_url: str,
+) -> None:
+    """Preserve the isolated browser harness URL while rejecting public HTTP."""
+    values = _response_values()
+    values["checkout_url"] = checkout_url
+
+    response = CheckoutSessionResponse(**values)
+
+    assert response.checkout_url == checkout_url
+
+
 def test_checkout_response_rejects_naive_expiration() -> None:
     """Require timezone-aware session expiration values."""
     values = _response_values()
@@ -99,7 +368,11 @@ def test_checkout_response_rejects_naive_expiration() -> None:
 
 @pytest.mark.parametrize(
     ("field_name", "value"),
-    [("payment_status", "pending"), ("checkout_url", 123)],
+    [
+        ("payment_status", "pending"),
+        ("payment_status", "processing"),
+        ("checkout_url", 123),
+    ],
 )
 def test_checkout_response_rejects_non_strict_field_values(
     field_name: str,
