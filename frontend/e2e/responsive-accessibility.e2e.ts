@@ -40,6 +40,50 @@ const SENSITIVE_QUERY_NAME_PATTERN =
   /(?:access|auth|capability|credential|password|secret|signature|token)/iu;
 const STRIPE_HOST_PATTERN =
   /(?:^|\.)(?:stripe\.com|stripe\.dev|stripe\.network|stripeassets\.com|stripecdn\.com|stripepayments\.com)$/iu;
+const BROWSER_DIAGNOSTIC_LOCATION_PATTERN =
+  /^\s*at\b[^\r\n]*?[\\/(]([A-Za-z0-9_.-]+\.(?:[cm]?[jt]sx?)):(\d{1,7}):(\d{1,7})\)?\s*$/gmu;
+const BROWSER_DIAGNOSTIC_HTTP_METHODS = new Set([
+  'DELETE',
+  'GET',
+  'HEAD',
+  'OPTIONS',
+  'PATCH',
+  'POST',
+  'PUT',
+]);
+const BROWSER_DIAGNOSTIC_RESOURCE_TYPES = new Set([
+  'document',
+  'eventsource',
+  'fetch',
+  'font',
+  'image',
+  'manifest',
+  'media',
+  'other',
+  'script',
+  'stylesheet',
+  'texttrack',
+  'websocket',
+  'xhr',
+]);
+const BROWSER_DIAGNOSTIC_SAFE_ERROR_NAMES = new Set([
+  'AggregateError',
+  'AssertionError',
+  'ConsoleError',
+  'Error',
+  'EvalError',
+  'NonError',
+  'RangeError',
+  'ReferenceError',
+  'SyntaxError',
+  'TimeoutError',
+  'TypeError',
+  'URIError',
+]);
+const MAX_BROWSER_ERROR_DIAGNOSTICS = 64;
+const MAX_BROWSER_DIAGNOSTIC_LOCATIONS = 4;
+const MAX_BROWSER_DIAGNOSTIC_SOURCE_LENGTH = 16_384;
+const MAX_RECENT_JAVASCRIPT_DIAGNOSTICS = 8;
 const VIEWPORTS = [
   { height: 812, label: 'mobile', width: 375 },
   { height: 1024, label: 'tablet', width: 768 },
@@ -490,6 +534,15 @@ interface TrackedBrowserRequestFailureAllowance extends BrowserRequestFailureAll
   observedOccurrences: number;
 }
 
+interface BrowserSafetyDiagnosticOptions {
+  readonly expectedOrigin: string;
+}
+
+interface BrowserFinalizationFailure {
+  readonly error: unknown;
+  readonly label: 'context-close-error' | 'guard-finalization-error';
+}
+
 type SyntheticOrderStatus = 'preparing' | 'ready' | 'cancelled';
 
 interface SyntheticOrderStatusRequest {
@@ -928,6 +981,179 @@ function parseUrl(rawUrl: string): URL | null {
   }
 }
 
+function browserDiagnosticPath(rawUrl: string, expectedOrigin: string): string {
+  const parsed = parseUrl(rawUrl);
+  if (parsed === null) return 'path-unavailable';
+  if (parsed.origin !== expectedOrigin) return 'external-origin';
+  if (parsed.pathname === '/admin/exports') return 'exports-page';
+  if (parsed.pathname === AUTH_ME_API_PATH) return 'admin-auth-session';
+  if (parsed.pathname.startsWith(`${ADMIN_EXPORTS_API_ROOT}/`)) {
+    return 'exports-api';
+  }
+  if (parsed.pathname.endsWith('.js')) {
+    return parsed.pathname.toLowerCase().includes('export')
+      ? 'exports-javascript'
+      : 'javascript-asset';
+  }
+  return 'same-origin-other';
+}
+
+function browserDiagnosticKind(value: string): string {
+  const normalized = value.toLowerCase();
+  if (
+    normalized.includes('failed to fetch dynamically imported module') ||
+    normalized.includes('importing a module script failed')
+  ) {
+    return 'dynamic-import-fetch';
+  }
+  if (normalized.includes('chunkloaderror') || normalized.includes('loading chunk')) {
+    return 'chunk-load';
+  }
+  if (normalized.includes('syntaxerror') || normalized.includes('unexpected token')) {
+    return 'syntax-error';
+  }
+  if (normalized.includes('referenceerror')) return 'reference-error';
+  if (
+    normalized.includes('react router') ||
+    normalized.includes('routeerror') ||
+    normalized.includes('error boundary')
+  ) {
+    return 'route-render-error';
+  }
+  if (normalized.includes('typeerror')) return 'type-error';
+  if (normalized.includes('rangeerror')) return 'range-error';
+  if (
+    normalized.includes('expect(') ||
+    normalized.includes('expected:') ||
+    normalized.includes('received:') ||
+    normalized.includes('locator(')
+  ) {
+    return 'assertion-error';
+  }
+  if (normalized.includes('timed out') || normalized.includes('timeout')) {
+    return 'timeout-error';
+  }
+  if (
+    normalized.includes('net::err_') ||
+    normalized.includes('networkerror') ||
+    normalized.includes('failed to fetch')
+  ) {
+    return 'network-error';
+  }
+  return 'unclassified-error';
+}
+
+function browserDiagnosticLocations(value: string): readonly string[] {
+  const locations: string[] = [];
+  for (const match of value.matchAll(BROWSER_DIAGNOSTIC_LOCATION_PATTERN)) {
+    const [, filename, line, column] = match;
+    if (filename === undefined || line === undefined || column === undefined) continue;
+    const lineNumber = Number(line);
+    const columnNumber = Number(column);
+    if (
+      !Number.isSafeInteger(lineNumber) ||
+      !Number.isSafeInteger(columnNumber) ||
+      lineNumber <= 0 ||
+      columnNumber <= 0
+    ) {
+      continue;
+    }
+    const source =
+      filename === 'responsive-accessibility.e2e.ts'
+        ? filename
+        : filename.endsWith('.js') || filename.endsWith('.jsx')
+          ? 'browser-script'
+          : 'source-file';
+    const location = `${source}:${lineNumber}:${columnNumber}`;
+    if (!locations.includes(location)) locations.push(location);
+    if (locations.length >= MAX_BROWSER_DIAGNOSTIC_LOCATIONS) break;
+  }
+  return locations;
+}
+
+function summarizeBrowserDiagnosticText(value: string, errorName: string): string {
+  const boundedValue = value.slice(0, MAX_BROWSER_DIAGNOSTIC_SOURCE_LENGTH);
+  const safeName = BROWSER_DIAGNOSTIC_SAFE_ERROR_NAMES.has(errorName)
+    ? errorName
+    : 'UnknownError';
+  const locations = browserDiagnosticLocations(boundedValue);
+  return `kind=${browserDiagnosticKind(boundedValue)};name=${safeName};locations=${
+    locations.length === 0 ? 'none' : locations.join(',')
+  }`;
+}
+
+function browserDiagnosticMethod(value: string): string {
+  const normalized = value.toUpperCase();
+  return BROWSER_DIAGNOSTIC_HTTP_METHODS.has(normalized) ? normalized : 'OTHER';
+}
+
+function browserDiagnosticResourceType(value: string): string {
+  return BROWSER_DIAGNOSTIC_RESOURCE_TYPES.has(value) ? value : 'other';
+}
+
+function browserRequestFailureKind(value: string): string {
+  const normalized = value.toUpperCase();
+  if (normalized.includes('ERR_ABORTED')) return 'aborted';
+  if (normalized.includes('ERR_TIMED_OUT')) return 'timeout';
+  if (
+    normalized.includes('ERR_CONNECTION') ||
+    normalized.includes('ERR_NAME_NOT_RESOLVED') ||
+    normalized.includes('ERR_NETWORK_CHANGED')
+  ) {
+    return 'connection';
+  }
+  if (normalized.includes('ERR_FAILED')) return 'failed';
+  return 'other';
+}
+
+class BrowserDiagnosticBuffer {
+  private readonly errorEntries: string[] = [];
+  private omittedErrorEntries = 0;
+  private omittedJavascriptEntries = 0;
+  private readonly recentJavascriptEntries: string[] = [];
+  private readonly recentJavascriptEntrySet = new Set<string>();
+
+  addError(entry: string): void {
+    if (this.errorEntries.includes(entry)) return;
+    if (this.errorEntries.length >= MAX_BROWSER_ERROR_DIAGNOSTICS) {
+      this.omittedErrorEntries += 1;
+      return;
+    }
+    this.errorEntries.push(entry);
+  }
+
+  addSuccessfulJavascript(entry: string): void {
+    if (this.recentJavascriptEntrySet.has(entry)) {
+      const existingIndex = this.recentJavascriptEntries.indexOf(entry);
+      this.recentJavascriptEntries.splice(existingIndex, 1);
+      this.recentJavascriptEntries.push(entry);
+      return;
+    }
+    if (this.recentJavascriptEntries.length >= MAX_RECENT_JAVASCRIPT_DIAGNOSTICS) {
+      const omittedEntry = this.recentJavascriptEntries.shift();
+      if (omittedEntry !== undefined)
+        this.recentJavascriptEntrySet.delete(omittedEntry);
+      this.omittedJavascriptEntries += 1;
+    }
+    this.recentJavascriptEntries.push(entry);
+    this.recentJavascriptEntrySet.add(entry);
+  }
+
+  snapshot(): readonly string[] {
+    const entries = [...this.errorEntries];
+    if (this.omittedErrorEntries > 0) {
+      entries.push(`error-entries-omitted:${this.omittedErrorEntries}`);
+    }
+    entries.push(...this.recentJavascriptEntries);
+    if (this.omittedJavascriptEntries > 0) {
+      entries.push(
+        `javascript-success-entries-omitted:${this.omittedJavascriptEntries}`,
+      );
+    }
+    return entries;
+  }
+}
+
 function isCriticalRequest(request: Request): boolean {
   return CRITICAL_RESOURCE_TYPES.has(request.resourceType());
 }
@@ -947,6 +1173,8 @@ class BrowserSafetyGuard {
   private readonly allowedForbiddenBrowserRequests: ReadonlySet<string>;
   private readonly allowedHttpFailures: ReadonlySet<string>;
   private readonly allowedRequestFailures: TrackedBrowserRequestFailureAllowance[];
+  private readonly diagnosticBuffer = new BrowserDiagnosticBuffer();
+  private readonly diagnosticExpectedOrigin: string | null;
   private readonly issues: string[] = [];
 
   constructor(
@@ -955,7 +1183,9 @@ class BrowserSafetyGuard {
     allowedForbiddenBrowserRequests: readonly BrowserEndpointAllowance[] = [],
     allowedHttpFailures: readonly BrowserHttpFailureAllowance[] = [],
     allowedRequestFailures: readonly BrowserRequestFailureAllowance[] = [],
+    diagnosticOptions?: BrowserSafetyDiagnosticOptions,
   ) {
+    this.diagnosticExpectedOrigin = diagnosticOptions?.expectedOrigin ?? null;
     this.allowedForbiddenBrowserRequests = new Set(
       allowedForbiddenBrowserRequests.map(
         ({ method, pathname }) => `${method.toUpperCase()} ${pathname}`,
@@ -983,27 +1213,152 @@ class BrowserSafetyGuard {
         !this.isAllowedHttpFailureConsoleMessage(message)
       ) {
         this.issues.push('console-error');
+        this.recordErrorDiagnostic(
+          `console-error:location=${this.diagnosticPath(
+            message.location().url,
+          )};${summarizeBrowserDiagnosticText(message.text(), 'ConsoleError')}`,
+        );
       }
     });
-    page.on('pageerror', () => {
+    page.on('pageerror', (error) => {
       this.issues.push('page-error');
+      this.recordErrorDiagnostic(
+        `page-error:${summarizeBrowserDiagnosticText(
+          `${error.name}\n${error.message}\n${error.stack ?? ''}`.slice(
+            0,
+            MAX_BROWSER_DIAGNOSTIC_SOURCE_LENGTH,
+          ),
+          error.name,
+        )}`,
+      );
     });
     page.on('popup', () => {
       this.issues.push('unexpected-popup');
+      this.recordErrorDiagnostic('unexpected-popup');
     });
     page.on('request', (request) => {
       this.inspectRequest(request, sensitiveValues);
     });
     page.on('requestfailed', (request) => {
+      this.recordFailedRequestDiagnostic(request);
       this.inspectFailedRequest(request);
     });
     page.on('response', (response) => {
+      this.recordResponseDiagnostic(response);
       this.inspectResponse(response);
     });
   }
 
   assertClean(): void {
     expect([...new Set(this.issues)], 'UNEXPECTED_BROWSER_RUNTIME_FAILURE').toEqual([]);
+  }
+
+  /** Return redacted runtime evidence observed before browser-context cleanup. */
+  diagnosticSnapshot(): readonly string[] {
+    return this.diagnosticBuffer.snapshot();
+  }
+
+  /** Preserve sanitized scenario and finalization failures with browser evidence. */
+  aggregateFailure(
+    code: string,
+    scenarioError: unknown,
+    finalizationErrors: readonly BrowserFinalizationFailure[],
+    diagnostics: readonly string[],
+  ): AggregateError {
+    const failures: Error[] = [];
+    if (scenarioError !== undefined) {
+      failures.push(this.sanitizeFailure('scenario-error', scenarioError));
+    }
+    for (const { error, label } of finalizationErrors) {
+      failures.push(this.sanitizeFailure(label, error));
+    }
+    const diagnosticLines =
+      diagnostics.length === 0
+        ? ['browser-diagnostic:none-recorded']
+        : diagnostics.map((diagnostic) => `browser-diagnostic:${diagnostic}`);
+    const diagnosticError = new Error(diagnosticLines.join('\n'));
+    diagnosticError.name = 'browser-diagnostics';
+    diagnosticError.stack = `${diagnosticError.name}: ${diagnosticError.message}`;
+    failures.push(diagnosticError);
+    const message = [
+      code,
+      ...failures.map((failure) => `${failure.name}:${failure.message}`),
+    ].join('\n');
+    const aggregate = new AggregateError(failures, message);
+    aggregate.stack = `${aggregate.name}: ${message}`;
+    return aggregate;
+  }
+
+  private diagnosticPath(rawUrl: string): string {
+    return this.diagnosticExpectedOrigin === null
+      ? 'capture-disabled'
+      : browserDiagnosticPath(rawUrl, this.diagnosticExpectedOrigin);
+  }
+
+  private sanitizeFailure(label: string, error: unknown): Error {
+    const source =
+      error instanceof Error
+        ? `${error.name}\n${error.message}\n${error.stack ?? ''}`.slice(
+            0,
+            MAX_BROWSER_DIAGNOSTIC_SOURCE_LENGTH,
+          )
+        : 'non-error-thrown';
+    const errorName = error instanceof Error ? error.name : 'NonError';
+    const summary = summarizeBrowserDiagnosticText(source, errorName);
+    const sanitized = new Error(summary);
+    sanitized.name = label;
+    sanitized.stack = `${label}: ${summary}`;
+    return sanitized;
+  }
+
+  private recordErrorDiagnostic(value: string): void {
+    if (this.diagnosticExpectedOrigin === null) return;
+    this.diagnosticBuffer.addError(value);
+  }
+
+  private recordSuccessfulJavascriptDiagnostic(value: string): void {
+    if (this.diagnosticExpectedOrigin === null) return;
+    this.diagnosticBuffer.addSuccessfulJavascript(value);
+  }
+
+  private recordFailedRequestDiagnostic(request: Request): void {
+    const errorText = request.failure()?.errorText ?? 'REQUEST_FAILURE_UNKNOWN';
+    this.recordErrorDiagnostic(
+      `request-failed:method=${browserDiagnosticMethod(
+        request.method(),
+      )};type=${browserDiagnosticResourceType(
+        request.resourceType(),
+      )};location=${this.diagnosticPath(
+        request.url(),
+      )};kind=${browserRequestFailureKind(errorText)}`,
+    );
+  }
+
+  private recordResponseDiagnostic(response: Response): void {
+    if (this.diagnosticExpectedOrigin === null) return;
+    const parsed = parseUrl(response.url());
+    if (parsed === null || parsed.origin !== this.diagnosticExpectedOrigin) return;
+    const request = response.request();
+    const resourceType = request.resourceType();
+    if (response.status() >= 400) {
+      this.recordErrorDiagnostic(
+        `http-error:status=${response.status()};method=${browserDiagnosticMethod(
+          request.method(),
+        )};type=${browserDiagnosticResourceType(
+          resourceType,
+        )};location=${this.diagnosticPath(response.url())}`,
+      );
+    }
+    if (
+      response.status() < 400 &&
+      (resourceType === 'script' || parsed.pathname.endsWith('.js'))
+    ) {
+      this.recordSuccessfulJavascriptDiagnostic(
+        `javascript-success:status=${response.status()};location=${this.diagnosticPath(
+          response.url(),
+        )}`,
+      );
+    }
   }
 
   private isAllowedHttpFailureConsoleMessage(message: ConsoleMessage): boolean {
@@ -13036,6 +13391,8 @@ test('keeps admin exports download-safe, responsive, and independently actionabl
           status: 403,
         },
       ],
+      [],
+      { expectedOrigin: baseOrigin },
     );
     const expectedBaseUrl = new URL(baseOrigin);
     page.on('websocket', (socket) => {
@@ -13051,7 +13408,8 @@ test('keeps admin exports download-safe, responsive, and independently actionabl
     await installSyntheticAdminExportsRouting(page, controller);
 
     let scenarioError: unknown;
-    let finalizationError: unknown;
+    const finalizationErrors: BrowserFinalizationFailure[] = [];
+    let diagnosticSnapshot: readonly string[];
     try {
       await assertAdminExportsViewport(page, viewport, controller);
       expect(
@@ -13064,20 +13422,23 @@ test('keeps admin exports download-safe, responsive, and independently actionabl
       try {
         guard.assertClean();
       } catch (error: unknown) {
-        finalizationError = error;
+        finalizationErrors.push({ error, label: 'guard-finalization-error' });
       }
+      diagnosticSnapshot = guard.diagnosticSnapshot();
       try {
         await closeContext(context);
       } catch (error: unknown) {
-        finalizationError ??= error;
+        finalizationErrors.push({ error, label: 'context-close-error' });
       }
     }
 
-    if (scenarioError !== undefined) {
-      throw scenarioError;
-    }
-    if (finalizationError !== undefined) {
-      throw finalizationError;
+    if (scenarioError !== undefined || finalizationErrors.length > 0) {
+      throw guard.aggregateFailure(
+        'ADMIN_EXPORTS_BROWSER_FAILURE',
+        scenarioError,
+        finalizationErrors,
+        diagnosticSnapshot,
+      );
     }
   }
 });
