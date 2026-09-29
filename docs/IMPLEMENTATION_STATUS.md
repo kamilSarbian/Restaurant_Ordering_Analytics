@@ -1,10 +1,10 @@
 # Implementation Status
 
-- **Repository documentation baseline:** AF1+B1-4, B2-1, and B2-2 are
-  committed. B2-3 is bounded to deterministic portfolio-seed acceptance and
-  documentation reconciliation. This file records durable implementation scope
-  and acceptance evidence; repository history, independent-review records, and
-  CI are authoritative for transient review, commit, and run status.
+- **Repository documentation baseline:** AF1+B1-4, B2-1 through B2-3, B3-1,
+  and B3-2A are committed. B3-2B implements the bounded atomic demo Checkout
+  contract. This file records durable implementation scope and acceptance
+  evidence; repository history, independent-review records, and CI are
+  authoritative for transient commit and run status.
   Recruiter-facing portfolio documentation and case-study work remain Stage 23
   and have not started
 - **Stage 1:** completed
@@ -24,24 +24,25 @@
 - **Stage 15:** completed
 - **Current stage:** Stage 20 Production Deployment Readiness and Stage 21 UI/UX
   Redesign & Product Polish are complete. Stage 22 Production Deployment &
-  Public Acceptance is **in progress**: AF1+B1-1 through AF1+B1-4, B2-1, and
-  B2-2 are complete and committed. B2-3 is bounded to the deterministic
-  portfolio-seed acceptance test and six documentation paths; it neither
-  implements nor authorizes B3-B6. The original Stage 20 paid Render/GHCR
-  topology is historical and superseded for the free-tier portfolio demo. Stage
-  23 is **not started**. No Render/Neon provisioning, production migration/seed,
+  Public Acceptance is **in progress**: AF1+B1-1 through AF1+B1-4, B2-1 through
+  B2-3, B3-1, and B3-2A are complete and committed; B3-2B implements the
+  bounded atomic demo Checkout contract. The original Stage 20 paid
+  Render/GHCR topology is historical and superseded for the free-tier portfolio
+  demo. B4 through B6 and any further B3 scope remain future work. Stage 23 is
+  **not started**. No Render/Neon provisioning, production migration/seed,
   public deployment, or public URL is claimed.
 - **Backend:** FastAPI, database foundation, menu models, local seed data,
   public menu, transient quoting, persistent order creation, and secure public
-  order status, Payment persistence, Stripe Checkout, and verified Stripe
-  webhook processing, unified User authentication and role authorization,
+  order status, provider-selected Stripe-test or atomic demo Checkout, verified
+  Stripe webhook processing, unified User authentication and role authorization,
   nullable Order ownership, mixed guest/authenticated Order access, strict
   personal account Order reads,
   administrator order and menu operational APIs, administrator analytics,
   administrator CSV reports, and super-admin User governance completed
 - **Frontend:** landing and public menu routes, unified authentication and
-  registration, mixed guest/authenticated ordering, personal account Order
-  history and detail, super-admin User governance, and the existing
+  registration, mixed guest/authenticated ordering, pending-only Checkout
+  redirect and terminal-payment feedback/retry, personal account Order history
+  and detail, super-admin User governance, and the existing
   administrator operational interface are implemented and acceptance-verified
 - **Container runtime:** the production-only backend image, static Nginx
   frontend image and same-origin proxy, four-service Compose stack, readiness
@@ -55,8 +56,8 @@
   The controlled Stage 16F ENV1 upgrade preserved the historical administrator
   as an active `super_admin`
 - **Local seed data:** deterministic menu seed completed and verified. B2-1
-  pure portfolio generation and B2-2 atomic local persistence are committed;
-  B2-3 isolated analytics/CSV acceptance is complete locally
+  pure portfolio generation, B2-2 atomic local persistence, and B2-3 isolated
+  analytics/CSV acceptance are complete and committed
 - **Public menu API:** list, availability filter, item details, and 404 contract
   completed and verified
 - **Menu write API:** administrator category and item list, create, partial
@@ -70,6 +71,12 @@
 - **Payment persistence:** completed and verified
 - **Stripe Checkout:** owner-or-capability access completed and verified using
   the official SDK boundary and fake-provider automated tests
+- **Demo Checkout:** server-owned `portfolio_runtime` origin, Stripe isolation,
+  deterministic atomic terminal outcome, and persisted same-key replay are
+  implemented without Stripe traffic or `StripeEvent`
+- **Checkout response/UI:** pending has a validated URL and aware expiry;
+  terminal states have null/null, redirect never occurs for terminal results,
+  and failed/expired exposes explicit same-Order retry with a new UUID
 - **Checkout idempotency:** completed and verified
 - **D-016 Payment-aware cancellation verification:** completed at the domain
   and integration level
@@ -717,8 +724,9 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   The exact opt-in flag preserves menu-only default behavior; schema-0009,
   local-only persistence uses one transaction, exact reruns issue zero DML, and
   drift/collisions fail closed.
-- **B2-3 — persisted analytics/CSV acceptance and documentation:** bounded to
-  exactly one integration-test path and six authoritative documents. The dated
+- **B2-3 — persisted analytics/CSV acceptance and documentation:** complete and
+  committed on 2026-09-25 at
+  `a45b15f9ae51b8a89764e274b0e0fc8e4c24d31d`. The dated
   2026-09-24 local isolated suite passed 38/38 tests. Independent-plan oracles
   prove all four analytics and all three CSV services: 449 succeeded NOK
   Payments, 31,542,500 revenue minor units, 70,251 average-order-value minor
@@ -731,11 +739,36 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   canonical B2-1 SHA and size remain unchanged. Repository history,
   independent-review records, and CI are authoritative for commit and run
   status rather than this durable implementation summary.
-- **Stage 22-B0 demo design:** approved as design only. B3
-  backend-authoritative fake payment, B4 constrained ordinary-admin demo, B5
-  recruiter UX, and B6 integrated acceptance are **not implemented**. A
-  production reference end, Neon seed, reset/prune policy, and runtime cap have
-  not been selected or authorized.
+- **B3-1 — runtime provenance and live-payment isolation:** complete and
+  committed on 2026-09-26 at
+  `38639550b734112dfeb2782760231b3a8cb3f756`. Public creation assigns `live`
+  or `portfolio_runtime` from the exact trusted mode/provider pair and fails
+  closed otherwise. Stripe Checkout and stored Stripe URL replay accept only
+  `live` Orders.
+- **B3-2A — terminal Checkout contract and frontend:** complete and committed
+  on 2026-09-28 at `4a150ef5ec5a7944e0f3cfaa17b9ff50167c829f`.
+  The shared four-field response permits URL/expiry only for pending. Terminal
+  states use null/null; the browser does not redirect and exposes protected
+  status or explicit new-key retry as appropriate.
+- **B3-2B — atomic deterministic demo Checkout:** the bounded functional scope
+  is implemented. Trusted `demo` accepts only `portfolio_runtime`. One
+  `Order -> Payments` transaction resolves the logical pending attempt before
+  commit, with no Stripe API, provider session/URL/expiry, or `StripeEvent`.
+  D-082 fixes SHA-256 outcome v1 and 80/10/10 buckets. Same-key replay returns
+  the persisted terminal result with HTTP 200 and zero DML; a new key after
+  success returns 409. The implementation gate recorded 2,249 backend and 175
+  frontend tests on 2026-09-29; the separate formal re-review recorded 90
+  integration tests. These are dated local evidence, not a future CI guarantee;
+  Git history, review records, and GitHub Actions remain authoritative for
+  transient state.
+- **Analytics/report effect:** succeeded demo Payments qualify through status
+  and `Payment.succeeded_at` without a `StripeEvent`; portfolio-runtime traffic
+  can increase aggregates. The canonical B2 500-Order dataset is unchanged.
+- **Stage 22-B0 demo design:** its B3 payment design is now implemented through
+  B3-2B. Any remaining B3 scope, B4 constrained ordinary-admin demo, B5
+  recruiter UX, and B6 integrated acceptance remain future work. A production
+  reference end, Neon seed, reset/prune policy, and runtime cap have not been
+  selected or authorized.
 - **Stage 22-A/C/D:** actual Render/Neon provisioning, live GitHub
   Environment/secret controls, direct-URL production migration, first
   controlled release, and public acceptance remain future separately
@@ -770,10 +803,19 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
 - D-016 is enforced by the implemented administrator cancellation transition,
   and D-017 is verified with PostgreSQL concurrency tests across cancellation,
   Checkout, and webhook flows.
-- Stage 10 verifies and durably deduplicates webhook events and applies
-  provider-authoritative terminal Payment outcomes. Public Order status still
+- Stage 10 verifies and durably deduplicates Stripe webhook events and applies
+  Stripe-test terminal Payment outcomes. D-082's in-process selector is the
+  separate terminal authority for demo Payments. Public Order status still
   exposes no `payment_summary`, and Stage 12 exposes no StripeEvent diagnostic
   API.
+- B3-2B retains documented non-blocking limits: focused endpoint evidence does
+  not add a direct case for every tampered provider-key/stored-state/
+  re-authorization combination; an inherited older denial assertion has a CTE
+  blind spot; the bounded SQL tokenizer intentionally does not recognize every
+  mutating function, `CALL`, `DO`, `COPY`, or DDL form; cleanup cannot be
+  guaranteed for indefinitely hung DBAPI I/O; and frontend aware-datetime
+  validation ultimately relies on `Date.parse`. Earlier B2 and B3-1 limitations
+  remain open unless separately closed.
 - Stage 13 provides no RestaurantTable administration, menu DELETE, refund,
   actor attribution, generic audit log, cost or margin analytics, or time
   series. Stage 21-F4A presents only the existing authoritative aggregate
@@ -785,9 +827,10 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   MIME metadata, and the safe filename contract rather than content sniffing.
   Streaming and background exports are deferred until measured scale justifies
   them.
-- A real Stripe CLI smoke remains optional and manual. Automated tests use
-  injected adapters or the test-only fake provider and synthetic signed
-  webhooks; Stage 18 performs no real Stripe traffic.
+- A real Stripe CLI smoke remains optional and manual. Stripe tests use injected
+  adapters or test fakes and synthetic signed webhooks; runtime demo Checkout is
+  a distinct persisted provider path and performs no Stripe traffic. Stage 18
+  performs no real Stripe traffic.
 - The seed is restricted to the exact local development database and is not a
   production bootstrap process.
 - Stage 17 provides a repeatable loopback-only local container stack. Stage 20

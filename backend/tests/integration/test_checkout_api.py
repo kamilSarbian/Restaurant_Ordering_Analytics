@@ -422,14 +422,23 @@ def test_new_checkout_uses_durable_money_and_persists_one_pending_attempt(
 
 
 @pytest.mark.parametrize(
-    "data_origin",
-    [OrderDataOrigin.PORTFOLIO_SEED, OrderDataOrigin.PORTFOLIO_RUNTIME],
-)
-@pytest.mark.parametrize(
-    ("portfolio_demo_mode", "payment_provider"),
+    ("data_origin", "portfolio_demo_mode", "payment_provider"),
     [
-        (False, PaymentProvider.STRIPE_TEST),
-        (True, PaymentProvider.DEMO),
+        (
+            OrderDataOrigin.PORTFOLIO_SEED,
+            False,
+            PaymentProvider.STRIPE_TEST,
+        ),
+        (
+            OrderDataOrigin.PORTFOLIO_RUNTIME,
+            False,
+            PaymentProvider.STRIPE_TEST,
+        ),
+        (
+            OrderDataOrigin.PORTFOLIO_SEED,
+            True,
+            PaymentProvider.DEMO,
+        ),
     ],
 )
 def test_non_live_origins_never_enter_stripe_checkout(

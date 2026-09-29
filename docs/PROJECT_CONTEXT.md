@@ -20,7 +20,8 @@ The goal is to build a secure web application that:
 - provides optional registered customer authentication and personal Order
   history without making registration a purchase requirement;
 - always prices the order on the backend;
-- supports test payments through Stripe Checkout;
+- supports provider-selected Stripe test and deterministic portfolio-demo
+  payments;
 - allows staff to manage the menu and order fulfilment;
 - preserves a reliable sales history;
 - provides basic KPIs, reports, and CSV exports;
@@ -43,11 +44,12 @@ Stage 21 — UI/UX Redesign & Product Polish is complete under the official
 Nordic Hearth identity; final acceptance passed 1,073 frontend tests and 23/23
 synthetic production-preview Chromium scenarios, with no JavaScript chunk above
 500 kB. Stage 22 — Production Deployment & Public Acceptance is **in
-progress**: AF1+B1-1 through AF1+B1-4, B2-1, and B2-2 are complete and
-committed. B2-3 is the bounded deterministic portfolio-seed acceptance and
-documentation-reconciliation slice described here. Stage 23 — Portfolio
-Documentation & Case Study is **not started**. No public deployment or public
-URL is claimed.
+progress**: AF1+B1-1 through AF1+B1-4, B2-1 through B2-3, B3-1, and B3-2A are
+complete and committed. B3-2B implements the bounded synchronous demo Checkout
+contract described here; Git history, independent-review records, and GitHub
+Actions remain authoritative for transient commit and run state. Stage 23 —
+Portfolio Documentation & Case Study is **not started**. No public deployment
+or public URL is claimed.
 
 ## 3. Users
 
@@ -62,7 +64,8 @@ guest can:
 4. choose a dine-in or takeaway order;
 5. provide a table number for a dine-in order;
 6. receive a quote calculated by the backend;
-7. pay through Stripe Checkout in test mode;
+7. use Stripe Checkout in test mode or the backend-authoritative portfolio demo
+   payment selected by trusted runtime configuration;
 8. receive a public order number and check the order status.
 
 ### 3.2. Restaurant Administrator
@@ -159,48 +162,53 @@ table is absent.
 11. Order creation still creates neither a `Payment` record nor a Stripe
     session. The separate Stage 9 Checkout flow owns that boundary.
 
-### 4.3. Stripe Payment
+### 4.3. Provider-Selected Payment
 
-1. The customer calls the implemented Checkout endpoint with the
+1. The customer calls one bodyless Checkout endpoint with the
    `public_order_number`, required canonical UUIDv4 `Idempotency-Key`, and
    either canonical owner authentication or the independent
-   `X-Order-Access-Token` capability.
-2. After idempotency validation, rate limiting, and optional canonical User
-   resolution, the backend locks `Order`, authorizes owner or capability, then
-   locks related `Payment` rows. It uses only the amount and currency stored on
-   Order. Denied access reaches no Payment or provider work.
-3. When allowed, it persists a new `Payment(status=pending)` in a short
-   transaction. Each Payment is one durable attempt, not an aggregate Order
-   status.
-4. With no database transaction or lock held, the backend creates one hosted
-   Stripe Checkout Session using the stable key
-   `checkout-session:{payment_uuid}`. A second short `Order -> Payment`
-   transaction stores the validated provider result.
-5. The same `Order` and `Idempotency-Key` pair cannot create another `Payment`
-   record or another Stripe session.
-6. After a definitive provider rejection, Stage 9 changes the attempt to
-   `failed`. An ambiguous outcome remains `pending`, and retry uses the same
-   Payment and Stripe key. Incomplete attempts may be retried before the
-   conservative 23-hour cutoff; older attempts require reconciliation and are
-   not auto-expired by the local clock.
-7. The customer proceeds to the hosted Stripe page. Returning to the success
-   page does not change the payment state.
-8. Stage 10 accepts Stripe webhooks through a provider-facing endpoint hidden
-   from OpenAPI. It verifies the exact raw body and `Stripe-Signature` through
-   the official SDK before any database processing.
-9. Each in-scope event is durably deduplicated by its Stripe event ID. Known
-   attempts are correlated using Payment ID, Order ID, public order number,
-   Checkout Session ID, amount, currency, and mode.
-10. The verified webhook is authoritative for `succeeded`, `failed`, and
-    `expired`. A completed unpaid session remains `pending` while awaiting an
-    asynchronous result, and the first terminal result cannot be overwritten.
-11. A signed event with inconsistent or unknown business correlation creates a
-    durable reconciliation receipt. A signed event outside the Stage 10 event
-    set is acknowledged without persistence.
-12. Stage 10 still does not expose Payment state through the public Order status
-    response. A public `payment_summary` requires a separate approved contract.
-13. Automated Checkout and webhook tests use fake adapters or local signatures,
-    make no real provider request, and require no real Stripe secret.
+   `X-Order-Access-Token` capability. Request data cannot choose the provider
+   or an outcome.
+2. Server-owned configuration and provenance bind the path fail-closed:
+   `stripe_test` accepts only `live` Orders, while `demo` accepts only
+   `portfolio_runtime` Orders. The public Order request cannot set
+   `data_origin`; `portfolio_seed` Orders never enter interactive Checkout.
+3. After validation, rate limiting, and optional canonical User resolution,
+   the backend locks `Order`, authorizes owner or capability, and then locks
+   related Payments in deterministic order. It uses only amount and currency
+   stored on Order. Denied access reaches no Payment or provider work.
+4. When the endpoint returns a Checkout response for a newly created attempt,
+   it uses HTTP 201; provider errors retain their documented error codes.
+   Provider-specific replay rules determine later response codes. The
+   four-field response contains the public order number, Payment status,
+   Checkout URL, and expiry. `pending` requires a safe URL and aware expiry;
+   `succeeded`, `failed`, and `expired` require null URL and expiry.
+5. For `stripe_test`, short transactions surround a lock-free hosted Stripe
+   call using `checkout-session:{payment_uuid}`. Same-key retry reuses that
+   remote operation. Only a verified Stripe webhook can produce `succeeded`;
+   Checkout may persist `failed` after definitive Session-creation rejection,
+   while later provider-confirmed terminal transitions and `StripeEvent`
+   deduplication remain webhook-owned.
+6. For `demo`, one transaction locks `Order -> Payments`, creates the logical
+   pending attempt, and makes it terminal before commit. No Stripe request,
+   Checkout URL, expiry, or `StripeEvent` exists. Amount and currency come from
+   Order; only success receives an aware `Payment.succeeded_at`; Order and
+   fulfilment history are unchanged.
+7. Demo outcome v1 hashes the versioned domain plus backend-generated
+   `Payment.id.bytes`, reduces the unsigned SHA-256 digest modulo 100, and maps
+   buckets 0–79 to succeeded, 80–89 to failed, and 90–99 to expired. The
+   versioned provider key is persisted, while replay uses the persisted status
+   and never rehashes.
+8. Demo same-key replay has zero DML, including after the Order becomes
+   accepted. A new key after failed or expired may create a new attempt after
+   serialization; after succeeded it returns 409. Unsafe pending, foreign, or
+   inconsistent persisted state fails with a controlled sanitized 503.
+9. The frontend redirects only a pending response. Succeeded links to protected
+   Order status; failed or expired requires explicit customer action with a new
+   UUID for the same Order. Network uncertainty retains the same key.
+10. Return and cancel routes remain neutral under D-060. Navigation, query
+    parameters, and URL state neither change nor infer Payment state. Public
+    Order status still exposes no payment summary.
 
 ### 4.4. Historical Stage 11 Administrator Authentication
 
@@ -375,11 +383,12 @@ or temporarily unavailable session never silently becomes a guest request, and
 an authenticated 401 is not retried anonymously.
 
 Order creation remains deliberately non-idempotent, so ambiguous failures are
-not retried automatically. Hosted Checkout is a separate idempotent operation:
-the browser retains one canonical UUIDv4 attempt key for ambiguous outcomes and
-creates a replacement only after explicit customer action following a
-definitive provider rejection. The success and cancellation return routes are
-neutral navigation outcomes and never determine Payment state.
+not retried automatically. Provider-selected Checkout is a separate idempotent
+operation: the browser retains one canonical UUIDv4 attempt key for ambiguous
+outcomes. It follows a URL only for pending, links succeeded to protected Order
+status, and creates a replacement UUID only after explicit customer action
+following HTTP 502 or terminal failed/expired. The return and cancellation
+routes are neutral navigation outcomes and never determine Payment state.
 
 The protected status view shows only the six fulfilment states and polls with
 one request in flight, visibility/offline pauses, bounded transient backoff,
@@ -710,12 +719,12 @@ timestamp. The Stripe Checkout adapter and webhook remain implemented, while
 current analytics and payment/product-sales reports use
 `Payment.succeeded_at` instead of StripeEvent for success time.
 
-`Order.data_origin` is internal, server-owned persistence/provenance
-metadata, not client authority. Ordinary runtime defaults it to `live`. The
-public `OrderCreateRequest` does not accept `data_origin` and forbids unknown
-fields, so only server-side seed/demo flows may assign the other values. B2's
-explicit local seed assigns `portfolio_seed`; `portfolio_runtime` remains
-reserved for a future demo flow.
+`Order.data_origin` is internal, server-owned persistence/provenance metadata,
+not client authority. The public `OrderCreateRequest` does not accept
+`data_origin` and forbids unknown fields. The validated pair
+`PORTFOLIO_DEMO_MODE=false` plus `PAYMENT_PROVIDER=stripe_test` assigns `live`;
+the pair `true` plus `demo` assigns `portfolio_runtime`; mismatches fail closed.
+B2's explicit local seed alone assigns `portfolio_seed`.
 
 AF1+B1-3 replaced the repository deployment target with exactly two Render
 Free services (Static Site frontend and Docker Web Service backend) and Neon
@@ -739,10 +748,10 @@ single-transaction persistence behind the explicit
 an exact rerun performs zero DML, while partial/drifted data and collisions fail
 closed.
 
-B2-3 is the bounded deterministic portfolio-seed acceptance and
-documentation-reconciliation slice built on the B2-2 baseline. Its acceptance
-contract is recorded here without asserting transient worktree, review, commit,
-or CI state. The dated 2026-09-24 local isolated test-database proof compares
+B2-3 is committed at `a45b15f9ae51b8a89764e274b0e0fc8e4c24d31d` and provides
+bounded deterministic portfolio-seed acceptance and documentation
+reconciliation on the B2-2 baseline. The dated 2026-09-24 local isolated
+test-database proof compares
 persisted rows with an independent in-memory plan oracle across all four
 analytics services and all three CSV services. It verifies 449 succeeded NOK
 Payments, revenue 31,542,500 minor units, average order value 70,251 minor
@@ -756,17 +765,27 @@ data-modifying CTEs.
 The fixed test reference end is test-only; no production reference end, Neon
 seed, reset/prune policy, or runtime cap is selected by B2-3.
 
-B3 remains not implemented: its future runtime binding is
-`PAYMENT_PROVIDER=demo`, makes zero real Stripe requests, and produces the
-backend-authoritative deterministic outcomes `success`, `fail`, or
-`expired`. D-060 remains strict: return/cancel URL state, browser query
-parameters, and navigation outcomes cannot decide payment status; the backend
-demo provider remains authoritative. The existing Stripe Checkout adapter,
-signed webhook verification, StripeEvent persistence, and
-idempotency/correlation tests and contracts remain in the repository. B4 will
-implement constrained demo administration; B5 will complete recruiter UX; B6
-will accept the integrated demo. B3-B6 remain future work, and Stage 23 remains
-not started.
+B3-1 is committed at `38639550b734112dfeb2782760231b3a8cb3f756`; it assigns
+runtime provenance and prevents every non-live Order from reaching Stripe,
+including historical URL replay. B3-2A is committed at
+`4a150ef5ec5a7944e0f3cfaa17b9ff50167c829f`; it establishes the four-field
+pending/terminal response and frontend handling. B3-2B implements atomic
+synchronous demo Checkout with deterministic `succeeded`, `failed`, or
+`expired` outcomes, no Stripe calls, and persisted terminal replay. D-060
+remains strict: return/cancel URL state, browser query parameters, and
+navigation outcomes cannot decide payment state. The Stripe test adapter,
+signed webhook verification, `StripeEvent` persistence, and correlation
+contracts remain isolated and intact. Dated local evidence is 2,249 backend and
+175 frontend tests during implementation plus 90 integration tests during the
+formal re-review; repository history, review records, and GitHub Actions are
+authoritative for transient execution state.
+
+Provider-neutral analytics and reports qualify succeeded demo Payments through
+`Payment.status` and `Payment.succeeded_at` without requiring a `StripeEvent`;
+portfolio-runtime traffic may therefore increase aggregates. B3-2B does not
+alter B2's canonical 500 Orders. B4 constrained demo administration, B5
+recruiter UX, B6 integrated acceptance, any further B3 slice, and Stage 23
+remain future work.
 
 ## 5. MVP Scope
 
@@ -778,7 +797,7 @@ The MVP includes:
 - shared registered-user authentication, owned ordering, and read-only personal
   Order history;
 - table handling;
-- Stripe Checkout in test mode;
+- provider-selected Stripe test or portfolio-demo Checkout;
 - verified and idempotent Stripe webhooks;
 - order and payment persistence in PostgreSQL;
 - an administrator panel, controlled order statuses, and super-admin User
@@ -893,7 +912,9 @@ discounts. Dine-in orders additionally preserve `table_number_snapshot`.
 - Reversals and all other unlisted transitions are forbidden.
 - `paid` and `pending_payment` are not part of `order_status`.
 - Every allowed `order_status` change is recorded in the history.
-- Confirmation of `succeeded` may come only from a verified webhook.
+- For `stripe_test`, confirmation of `succeeded` may come only from a verified
+  webhook. For `demo`, D-082's backend selector is the synchronous terminal
+  authority inside the atomic Checkout transaction.
 - Redelivery of the same Stripe event must not repeat its effects.
 - StripeEvent receipts preserve durable idempotency across process restarts.
 - The first terminal Payment state wins; contradictory later provider events
@@ -932,7 +953,7 @@ discounts. Dine-in orders additionally preserve `table_number_snapshot`.
   development proxy or the Stage 17 Nginx proxy. FastAPI has no wildcard CORS
   policy; any public cross-origin or HTTPS ingress policy remains deployment
   work.
-- Sign-in, order creation, and Stripe session creation are rate-limited.
+- Sign-in, order creation, and Checkout initiation are rate-limited.
 - Logs do not contain passwords, tokens, keys, or card data.
 - The public order view reveals only necessary information and permits either
   the matching canonical owner or a caller with the independent Order
@@ -968,12 +989,13 @@ baseline immediately before Stage 20.
 Stage 20 — Production Deployment Readiness and Stage 21 — UI/UX Redesign &
 Product Polish are complete. The original Stage 20 paid Render/GHCR target is
 historical and superseded for the portfolio demo, while its security principles
-remain relevant. The B2-3 implementation baseline contains committed B1-1
-through B1-4, B2-1, and B2-2. B2-3 consists of the verification and
-documentation work described in this section. Stage 22 — Production Deployment
-& Public Acceptance remains in progress and is not deployed. Stage 23 —
-Portfolio Documentation & Case Study is not started. A recruiter-facing URL can
-be claimed only after Stage 22-D public-demo acceptance.
+remain relevant. The current implementation baseline contains committed B1-1
+through B1-4, B2-1 through B2-3, B3-1, and B3-2A plus the bounded B3-2B
+functional contract. Stage 22 — Production Deployment & Public Acceptance
+remains in progress and is not deployed. B4 through B6 remain future work.
+Stage 23 — Portfolio Documentation & Case Study is not started. A
+recruiter-facing URL can be claimed only after Stage 22-D public-demo
+acceptance.
 
 The project should demonstrate to a recruiter that its author can:
 

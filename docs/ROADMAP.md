@@ -674,12 +674,14 @@
   `0009_add_portfolio_demo_origin_and_payment_provider`; AF1+B1-3 free-tier
   Blueprint and manual, direct-Neon-URL migration workflow; AF1+B1-4 integration
   acceptance and documentation reconciliation; B2-1 pure deterministic dataset
-  generation; and B2-2 atomic local persistence with an opt-in CLI. These do not
-  establish live infrastructure or public demo behavior.
-- **B2-3 acceptance contract:** persisted portfolio analytics/CSV acceptance and
-  documentation reconciliation require the scoped test and quality gates plus a
-  separate independent review. Repository history, review records, and CI are
-  authoritative for transient execution status.
+  generation; B2-2 atomic local persistence with an opt-in CLI; B2-3 persisted
+  analytics/CSV acceptance; B3-1 runtime-origin and Stripe isolation; and
+  B3-2A terminal Checkout response/UI handling. These do not establish live
+  infrastructure or public deployment.
+- **B3-2B functional contract:** atomic deterministic demo Checkout is
+  implemented with dated local evidence. Repository history, independent-review
+  records, and GitHub Actions are authoritative for transient commit and run
+  status.
 
 ### 22-A — Free-Tier Provisioning and Release Prerequisites
 
@@ -710,7 +712,8 @@ exact current-`main` checks.
   remains menu-only; exact `--portfolio-reference-end` opts into
   local-dev-only, exact-revision-0009, one-transaction persistence. Exact
   reruns perform zero DML; partial/drifted state and collisions fail closed.
-- **B2-3 — persisted acceptance and documentation:** isolated DB acceptance
+- **B2-3 — persisted acceptance and documentation:** complete and committed on
+  2026-09-25 at `a45b15f9ae51b8a89764e274b0e0fc8e4c24d31d`. Isolated DB acceptance
   proves all four analytics and three CSV services against independent oracles:
   449 succeeded NOK Payments, 31,542,500 revenue minor units, 70,251
   average-order-value minor units, exact 14/5/2 breakdowns, and CSV rows
@@ -720,17 +723,32 @@ exact current-`main` checks.
   no DML, including data-modifying CTEs. Boundary sentinels prove half-open date
   filters and the provider-neutral success-time source. No production reference
   end or Neon seed is selected.
-- Stable seed Orders use `portfolio_seed`; visitor demo Orders will use
-  `portfolio_runtime`; ordinary data remains `live`. A 250-order
-  portfolio-runtime cap is a future proposal, not an implemented control.
-- **B3 — public fake/demo payment:** future and **not implemented**. Its
-  runtime binding will be `PAYMENT_PROVIDER=demo`, with zero real Stripe
-  requests and backend-authoritative deterministic outcomes `success`,
-  `fail`, or `expired`. D-060 remains strict: return/cancel URL state,
-  browser query parameters, and navigation outcomes cannot decide payment
-  status; the backend demo provider remains authoritative. The existing Stripe
-  Checkout adapter, signed webhook verification, StripeEvent persistence, and
-  idempotency/correlation tests and contracts remain in the repository.
+- Stable seed Orders use `portfolio_seed`; trusted demo runtime creates
+  `portfolio_runtime`; ordinary Stripe-test runtime creates `live`. A 250-order
+  portfolio-runtime cap remains only a future proposal.
+- **B3-1 — runtime origin and Stripe isolation:** complete and committed on
+  2026-09-26 at `38639550b734112dfeb2782760231b3a8cb3f756`. Server-owned
+  configuration assigns `live` or `portfolio_runtime` fail-closed, and Stripe
+  Checkout—including historical URL replay—accepts only `live` Orders.
+- **B3-2A — terminal Checkout contract and UI:** complete and committed on
+  2026-09-28 at `4a150ef5ec5a7944e0f3cfaa17b9ff50167c829f`. The shared response uses a
+  URL/expiry only for pending; terminal states use null/null. The browser
+  redirects pending only and requires explicit new-key retry after failed or
+  expired.
+- **B3-2B — atomic demo Checkout:** the bounded functional scope is
+  implemented. Trusted `PAYMENT_PROVIDER=demo` operates only on
+  `portfolio_runtime`, performs no Stripe call or `StripeEvent` write, and
+  resolves one logical pending attempt terminally in one `Order -> Payments`
+  transaction. D-082 fixes SHA-256 outcome v1 and the 80/10/10 bucket mapping.
+  Same-key replay is HTTP 200 with persisted status and zero DML; a new key
+  after success is 409. On 2026-09-29, local evidence recorded 2,249 backend
+  and 175 frontend tests during implementation and 90 integration tests in formal re-review;
+  these counts are historical evidence, not a future CI guarantee.
+- **Remaining B3 boundary:** any additional B3 work requires its own scope.
+  D-060 remains strict: return/cancel routes, browser query parameters, and
+  navigation cannot decide Payment state. Stripe test Checkout, signed webhook
+  verification, `StripeEvent` persistence, and correlation contracts remain
+  isolated and intact.
 - **B4 — constrained demo administrator:** future one-click session using a
   normal JWT and exact `admin` role, never `super_admin` or a public
   password; stable seed data read-only, only tightly bounded legal mutations
@@ -743,9 +761,12 @@ exact current-`main` checks.
 
 The current database schema supports `Order.data_origin`, `Payment.provider`,
 provider-neutral Checkout fields, and `Payment.succeeded_at`; B2's local
-deterministic generator, persistence, and isolated acceptance are implemented.
-Fake payment and demo administrator flows are not. D-060 payment neutrality and
-D-077 NOK-only Admin Menu remain unchanged.
+deterministic generator, persistence, and isolated acceptance plus B3's bounded
+demo payment flow are implemented. Succeeded demo Payments may enter existing
+analytics/reports through status and `succeeded_at` without a `StripeEvent`;
+the canonical B2 dataset remains unchanged. Demo administration is not
+implemented. D-060 payment neutrality and D-077 NOK-only Admin Menu remain
+unchanged.
 
 ### 22-C — First Controlled Online Release
 
@@ -777,13 +798,13 @@ and Stage 21 UI/UX Redesign & Product Polish were complete locally and awaited
 the renewed pre-commit independent review and logical commit-plan confirmation.
 Neither stage claims a live deployment or public URL.
 
-That paragraph records the historical 2026-09-15 reconciliation boundary,
-not the current state. Stage 22 is now in progress through four committed
-AF1+B1 slices, committed B2-1 and B2-2, and the bounded B2-3 acceptance and
-documentation work, with no live deployment. Stage 23 remains not started.
-B2-3 does not start or authorize B3; B3 requires its own planning and
-implementation authorization after the required B2-3 acceptance evidence has
-been recorded.
+That paragraph records the historical 2026-09-15 reconciliation boundary, not
+the current state. Stage 22 is now in progress through four committed AF1+B1
+slices, committed B2-1 through B2-3, committed B3-1 and B3-2A, and the bounded
+B3-2B functional implementation, with no live deployment. Repository history,
+independent-review records, and GitHub Actions remain authoritative for
+transient execution state. B4 through B6, any further B3 scope, and all public
+release work require separate authorization. Stage 23 remains not started.
 
 The repository and Alembic head are
 `0009_add_portfolio_demo_origin_and_payment_provider`. The latest recorded

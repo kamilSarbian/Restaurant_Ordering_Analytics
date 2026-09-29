@@ -998,10 +998,11 @@ while preserving these financial concurrency rules.
 - **Status:** accepted on 2026-08-11
 - **Decision:** each browser Checkout attempt uses a canonical lowercase UUIDv4
   `Idempotency-Key` and the guest access header. Network, timeout, HTTP 429 and
-  503, and redirect failures retain the same attempt. Only explicit customer
-  action after definitive HTTP 502 creates a new key. The attempt record stores
-  no token, Checkout URL, Stripe identifier, or Payment identifier, and hosted
-  Checkout opens in the same tab without Stripe.js.
+  503, and redirect failures retain the same attempt. For `stripe_test`, only
+  explicit customer action after definitive HTTP 502 creates a new key; D-082
+  adds terminal demo `failed` or `expired` as the other definitive trigger. The
+  attempt record stores no token, Checkout URL, Stripe identifier, or Payment
+  identifier, and hosted Checkout opens in the same tab without Stripe.js.
 - **Return semantics:** the payment-return and checkout-cancelled routes are
   neutral navigation outcomes. Neither route changes or infers Payment state,
   and the success URL is never presented as payment confirmation. The public
@@ -1012,8 +1013,10 @@ while preserving these financial concurrency rules.
   hidden or offline, resumes when visible and online, aborts stale work, and
   stops for `completed`, `cancelled`, privacy-preserving 404, or an invalid
   response contract. WebSockets and server-sent events are deferred.
-- **Consequences:** webhook processing remains the only authority for terminal
-  Payment transitions. Responsive manual acceptance at the approved mobile,
+- **Consequences:** for `stripe_test`, webhook processing remains the only
+  authority for terminal Payment transitions. D-082 later adds a separate
+  synchronous backend authority for `demo` without weakening these neutral
+  return semantics. Responsive manual acceptance at the approved mobile,
   tablet, and desktop viewports remains a completion gate for Stage 15.
 
 ## D-061 — Unified User Identity and Role Model
@@ -1548,9 +1551,10 @@ while preserving these financial concurrency rules.
   Payments. Stripe webhook transitions are provider-guarded and write
   `succeeded_at` atomically.
 - **Boundary:** the existing Stripe test Checkout/webhook integration remains
-  implemented and preserved. A public demo payment provider, seeded Orders,
-  and runtime provenance assignment are later slices, not consequences of
-  this migration alone. The repository head is 0009, while the local
+  implemented and preserved. At D-079 acceptance, a public demo payment
+  provider, seeded Orders, and runtime provenance assignment were later slices,
+  not consequences of this migration alone; D-081 and D-082 subsequently
+  implement those bounded contracts. The repository head is 0009, while the local
   development database may remain at 0008 until separately authorized
   migration.
 
@@ -1571,7 +1575,9 @@ while preserving these financial concurrency rules.
   The eventual demo Render configuration sets `PORTFOLIO_DEMO_MODE=true`
   and `PAYMENT_PROVIDER=demo` without Stripe secrets; the Static Site uses
   the bounded 90-second API timeout for Free-tier cold starts. These are
-  repository settings, not evidence that demo payment or public hosting exists.
+  repository settings, not evidence by themselves that demo payment or public
+  hosting exists. D-082 later records the implemented demo payment contract;
+  public hosting is still absent.
 - **Migration boundary:** application runtime uses the Neon pooled URL.
   A separately authorized manual GitHub `workflow_dispatch` migration uses
   the direct Neon URL, the four required CI checks, exact current-`main`
@@ -1630,6 +1636,88 @@ while preserving these financial concurrency rules.
   its current revision was not reverified. The evidence recorded here is the
   dated 2026-09-24 local isolated-DB run; commit and CI results are external
   execution records and are not part of D-081's durable technical decision.
+  D-082 subsequently implements B3's bounded payment contract without changing
+  this B2 decision.
+
+## D-082 — Atomic Deterministic Portfolio Demo Checkout
+
+- **Status:** accepted on 2026-09-29 for the bounded B3-1, B3-2A, and B3-2B
+  contract. This decision records durable behavior; Git history, independent
+  reviews, and GitHub Actions remain authoritative for transient commit and run
+  state.
+- **Precedence:** D-082 implements the runtime-provenance and public demo
+  payment slices that D-079 and D-081 intentionally left future. It does not
+  change D-081's canonical B2 dataset. D-060's neutral return/cancel and
+  ambiguous same-key retry rules remain strict. Its statement that a webhook is
+  the only terminal authority now applies specifically to `stripe_test`; the
+  synchronous backend selector defined here is the terminal authority for
+  `demo`.
+- **Runtime trust boundary:** server-owned configuration assigns `live` only
+  for `PORTFOLIO_DEMO_MODE=false` with `PAYMENT_PROVIDER=stripe_test`, and
+  `portfolio_runtime` only for `true` with `demo`. Every mismatch fails closed.
+  `OrderCreateRequest` cannot provide `data_origin`, and `portfolio_seed`
+  Orders cannot enter interactive Checkout. The single bodyless public POST
+  accepts no provider or outcome selector. Its router dispatches only from the
+  exact trusted application provider; B3-1 prevents Stripe calls and historical
+  Stripe URL replay for every non-live Order.
+- **Public contract and browser behavior:** the response has exactly
+  `public_order_number`, `payment_status`, `checkout_url`, and `expires_at`.
+  `pending` requires a validated URL and aware expiry; terminal `succeeded`,
+  `failed`, and `expired` require null URL and expiry. The browser redirects
+  only pending, sends success to protected Order status, and offers an explicit
+  new-key attempt for failed or expired. Transport uncertainty retains the
+  same key. Return/cancel navigation never infers or changes Payment state.
+- **Atomic demo transaction:** `demo` accepts only `portfolio_runtime`. One
+  transaction locks Order, authorizes owner or capability, and locks all
+  Payments in `created_at, id` order. It creates a logical pending Payment and
+  changes it to terminal before commit. Amount and currency come from Order;
+  only succeeded has an aware `succeeded_at`. Provider session ID, Checkout
+  URL, expiry, and `StripeEvent` remain absent. The Order and
+  `OrderStatusHistory` are unchanged. DB failures roll back; unsafe pending,
+  foreign-provider, corrupt-field, or inconsistent records return a controlled
+  sanitized reconciliation 503 without exposing raw cause, context, or
+  traceback details.
+- **Outcome v1:** the exact domain is
+  `b"restaurant-ordering-analytics\x00demo-checkout-outcome\x00v1\x00"`.
+  The digest is `SHA256(DOMAIN + Payment.id.bytes)`. The bucket is the unsigned
+  big-endian digest modulo 100: `0..79 -> succeeded`, `80..89 -> failed`, and
+  `90..99 -> expired`. The versioned provider key is
+  `"demo-runtime:v1:" + payment.id.hex`. Replay reads persisted status and
+  never hashes again. Any domain, threshold, or mapping change requires a new
+  version and leaves old rows unchanged. The 80/10/10 mapping describes
+  runtime buckets, not exact percentages in a small sample or a change to B2
+  Payments. Payment UUIDs are backend-generated, not public control inputs;
+  UUID secrecy is not a security assumption.
+- **Idempotency and concurrency:** a new attempt returns HTTP 201. Same-key
+  replay returns the identical persisted terminal result with HTTP 200 and zero
+  DML, including after the Order later becomes accepted. A new key after
+  failed or expired may serialize into another attempt; a new key after
+  succeeded returns 409. Authentication and the `Order -> Payments` lock order
+  are re-applied for each request. A client disconnect does not prove that the
+  transaction rolled back, so explicit recovery replays the same key. No
+  database lock is held across Stripe I/O; the demo path performs no Stripe I/O
+  at all.
+- **Analytics effect:** existing analytics and reports qualify succeeded
+  Payments by provider-neutral status and `Payment.succeeded_at`, so a
+  succeeded demo Payment can contribute without a `StripeEvent` and
+  portfolio-runtime traffic can increase aggregates. The canonical B2
+  500-Order dataset remains byte-for-byte unchanged.
+- **Verification evidence and limitations:** dated local implementation
+  evidence recorded 2,249 backend and 175 frontend tests; a separate formal
+  re-review recorded 90 integration tests. Those counts are historical, not a
+  future CI guarantee. Open non-blocking limits remain: the focused suite does
+  not add a direct endpoint case for every tampered provider-key/stored-state/
+  re-authorization combination; an inherited older denial assertion has a CTE
+  detection blind spot; the bounded SQL tokenizer intentionally does not model
+  every mutating function, `CALL`, `DO`, `COPY`, or DDL form; cleanup cannot be
+  guaranteed if DBAPI I/O hangs forever; and frontend aware-datetime validation
+  ultimately relies on `Date.parse`. Earlier documented B2 and B3-1 limits also
+  remain unless a later decision closes them.
+- **Operational boundary:** D-082 adds no model, migration, public deployment,
+  real Stripe payment, Neon seed, production reference end, reset/prune policy,
+  runtime cap, demo administrator, or recruiter UX. D-080's two-service
+  Render-Free plus Neon-Free target remains unprovisioned. B4 through B6 and
+  any further B3 scope require separate decisions.
 
 ## History of Decisions That Required Resolution
 

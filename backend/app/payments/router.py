@@ -9,7 +9,8 @@ from app.auth.dependencies import UserBearerCredentials, get_optional_current_us
 from app.core.rate_limit import get_client_bucket_key
 from app.database.dependencies import get_db_session
 from app.orders.access import OrderNotFoundError
-from app.payments import checkout
+from app.payments import checkout, demo_checkout
+from app.payments.providers import PaymentProvider
 from app.payments.schemas import CheckoutSessionResponse
 from app.payments.stripe_checkout import (
     InvalidCheckoutIdempotencyKeyError,
@@ -80,18 +81,33 @@ def create_checkout_session_endpoint(
     current_user = get_optional_current_user(request, credentials)
 
     try:
-        outcome = checkout.checkout_order(
-            session,
-            public_order_number=public_order_number,
-            access_token=access_token,
-            request_idempotency_key=parsed_idempotency_key,
-            payment_provider=request.app.state.payment_provider,
-            stripe_client=request.app.state.stripe_checkout_client,
-            stripe_success_url_template=request.app.state.stripe_success_url,
-            stripe_cancel_url_template=request.app.state.stripe_cancel_url,
-            current_user_id=(None if current_user is None else current_user.id),
-            now_provider=request.app.state.checkout_now_provider,
-        )
+        payment_provider = request.app.state.payment_provider
+        current_user_id = None if current_user is None else current_user.id
+        if payment_provider == PaymentProvider.STRIPE_TEST.value:
+            outcome = checkout.checkout_order(
+                session,
+                public_order_number=public_order_number,
+                access_token=access_token,
+                request_idempotency_key=parsed_idempotency_key,
+                payment_provider=payment_provider,
+                stripe_client=request.app.state.stripe_checkout_client,
+                stripe_success_url_template=request.app.state.stripe_success_url,
+                stripe_cancel_url_template=request.app.state.stripe_cancel_url,
+                current_user_id=current_user_id,
+                now_provider=request.app.state.checkout_now_provider,
+            )
+        elif payment_provider == PaymentProvider.DEMO.value:
+            outcome = demo_checkout.checkout_demo_order(
+                session,
+                public_order_number=public_order_number,
+                access_token=access_token,
+                request_idempotency_key=parsed_idempotency_key,
+                payment_provider=payment_provider,
+                current_user_id=current_user_id,
+                now_provider=request.app.state.checkout_now_provider,
+            )
+        else:
+            raise checkout.PaymentServiceUnavailableError
     except OrderNotFoundError as error:
         raise _http_error(status.HTTP_404_NOT_FOUND, "Order not found") from error
     except checkout.OrderNotPayableError as error:
