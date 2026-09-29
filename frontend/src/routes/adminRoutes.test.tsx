@@ -245,7 +245,9 @@ describe('administrator authentication routes and guard', () => {
       expect(
         await screen.findByRole('heading', { level: 1, name: 'Orders' }),
       ).toBeVisible();
-      expect(screen.getByRole('main')).toHaveFocus();
+      await waitFor(() => {
+        expect(screen.getByRole('main')).toHaveFocus();
+      });
     },
   );
 
