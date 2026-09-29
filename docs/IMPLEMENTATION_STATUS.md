@@ -1,10 +1,10 @@
 # Implementation Status
 
-- **Repository documentation baseline:** AF1+B1-4, B2-1 through B2-3, B3-1,
-  and B3-2A are committed. B3-2B implements the bounded atomic demo Checkout
-  contract. This file records durable implementation scope and acceptance
-  evidence; repository history, independent-review records, and CI are
-  authoritative for transient commit and run status.
+- **Repository documentation baseline:** AF1+B1-4, B2-1 through B2-3, and B3-1
+  through B3-2B are complete and committed. This file records durable
+  implementation scope and acceptance evidence; repository history,
+  independent-review records, and CI are authoritative for transient commit
+  and run status.
   Recruiter-facing portfolio documentation and case-study work remain Stage 23
   and have not started
 - **Stage 1:** completed
@@ -25,12 +25,11 @@
 - **Current stage:** Stage 20 Production Deployment Readiness and Stage 21 UI/UX
   Redesign & Product Polish are complete. Stage 22 Production Deployment &
   Public Acceptance is **in progress**: AF1+B1-1 through AF1+B1-4, B2-1 through
-  B2-3, B3-1, and B3-2A are complete and committed; B3-2B implements the
-  bounded atomic demo Checkout contract. The original Stage 20 paid
-  Render/GHCR topology is historical and superseded for the free-tier portfolio
-  demo. B4 through B6 and any further B3 scope remain future work. Stage 23 is
-  **not started**. No Render/Neon provisioning, production migration/seed,
-  public deployment, or public URL is claimed.
+  B2-3 and B3-1 through B3-2B are complete and committed. The original Stage 20
+  paid Render/GHCR topology is historical and superseded for the free-tier
+  portfolio demo. B4 through B6 and any further B3 scope remain future work.
+  Stage 23 is **not started**. No Render/Neon provisioning, production
+  migration/seed, public deployment, or public URL is claimed.
 - **Backend:** FastAPI, database foundation, menu models, local seed data,
   public menu, transient quoting, persistent order creation, and secure public
   order status, provider-selected Stripe-test or atomic demo Checkout, verified
@@ -750,17 +749,20 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   The shared four-field response permits URL/expiry only for pending. Terminal
   states use null/null; the browser does not redirect and exposes protected
   status or explicit new-key retry as appropriate.
-- **B3-2B — atomic deterministic demo Checkout:** the bounded functional scope
-  is implemented. Trusted `demo` accepts only `portfolio_runtime`. One
-  `Order -> Payments` transaction resolves the logical pending attempt before
-  commit, with no Stripe API, provider session/URL/expiry, or `StripeEvent`.
-  D-082 fixes SHA-256 outcome v1 and 80/10/10 buckets. Same-key replay returns
-  the persisted terminal result with HTTP 200 and zero DML; a new key after
-  success returns 409. The implementation gate recorded 2,249 backend and 175
-  frontend tests on 2026-09-29; the separate formal re-review recorded 90
-  integration tests. These are dated local evidence, not a future CI guarantee;
-  Git history, review records, and GitHub Actions remain authoritative for
-  transient state.
+- **B3-2B — atomic deterministic demo Checkout:** complete and committed on
+  2026-09-29 at `b7fcd9faa2fade1b042e7f004d60c43afea5a547`. Trusted `demo`
+  accepts only `portfolio_runtime`. One `Order -> Payments` transaction resolves
+  the logical pending attempt before commit, with no Stripe API, provider
+  session/URL/expiry, or `StripeEvent`. D-082 fixes SHA-256 outcome v1 and
+  80/10/10 buckets. Same-key replay returns the persisted terminal result with
+  HTTP 200 and zero DML; a new key after success returns 409. The final
+  dependency-remediation and retained-Exports-diagnostics baseline is committed
+  at `97fc166cc6d79c4ee455ad91834eae266f72d757`. GitHub Actions run
+  `36629606589`, attempt 1, passed `Backend`, `Migrations`, `Frontend`, and
+  `Browser E2E` for that final SHA. The implementation gate recorded 2,249
+  backend and 175 frontend tests on 2026-09-29; the separate formal re-review
+  recorded 90 integration tests. These are dated local evidence, not a future
+  CI guarantee.
 - **Analytics/report effect:** succeeded demo Payments qualify through status
   and `Payment.succeeded_at` without a `StripeEvent`; portfolio-runtime traffic
   can increase aggregates. The canonical B2 500-Order dataset is unchanged.

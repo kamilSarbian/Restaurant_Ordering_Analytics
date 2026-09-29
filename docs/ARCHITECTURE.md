@@ -1469,10 +1469,14 @@ one public Checkout route dispatches from trusted application state:
 `stripe_test` for `live` Orders or `demo` for `portfolio_runtime` Orders, and
 fails closed otherwise. B2-1 through B2-3 implement the deterministic portfolio
 plan, local persistence, and isolated analytics/CSV acceptance. B3-1 and B3-2A
-are committed, and B3-2B implements the atomic demo outcome path. B4
-constrained demo administration, B5 recruiter experience, B6 integrated
-acceptance, and any further B3 work remain future slices. None of this is
-evidence of live cloud resources or a public release.
+are committed. B3-2B is complete and committed at
+`b7fcd9faa2fade1b042e7f004d60c43afea5a547`; the final dependency fix and
+retained Exports E2E diagnostics are committed at
+`97fc166cc6d79c4ee455ad91834eae266f72d757`. GitHub Actions run `36629606589`,
+attempt 1, passed `Backend`, `Migrations`, `Frontend`, and `Browser E2E` for
+the final SHA. B4 constrained demo administration, B5 recruiter experience, B6
+integrated acceptance, and any further B3 work remain future slices. None of
+this is evidence of live cloud resources or a public release.
 
 ### 5.29. Deterministic Portfolio Dataset and Local Persistence
 

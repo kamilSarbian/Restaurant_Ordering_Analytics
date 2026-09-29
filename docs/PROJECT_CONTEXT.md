@@ -44,12 +44,11 @@ Stage 21 — UI/UX Redesign & Product Polish is complete under the official
 Nordic Hearth identity; final acceptance passed 1,073 frontend tests and 23/23
 synthetic production-preview Chromium scenarios, with no JavaScript chunk above
 500 kB. Stage 22 — Production Deployment & Public Acceptance is **in
-progress**: AF1+B1-1 through AF1+B1-4, B2-1 through B2-3, B3-1, and B3-2A are
-complete and committed. B3-2B implements the bounded synchronous demo Checkout
-contract described here; Git history, independent-review records, and GitHub
-Actions remain authoritative for transient commit and run state. Stage 23 —
-Portfolio Documentation & Case Study is **not started**. No public deployment
-or public URL is claimed.
+progress**: AF1+B1-1 through AF1+B1-4, B2-1 through B2-3, B3-1, B3-2A, and
+B3-2B are complete and committed. The B3-2B implementation commit, final
+follow-up commit, and green required CI are recorded in Section 4.14. Stage 23
+— Portfolio Documentation & Case Study is **not started**. No public
+deployment or public URL is claimed.
 
 ## 3. Users
 
@@ -769,16 +768,20 @@ B3-1 is committed at `38639550b734112dfeb2782760231b3a8cb3f756`; it assigns
 runtime provenance and prevents every non-live Order from reaching Stripe,
 including historical URL replay. B3-2A is committed at
 `4a150ef5ec5a7944e0f3cfaa17b9ff50167c829f`; it establishes the four-field
-pending/terminal response and frontend handling. B3-2B implements atomic
+pending/terminal response and frontend handling. B3-2B is complete and
+committed at `b7fcd9faa2fade1b042e7f004d60c43afea5a547`; it implements atomic
 synchronous demo Checkout with deterministic `succeeded`, `failed`, or
 `expired` outcomes, no Stripe calls, and persisted terminal replay. D-060
 remains strict: return/cancel URL state, browser query parameters, and
 navigation outcomes cannot decide payment state. The Stripe test adapter,
 signed webhook verification, `StripeEvent` persistence, and correlation
-contracts remain isolated and intact. Dated local evidence is 2,249 backend and
-175 frontend tests during implementation plus 90 integration tests during the
-formal re-review; repository history, review records, and GitHub Actions are
-authoritative for transient execution state.
+contracts remain isolated and intact. The final B3-2B closeout baseline is
+`97fc166cc6d79c4ee455ad91834eae266f72d757`; that follow-up patches the
+`undici` advisory and retains sanitized Exports E2E diagnostics. GitHub Actions
+run `36629606589`, attempt 1, passed `Backend`, `Migrations`, `Frontend`, and
+`Browser E2E` for that SHA. Dated local evidence is 2,249 backend and 175
+frontend tests during implementation plus 90 integration tests during the
+formal re-review.
 
 Provider-neutral analytics and reports qualify succeeded demo Payments through
 `Payment.status` and `Payment.succeeded_at` without requiring a `StripeEvent`;
@@ -990,10 +993,10 @@ Stage 20 — Production Deployment Readiness and Stage 21 — UI/UX Redesign &
 Product Polish are complete. The original Stage 20 paid Render/GHCR target is
 historical and superseded for the portfolio demo, while its security principles
 remain relevant. The current implementation baseline contains committed B1-1
-through B1-4, B2-1 through B2-3, B3-1, and B3-2A plus the bounded B3-2B
-functional contract. Stage 22 — Production Deployment & Public Acceptance
-remains in progress and is not deployed. B4 through B6 remain future work.
-Stage 23 — Portfolio Documentation & Case Study is not started. A
+through B1-4, B2-1 through B2-3, and B3-1 through B3-2B. Stage 22 — Production
+Deployment & Public Acceptance remains in progress and is not deployed. B4
+through B6 remain future work. Stage 23 — Portfolio Documentation & Case Study
+is not started. A
 recruiter-facing URL can be claimed only after Stage 22-D public-demo
 acceptance.
 

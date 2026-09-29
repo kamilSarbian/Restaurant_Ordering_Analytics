@@ -676,12 +676,15 @@
   acceptance and documentation reconciliation; B2-1 pure deterministic dataset
   generation; B2-2 atomic local persistence with an opt-in CLI; B2-3 persisted
   analytics/CSV acceptance; B3-1 runtime-origin and Stripe isolation; and
-  B3-2A terminal Checkout response/UI handling. These do not establish live
-  infrastructure or public deployment.
-- **B3-2B functional contract:** atomic deterministic demo Checkout is
-  implemented with dated local evidence. Repository history, independent-review
-  records, and GitHub Actions are authoritative for transient commit and run
-  status.
+  B3-2A terminal Checkout response/UI handling; and B3-2B atomic deterministic
+  demo Checkout. These do not establish live infrastructure or public
+  deployment.
+- **B3-2B closeout:** the functional implementation is committed at
+  `b7fcd9faa2fade1b042e7f004d60c43afea5a547`; the final dependency-remediation
+  and retained-Exports-diagnostics baseline is committed at
+  `97fc166cc6d79c4ee455ad91834eae266f72d757`. GitHub Actions run `36629606589`,
+  attempt 1, passed `Backend`, `Migrations`, `Frontend`, and `Browser E2E` for
+  the final SHA.
 
 ### 22-A — Free-Tier Provisioning and Release Prerequisites
 
@@ -735,15 +738,20 @@ exact current-`main` checks.
   URL/expiry only for pending; terminal states use null/null. The browser
   redirects pending only and requires explicit new-key retry after failed or
   expired.
-- **B3-2B — atomic demo Checkout:** the bounded functional scope is
-  implemented. Trusted `PAYMENT_PROVIDER=demo` operates only on
-  `portfolio_runtime`, performs no Stripe call or `StripeEvent` write, and
-  resolves one logical pending attempt terminally in one `Order -> Payments`
-  transaction. D-082 fixes SHA-256 outcome v1 and the 80/10/10 bucket mapping.
-  Same-key replay is HTTP 200 with persisted status and zero DML; a new key
-  after success is 409. On 2026-09-29, local evidence recorded 2,249 backend
-  and 175 frontend tests during implementation and 90 integration tests in formal re-review;
-  these counts are historical evidence, not a future CI guarantee.
+- **B3-2B — atomic demo Checkout:** the bounded functional scope is complete and
+  committed on 2026-09-29 at
+  `b7fcd9faa2fade1b042e7f004d60c43afea5a547`. Trusted
+  `PAYMENT_PROVIDER=demo` operates only on `portfolio_runtime`, performs no
+  Stripe call or `StripeEvent` write, and resolves one logical pending attempt
+  terminally in one `Order -> Payments` transaction. D-082 fixes SHA-256
+  outcome v1 and the 80/10/10 bucket mapping. Same-key replay is HTTP 200 with
+  persisted status and zero DML; a new key after success is 409. The final
+  closeout baseline is `97fc166cc6d79c4ee455ad91834eae266f72d757`; GitHub
+  Actions run `36629606589`, attempt 1, passed `Backend`, `Migrations`,
+  `Frontend`, and `Browser E2E` for that SHA. On 2026-09-29, local evidence
+  recorded 2,249 backend and 175 frontend tests during implementation and 90
+  integration tests in formal re-review; these counts are historical evidence,
+  not a future CI guarantee.
 - **Remaining B3 boundary:** any additional B3 work requires its own scope.
   D-060 remains strict: return/cancel routes, browser query parameters, and
   navigation cannot decide Payment state. Stripe test Checkout, signed webhook
@@ -800,11 +808,9 @@ Neither stage claims a live deployment or public URL.
 
 That paragraph records the historical 2026-09-15 reconciliation boundary, not
 the current state. Stage 22 is now in progress through four committed AF1+B1
-slices, committed B2-1 through B2-3, committed B3-1 and B3-2A, and the bounded
-B3-2B functional implementation, with no live deployment. Repository history,
-independent-review records, and GitHub Actions remain authoritative for
-transient execution state. B4 through B6, any further B3 scope, and all public
-release work require separate authorization. Stage 23 remains not started.
+slices, committed B2-1 through B2-3, and committed B3-1 through B3-2B, with no
+live deployment. B4 through B6, any further B3 scope, and all public release
+work require separate authorization. Stage 23 remains not started.
 
 The repository and Alembic head are
 `0009_add_portfolio_demo_origin_and_payment_provider`. The latest recorded

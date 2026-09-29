@@ -44,13 +44,13 @@ The accepted frontend baseline is 1,073/1,073 tests and 23/23 synthetic
 production-preview Chromium scenarios; no JavaScript chunk exceeds 500 kB.
 
 Stage 22 — Production Deployment & Public Acceptance is **in progress**.
-AF1+B1-1 through AF1+B1-4, B2-1 through B2-3, B3-1, and B3-2A are complete
-and committed. B3-2B implements the bounded, synchronous portfolio-runtime
-demo Checkout contract described below. Its dated local evidence is the
-2026-09-29 implementation gate (2,249 backend and 175 frontend tests) and the
-separate 90-test integration re-review; repository history, independent-review
-records, and GitHub Actions remain authoritative for transient commit and run
-status. No Render or Neon resource, production migration or seed, demo
+AF1+B1-1 through AF1+B1-4, B2-1 through B2-3, B3-1, B3-2A, and B3-2B are
+complete and committed. The bounded B3-2B demo Checkout implementation is
+committed at `b7fcd9faa2fade1b042e7f004d60c43afea5a547`; the final dependency
+remediation and retained Exports E2E diagnostics are committed at
+`97fc166cc6d79c4ee455ad91834eae266f72d757`. GitHub Actions run `36629606589`,
+attempt 1, passed `Backend`, `Migrations`, `Frontend`, and `Browser E2E` for
+that final SHA. No Render or Neon resource, production migration or seed, demo
 administrator behavior, online release, or public acceptance has been
 executed. A recruiter-facing public URL may be claimed only after Stage 22-D.
 Stage 23 — Portfolio Documentation & Case Study is **not started**.
@@ -488,7 +488,12 @@ implemented for `live` Orders. B3-1 and B3-2A are committed at
 server-owned runtime provenance, Stripe isolation, and the shared terminal
 Checkout response/UI contract. B3-2B adds synchronous deterministic demo
 Checkout for `portfolio_runtime` Orders without Stripe traffic or
-`StripeEvent` rows.
+`StripeEvent` rows. Its functional implementation is committed at
+`b7fcd9faa2fade1b042e7f004d60c43afea5a547`. The final closeout baseline is
+`97fc166cc6d79c4ee455ad91834eae266f72d757`; that follow-up patches the
+`undici` advisory and retains sanitized Exports E2E diagnostics. GitHub Actions
+run `36629606589`, attempt 1, passed `Backend`, `Migrations`, `Frontend`, and
+`Browser E2E` for the final SHA.
 
 B2-1 and B2-2 implement a pure deterministic
 500-Order/60-completed-day portfolio plan and its atomic, local-only, explicit
