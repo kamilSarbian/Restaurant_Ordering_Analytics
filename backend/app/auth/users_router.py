@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from collections.abc import Callable, Coroutine
+from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import JSONResponse, Response
+from fastapi.routing import APIRoute
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -34,7 +37,46 @@ from app.core.rate_limit import (
     get_client_bucket_key,
 )
 
-router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
+_PASSWORD_AUTH_PATHS = frozenset(
+    {
+        "/api/v1/auth/register",
+        "/api/v1/auth/login",
+    }
+)
+
+
+def _public_password_auth_is_closed(request: Request) -> bool:
+    """Return whether trusted runtime state forbids public password auth."""
+    portfolio_demo_mode = getattr(request.app.state, "portfolio_demo_mode", None)
+    payment_provider = getattr(request.app.state, "payment_provider", None)
+    return portfolio_demo_mode is not False or payment_provider != "stripe_test"
+
+
+class _PublicPasswordAuthBoundaryRoute(APIRoute):
+    """Close password-auth routes before FastAPI reads or validates their bodies."""
+
+    def get_route_handler(
+        self,
+    ) -> Callable[[Request], Coroutine[Any, Any, Response]]:
+        original_route_handler = super().get_route_handler()
+        protects_password_auth = self.path in _PASSWORD_AUTH_PATHS
+
+        async def guarded_route_handler(request: Request) -> Response:
+            if protects_password_auth and _public_password_auth_is_closed(request):
+                return JSONResponse(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    content={"detail": "Not Found"},
+                )
+            return await original_route_handler(request)
+
+        return guarded_route_handler
+
+
+router = APIRouter(
+    prefix="/api/v1/auth",
+    tags=["auth"],
+    route_class=_PublicPasswordAuthBoundaryRoute,
+)
 CurrentUser = Annotated[User, Depends(get_current_user)]
 
 
