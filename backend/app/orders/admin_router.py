@@ -2,10 +2,11 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
-from app.auth.dependencies import require_admin
+from app.auth.dependencies import get_current_user, require_admin
+from app.auth.models import User
 from app.auth.schemas import AdminPrincipal
 from app.database.dependencies import get_db_session
 from app.orders.admin_schemas import (
@@ -20,6 +21,7 @@ from app.orders.admin_service import (
     AdminOrderInvalidTransitionError,
     AdminOrderNotFoundError,
     AdminOrderNotPaidError,
+    AdminOrderStatusMutationDeniedError,
     get_admin_order,
     list_admin_orders,
     transition_order_status,
@@ -30,6 +32,7 @@ from app.orders.statuses import OrderStatus
 router = APIRouter(prefix="/api/v1/admin/orders", tags=["admin-orders"])
 DatabaseSession = Annotated[Session, Depends(get_db_session)]
 CurrentAdmin = Annotated[AdminPrincipal, Depends(require_admin)]
+CurrentUser = Annotated[User, Depends(get_current_user)]
 
 
 @router.get(
@@ -99,7 +102,9 @@ def get_admin_order_endpoint(
 def update_admin_order_status_endpoint(
     public_order_number: str,
     payload: AdminOrderStatusUpdateRequest,
+    request: Request,
     session: DatabaseSession,
+    current_user: CurrentUser,
     _admin: CurrentAdmin,
 ) -> AdminOrderStatusUpdateResponse:
     """Apply one authenticated administrator order-status transition."""
@@ -108,8 +113,14 @@ def update_admin_order_status_endpoint(
             session,
             public_order_number=public_order_number,
             target_status=payload.status,
+            current_user=current_user,
+            portfolio_demo_mode=getattr(request.app.state, "portfolio_demo_mode", None),
+            payment_provider=getattr(request.app.state, "payment_provider", None),
         )
-    except AdminOrderNotFoundError as error:
+    except (
+        AdminOrderNotFoundError,
+        AdminOrderStatusMutationDeniedError,
+    ) as error:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Order not found",

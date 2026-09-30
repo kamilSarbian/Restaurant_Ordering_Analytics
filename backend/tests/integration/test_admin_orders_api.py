@@ -14,6 +14,11 @@ from sqlalchemy import delete, event, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.auth.demo_admin import (
+    DEMO_ADMIN_DISABLED_PASSWORD_HASH,
+    DEMO_ADMIN_EMAIL,
+    DEMO_ADMIN_ID,
+)
 from app.auth.models import User
 from app.auth.passwords import hash_password
 from app.auth.roles import UserRole
@@ -32,11 +37,15 @@ from app.orders.admin_service import (
     transition_order_status,
 )
 from app.orders.models import Order, OrderItem, OrderStatusHistory
+from app.orders.origins import OrderDataOrigin
 from app.orders.schemas import OrderType
 from app.orders.statuses import OrderStatus
 from app.payments.models import Payment, StripeEvent
+from app.payments.providers import PaymentProvider
 from app.payments.statuses import PaymentStatus
 from app.restaurant_tables.models import RestaurantTable
+
+from .test_demo_checkout_concurrency import _is_data_writing_statement
 
 pytestmark = pytest.mark.integration
 
@@ -45,6 +54,16 @@ DETAIL_PATH = "/api/v1/admin/orders/{public_order_number}"
 SYNTHETIC_SECRET = "a" * 32
 SYNTHETIC_PASSWORD = "synthetic-admin-order-password"
 FIXED_NOW = datetime(2026, 8, 11, 12, tzinfo=UTC)
+
+
+def _live_status_admin() -> User:
+    return User(
+        id=UUID("00000000-0000-4000-8000-00000000a001"),
+        email="status-admin@example.com",
+        password_hash="synthetic-status-admin-password-hash",
+        role=UserRole.ADMIN,
+        is_active=True,
+    )
 
 
 @dataclass(frozen=True)
@@ -196,6 +215,72 @@ def _store_customer(session_factory: sessionmaker[Session]) -> tuple[UUID, str]:
         session.add(customer)
         session.flush()
         return customer.id, email
+
+
+def _store_policy_actor(
+    session_factory: sessionmaker[Session],
+    kind: str,
+) -> UUID:
+    if kind == "demo_exact":
+        actor = User(
+            id=DEMO_ADMIN_ID,
+            email=DEMO_ADMIN_EMAIL,
+            password_hash=DEMO_ADMIN_DISABLED_PASSWORD_HASH,
+            role=UserRole.ADMIN,
+            is_active=True,
+        )
+    else:
+        values: dict[str, tuple[UUID, str, str, UserRole]] = {
+            "admin": (
+                UUID("00000000-0000-4000-8000-00000000d001"),
+                "policy-admin@example.com",
+                "synthetic-policy-admin-password-hash",
+                UserRole.ADMIN,
+            ),
+            "super_admin": (
+                UUID("00000000-0000-4000-8000-00000000d002"),
+                "policy-super-admin@example.com",
+                "synthetic-policy-super-admin-password-hash",
+                UserRole.SUPER_ADMIN,
+            ),
+            "demo_uuid_drift": (
+                UUID("00000000-0000-4000-8000-00000000d003"),
+                DEMO_ADMIN_EMAIL,
+                DEMO_ADMIN_DISABLED_PASSWORD_HASH,
+                UserRole.ADMIN,
+            ),
+            "demo_email_drift": (
+                DEMO_ADMIN_ID,
+                "drifted-demo-admin@example.com",
+                DEMO_ADMIN_DISABLED_PASSWORD_HASH,
+                UserRole.ADMIN,
+            ),
+            "demo_hash_drift": (
+                DEMO_ADMIN_ID,
+                DEMO_ADMIN_EMAIL,
+                "synthetic-drifted-demo-password-hash",
+                UserRole.ADMIN,
+            ),
+            "demo_role_drift": (
+                DEMO_ADMIN_ID,
+                DEMO_ADMIN_EMAIL,
+                DEMO_ADMIN_DISABLED_PASSWORD_HASH,
+                UserRole.SUPER_ADMIN,
+            ),
+        }
+        actor_id, email, password_hash, role = values[kind]
+        actor = User(
+            id=actor_id,
+            email=email,
+            password_hash=password_hash,
+            role=role,
+            is_active=True,
+        )
+
+    with session_factory.begin() as session:
+        session.add(actor)
+        session.flush()
+        return actor.id
 
 
 def _store_list_order(
@@ -406,6 +491,7 @@ def _store_transition_order(
     current_status: OrderStatus = OrderStatus.CREATED,
     payment_statuses: tuple[PaymentStatus, ...] = (),
     customer_user_id: UUID | None = None,
+    data_origin: OrderDataOrigin = OrderDataOrigin.LIVE,
 ) -> StoredTransition:
     base_time = FIXED_NOW - timedelta(days=365)
     with session_factory.begin() as session:
@@ -413,6 +499,7 @@ def _store_transition_order(
             public_order_number=generate_public_order_number(),
             order_access_token_hash=uuid.uuid4().hex + uuid.uuid4().hex,
             customer_user_id=customer_user_id,
+            data_origin=data_origin.value,
             order_type=OrderType.TAKEAWAY.value,
             table_id=None,
             table_number_snapshot=None,
@@ -504,6 +591,37 @@ def _stored_transition_state(
             ).all()
         ]
         return order.status, history, payments
+
+
+def _stored_transition_snapshot(
+    session_factory: sessionmaker[Session],
+    stored: StoredTransition,
+) -> tuple[tuple[tuple[object, ...], ...], ...]:
+    with session_factory() as session:
+        return (
+            tuple(
+                tuple(row)
+                for row in session.execute(
+                    select(Order.__table__).where(Order.id == stored.order_id)
+                ).all()
+            ),
+            tuple(
+                tuple(row)
+                for row in session.execute(
+                    select(OrderStatusHistory.__table__)
+                    .where(OrderStatusHistory.order_id == stored.order_id)
+                    .order_by(OrderStatusHistory.sequence.asc())
+                ).all()
+            ),
+            tuple(
+                tuple(row)
+                for row in session.execute(
+                    select(Payment.__table__)
+                    .where(Payment.order_id == stored.order_id)
+                    .order_by(Payment.created_at.asc(), Payment.id.asc())
+                ).all()
+            ),
+        )
 
 
 def _response_keys(value: object) -> set[str]:
@@ -1052,6 +1170,304 @@ def test_status_patch_unknown_and_malformed_order_share_one_404(
 
 
 @pytest.mark.parametrize(
+    ("actor_kind", "demo_mode", "provider", "origin"),
+    [
+        (
+            "admin",
+            False,
+            PaymentProvider.STRIPE_TEST.value,
+            OrderDataOrigin.LIVE,
+        ),
+        (
+            "demo_exact",
+            True,
+            PaymentProvider.DEMO.value,
+            OrderDataOrigin.PORTFOLIO_RUNTIME,
+        ),
+    ],
+)
+def test_status_policy_allows_exact_runtime_identity_and_normal_live_admin(
+    admin_session_factory: sessionmaker[Session],
+    token_service: UserTokenService,
+    actor_kind: str,
+    demo_mode: bool,
+    provider: str,
+    origin: OrderDataOrigin,
+) -> None:
+    """Allow each trusted runtime only for its matching actor and provenance."""
+    actor_id = _store_policy_actor(admin_session_factory, actor_kind)
+    stored = _store_transition_order(
+        admin_session_factory,
+        data_origin=origin,
+    )
+    application = _application(admin_session_factory, token_service)
+    application.state.portfolio_demo_mode = demo_mode
+    application.state.payment_provider = provider
+
+    with TestClient(application) as client:
+        response = client.patch(
+            _transition_path(stored.public_order_number),
+            json={"status": OrderStatus.CANCELLED.value},
+            headers={
+                "Authorization": (
+                    f"Bearer {token_service.create_access_token(actor_id)}"
+                )
+            },
+        )
+
+    assert response.status_code == 200
+    status_value, history, payments = _stored_transition_state(
+        admin_session_factory,
+        stored,
+    )
+    assert status_value == OrderStatus.CANCELLED.value
+    assert [entry.new_status for entry in history] == [
+        OrderStatus.CREATED.value,
+        OrderStatus.CANCELLED.value,
+    ]
+    assert payments == []
+
+
+@pytest.mark.parametrize(
+    ("actor_kind", "demo_mode", "provider", "origin"),
+    [
+        (
+            "admin",
+            True,
+            PaymentProvider.DEMO.value,
+            OrderDataOrigin.PORTFOLIO_RUNTIME,
+        ),
+        (
+            "super_admin",
+            True,
+            PaymentProvider.DEMO.value,
+            OrderDataOrigin.PORTFOLIO_RUNTIME,
+        ),
+        (
+            "demo_exact",
+            True,
+            PaymentProvider.DEMO.value,
+            OrderDataOrigin.LIVE,
+        ),
+        (
+            "demo_exact",
+            True,
+            PaymentProvider.DEMO.value,
+            OrderDataOrigin.PORTFOLIO_SEED,
+        ),
+        (
+            "admin",
+            False,
+            PaymentProvider.STRIPE_TEST.value,
+            OrderDataOrigin.PORTFOLIO_RUNTIME,
+        ),
+        (
+            "admin",
+            False,
+            PaymentProvider.STRIPE_TEST.value,
+            OrderDataOrigin.PORTFOLIO_SEED,
+        ),
+        (
+            "demo_uuid_drift",
+            True,
+            PaymentProvider.DEMO.value,
+            OrderDataOrigin.PORTFOLIO_RUNTIME,
+        ),
+        (
+            "demo_email_drift",
+            True,
+            PaymentProvider.DEMO.value,
+            OrderDataOrigin.PORTFOLIO_RUNTIME,
+        ),
+        (
+            "demo_uuid_drift",
+            False,
+            PaymentProvider.STRIPE_TEST.value,
+            OrderDataOrigin.LIVE,
+        ),
+        (
+            "demo_email_drift",
+            False,
+            PaymentProvider.STRIPE_TEST.value,
+            OrderDataOrigin.LIVE,
+        ),
+        (
+            "demo_hash_drift",
+            True,
+            PaymentProvider.DEMO.value,
+            OrderDataOrigin.PORTFOLIO_RUNTIME,
+        ),
+        (
+            "demo_role_drift",
+            True,
+            PaymentProvider.DEMO.value,
+            OrderDataOrigin.PORTFOLIO_RUNTIME,
+        ),
+        (
+            "admin",
+            True,
+            PaymentProvider.STRIPE_TEST.value,
+            OrderDataOrigin.LIVE,
+        ),
+        (
+            "admin",
+            False,
+            PaymentProvider.DEMO.value,
+            OrderDataOrigin.LIVE,
+        ),
+    ],
+)
+def test_status_policy_denial_is_masked_and_stops_after_order_lock(
+    admin_session_factory: sessionmaker[Session],
+    token_service: UserTokenService,
+    test_database_engine: Engine,
+    actor_kind: str,
+    demo_mode: bool,
+    provider: str,
+    origin: OrderDataOrigin,
+) -> None:
+    """Deny mismatched authority without dependent reads or durable writes."""
+    actor_id = _store_policy_actor(admin_session_factory, actor_kind)
+    stored = _store_transition_order(
+        admin_session_factory,
+        payment_statuses=(PaymentStatus.PENDING,),
+        data_origin=origin,
+    )
+    before = _stored_transition_snapshot(admin_session_factory, stored)
+    application = _application(admin_session_factory, token_service)
+    application.state.portfolio_demo_mode = demo_mode
+    application.state.payment_provider = provider
+    statements: list[str] = []
+
+    def capture(
+        _connection: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        statements.append(" ".join(statement.lower().split()))
+
+    event.listen(test_database_engine, "before_cursor_execute", capture)
+    try:
+        with TestClient(application) as client:
+            response = client.patch(
+                _transition_path(stored.public_order_number),
+                json={"status": OrderStatus.CANCELLED.value},
+                headers={
+                    "Authorization": (
+                        f"Bearer {token_service.create_access_token(actor_id)}"
+                    )
+                },
+            )
+    finally:
+        event.remove(test_database_engine, "before_cursor_execute", capture)
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Order not found"}
+    assert _stored_transition_snapshot(admin_session_factory, stored) == before
+    order_locks = [
+        statement
+        for statement in statements
+        if " from orders " in statement and "for update" in statement
+    ]
+    assert len(order_locks) == 1
+    assert statements[-1] == order_locks[0]
+    assert all(" from payments " not in statement for statement in statements)
+    assert all(
+        " from order_status_history " not in statement for statement in statements
+    )
+    assert all(not _is_data_writing_statement(statement) for statement in statements)
+
+
+def test_status_policy_missing_runtime_state_fails_closed(
+    admin_session_factory: sessionmaker[Session],
+    token_service: UserTokenService,
+) -> None:
+    """Treat absent application runtime authority as an opaque denial."""
+    actor_id = _store_policy_actor(admin_session_factory, "admin")
+    stored = _store_transition_order(admin_session_factory)
+    before = _stored_transition_snapshot(admin_session_factory, stored)
+    application = _application(admin_session_factory, token_service)
+    delattr(application.state, "portfolio_demo_mode")
+    delattr(application.state, "payment_provider")
+
+    with TestClient(application) as client:
+        response = client.patch(
+            _transition_path(stored.public_order_number),
+            json={"status": OrderStatus.CANCELLED.value},
+            headers={
+                "Authorization": (
+                    f"Bearer {token_service.create_access_token(actor_id)}"
+                )
+            },
+        )
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Order not found"}
+    assert _stored_transition_snapshot(admin_session_factory, stored) == before
+
+
+def test_reserved_demo_identity_stays_denied_after_runtime_switch(
+    admin_session_factory: sessionmaker[Session],
+    token_service: UserTokenService,
+) -> None:
+    """Reject an earlier demo-admin JWT after switching to normal live runtime."""
+    demo_admin_id = _store_policy_actor(admin_session_factory, "demo_exact")
+    stored = _store_transition_order(admin_session_factory)
+    before = _stored_transition_snapshot(admin_session_factory, stored)
+    application = _application(admin_session_factory, token_service)
+    application.state.portfolio_demo_mode = True
+    application.state.payment_provider = PaymentProvider.DEMO.value
+    old_token = token_service.create_access_token(demo_admin_id)
+
+    with TestClient(application) as client:
+        application.state.portfolio_demo_mode = False
+        application.state.payment_provider = PaymentProvider.STRIPE_TEST.value
+        response = client.patch(
+            _transition_path(stored.public_order_number),
+            json={"status": OrderStatus.CANCELLED.value},
+            headers={"Authorization": f"Bearer {old_token}"},
+        )
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Order not found"}
+    assert _stored_transition_snapshot(admin_session_factory, stored) == before
+
+
+def test_status_policy_keeps_customer_role_rejection_at_auth_boundary(
+    admin_session_factory: sessionmaker[Session],
+    token_service: UserTokenService,
+) -> None:
+    """Keep non-administrator callers outside the mutation policy boundary."""
+    customer_id, _ = _store_customer(admin_session_factory)
+    stored = _store_transition_order(
+        admin_session_factory,
+        data_origin=OrderDataOrigin.PORTFOLIO_RUNTIME,
+    )
+    before = _stored_transition_snapshot(admin_session_factory, stored)
+    application = _application(admin_session_factory, token_service)
+    application.state.portfolio_demo_mode = True
+    application.state.payment_provider = PaymentProvider.DEMO.value
+
+    with TestClient(application) as client:
+        response = client.patch(
+            _transition_path(stored.public_order_number),
+            json={"status": OrderStatus.CANCELLED.value},
+            headers={
+                "Authorization": (
+                    f"Bearer {token_service.create_access_token(customer_id)}"
+                )
+            },
+        )
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Administrator access required"}
+    assert _stored_transition_snapshot(admin_session_factory, stored) == before
+
+
+@pytest.mark.parametrize(
     ("current_status", "target_status", "payment_statuses"),
     [
         (
@@ -1323,6 +1739,9 @@ def test_invalid_graph_transition_does_not_query_payments_or_write(
                     session,
                     public_order_number=stored.public_order_number,
                     target_status=OrderStatus.READY,
+                    current_user=_live_status_admin(),
+                    portfolio_demo_mode=False,
+                    payment_provider=PaymentProvider.STRIPE_TEST.value,
                 )
     finally:
         event.remove(test_database_engine, "before_cursor_execute", capture)
@@ -1382,6 +1801,9 @@ def test_transition_sql_uses_required_locks_and_exact_dml_classes(
                 session,
                 public_order_number=stored.public_order_number,
                 target_status=target_status,
+                current_user=_live_status_admin(),
+                portfolio_demo_mode=False,
+                payment_provider=PaymentProvider.STRIPE_TEST.value,
             )
     finally:
         event.remove(test_database_engine, "before_cursor_execute", capture)

@@ -2,10 +2,11 @@
 
 - **Repository documentation baseline:** AF1+B1-4, B2-1 through B2-3, B3-1
   through B3-2B, and B4-1 are complete and committed. B4-2 provides an
-  offline-only demo-administrator provision/verify boundary. This file records durable
-  implementation scope and acceptance evidence; repository history,
-  independent-review records, and CI are authoritative for transient commit
-  and run status.
+  offline-only demo-administrator provision/verify boundary. B4-3A1 locally
+  implements the first bounded administrator mutation guard and is ready for
+  independent review. This file records durable implementation scope and
+  acceptance evidence; repository history, independent-review records, and CI
+  are authoritative for transient commit and run status.
   Recruiter-facing portfolio documentation and case-study work remain Stage 23
   and have not started
 - **Stage 1:** completed
@@ -29,8 +30,8 @@
   B2-3, B3-1 through B3-2B, and B4-1 are complete and committed. B4-2 provides
   explicit offline-only demo-administrator provision/verify logic. The original Stage 20
   paid Render/GHCR topology is historical and superseded for the free-tier
-  portfolio demo. Public B4 demo-session issuance and authorization guards, B5,
-  B6, and any further B3 scope remain future work.
+  portfolio demo. Public B4 demo-session issuance and remaining authorization
+  guards, B5, B6, and any further B3 scope remain future work.
   Stage 23 is **not started**. No Render/Neon provisioning, production
   migration/seed, public deployment, or public URL is claimed.
 - **Backend:** FastAPI, database foundation, menu models, local seed data,
@@ -786,8 +787,60 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   non-database unit evidence only: the command has not been run against any
   database, and real PostgreSQL advisory-lock behavior is not claimed. It adds
   no JWT issuance, public demo-session route, migration, or public API change.
+- **B4-3A1 — Order status mutation guard:** implemented locally; its local
+  PostgreSQL acceptance is complete, and it is ready for repeat independent
+  read-only review. The server authorizes PATCH status from the freshly
+  loaded database User, trusted application mode/provider, and locked Order
+  provenance. Portfolio demo runtime permits only the exact reserved active
+  demo admin to make otherwise-legal mutations of `portfolio_runtime` Orders;
+  normal runtime preserves legal `live` Order mutations for ordinary admin and
+  super-admin identities while the reserved demo identity remains barred.
+  `portfolio_seed`, unknown or corrupt provenance, missing or mismatched runtime
+  state, and reserved-identity collision or drift fail closed before Payment
+  locking or Order, history, or Payment DML. The existing transition graph,
+  payment guards, and Order -> Payments lock order remain intact. The earlier
+  local results remain historical evidence for their own selections: 41 policy
+  tests, 145 targeted regression tests, and 1,272 tests from a later run that
+  explicitly excluded `tests/integration` passed; Ruff, Black, isort,
+  compileall, and diff checks also passed. A separate PostgreSQL collect-only
+  invocation collected 82 tests. Those 82 collected tests are not claimed to be
+  the same set as the later executed files or to have been executed at that
+  point. An earlier, incorrectly scoped `pytest -m "not integration"` invocation
+  collected eight unmarked migration tests and ended with eight fixture-setup
+  errors. That invocation was not a PASS and does not establish that no database
+  connection or mutation was attempted. Because the fixture sanitized the
+  underlying error, the exact failure point remains undetermined.
+
+  After separate authorization, one later pytest invocation ran all six complete
+  B4-3A1 integration files without filters, deselection, or retry: admin orders
+  API, admin order concurrency, checkout concurrency, demo checkout concurrency,
+  payment cancellation, and webhook concurrency. It completed with 146 passed,
+  0 failed, 0 skipped, exit 0, and one non-blocking Starlette TestClient
+  deprecation warning in 11.88 seconds. That result applies only to those six
+  files, not the whole repository or all 82 previously collected tests. The run
+  provides real PostgreSQL evidence for legal `live`/`stripe_test` and exact
+  reserved-demo-admin/`portfolio_runtime` paths; 404 denial for an unauthorized
+  actor, mode/provider, provenance, seed, or drift; Order `FOR UPDATE` before
+  denial; zero subsequent Payment/history reads and zero DML on denial; complete
+  pre/post snapshots; ordered locks on success; rollback; and the existing
+  payment guards. The DML detector is scoped instrumentation, not a universal
+  SQL parser.
+
+  The fixture used only local `restaurant_ordering_analytics_test` at
+  `127.0.0.1:5433`, recreated it, and removed it. The development database OID
+  and aggregate fingerprint of ten tables remained unchanged. One `docker start`
+  of the existing project PostgreSQL and one graceful `docker stop` returned the
+  container to Exited, closed port 5433, and preserved the named volume. This is
+  not a claim of bitwise volume immutability or an absence of PostgreSQL
+  internal writes. The B4-2 CLI still has not run against a database, and the
+  public demo-session, remaining B4 work, the B4-3A1 commit and push, CI,
+  production provisioning, and deployment remain unperformed. This slice adds
+  no read-isolation, Menu, analytics, exports, frontend, model, migration,
+  environment, or public-release change.
+
 - **Stage 22-B0 demo design:** its B3 payment design is now implemented through
-  B3-2B. B4 public session issuance and bounded authorization guards, any
+  B3-2B. B4 public session issuance and remaining bounded authorization guards,
+  any
   remaining B3 scope, B5 recruiter UX, and B6 integrated acceptance remain
   future work. A production
   reference end, Neon seed, reset/prune policy, and runtime cap have not been

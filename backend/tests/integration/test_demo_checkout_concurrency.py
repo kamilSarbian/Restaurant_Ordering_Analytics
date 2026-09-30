@@ -17,7 +17,13 @@ from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.auth.demo_admin import (
+    DEMO_ADMIN_DISABLED_PASSWORD_HASH,
+    DEMO_ADMIN_EMAIL,
+    DEMO_ADMIN_ID,
+)
 from app.auth.models import User
+from app.auth.roles import UserRole
 from app.database.session import create_session_factory
 from app.orders.access import (
     generate_order_access_token,
@@ -52,6 +58,16 @@ WORKER_BARRIER_TIMEOUT_SECONDS = 15.0
 LOCK_WAIT_POLL_SECONDS = 0.01
 SQL_DOLLAR_QUOTE_PATTERN = re.compile(r"\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$")
 DETECTOR_TEST_NAME = "test_data_writing_statement_detector_handles_adversarial_sql"
+
+
+def _demo_status_admin() -> User:
+    return User(
+        id=DEMO_ADMIN_ID,
+        email=DEMO_ADMIN_EMAIL,
+        password_hash=DEMO_ADMIN_DISABLED_PASSWORD_HASH,
+        role=UserRole.ADMIN,
+        is_active=True,
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -163,6 +179,9 @@ def _cancel(
                     session,
                     public_order_number=public_number,
                     target_status=OrderStatus.CANCELLED,
+                    current_user=_demo_status_admin(),
+                    portfolio_demo_mode=True,
+                    payment_provider=PaymentProvider.DEMO.value,
                 )
             except (
                 AdminOrderActivePaymentError,

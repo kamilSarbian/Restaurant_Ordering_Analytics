@@ -9,6 +9,8 @@ from datetime import UTC, datetime
 import pytest
 from sqlalchemy.orm import Session
 
+from app.auth.models import User
+from app.auth.roles import UserRole
 from app.orders.admin_service import (
     AdminOrderActivePaymentError,
     AdminOrderCannotCancelError,
@@ -18,11 +20,22 @@ from app.orders.admin_service import (
 from app.orders.models import Order, OrderStatusHistory
 from app.orders.statuses import OrderStatus
 from app.payments.models import Payment
+from app.payments.providers import PaymentProvider
 from app.payments.statuses import PaymentStatus
 
 pytestmark = pytest.mark.integration
 
 PUBLIC_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
+
+
+def _live_status_admin() -> User:
+    return User(
+        id=uuid.UUID("00000000-0000-4000-8000-00000000a004"),
+        email="payment-status-admin@example.com",
+        password_hash="synthetic-status-admin-password-hash",
+        role=UserRole.ADMIN,
+        is_active=True,
+    )
 
 
 def _order(*, status: OrderStatus = OrderStatus.CREATED) -> Order:
@@ -69,6 +82,9 @@ def _cancel_persisted_order(session: Session, order: Order) -> None:
         session,
         public_order_number=order.public_order_number,
         target_status=OrderStatus.CANCELLED,
+        current_user=_live_status_admin(),
+        portfolio_demo_mode=False,
+        payment_provider=PaymentProvider.STRIPE_TEST.value,
     )
 
 

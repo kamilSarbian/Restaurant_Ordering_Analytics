@@ -7,6 +7,13 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.auth.demo_admin import (
+    DEMO_ADMIN_EMAIL,
+    DEMO_ADMIN_ID,
+    is_demo_admin_identity,
+)
+from app.auth.models import User
+from app.auth.roles import UserRole
 from app.orders.admin_schemas import (
     AdminOrderDetail,
     AdminOrderItem,
@@ -17,6 +24,7 @@ from app.orders.admin_schemas import (
     AdminPaymentSummary,
 )
 from app.orders.models import Order, OrderItem, OrderStatusHistory
+from app.orders.origins import OrderDataOrigin
 from app.orders.schemas import OrderType
 from app.orders.statuses import (
     OrderStatus,
@@ -25,6 +33,7 @@ from app.orders.statuses import (
 )
 from app.payments.models import Payment
 from app.payments.policies import has_blocking_payment_status
+from app.payments.providers import PaymentProvider
 from app.payments.statuses import PaymentStatus
 
 
@@ -46,6 +55,10 @@ class AdminOrderActivePaymentError(Exception):
 
 class AdminOrderCannotCancelError(Exception):
     """Indicate that a succeeded payment attempt blocks cancellation."""
+
+
+class AdminOrderStatusMutationDeniedError(Exception):
+    """Indicate that trusted identity, runtime, or provenance forbids mutation."""
 
 
 def list_admin_orders(
@@ -152,6 +165,9 @@ def transition_order_status(
     *,
     public_order_number: str,
     target_status: OrderStatus,
+    current_user: User,
+    portfolio_demo_mode: bool | None,
+    payment_provider: str | None,
 ) -> AdminOrderStatusUpdateResponse:
     """Apply one authorized fulfilment transition in a short transaction.
 
@@ -159,6 +175,9 @@ def transition_order_status(
         session: Request-scoped session with no active transaction.
         public_order_number: Stable public identifier used to locate the order.
         target_status: Requested next status from the approved graph.
+        current_user: Current active User freshly loaded by authentication.
+        portfolio_demo_mode: Trusted application-scoped demo-mode state.
+        payment_provider: Trusted application-scoped payment-provider state.
 
     Returns:
         Detached result containing the updated status and appended history row.
@@ -169,6 +188,8 @@ def transition_order_status(
         AdminOrderNotPaidError: If acceptance lacks a succeeded payment.
         AdminOrderActivePaymentError: If a pending payment blocks cancellation.
         AdminOrderCannotCancelError: If a succeeded payment blocks cancellation.
+        AdminOrderStatusMutationDeniedError: If identity, runtime, or provenance
+            does not authorize the mutation.
     """
     response: AdminOrderStatusUpdateResponse | None = None
     with session.begin():
@@ -179,6 +200,13 @@ def transition_order_status(
         )
         if order is None:
             raise AdminOrderNotFoundError
+        if not _order_status_mutation_is_allowed(
+            current_user=current_user,
+            order=order,
+            portfolio_demo_mode=portfolio_demo_mode,
+            payment_provider=payment_provider,
+        ):
+            raise AdminOrderStatusMutationDeniedError
 
         current_status = OrderStatus(order.status)
         if not can_transition_order_status(current_status, target_status):
@@ -226,6 +254,38 @@ def transition_order_status(
     if response is None:
         raise RuntimeError("Order status transition produced no response")
     return response
+
+
+def _order_status_mutation_is_allowed(
+    *,
+    current_user: User,
+    order: Order,
+    portfolio_demo_mode: bool | None,
+    payment_provider: str | None,
+) -> bool:
+    """Return whether trusted runtime, identity, and provenance allow mutation."""
+    has_reserved_demo_identity = (
+        current_user.id == DEMO_ADMIN_ID or current_user.email == DEMO_ADMIN_EMAIL
+    )
+
+    if portfolio_demo_mode is True and payment_provider == PaymentProvider.DEMO.value:
+        return (
+            order.data_origin == OrderDataOrigin.PORTFOLIO_RUNTIME.value
+            and is_demo_admin_identity(current_user)
+        )
+
+    if (
+        portfolio_demo_mode is False
+        and payment_provider == PaymentProvider.STRIPE_TEST.value
+    ):
+        return (
+            order.data_origin == OrderDataOrigin.LIVE.value
+            and current_user.is_active is True
+            and current_user.role in {UserRole.ADMIN, UserRole.SUPER_ADMIN}
+            and not has_reserved_demo_identity
+        )
+
+    return False
 
 
 def _build_list_item(order: Order) -> AdminOrderListItem:

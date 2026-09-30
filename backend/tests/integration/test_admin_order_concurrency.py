@@ -14,6 +14,8 @@ from sqlalchemy import delete, event, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.auth.models import User
+from app.auth.roles import UserRole
 from app.orders.access import generate_public_order_number
 from app.orders.admin_service import (
     AdminOrderCannotCancelError,
@@ -24,6 +26,7 @@ from app.orders.admin_service import (
 from app.orders.models import Order, OrderItem, OrderStatusHistory
 from app.orders.statuses import OrderStatus
 from app.payments.models import Payment, StripeEvent
+from app.payments.providers import PaymentProvider
 from app.payments.statuses import PaymentStatus
 from app.payments.stripe_checkout import build_stripe_idempotency_key
 from app.payments.stripe_webhook import (
@@ -38,6 +41,16 @@ from app.payments.webhook import (
 pytestmark = pytest.mark.integration
 
 NOW = datetime(2026, 8, 11, 12, tzinfo=UTC)
+
+
+def _live_status_admin() -> User:
+    return User(
+        id=UUID("00000000-0000-4000-8000-00000000a002"),
+        email="status-concurrency-admin@example.com",
+        password_hash="synthetic-status-admin-password-hash",
+        role=UserRole.ADMIN,
+        is_active=True,
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -157,6 +170,9 @@ def _transition(
             session,
             public_order_number=order.public_order_number,
             target_status=target_status,
+            current_user=_live_status_admin(),
+            portfolio_demo_mode=False,
+            payment_provider=PaymentProvider.STRIPE_TEST.value,
         )
     return response.status
 

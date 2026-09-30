@@ -64,6 +64,16 @@ CHECKOUT_RESULT = CheckoutSessionResult(
 )
 
 
+def _live_status_admin() -> User:
+    return User(
+        id=UUID("00000000-0000-4000-8000-00000000a003"),
+        email="checkout-status-admin@example.com",
+        password_hash="synthetic-status-admin-password-hash",
+        role=UserRole.ADMIN,
+        is_active=True,
+    )
+
+
 class CallbackStripeClient:
     """Delegate fake provider creation to one deterministic callback."""
 
@@ -217,6 +227,9 @@ def _run_cancellation(
                 session,
                 public_order_number=public_number,
                 target_status=OrderStatus.CANCELLED,
+                current_user=_live_status_admin(),
+                portfolio_demo_mode=False,
+                payment_provider=PaymentProvider.STRIPE_TEST.value,
             )
         except (
             AdminOrderActivePaymentError,

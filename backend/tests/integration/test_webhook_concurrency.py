@@ -13,6 +13,8 @@ from sqlalchemy import delete, event, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.auth.models import User
+from app.auth.roles import UserRole
 from app.orders.access import (
     generate_order_access_token,
     generate_public_order_number,
@@ -58,6 +60,16 @@ CHECKOUT_RESULT = CheckoutSessionResult(
     checkout_url="https://checkout.example.test/session/race",
     expires_at=NOW + timedelta(hours=1),
 )
+
+
+def _live_status_admin() -> User:
+    return User(
+        id=uuid4(),
+        email="webhook-status-admin@example.com",
+        password_hash="synthetic-status-admin-password-hash",
+        role=UserRole.ADMIN,
+        is_active=True,
+    )
 
 
 class CallbackStripeClient:
@@ -538,6 +550,9 @@ def _run_cancellation(
                 session,
                 public_order_number=public_number,
                 target_status=OrderStatus.CANCELLED,
+                current_user=_live_status_admin(),
+                portfolio_demo_mode=False,
+                payment_provider=PaymentProvider.STRIPE_TEST.value,
             )
         except (
             AdminOrderActivePaymentError,
