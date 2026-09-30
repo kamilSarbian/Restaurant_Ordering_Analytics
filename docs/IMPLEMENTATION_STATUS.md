@@ -1,7 +1,8 @@
 # Implementation Status
 
-- **Repository documentation baseline:** AF1+B1-4, B2-1 through B2-3, and B3-1
-  through B3-2B are complete and committed. This file records durable
+- **Repository documentation baseline:** AF1+B1-4, B2-1 through B2-3, B3-1
+  through B3-2B, and B4-1 are complete and committed. B4-2 provides an
+  offline-only demo-administrator provision/verify boundary. This file records durable
   implementation scope and acceptance evidence; repository history,
   independent-review records, and CI are authoritative for transient commit
   and run status.
@@ -25,9 +26,11 @@
 - **Current stage:** Stage 20 Production Deployment Readiness and Stage 21 UI/UX
   Redesign & Product Polish are complete. Stage 22 Production Deployment &
   Public Acceptance is **in progress**: AF1+B1-1 through AF1+B1-4, B2-1 through
-  B2-3 and B3-1 through B3-2B are complete and committed. The original Stage 20
+  B2-3, B3-1 through B3-2B, and B4-1 are complete and committed. B4-2 provides
+  explicit offline-only demo-administrator provision/verify logic. The original Stage 20
   paid Render/GHCR topology is historical and superseded for the free-tier
-  portfolio demo. B4 through B6 and any further B3 scope remain future work.
+  portfolio demo. Public B4 demo-session issuance and authorization guards, B5,
+  B6, and any further B3 scope remain future work.
   Stage 23 is **not started**. No Render/Neon provisioning, production
   migration/seed, public deployment, or public URL is claimed.
 - **Backend:** FastAPI, database foundation, menu models, local seed data,
@@ -766,9 +769,27 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
 - **Analytics/report effect:** succeeded demo Payments qualify through status
   and `Payment.succeeded_at` without a `StripeEvent`; portfolio-runtime traffic
   can increase aggregates. The canonical B2 500-Order dataset is unchanged.
+- **B4-1 — closed portfolio password-auth boundary:** complete and committed on
+  2026-09-30 at `162f8f98fdd5d6c5b9079e6321298829bd199b77`. In portfolio
+  demo mode, public register/login fail closed before body parsing or protected
+  auth access; canonical `/auth/me` remains unchanged. GitHub Actions run
+  `36720704191`, attempt 1, passed `Backend`, `Migrations`, `Frontend`, and
+  `Browser E2E` for that SHA.
+- **B4-2 — offline demo-administrator identity:** an explicit local-only
+  `provision`/`verify` command uses a reserved UUID, exact ordinary `admin`
+  state, an unsupported non-password marker, exact development-target safety,
+  and a dedicated transaction advisory lock. The first explicit provision
+  creates the identity only when both reserved identifiers are free; exact
+  provision reruns are no-op. Verify fails closed when the identity is missing,
+  and both actions reject conflicting or drifted state without automatic repair.
+  This slice has
+  non-database unit evidence only: the command has not been run against any
+  database, and real PostgreSQL advisory-lock behavior is not claimed. It adds
+  no JWT issuance, public demo-session route, migration, or public API change.
 - **Stage 22-B0 demo design:** its B3 payment design is now implemented through
-  B3-2B. Any remaining B3 scope, B4 constrained ordinary-admin demo, B5
-  recruiter UX, and B6 integrated acceptance remain future work. A production
+  B3-2B. B4 public session issuance and bounded authorization guards, any
+  remaining B3 scope, B5 recruiter UX, and B6 integrated acceptance remain
+  future work. A production
   reference end, Neon seed, reset/prune policy, and runtime cap have not been
   selected or authorized.
 - **Stage 22-A/C/D:** actual Render/Neon provisioning, live GitHub
