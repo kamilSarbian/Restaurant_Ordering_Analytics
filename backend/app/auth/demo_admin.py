@@ -19,13 +19,6 @@ from app.auth.models import User
 from app.auth.roles import UserRole
 from app.core.config import Settings
 from app.database.session import create_session_factory
-from app.seed.safety import (
-    DEVELOPMENT_DATABASE_NAME,
-    PINNED_HOST,
-    REQUIRED_PORT,
-    SeedSafetyError,
-    validate_local_seed_database_url,
-)
 
 DEMO_ADMIN_ID = UUID("7f0c8d3f-4f58-4b2e-8d4a-2a5df7b40001")
 DEMO_ADMIN_EMAIL = "demo-admin@example.com"
@@ -181,6 +174,8 @@ def validate_local_demo_admin_database_url(
     database_url: str | PostgresDsn,
 ) -> URL:
     """Validate the exact local development target before engine creation."""
+    from app.seed.safety import SeedSafetyError, validate_local_seed_database_url
+
     try:
         return validate_local_seed_database_url(database_url)
     except SeedSafetyError:
@@ -213,6 +208,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "The demo administrator command requires database configuration."
             )
         database_url = validate_local_demo_admin_database_url(settings.database_url)
+        from app.seed.safety import (
+            DEVELOPMENT_DATABASE_NAME,
+            PINNED_HOST,
+            REQUIRED_PORT,
+        )
+
         engine = create_engine(
             database_url,
             pool_pre_ping=True,

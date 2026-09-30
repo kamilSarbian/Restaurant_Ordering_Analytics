@@ -2,9 +2,10 @@
 
 - **Repository documentation baseline:** AF1+B1-4, B2-1 through B2-3, B3-1
   through B3-2B, and B4-1 are complete and committed. B4-2 provides an
-  offline-only demo-administrator provision/verify boundary. B4-3A1 locally
-  implements the first bounded administrator mutation guard and is ready for
-  independent review. This file records durable implementation scope and
+  offline-only demo-administrator provision/verify boundary. The B4-3A1 guard
+  is committed and pushed at `78dfc4bcc8180a1f0620e138b96cb01f1ab854df`;
+  its local import-safety remediation awaits independent review after the first
+  automatic CI run failed. This file records durable implementation scope and
   acceptance evidence; repository history, independent-review records, and CI
   are authoritative for transient commit and run status.
   Recruiter-facing portfolio documentation and case-study work remain Stage 23
@@ -28,10 +29,12 @@
   Redesign & Product Polish are complete. Stage 22 Production Deployment &
   Public Acceptance is **in progress**: AF1+B1-1 through AF1+B1-4, B2-1 through
   B2-3, B3-1 through B3-2B, and B4-1 are complete and committed. B4-2 provides
-  explicit offline-only demo-administrator provision/verify logic. The original Stage 20
-  paid Render/GHCR topology is historical and superseded for the free-tier
-  portfolio demo. Public B4 demo-session issuance and remaining authorization
-  guards, B5, B6, and any further B3 scope remain future work.
+  explicit offline-only demo-administrator provision/verify logic. B4-3A1 is
+  committed and pushed, but its CI acceptance remains open while a local
+  import-safety remediation awaits review. The original Stage 20 paid
+  Render/GHCR topology is historical and superseded for the free-tier portfolio
+  demo. Public B4 demo-session issuance and remaining authorization guards, B5,
+  B6, and any further B3 scope remain future work.
   Stage 23 is **not started**. No Render/Neon provisioning, production
   migration/seed, public deployment, or public URL is claimed.
 - **Backend:** FastAPI, database foundation, menu models, local seed data,
@@ -787,11 +790,16 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   non-database unit evidence only: the command has not been run against any
   database, and real PostgreSQL advisory-lock behavior is not claimed. It adds
   no JWT issuance, public demo-session route, migration, or public API change.
-- **B4-3A1 — Order status mutation guard:** implemented locally; its local
-  PostgreSQL acceptance is complete, and it is ready for repeat independent
-  read-only review. The server authorizes PATCH status from the freshly
-  loaded database User, trusted application mode/provider, and locked Order
-  provenance. Portfolio demo runtime permits only the exact reserved active
+- **B4-3A1 — Order status mutation guard:** committed and pushed at
+  `78dfc4bcc8180a1f0620e138b96cb01f1ab854df`; its local PostgreSQL acceptance
+  is complete. Automatic GitHub Actions run `36782530715`, attempt 1, passed
+  `Frontend` and `Migrations`, failed `Backend` with 2,368 passed, 9 skipped,
+  and one import-safety failure because importing `app.main` loaded
+  `app.seed.runner`, and consequently skipped `Browser E2E`. A minimal local
+  lazy-import remediation in `app.auth.demo_admin` awaits independent review;
+  no green replacement CI is claimed. The server authorizes PATCH status from
+  the freshly loaded database User, trusted application mode/provider, and
+  locked Order provenance. Portfolio demo runtime permits only the exact reserved active
   demo admin to make otherwise-legal mutations of `portfolio_runtime` Orders;
   normal runtime preserves legal `live` Order mutations for ordinary admin and
   super-admin identities while the reserved demo identity remains barred.
@@ -832,11 +840,11 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   of the existing project PostgreSQL and one graceful `docker stop` returned the
   container to Exited, closed port 5433, and preserved the named volume. This is
   not a claim of bitwise volume immutability or an absence of PostgreSQL
-  internal writes. The B4-2 CLI still has not run against a database, and the
-  public demo-session, remaining B4 work, the B4-3A1 commit and push, CI,
-  production provisioning, and deployment remain unperformed. This slice adds
-  no read-isolation, Menu, analytics, exports, frontend, model, migration,
-  environment, or public-release change.
+  internal writes. The B4-2 CLI still has not run against a database. B4-3A1
+  replacement CI acceptance remains open; the public demo-session, remaining
+  B4 work, production provisioning, and deployment remain unperformed. This
+  slice adds no read-isolation, Menu, analytics, exports, frontend, model,
+  migration, environment, or public-release change.
 
 - **Stage 22-B0 demo design:** its B3 payment design is now implemented through
   B3-2B. B4 public session issuance and remaining bounded authorization guards,
