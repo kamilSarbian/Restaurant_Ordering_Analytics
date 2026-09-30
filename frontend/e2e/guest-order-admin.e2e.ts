@@ -43,10 +43,74 @@ const CRITICAL_RESOURCE_TYPES = new Set([
   'stylesheet',
   'xhr',
 ]);
+const SAFE_HTTP_METHODS = new Set([
+  'DELETE',
+  'GET',
+  'HEAD',
+  'OPTIONS',
+  'PATCH',
+  'POST',
+  'PUT',
+]);
+// These route shapes only control rendered diagnostics; they never suppress a failure.
+const KNOWN_DIAGNOSTIC_STATIC_PATHS = new Set([
+  '/',
+  '/account',
+  '/account/orders',
+  '/admin',
+  '/admin/analytics',
+  '/admin/exports',
+  '/admin/menu',
+  '/admin/orders',
+  '/admin/users',
+  '/cart',
+  '/login',
+  '/menu',
+  '/register',
+  '/api/v1/account/orders',
+  '/api/v1/admin/analytics/categories',
+  '/api/v1/admin/analytics/order-types',
+  '/api/v1/admin/analytics/overview',
+  '/api/v1/admin/analytics/products',
+  '/api/v1/admin/auth/login',
+  '/api/v1/admin/auth/me',
+  '/api/v1/admin/exports/orders.csv',
+  '/api/v1/admin/exports/payments.csv',
+  '/api/v1/admin/exports/product-sales.csv',
+  '/api/v1/admin/menu/categories',
+  '/api/v1/admin/menu/items',
+  '/api/v1/admin/orders',
+  '/api/v1/admin/users',
+  '/api/v1/auth/login',
+  '/api/v1/auth/me',
+  '/api/v1/auth/register',
+  '/api/v1/menu',
+  '/api/v1/orders',
+  '/api/v1/orders/quote',
+  FAKE_CHECKOUT_PATH,
+  FAKE_CHECKOUT_SCRIPT_PATH,
+  FAKE_CHECKOUT_COMPLETION_PATH,
+  STRIPE_WEBHOOK_PATH,
+]);
+const KNOWN_DIAGNOSTIC_DYNAMIC_PATHS = [
+  /^\/account\/orders\/:public-order$/u,
+  /^\/admin\/orders\/:public-order$/u,
+  /^\/orders\/:public-order\/(?:checkout|checkout-cancelled|payment-return|status)$/u,
+  /^\/api\/v1\/account\/orders\/:public-order$/u,
+  /^\/api\/v1\/admin\/menu\/(?:categories|items)\/:id$/u,
+  /^\/api\/v1\/admin\/orders\/:public-order(?:\/status)?$/u,
+  /^\/api\/v1\/admin\/users\/:id\/role$/u,
+  /^\/api\/v1\/orders\/:public-order(?:\/checkout-session)?$/u,
+] as const;
 const baseOrigin = validateLoopbackBaseUrl(
   requireEnvironmentValue('E2E_BASE_URL', process.env),
 );
 const runId = requireEnvironmentValue('E2E_RUN_ID', process.env);
+
+type BrowserPageLabel = 'admin' | 'guest' | 'promotee';
+type RequestFailureCategory = 'aborted' | 'connection' | 'other' | 'timeout';
+type ScenarioFailureKind =
+  'assertion' | 'error' | 'non-error' | 'timeout' | 'type-error';
 
 interface SyntheticIdentity {
   readonly email: string;
@@ -71,6 +135,11 @@ interface SafeLocation {
   readonly origin: string;
   readonly pathname: string;
   readonly search: string;
+}
+
+interface LabeledBrowserContext {
+  readonly context: BrowserContext;
+  readonly label: BrowserPageLabel;
 }
 
 function safeInvariant(condition: unknown, code: string): asserts condition {
@@ -167,6 +236,133 @@ function sanitizePathname(pathname: string): string {
     .replace(UUID_SEGMENT_PATTERN, ':id');
 }
 
+function sanitizeDiagnosticPathname(pathname: string): string {
+  const sanitized = sanitizePathname(pathname);
+  if (
+    KNOWN_DIAGNOSTIC_STATIC_PATHS.has(sanitized) ||
+    KNOWN_DIAGNOSTIC_DYNAMIC_PATHS.some((pattern) => pattern.test(sanitized))
+  ) {
+    return sanitized;
+  }
+  if (/^\/assets\/[^/]+\.js$/u.test(pathname)) {
+    return '/assets/:script.js';
+  }
+  if (/^\/assets\/[^/]+\.css$/u.test(pathname)) {
+    return '/assets/:style.css';
+  }
+  if (pathname.startsWith('/api/v1/')) {
+    return '/api/v1/:unknown-route';
+  }
+  if (pathname.startsWith('/assets/')) {
+    return '/assets/:unknown-resource';
+  }
+  return '/:unknown-route';
+}
+
+function sanitizeHttpMethod(method: string): string {
+  const normalized = method.toUpperCase();
+  return SAFE_HTTP_METHODS.has(normalized) ? normalized : 'OTHER';
+}
+
+function classifyRequestFailure(errorText: string | undefined): RequestFailureCategory {
+  const normalized = errorText?.trim().toUpperCase() ?? '';
+  if (
+    normalized.includes('ERR_TIMED_OUT') ||
+    normalized.includes('TIMED_OUT') ||
+    normalized.includes('ETIMEDOUT') ||
+    normalized.includes('TIMEOUT')
+  ) {
+    return 'timeout';
+  }
+  if (
+    normalized.includes('ERR_CONNECTION') ||
+    normalized.includes('ERR_NETWORK_CHANGED') ||
+    normalized.includes('ERR_INTERNET_DISCONNECTED') ||
+    normalized.includes('ERR_ADDRESS_UNREACHABLE') ||
+    normalized.includes('ERR_NAME_NOT_RESOLVED') ||
+    normalized.includes('ECONNRESET') ||
+    normalized.includes('ECONNREFUSED') ||
+    normalized.includes('ENETUNREACH') ||
+    normalized.includes('EHOSTUNREACH') ||
+    normalized.includes('ENOTFOUND') ||
+    normalized.includes('EAI_AGAIN')
+  ) {
+    return 'connection';
+  }
+  if (
+    normalized.includes('ERR_ABORTED') ||
+    normalized.includes('NS_BINDING_ABORTED') ||
+    normalized.includes('ABORTERROR')
+  ) {
+    return 'aborted';
+  }
+  return 'other';
+}
+
+function scenarioFailureKind(error: unknown): ScenarioFailureKind {
+  if (error instanceof TypeError) {
+    return 'type-error';
+  }
+  if (!(error instanceof Error)) {
+    return 'non-error';
+  }
+  let name: string;
+  try {
+    name = error.name;
+  } catch {
+    return 'error';
+  }
+  if (name === 'AssertionError' || name === 'JestAssertionError') {
+    return 'assertion';
+  }
+  if (name === 'TimeoutError') {
+    return 'timeout';
+  }
+  return 'error';
+}
+
+function scenarioFailureLocation(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return 'unknown';
+  }
+  let stack: unknown;
+  try {
+    stack = error.stack;
+  } catch {
+    return 'unknown';
+  }
+  if (typeof stack !== 'string') {
+    return 'unknown';
+  }
+  const match =
+    /(?:^|[/\s(])guest-order-admin\.e2e\.ts:(\d{1,6}):(\d{1,5})(?=$|[\s)])/mu.exec(
+      stack.slice(0, 16_384).replaceAll('\\', '/'),
+    );
+  return match === null
+    ? 'unknown'
+    : `guest-order-admin.e2e.ts:${match[1]}:${match[2]}`;
+}
+
+function sanitizeScenarioFailure(error: unknown): string {
+  return `scenario:kind=${scenarioFailureKind(error)}:location=${scenarioFailureLocation(error)}`;
+}
+
+function finishWithCapturedFailures(
+  scenarioFailure: string | undefined,
+  finalizationFailures: readonly string[],
+): void {
+  if (scenarioFailure === undefined && finalizationFailures.length === 0) {
+    return;
+  }
+
+  const lines = ['E2E_SANITIZED_FAILURE_REPORT'];
+  if (scenarioFailure !== undefined) {
+    lines.push(scenarioFailure);
+  }
+  lines.push(...finalizationFailures);
+  throw new Error(lines.join('\n'));
+}
+
 function isAllowedE2ERequest(method: string, pathname: string): boolean {
   return (
     (method === 'GET' &&
@@ -180,7 +376,11 @@ class BrowserSafetyGuard {
   private readonly issues: string[] = [];
   private readonly sensitiveValues = new Set<string>();
 
-  constructor(page: Page, sensitiveValues: readonly string[]) {
+  constructor(
+    page: Page,
+    readonly label: BrowserPageLabel,
+    sensitiveValues: readonly string[],
+  ) {
     for (const value of sensitiveValues) {
       this.addSensitiveValue(value);
     }
@@ -206,7 +406,7 @@ class BrowserSafetyGuard {
       const parsed = sameOriginUrl(request.url());
       if (parsed !== null && isCriticalRequest(request)) {
         this.issues.push(
-          `request-failed:${request.method()}:${sanitizePathname(parsed.pathname)}`,
+          `request-failed:${this.label}:${sanitizeHttpMethod(request.method())}:${this.diagnosticPathname(parsed.pathname)}:${classifyRequestFailure(request.failure()?.errorText)}`,
         );
       }
     });
@@ -264,8 +464,32 @@ class BrowserSafetyGuard {
     expect([...new Set(this.issues)], 'UNEXPECTED_BROWSER_FAILURE').toEqual([]);
   }
 
+  safeDiagnostics(): readonly string[] {
+    const missingResponses = this.expectedHttpFailures
+      .filter((failure) => failure.remaining > 0)
+      .map(
+        (failure) =>
+          `expected-http-response-missing:${sanitizeHttpMethod(failure.method)}:${this.diagnosticPathname(failure.pathname)}:${failure.status}:${failure.remaining}`,
+      );
+    const missingConsoleDiagnostics = this.expectedHttpFailures
+      .filter((failure) => failure.consoleRemaining > 0)
+      .map(
+        (failure) =>
+          `expected-http-console-missing:${sanitizeHttpMethod(failure.method)}:${this.diagnosticPathname(failure.pathname)}:${failure.status}:${failure.consoleRemaining}`,
+      );
+    return [
+      ...new Set([...this.issues, ...missingResponses, ...missingConsoleDiagnostics]),
+    ];
+  }
+
   private containsSensitiveValue(value: string): boolean {
     return [...this.sensitiveValues].some((sensitive) => value.includes(sensitive));
+  }
+
+  private diagnosticPathname(pathname: string): string {
+    return this.containsSensitiveValue(pathname)
+      ? '/:sensitive'
+      : sanitizeDiagnosticPathname(pathname);
   }
 
   private recordRequest(request: Request): void {
@@ -338,7 +562,7 @@ class BrowserSafetyGuard {
       return;
     }
     this.issues.push(
-      `http-failure:${method}:${sanitizePathname(parsed.pathname)}:${response.status()}`,
+      `http-failure:${sanitizeHttpMethod(method)}:${this.diagnosticPathname(parsed.pathname)}:${response.status()}`,
     );
   }
 
@@ -714,19 +938,18 @@ function requestMatches(request: Request, method: string, pathname: string): boo
   return parsed !== null && parsed.pathname === pathname && request.method() === method;
 }
 
-async function closeContexts(contexts: readonly BrowserContext[]): Promise<void> {
-  let cleanupFailed = false;
-  for (const context of [...contexts].reverse()) {
+async function closeContexts(
+  contexts: readonly LabeledBrowserContext[],
+): Promise<readonly string[]> {
+  const failures: string[] = [];
+  for (const { context, label } of [...contexts].reverse()) {
     try {
       await context.close();
-    } catch (error: unknown) {
-      void error;
-      cleanupFailed = true;
+    } catch {
+      failures.push(`context-close:${label}:error`);
     }
   }
-  if (cleanupFailed) {
-    throw new Error('E2E_CONTEXT_CLEANUP_FAILED');
-  }
+  return failures;
 }
 
 const ADMIN_DETAIL_VIEWPORTS = [
@@ -921,7 +1144,7 @@ async function installSyntheticAdminDetailRouting(
       return;
     }
     if (parsed.origin !== baseOrigin) {
-      controller.networkIssues.push('admin-detail-external-request:' + parsed.hostname);
+      controller.networkIssues.push('admin-detail-external-request');
       await route.abort();
       return;
     }
@@ -997,7 +1220,7 @@ async function installSyntheticAdminDetailRouting(
         return;
       }
       controller.networkIssues.push(
-        'admin-detail-unexpected-mutation:' + String(captured.postData),
+        `admin-detail-unexpected-mutation:${sanitizeHttpMethod(method)}`,
       );
       await route.fulfill({
         body: JSON.stringify({ detail: 'Unexpected synthetic mutation' }),
@@ -1009,7 +1232,7 @@ async function installSyntheticAdminDetailRouting(
 
     if (parsed.pathname.startsWith('/api/')) {
       controller.networkIssues.push(
-        'admin-detail-unexpected-api:' + method + ':' + parsed.pathname + parsed.search,
+        `admin-detail-unexpected-api:${sanitizeHttpMethod(method)}:${sanitizeDiagnosticPathname(parsed.pathname)}`,
       );
       await route.fulfill({
         body: JSON.stringify({ detail: 'Unexpected synthetic admin-detail request' }),
@@ -1607,23 +1830,31 @@ test('completes guest payment and administrator governance without external trus
     promotee.email,
     promotee.password,
   ];
-  const guestGuard = new BrowserSafetyGuard(guestPage, initialSensitiveValues);
-  const contextsToClose: BrowserContext[] = [];
+  const guestGuard = new BrowserSafetyGuard(guestPage, 'guest', initialSensitiveValues);
+  const contextsToClose: LabeledBrowserContext[] = [];
   const guards: BrowserSafetyGuard[] = [guestGuard];
 
-  let finalizationError: unknown;
-  let scenarioError: unknown;
+  const finalizationFailures: string[] = [];
+  let scenarioFailure: string | undefined;
   try {
     const promoteeContext = await browser.newContext({ baseURL: baseOrigin });
-    contextsToClose.push(promoteeContext);
+    contextsToClose.push({ context: promoteeContext, label: 'promotee' });
     const promoteePage = await promoteeContext.newPage();
-    const promoteeGuard = new BrowserSafetyGuard(promoteePage, initialSensitiveValues);
+    const promoteeGuard = new BrowserSafetyGuard(
+      promoteePage,
+      'promotee',
+      initialSensitiveValues,
+    );
     guards.push(promoteeGuard);
 
     const adminContext = await browser.newContext({ baseURL: baseOrigin });
-    contextsToClose.push(adminContext);
+    contextsToClose.push({ context: adminContext, label: 'admin' });
     const adminPage = await adminContext.newPage();
-    const adminGuard = new BrowserSafetyGuard(adminPage, initialSensitiveValues);
+    const adminGuard = new BrowserSafetyGuard(
+      adminPage,
+      'admin',
+      initialSensitiveValues,
+    );
     guards.push(adminGuard);
 
     const menuResponse = waitForApiResponse(guestPage, 'GET', '/api/v1/menu');
@@ -1929,26 +2160,22 @@ test('completes guest payment and administrator governance without external trus
     }
     safeInvariant(adminUsersApiRequestCount === 0, 'ADMIN_USERS_GUARD_REQUESTED_API');
   } catch (error: unknown) {
-    scenarioError = error;
+    scenarioFailure = sanitizeScenarioFailure(error);
   }
   for (const guard of guards) {
     try {
       guard.assertClean();
-    } catch (error: unknown) {
-      finalizationError ??= error;
+    } catch {
+      finalizationFailures.push(`guard:${guard.label}:error`);
+      finalizationFailures.push(
+        ...guard
+          .safeDiagnostics()
+          .map((diagnostic) => `guard:${guard.label}:${diagnostic}`),
+      );
     }
   }
-  try {
-    await closeContexts(contextsToClose);
-  } catch (error: unknown) {
-    finalizationError ??= error;
-  }
-  if (finalizationError !== undefined) {
-    throw finalizationError;
-  }
-  if (scenarioError !== undefined) {
-    throw scenarioError;
-  }
+  finalizationFailures.push(...(await closeContexts(contextsToClose)));
+  finishWithCapturedFailures(scenarioFailure, finalizationFailures);
 });
 
 test('keeps admin order detail safe, authoritative, and responsive across four viewports', async ({
@@ -1992,7 +2219,7 @@ test('keeps admin order detail safe, authoritative, and responsive across four v
       networkIssues: [],
       requests: [],
     };
-    const guard = new BrowserSafetyGuard(page, [
+    const guard = new BrowserSafetyGuard(page, 'admin', [
       ADMIN_DETAIL_TOKEN,
       ADMIN_DETAIL_ORDER_ID,
       ADMIN_DETAIL_ITEM_ID,
@@ -2008,29 +2235,24 @@ test('keeps admin order detail safe, authoritative, and responsive across four v
     });
     await installSyntheticAdminDetailRouting(page, controller);
 
-    let scenarioError: unknown;
-    let finalizationError: unknown;
+    const finalizationFailures: string[] = [];
+    let scenarioFailure: string | undefined;
     try {
       await assertSyntheticAdminDetailViewport(page, viewport, controller, guard);
     } catch (error: unknown) {
-      scenarioError = error;
-    } finally {
-      try {
-        guard.assertClean();
-      } catch (error: unknown) {
-        finalizationError = error;
-      }
-      try {
-        await closeContexts([context]);
-      } catch (error: unknown) {
-        finalizationError ??= error;
-      }
+      scenarioFailure = sanitizeScenarioFailure(error);
     }
-    if (scenarioError !== undefined) {
-      throw scenarioError;
+    try {
+      guard.assertClean();
+    } catch {
+      finalizationFailures.push(`guard:${guard.label}:error`);
+      finalizationFailures.push(
+        ...guard
+          .safeDiagnostics()
+          .map((diagnostic) => `guard:${guard.label}:${diagnostic}`),
+      );
     }
-    if (finalizationError !== undefined) {
-      throw finalizationError;
-    }
+    finalizationFailures.push(...(await closeContexts([{ context, label: 'admin' }])));
+    finishWithCapturedFailures(scenarioFailure, finalizationFailures);
   }
 });
