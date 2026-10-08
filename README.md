@@ -1031,6 +1031,16 @@ the explicit inverse transitions `customer -> admin` and `admin -> customer`.
 Rows whose role is `super_admin` are read-only. The UI cannot assign or demote a
 `super_admin`, delete a User, reset a password, or change active state.
 
+The role PATCH also enforces the portfolio boundary on the server. Exact
+`true + demo`, missing or mismatched runtime state, and either reserved demo
+administrator identifier on the acting User return one generic 403 before the
+domain transaction or target lookup. Exact `False + stripe_test` preserves
+legal ordinary User transitions for an active, non-reserved super-admin. An
+existing target with either reserved identifier returns the existing generic
+409 only after the locked existence lookup, while a missing target still
+returns 404. The authenticated `GET /api/v1/admin/users` read contract is
+unchanged by this mutation guard.
+
 Every role action requires confirmation and is serialized to one PATCH. The UI
 does not update optimistically: after success it reloads the authoritative
 current page. A network, timeout, 503, or invalid-response outcome may have

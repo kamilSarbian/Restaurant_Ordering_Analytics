@@ -2,18 +2,20 @@
 
 from __future__ import annotations
 
-from collections.abc import Generator
+from collections.abc import Generator, Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import jwt
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import delete, event
+from sqlalchemy import delete, event, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.auth.demo_admin import DEMO_ADMIN_EMAIL, DEMO_ADMIN_ID
 from app.auth.dependencies import require_super_admin
 from app.auth.models import User
 from app.auth.roles import UserRole
@@ -26,6 +28,7 @@ from app.auth.service import (
 from app.core.config import Settings
 from app.database.session import create_session_factory
 from app.main import create_app
+from app.payments.providers import PaymentProvider
 
 pytestmark = pytest.mark.integration
 
@@ -133,6 +136,65 @@ def _super_admin_token(
 ) -> str:
     user_id = _store_user(factory, role=UserRole.SUPER_ADMIN)
     return service.create_access_token(user_id)
+
+
+def _users_snapshot(
+    factory: sessionmaker[Session],
+) -> list[tuple[object, ...]]:
+    with factory() as session:
+        users = session.scalars(select(User).order_by(User.id.asc())).all()
+        return [
+            (
+                user.id,
+                user.email,
+                user.password_hash,
+                user.role,
+                user.is_active,
+                user.created_at,
+                user.updated_at,
+            )
+            for user in users
+        ]
+
+
+@contextmanager
+def _captured_sql(engine: Engine) -> Iterator[list[str]]:
+    statements: list[str] = []
+
+    def capture(
+        _connection: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        statements.append(" ".join(statement.upper().split()))
+
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        yield statements
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
+
+
+def _assert_no_dml(statements: list[str]) -> None:
+    application_statements = [
+        statement for statement in statements if statement != "SELECT 1"
+    ]
+    assert all(
+        not statement.startswith(("INSERT ", "UPDATE ", "DELETE "))
+        for statement in application_statements
+    )
+    assert all(
+        not (
+            statement.startswith("WITH ")
+            and any(
+                marker in statement for marker in (" INSERT ", " UPDATE ", " DELETE ")
+            )
+        )
+        for statement in application_statements
+    )
 
 
 @pytest.mark.parametrize("token", [None, "not-a-jwt"])
@@ -338,6 +400,211 @@ def test_list_orders_by_created_at_then_id(
     response = client.get(USERS_PATH, headers=_authorization(token))
     ids = [item["id"] for item in response.json()["items"]]
     assert ids[:2] == [str(low_id), str(high_id)]
+
+
+def test_portfolio_runtime_keeps_super_admin_list_read_outside_mutation_guard(
+    application,
+    client: TestClient,
+    user_session_factory: sessionmaker[Session],
+    user_token_service: UserTokenService,
+) -> None:
+    """Keep the existing super-administrator list route outside B4-3A3."""
+    application.state.portfolio_demo_mode = True
+    application.state.payment_provider = PaymentProvider.DEMO.value
+    token = _super_admin_token(user_session_factory, user_token_service)
+
+    response = client.get(USERS_PATH, headers=_authorization(token))
+
+    assert response.status_code == 200
+    assert response.json()["total"] == 1
+
+
+@pytest.mark.parametrize("target_exists", [False, True])
+def test_portfolio_runtime_denies_super_admin_before_target_lookup_and_dml(
+    application,
+    client: TestClient,
+    user_session_factory: sessionmaker[Session],
+    user_token_service: UserTokenService,
+    test_database_engine: Engine,
+    target_exists: bool,
+) -> None:
+    """Deny every portfolio role mutation after auth but before target access."""
+    application.state.portfolio_demo_mode = True
+    application.state.payment_provider = PaymentProvider.DEMO.value
+    token = _super_admin_token(user_session_factory, user_token_service)
+    target_id = (
+        _store_user(user_session_factory, role=UserRole.CUSTOMER)
+        if target_exists
+        else uuid4()
+    )
+    before = _users_snapshot(user_session_factory)
+
+    with _captured_sql(test_database_engine) as statements:
+        response = client.patch(
+            _role_path(target_id),
+            json={"role": "admin"},
+            headers=_authorization(token),
+        )
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "User role mutation is not allowed"}
+    assert _users_snapshot(user_session_factory) == before
+    assert all("FOR UPDATE" not in statement for statement in statements)
+    assert all(
+        "FROM USERS" not in statement or "WHERE USERS.ID" in statement
+        for statement in statements
+    )
+    assert (
+        len([statement for statement in statements if "FROM USERS" in statement]) == 1
+    )
+    _assert_no_dml(statements)
+
+
+@pytest.mark.parametrize(
+    ("demo_mode", "provider"),
+    [
+        (True, PaymentProvider.STRIPE_TEST.value),
+        (False, PaymentProvider.DEMO.value),
+        (None, PaymentProvider.STRIPE_TEST.value),
+        (False, None),
+        (None, None),
+    ],
+)
+def test_missing_or_mismatched_runtime_denies_before_target_lookup_and_dml(
+    application,
+    client: TestClient,
+    user_session_factory: sessionmaker[Session],
+    user_token_service: UserTokenService,
+    test_database_engine: Engine,
+    demo_mode: bool | None,
+    provider: str | None,
+) -> None:
+    """Fail closed for every missing or inconsistent trusted runtime pair."""
+    application.state.portfolio_demo_mode = demo_mode
+    application.state.payment_provider = provider
+    token = _super_admin_token(user_session_factory, user_token_service)
+    target_id = _store_user(user_session_factory, role=UserRole.CUSTOMER)
+    before = _users_snapshot(user_session_factory)
+
+    with _captured_sql(test_database_engine) as statements:
+        response = client.patch(
+            _role_path(target_id),
+            json={"role": "admin"},
+            headers=_authorization(token),
+        )
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "User role mutation is not allowed"}
+    assert _users_snapshot(user_session_factory) == before
+    assert all("FOR UPDATE" not in statement for statement in statements)
+    _assert_no_dml(statements)
+
+
+@pytest.mark.parametrize(
+    ("caller_id", "caller_email"),
+    [
+        (DEMO_ADMIN_ID, "reserved-id-super-admin@example.com"),
+        (UUID("00000000-0000-4000-8000-00000000e201"), DEMO_ADMIN_EMAIL),
+    ],
+)
+def test_normal_runtime_denies_reserved_super_admin_actor_before_target_access(
+    client: TestClient,
+    user_session_factory: sessionmaker[Session],
+    user_token_service: UserTokenService,
+    test_database_engine: Engine,
+    caller_id: UUID,
+    caller_email: str,
+) -> None:
+    """Reject either reserved actor identifier even after role drift."""
+    caller_id = _store_user(
+        user_session_factory,
+        role=UserRole.SUPER_ADMIN,
+        user_id=caller_id,
+        email=caller_email,
+    )
+    target_id = _store_user(user_session_factory, role=UserRole.CUSTOMER)
+    token = user_token_service.create_access_token(caller_id)
+    before = _users_snapshot(user_session_factory)
+
+    with _captured_sql(test_database_engine) as statements:
+        response = client.patch(
+            _role_path(target_id),
+            json={"role": "admin"},
+            headers=_authorization(token),
+        )
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "User role mutation is not allowed"}
+    assert _users_snapshot(user_session_factory) == before
+    assert all("FOR UPDATE" not in statement for statement in statements)
+    _assert_no_dml(statements)
+
+
+@pytest.mark.parametrize(
+    ("target_id", "target_email"),
+    [
+        (DEMO_ADMIN_ID, "reserved-target-id@example.com"),
+        (UUID("00000000-0000-4000-8000-00000000e202"), DEMO_ADMIN_EMAIL),
+    ],
+)
+def test_normal_runtime_rejects_existing_reserved_target_after_lock_without_dml(
+    client: TestClient,
+    user_session_factory: sessionmaker[Session],
+    user_token_service: UserTokenService,
+    test_database_engine: Engine,
+    target_id: UUID,
+    target_email: str,
+) -> None:
+    """Keep either reserved target identifier immutable after the row lock."""
+    token = _super_admin_token(user_session_factory, user_token_service)
+    _store_user(
+        user_session_factory,
+        role=UserRole.ADMIN,
+        user_id=target_id,
+        email=target_email,
+    )
+    before = _users_snapshot(user_session_factory)
+
+    with _captured_sql(test_database_engine) as statements:
+        response = client.patch(
+            _role_path(target_id),
+            json={"role": "customer"},
+            headers=_authorization(token),
+        )
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "Role transition is not allowed"}
+    assert _users_snapshot(user_session_factory) == before
+    assert (
+        len([statement for statement in statements if "FOR UPDATE" in statement]) == 1
+    )
+    _assert_no_dml(statements)
+
+
+def test_missing_reserved_uuid_preserves_404_after_locked_lookup_without_dml(
+    client: TestClient,
+    user_session_factory: sessionmaker[Session],
+    user_token_service: UserTokenService,
+    test_database_engine: Engine,
+) -> None:
+    """Check existence before applying the reserved-target conflict contract."""
+    token = _super_admin_token(user_session_factory, user_token_service)
+    before = _users_snapshot(user_session_factory)
+
+    with _captured_sql(test_database_engine) as statements:
+        response = client.patch(
+            _role_path(DEMO_ADMIN_ID),
+            json={"role": "admin"},
+            headers=_authorization(token),
+        )
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "User not found"}
+    assert _users_snapshot(user_session_factory) == before
+    assert (
+        len([statement for statement in statements if "FOR UPDATE" in statement]) == 1
+    )
+    _assert_no_dml(statements)
 
 
 @pytest.mark.parametrize(

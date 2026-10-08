@@ -897,6 +897,40 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   issuance, read isolation, remaining B4 work, B5, B6, production provisioning,
   and deployment remain open.
 
+- **B4-3A3 — Admin User role mutation guard (local candidate):** the working
+  tree protects only `PATCH /api/v1/admin/users/{user_id}/role`. Exact
+  `true + demo`, missing or mismatched trusted runtime state, and either
+  reserved demo-administrator identifier on the acting User return one fixed
+  generic 403 before `session.begin()` and before the target lookup. Exact
+  `False + stripe_test` preserves legal `customer <-> admin` transitions for an
+  active, non-reserved super-admin. After the existing first target-row lock,
+  an existing target with either reserved identifier keeps the generic 409
+  contract, while a missing target, including the reserved UUID, still returns 404. `GET /api/v1/admin/users`, authentication semantics, and invalid body
+  validation remain unchanged.
+
+  Local no-database evidence is 235 passing targeted B4 policy/auth regression
+  tests with one non-blocking external Starlette TestClient deprecation warning.
+  A separate collect-only invocation collected all 51 tests in
+  `backend/tests/integration/test_admin_users_api.py`; it did not execute the
+  fixture and is not PostgreSQL acceptance. Ruff, Black, isort, and compileall
+  passed for the four changed Python paths.
+
+  After separate authorization, one later invocation executed all 51 tests in
+  `backend/tests/integration/test_admin_users_api.py` exactly once, without a
+  retry. It completed with 51 passed, 0 failed, 0 skipped, and native exit code
+  `0`. The read-only postcheck confirmed that the test database had been
+  removed and that the unrelated-client count was 0. The development database
+  remained at OID 16384, with its aggregate fingerprint unchanged at
+  `7e0b9931f1dc0f56d69673cc45c8a0a1102f1272ae333fd461cede50cc2f4353`
+  across ten tables and 28 rows. A subsequent `docker stop` returned exit 0;
+  the project container was Exited, host port 5433 was closed, and the protected
+  named volume was preserved. This is not a claim of bitwise volume
+  immutability. Local isolated PostgreSQL acceptance for B4-3A3 is complete.
+  Independent re-review, commit, push, and CI remain open. The B4-2 CLI still
+  has not run against a database; public demo-session issuance and the remaining
+  B4 work remain open. No frontend, migration, environment, provisioning, or
+  deployment change is included.
+
 - **Stage 22-B0 demo design:** its B3 payment design is now implemented through
   B3-2B. B4 public session issuance and remaining bounded authorization guards,
   any

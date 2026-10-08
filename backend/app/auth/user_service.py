@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.auth.demo_admin import DEMO_ADMIN_EMAIL, DEMO_ADMIN_ID
 from app.auth.models import User
 from app.auth.passwords import hash_password, verify_dummy_password, verify_password
 from app.auth.roles import UserRole
@@ -18,6 +19,7 @@ from app.auth.user_schemas import (
     UserRoleUpdateRequest,
     UserRoleUpdateResponse,
 )
+from app.payments.providers import PaymentProvider
 
 USER_EMAIL_UNIQUE_CONSTRAINT = "uq_users_email"
 
@@ -36,6 +38,10 @@ class UserNotFoundError(Exception):
 
 class UserRoleConflictError(Exception):
     """Report a forbidden or ineffective ordinary role transition."""
+
+
+class UserRoleMutationDeniedError(Exception):
+    """Report that trusted runtime or actor state forbids role mutation."""
 
 
 def find_user_by_email(session: Session, *, email: str) -> User | None:
@@ -148,6 +154,9 @@ def update_user_role(
     *,
     user_id: UUID,
     request: UserRoleUpdateRequest,
+    current_user: User,
+    portfolio_demo_mode: bool | None,
+    payment_provider: str | None,
 ) -> UserRoleUpdateResponse:
     """Serialize and apply one ordinary user-role transition.
 
@@ -155,6 +164,9 @@ def update_user_role(
         session: Request-scoped session with no active transaction.
         user_id: Registered identity to update.
         request: Validated customer or administrator target role.
+        current_user: Current database-authoritative User acting on the target.
+        portfolio_demo_mode: Trusted application-scoped demo-mode state.
+        payment_provider: Trusted application-scoped payment-provider state.
 
     Returns:
         Safe detached representation of the changed role.
@@ -162,14 +174,26 @@ def update_user_role(
     Raises:
         UserNotFoundError: If the target identity does not exist.
         UserRoleConflictError: If the transition is ineffective or targets a
-            super-administrator.
+            super-administrator or reserved demo-administrator identity.
+        UserRoleMutationDeniedError: If trusted runtime or actor state forbids
+            every role mutation.
     """
+    _ensure_user_role_mutation_allowed(
+        current_user=current_user,
+        portfolio_demo_mode=portfolio_demo_mode,
+        payment_provider=payment_provider,
+    )
+
     response: UserRoleUpdateResponse | None = None
     with session.begin():
         user = session.scalar(select(User).where(User.id == user_id).with_for_update())
         if user is None:
             raise UserNotFoundError
-        if user.role is UserRole.SUPER_ADMIN:
+        if (
+            user.id == DEMO_ADMIN_ID
+            or user.email == DEMO_ADMIN_EMAIL
+            or user.role is UserRole.SUPER_ADMIN
+        ):
             raise UserRoleConflictError
         target_role = UserRole(request.role)
         if user.role is target_role:
@@ -186,6 +210,27 @@ def update_user_role(
     if response is None:
         raise RuntimeError("User role update produced no response")
     return response
+
+
+def _ensure_user_role_mutation_allowed(
+    *,
+    current_user: User,
+    portfolio_demo_mode: bool | None,
+    payment_provider: str | None,
+) -> None:
+    """Reject role mutation before database access unless runtime is normal."""
+    has_reserved_demo_identity = (
+        current_user.id == DEMO_ADMIN_ID or current_user.email == DEMO_ADMIN_EMAIL
+    )
+    is_allowed = (
+        portfolio_demo_mode is False
+        and payment_provider == PaymentProvider.STRIPE_TEST.value
+        and current_user.is_active is True
+        and current_user.role is UserRole.SUPER_ADMIN
+        and not has_reserved_demo_identity
+    )
+    if not is_allowed:
+        raise UserRoleMutationDeniedError
 
 
 def _build_user_list_item(user: User) -> UserAdminListItem:
@@ -210,6 +255,7 @@ __all__ = [
     "UserNotFoundError",
     "UserRegistrationConflictError",
     "UserRoleConflictError",
+    "UserRoleMutationDeniedError",
     "authenticate_user",
     "create_customer",
     "find_user_by_email",
