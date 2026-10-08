@@ -8,6 +8,9 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.auth.demo_admin import DEMO_ADMIN_EMAIL, DEMO_ADMIN_ID
+from app.auth.models import User
+from app.auth.roles import UserRole
 from app.categories.models import Category
 from app.menu.admin_schemas import (
     AdminCategoryCreateRequest,
@@ -20,6 +23,7 @@ from app.menu.admin_schemas import (
     AdminMenuItemUpdateRequest,
 )
 from app.menu.models import MenuItem
+from app.payments.providers import PaymentProvider
 
 CATEGORY_NAME_UNIQUE_INDEX = "ix_categories_name_normalized_unique"
 MENU_ITEM_NAME_UNIQUE_INDEX = "ix_menu_items_category_name_normalized_unique"
@@ -39,6 +43,10 @@ class AdminMenuItemNotFoundError(Exception):
 
 class AdminMenuItemConflictError(Exception):
     """Indicate a category-scoped normalized item-name conflict."""
+
+
+class AdminMenuMutationDeniedError(Exception):
+    """Indicate that trusted identity or runtime state forbids menu mutation."""
 
 
 def list_admin_categories(
@@ -76,19 +84,31 @@ def create_admin_category(
     session: Session,
     *,
     request: AdminCategoryCreateRequest,
+    current_user: User,
+    portfolio_demo_mode: bool | None,
+    payment_provider: str | None,
 ) -> AdminCategoryResponse:
     """Create one category in a short transaction.
 
     Args:
         session: Request-scoped session with no active transaction.
         request: Validated writable category values.
+        current_user: Current active User freshly loaded by authentication.
+        portfolio_demo_mode: Trusted application-scoped demo-mode state.
+        payment_provider: Trusted application-scoped payment-provider state.
 
     Returns:
         Strict detached representation of the created category.
 
     Raises:
+        AdminMenuMutationDeniedError: If identity or runtime forbids mutation.
         AdminCategoryConflictError: If the normalized name already exists.
     """
+    _ensure_admin_menu_mutation_allowed(
+        current_user=current_user,
+        portfolio_demo_mode=portfolio_demo_mode,
+        payment_provider=payment_provider,
+    )
     response: AdminCategoryResponse | None = None
     try:
         with session.begin():
@@ -110,6 +130,9 @@ def update_admin_category(
     *,
     category_id: UUID,
     request: AdminCategoryUpdateRequest,
+    current_user: User,
+    portfolio_demo_mode: bool | None,
+    payment_provider: str | None,
 ) -> AdminCategoryResponse:
     """Serialize and apply one partial category update.
 
@@ -117,14 +140,23 @@ def update_admin_category(
         session: Request-scoped session with no active transaction.
         category_id: Category identifier to update.
         request: Validated explicitly supplied fields.
+        current_user: Current active User freshly loaded by authentication.
+        portfolio_demo_mode: Trusted application-scoped demo-mode state.
+        payment_provider: Trusted application-scoped payment-provider state.
 
     Returns:
         Strict detached representation of the updated category.
 
     Raises:
+        AdminMenuMutationDeniedError: If identity or runtime forbids mutation.
         AdminCategoryNotFoundError: If the category does not exist.
         AdminCategoryConflictError: If the normalized name already exists.
     """
+    _ensure_admin_menu_mutation_allowed(
+        current_user=current_user,
+        portfolio_demo_mode=portfolio_demo_mode,
+        payment_provider=payment_provider,
+    )
     response: AdminCategoryResponse | None = None
     try:
         with session.begin():
@@ -185,20 +217,32 @@ def create_admin_menu_item(
     session: Session,
     *,
     request: AdminMenuItemCreateRequest,
+    current_user: User,
+    portfolio_demo_mode: bool | None,
+    payment_provider: str | None,
 ) -> AdminMenuItemResponse:
     """Create one menu item under an existing category.
 
     Args:
         session: Request-scoped session with no active transaction.
         request: Validated writable menu-item values.
+        current_user: Current active User freshly loaded by authentication.
+        portfolio_demo_mode: Trusted application-scoped demo-mode state.
+        payment_provider: Trusted application-scoped payment-provider state.
 
     Returns:
         Strict detached representation of the created menu item.
 
     Raises:
+        AdminMenuMutationDeniedError: If identity or runtime forbids mutation.
         AdminCategoryNotFoundError: If the target category does not exist.
         AdminMenuItemConflictError: If the category already contains the name.
     """
+    _ensure_admin_menu_mutation_allowed(
+        current_user=current_user,
+        portfolio_demo_mode=portfolio_demo_mode,
+        payment_provider=payment_provider,
+    )
     response: AdminMenuItemResponse | None = None
     try:
         with session.begin():
@@ -222,6 +266,9 @@ def update_admin_menu_item(
     *,
     item_id: UUID,
     request: AdminMenuItemUpdateRequest,
+    current_user: User,
+    portfolio_demo_mode: bool | None,
+    payment_provider: str | None,
 ) -> AdminMenuItemResponse:
     """Serialize and apply one partial menu-item update.
 
@@ -232,15 +279,24 @@ def update_admin_menu_item(
         session: Request-scoped session with no active transaction.
         item_id: Menu-item identifier to update.
         request: Validated explicitly supplied fields.
+        current_user: Current active User freshly loaded by authentication.
+        portfolio_demo_mode: Trusted application-scoped demo-mode state.
+        payment_provider: Trusted application-scoped payment-provider state.
 
     Returns:
         Strict detached representation of the updated menu item.
 
     Raises:
+        AdminMenuMutationDeniedError: If identity or runtime forbids mutation.
         AdminMenuItemNotFoundError: If the item does not exist.
         AdminCategoryNotFoundError: If a new target category does not exist.
         AdminMenuItemConflictError: If the category already contains the name.
     """
+    _ensure_admin_menu_mutation_allowed(
+        current_user=current_user,
+        portfolio_demo_mode=portfolio_demo_mode,
+        payment_provider=payment_provider,
+    )
     response: AdminMenuItemResponse | None = None
     try:
         with session.begin():
@@ -305,3 +361,24 @@ def _constraint_name(error: IntegrityError) -> str | None:
     diagnostic = getattr(error.orig, "diag", None)
     value = getattr(diagnostic, "constraint_name", None)
     return str(value) if value is not None else None
+
+
+def _ensure_admin_menu_mutation_allowed(
+    *,
+    current_user: User,
+    portfolio_demo_mode: bool | None,
+    payment_provider: str | None,
+) -> None:
+    """Reject menu mutation unless trusted runtime and identity allow it."""
+    has_reserved_demo_identity = (
+        current_user.id == DEMO_ADMIN_ID or current_user.email == DEMO_ADMIN_EMAIL
+    )
+    is_allowed = (
+        portfolio_demo_mode is False
+        and payment_provider == PaymentProvider.STRIPE_TEST.value
+        and current_user.is_active is True
+        and current_user.role in {UserRole.ADMIN, UserRole.SUPER_ADMIN}
+        and not has_reserved_demo_identity
+    )
+    if not is_allowed:
+        raise AdminMenuMutationDeniedError

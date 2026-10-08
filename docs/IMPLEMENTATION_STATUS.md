@@ -855,6 +855,37 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   analytics, exports, frontend, model, migration, environment, or public-release
   change.
 
+- **B4-3A2 — Admin Menu mutation guard:** locally implemented for all four
+  administrator category and menu-item POST/PATCH mutations. Each real service
+  function applies the fail-closed guard before `session.begin()`, any
+  Category/MenuItem lookup or lock, `add`, `flush`, or DML. For a syntactically
+  valid request from an authenticated admin or super-admin, exact `true + demo`
+  returns one fixed generic 403. Exact `False + stripe_test` preserves existing
+  legal mutations for active ordinary admins and super-admins, while either the
+  reserved `DEMO_ADMIN_ID` or `DEMO_ADMIN_EMAIL` fails closed; missing or
+  mismatched runtime state also fails closed. The canonical authentication User
+  read remains allowed and is excluded from the zero-domain-access claim.
+  Local no-database evidence is 114 passing policy tests and 46 passing explicit
+  app/auth/Order-mutation regressions, with one non-blocking external Starlette
+  TestClient deprecation warning in each invocation. A separate earlier
+  collect-only invocation collected 28 tests; it did not execute them and was
+  not PostgreSQL acceptance. Ruff, Black, isort, compileall, and
+  `git diff --check` passed.
+
+  After separate authorization, one later invocation executed exactly the 28
+  tests in `backend/tests/integration/test_admin_menu_api.py` once, without a
+  retry. It completed with 28 passed, 0 failed, 0 skipped, and native exit code 0. The read-only postcheck confirmed that the test database was absent and
+  that the unrelated-client count was 0. The development database remained at
+  OID 16384, with its aggregate fingerprint unchanged at
+  `7e0b9931f1dc0f56d69673cc45c8a0a1102f1272ae333fd461cede50cc2f4353`
+  across ten tables and 28 rows. A subsequent user-executed `docker stop`
+  returned exit 0; the project container was Exited, host port 5433 was closed,
+  and the protected named volume was preserved. This is not a claim of bitwise
+  volume immutability. Local isolated PostgreSQL acceptance is complete; commit,
+  push, and CI remain pending. The B4-2 CLI still has not run against a database;
+  public demo-session issuance, read isolation, remaining B4 work, B5, B6,
+  production provisioning, and deployment remain open.
+
 - **Stage 22-B0 demo design:** its B3 payment design is now implemented through
   B3-2B. B4 public session issuance and remaining bounded authorization guards,
   any

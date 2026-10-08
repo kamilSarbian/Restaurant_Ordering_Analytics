@@ -16,6 +16,11 @@ from sqlalchemy import delete, event, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.auth.demo_admin import (
+    DEMO_ADMIN_DISABLED_PASSWORD_HASH,
+    DEMO_ADMIN_EMAIL,
+    DEMO_ADMIN_ID,
+)
 from app.auth.models import User
 from app.auth.roles import UserRole
 from app.auth.service import UserTokenService
@@ -43,6 +48,7 @@ from app.orders.quoting import (
 from app.orders.schemas import OrderQuoteItemRequest, OrderQuoteRequest, OrderType
 from app.orders.statuses import OrderStatus
 from app.payments.models import Payment, StripeEvent
+from app.payments.providers import PaymentProvider
 from app.restaurant_tables.models import RestaurantTable
 
 pytestmark = pytest.mark.integration
@@ -51,6 +57,11 @@ CATEGORIES_PATH = "/api/v1/admin/menu/categories"
 ITEMS_PATH = "/api/v1/admin/menu/items"
 SYNTHETIC_SECRET = "m" * 32
 FIXED_NOW = datetime(2026, 8, 11, 12, tzinfo=UTC)
+MenuRowSnapshot = tuple[object, ...]
+MenuTablesSnapshot = tuple[
+    tuple[MenuRowSnapshot, ...],
+    tuple[MenuRowSnapshot, ...],
+]
 
 
 @dataclass(frozen=True)
@@ -129,12 +140,17 @@ def admin_client(
 def _application(
     factory: sessionmaker[Session],
     token_service: UserTokenService | None,
+    *,
+    portfolio_demo_mode: bool = False,
+    payment_provider: str = PaymentProvider.STRIPE_TEST.value,
 ):
     return create_app(
         settings=Settings(
             _env_file=None,
             database_url=None,
             auth_jwt_secret=None,
+            portfolio_demo_mode=portfolio_demo_mode,
+            payment_provider=payment_provider,
         ),
         session_factory=factory,
         user_token_service=token_service,
@@ -144,19 +160,33 @@ def _application(
 def _store_admin(
     factory: sessionmaker[Session],
     *,
+    user_id: UUID | None = None,
     email: str = "menu-admin@example.com",
+    password_hash: str = "$argon2id$synthetic-menu-test-hash",
+    role: UserRole = UserRole.SUPER_ADMIN,
     is_active: bool = True,
 ) -> UUID:
     with factory.begin() as session:
         admin = User(
+            id=user_id or uuid4(),
             email=email,
-            password_hash="$argon2id$synthetic-menu-test-hash",
-            role=UserRole.SUPER_ADMIN,
+            password_hash=password_hash,
+            role=role,
             is_active=is_active,
         )
         session.add(admin)
         session.flush()
         return admin.id
+
+
+def _normal_service_admin() -> User:
+    return User(
+        id=uuid4(),
+        email=f"menu-service-admin-{uuid4()}@example.com",
+        password_hash="$argon2id$synthetic-menu-service-test-hash",
+        role=UserRole.SUPER_ADMIN,
+        is_active=True,
+    )
 
 
 def _category(
@@ -208,6 +238,79 @@ def _store(
         session.add_all(records)
         session.flush()
         session.expunge_all()
+
+
+def _menu_tables_snapshot(
+    factory: sessionmaker[Session],
+) -> MenuTablesSnapshot:
+    with factory() as session:
+        categories = session.scalars(select(Category).order_by(Category.id.asc())).all()
+        items = session.scalars(select(MenuItem).order_by(MenuItem.id.asc())).all()
+        return (
+            tuple(
+                (
+                    category.id,
+                    category.name,
+                    category.description,
+                    category.display_order,
+                    category.is_active,
+                    category.created_at,
+                    category.updated_at,
+                )
+                for category in categories
+            ),
+            tuple(
+                (
+                    item.id,
+                    item.category_id,
+                    item.name,
+                    item.description,
+                    item.image_url,
+                    item.price_amount,
+                    item.cost_amount,
+                    item.currency,
+                    tuple(item.allergens),
+                    item.display_order,
+                    item.is_active,
+                    item.is_available,
+                    item.created_at,
+                    item.updated_at,
+                )
+                for item in items
+            ),
+        )
+
+
+def _store_portfolio_actor(
+    factory: sessionmaker[Session],
+    actor: str,
+) -> UUID:
+    if actor == "demo_exact":
+        return _store_admin(
+            factory,
+            user_id=DEMO_ADMIN_ID,
+            email=DEMO_ADMIN_EMAIL,
+            password_hash=DEMO_ADMIN_DISABLED_PASSWORD_HASH,
+            role=UserRole.ADMIN,
+        )
+    if actor == "reserved_id":
+        return _store_admin(
+            factory,
+            user_id=DEMO_ADMIN_ID,
+            email="drifted-demo-id@example.com",
+            role=UserRole.ADMIN,
+        )
+    if actor == "reserved_email":
+        return _store_admin(
+            factory,
+            email=DEMO_ADMIN_EMAIL,
+            role=UserRole.ADMIN,
+        )
+    return _store_admin(
+        factory,
+        email=f"portfolio-menu-{actor.replace('_', '-')}@example.com",
+        role=UserRole.ADMIN if actor == "admin" else UserRole.SUPER_ADMIN,
+    )
 
 
 def test_all_six_routes_require_user_bearer(
@@ -267,6 +370,219 @@ def test_representative_invalid_inactive_and_unavailable_authentication(
         assert response.json() == {"detail": "Invalid authentication credentials"}
     assert unavailable.status_code == 503
     assert unavailable.json() == {"detail": "Authentication service unavailable"}
+
+
+def test_all_six_routes_reject_authenticated_customer(
+    api_session_factory: sessionmaker[Session],
+    token_service: UserTokenService,
+) -> None:
+    customer_id = _store_admin(
+        api_session_factory,
+        email="menu-customer@example.com",
+        role=UserRole.CUSTOMER,
+    )
+    application = _application(api_session_factory, token_service)
+    headers = {
+        "Authorization": f"Bearer {token_service.create_access_token(customer_id)}"
+    }
+    requests = [
+        ("get", CATEGORIES_PATH, None),
+        ("post", CATEGORIES_PATH, {"name": "Category"}),
+        ("patch", f"{CATEGORIES_PATH}/{uuid4()}", {"name": "Category"}),
+        ("get", ITEMS_PATH, None),
+        (
+            "post",
+            ITEMS_PATH,
+            {"category_id": str(uuid4()), "name": "Item", "price_amount": 100},
+        ),
+        ("patch", f"{ITEMS_PATH}/{uuid4()}", {"name": "Item"}),
+    ]
+
+    with TestClient(application) as client:
+        responses = [
+            client.request(method, path, json=payload, headers=headers)
+            for method, path, payload in requests
+        ]
+
+    for response in responses:
+        assert response.status_code == 403
+        assert response.json() == {"detail": "Administrator access required"}
+
+
+@pytest.mark.parametrize(
+    "actor",
+    ["demo_exact", "reserved_id", "reserved_email", "admin", "super_admin"],
+)
+def test_portfolio_runtime_denies_all_menu_mutations_without_database_changes(
+    api_session_factory: sessionmaker[Session],
+    token_service: UserTokenService,
+    test_database_engine: Engine,
+    actor: str,
+) -> None:
+    actor_id = _store_portfolio_actor(api_session_factory, actor)
+    category = _category(name="Stable category", display_order=3)
+    item = _item(
+        category,
+        name="Stable item",
+        display_order=4,
+        is_available=True,
+    )
+    _store(api_session_factory, category, item)
+    before_snapshot = _menu_tables_snapshot(api_session_factory)
+    application = _application(
+        api_session_factory,
+        token_service,
+        portfolio_demo_mode=True,
+        payment_provider=PaymentProvider.DEMO.value,
+    )
+    headers = {"Authorization": f"Bearer {token_service.create_access_token(actor_id)}"}
+    missing_category_id = uuid4()
+    missing_item_id = uuid4()
+    statements: list[str] = []
+
+    def capture(
+        _connection: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        statements.append(statement)
+
+    event.listen(test_database_engine, "before_cursor_execute", capture)
+    try:
+        with TestClient(application) as client:
+            responses = [
+                client.post(
+                    CATEGORIES_PATH,
+                    json={"name": "Blocked category"},
+                    headers=headers,
+                ),
+                client.patch(
+                    f"{CATEGORIES_PATH}/{category.id}",
+                    json={"description": "Blocked category update"},
+                    headers=headers,
+                ),
+                client.patch(
+                    f"{CATEGORIES_PATH}/{missing_category_id}",
+                    json={"description": "Blocked missing category update"},
+                    headers=headers,
+                ),
+                client.post(
+                    ITEMS_PATH,
+                    json={
+                        "category_id": str(category.id),
+                        "name": "Blocked item",
+                        "price_amount": 100,
+                    },
+                    headers=headers,
+                ),
+                client.patch(
+                    f"{ITEMS_PATH}/{item.id}",
+                    json={"is_available": False},
+                    headers=headers,
+                ),
+                client.patch(
+                    f"{ITEMS_PATH}/{missing_item_id}",
+                    json={"is_available": False},
+                    headers=headers,
+                ),
+            ]
+    finally:
+        event.remove(test_database_engine, "before_cursor_execute", capture)
+
+    assert [(response.status_code, response.json()) for response in responses] == [
+        (403, {"detail": "Menu mutation is not allowed"})
+    ] * len(responses)
+    normalized = [" ".join(statement.upper().split()) for statement in statements]
+    application_statements = [
+        statement for statement in normalized if statement != "SELECT 1"
+    ]
+    selects = [
+        statement
+        for statement in application_statements
+        if statement.startswith("SELECT ")
+    ]
+    assert len(selects) == len(responses)
+    assert all("FROM USERS" in statement for statement in selects)
+    assert all("CATEGORIES" not in statement for statement in application_statements)
+    assert all("MENU_ITEMS" not in statement for statement in application_statements)
+    assert all("FOR UPDATE" not in statement for statement in application_statements)
+    assert all(
+        not statement.startswith(("INSERT ", "UPDATE ", "DELETE "))
+        for statement in application_statements
+    )
+    assert _menu_tables_snapshot(api_session_factory) == before_snapshot
+
+
+def test_normal_runtime_allows_all_menu_mutations_for_ordinary_admin(
+    api_session_factory: sessionmaker[Session],
+    token_service: UserTokenService,
+) -> None:
+    admin_id = _store_admin(
+        api_session_factory,
+        email="ordinary-menu-admin@example.com",
+        role=UserRole.ADMIN,
+    )
+    category = _category(name="Existing category")
+    item = _item(category, name="Existing item", is_available=True)
+    _store(api_session_factory, category, item)
+    application = _application(
+        api_session_factory,
+        token_service,
+        portfolio_demo_mode=False,
+        payment_provider=PaymentProvider.STRIPE_TEST.value,
+    )
+    headers = {"Authorization": f"Bearer {token_service.create_access_token(admin_id)}"}
+
+    with TestClient(application) as client:
+        created_category = client.post(
+            CATEGORIES_PATH,
+            json={"name": "Created category"},
+            headers=headers,
+        )
+        assert created_category.status_code == 201
+        updated_category = client.patch(
+            f"{CATEGORIES_PATH}/{category.id}",
+            json={"description": "Updated by ordinary admin"},
+            headers=headers,
+        )
+        created_item = client.post(
+            ITEMS_PATH,
+            json={
+                "category_id": created_category.json()["id"],
+                "name": "Created item",
+                "price_amount": 1200,
+            },
+            headers=headers,
+        )
+        updated_item = client.patch(
+            f"{ITEMS_PATH}/{item.id}",
+            json={"is_available": False},
+            headers=headers,
+        )
+
+    assert updated_category.status_code == 200
+    assert created_item.status_code == 201
+    assert updated_item.status_code == 200
+    with api_session_factory() as session:
+        stored_category = session.get(Category, category.id)
+        stored_item = session.get(MenuItem, item.id)
+        stored_created_category = session.get(
+            Category, UUID(created_category.json()["id"])
+        )
+        stored_created_item = session.get(MenuItem, UUID(created_item.json()["id"]))
+        assert stored_category is not None
+        assert stored_item is not None
+        assert stored_created_category is not None
+        assert stored_created_item is not None
+        assert stored_category.description == "Updated by ordinary admin"
+        assert stored_item.is_available is False
+        assert stored_created_category.name == "Created category"
+        assert stored_created_item.category_id == stored_created_category.id
+        assert stored_created_item.name == "Created item"
+        assert stored_created_item.price_amount == 1200
 
 
 def test_category_list_paginates_orders_and_includes_inactive_rows(
@@ -872,12 +1188,18 @@ def test_category_and_item_patch_use_target_row_locks_without_delete(
                 session,
                 category_id=category.id,
                 request=AdminCategoryUpdateRequest(description="Updated"),
+                current_user=_normal_service_admin(),
+                portfolio_demo_mode=False,
+                payment_provider=PaymentProvider.STRIPE_TEST.value,
             )
         with api_session_factory() as session:
             update_admin_menu_item(
                 session,
                 item_id=item.id,
                 request=AdminMenuItemUpdateRequest(is_available=False),
+                current_user=_normal_service_admin(),
+                portfolio_demo_mode=False,
+                payment_provider=PaymentProvider.STRIPE_TEST.value,
             )
     finally:
         event.remove(test_database_engine, "before_cursor_execute", capture)
@@ -948,12 +1270,18 @@ def test_concurrent_patch_operations_serialize_without_lost_partial_updates(
                     session,
                     category_id=category.id,
                     request=AdminCategoryUpdateRequest(description="First committed"),
+                    current_user=_normal_service_admin(),
+                    portfolio_demo_mode=False,
+                    payment_provider=PaymentProvider.STRIPE_TEST.value,
                 )
             else:
                 update_admin_menu_item(
                     session,
                     item_id=item.id,
                     request=AdminMenuItemUpdateRequest(description="First committed"),
+                    current_user=_normal_service_admin(),
+                    portfolio_demo_mode=False,
+                    payment_provider=PaymentProvider.STRIPE_TEST.value,
                 )
 
     def second_update() -> None:
@@ -963,12 +1291,18 @@ def test_concurrent_patch_operations_serialize_without_lost_partial_updates(
                     session,
                     category_id=category.id,
                     request=AdminCategoryUpdateRequest(display_order=7),
+                    current_user=_normal_service_admin(),
+                    portfolio_demo_mode=False,
+                    payment_provider=PaymentProvider.STRIPE_TEST.value,
                 )
             else:
                 update_admin_menu_item(
                     session,
                     item_id=item.id,
                     request=AdminMenuItemUpdateRequest(is_available=False),
+                    current_user=_normal_service_admin(),
+                    portfolio_demo_mode=False,
+                    payment_provider=PaymentProvider.STRIPE_TEST.value,
                 )
 
     event.listen(test_database_engine, "before_cursor_execute", capture_second_select)
