@@ -1950,6 +1950,7 @@ test('completes guest payment and administrator governance without external trus
         name: 'Administrator workspace',
       }),
     ).toBeVisible();
+    await expect(adminPage.getByText('Menu items', { exact: true })).toBeVisible();
     const ordersResponse = waitForApiResponse(adminPage, 'GET', '/api/v1/admin/orders');
     await adminPage
       .getByRole('navigation', { name: 'Administrator navigation' })
