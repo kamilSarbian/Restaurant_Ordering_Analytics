@@ -7,9 +7,12 @@
   its import-safety follow-up is committed and pushed at
   `7453f1a4bebfdfe1ea0790d4511f5c4f339058ff`, and replacement GitHub Actions
   run `36787120143`, attempt 1, passed `Backend`, `Migrations`, `Frontend`, and
-  `Browser E2E` for that follow-up SHA. This file records durable implementation
-  scope and acceptance evidence; repository history, independent-review
-  records, and CI are authoritative for transient commit and run status.
+  `Browser E2E` for that follow-up SHA. B4-3A2 is committed and pushed on `main` at
+  `0360c2a99fe74cd8b919d80b8228736013b5e0b2`; GitHub Actions run `37763051792`,
+  attempt 1, completed `Backend`, `Migrations`, `Frontend`, and `Browser E2E`
+  with `success` for that exact SHA. This file records durable implementation
+  scope and acceptance evidence; repository history, independent-review records,
+  and CI are authoritative for transient commit and run status.
   Recruiter-facing portfolio documentation and case-study work remain Stage 23
   and have not started
 - **Stage 1:** completed
@@ -35,10 +38,13 @@
   guard and import-safety follow-up are committed and pushed, and replacement
   GitHub Actions run `36787120143`, attempt 1, passed all four required jobs for
   `7453f1a4bebfdfe1ea0790d4511f5c4f339058ff`, closing B4-3A1 CI acceptance.
-  The original Stage 20 paid Render/GHCR topology is historical and superseded
-  for the free-tier portfolio demo. Public B4 demo-session issuance and
-  remaining authorization guards, B5, B6, and any further B3 scope remain
-  future work.
+  B4-3A2 is committed and pushed on `main` at
+  `0360c2a99fe74cd8b919d80b8228736013b5e0b2`; GitHub Actions run `37763051792`,
+  attempt 1, completed `Backend`, `Migrations`, `Frontend`, and `Browser E2E`
+  with `success` for that exact SHA, closing B4-3A2 CI acceptance. The original
+  Stage 20 paid Render/GHCR topology is historical and superseded for the
+  free-tier portfolio demo. Public B4 demo-session issuance and remaining
+  authorization guards, B5, B6, and any further B3 scope remain future work.
   Stage 23 is **not started**. No Render/Neon provisioning, production
   migration/seed, public deployment, or public URL is claimed.
 - **Backend:** FastAPI, database foundation, menu models, local seed data,
@@ -855,7 +861,7 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   analytics, exports, frontend, model, migration, environment, or public-release
   change.
 
-- **B4-3A2 — Admin Menu mutation guard:** locally implemented for all four
+- **B4-3A2 — Admin Menu mutation guard:** implemented for all four
   administrator category and menu-item POST/PATCH mutations. Each real service
   function applies the fail-closed guard before `session.begin()`, any
   Category/MenuItem lookup or lock, `add`, `flush`, or DML. For a syntactically
@@ -881,10 +887,15 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   across ten tables and 28 rows. A subsequent user-executed `docker stop`
   returned exit 0; the project container was Exited, host port 5433 was closed,
   and the protected named volume was preserved. This is not a claim of bitwise
-  volume immutability. Local isolated PostgreSQL acceptance is complete; commit,
-  push, and CI remain pending. The B4-2 CLI still has not run against a database;
-  public demo-session issuance, read isolation, remaining B4 work, B5, B6,
-  production provisioning, and deployment remain open.
+  volume immutability. Local isolated PostgreSQL acceptance is complete. B4-3A2
+  is committed and pushed on `main` at
+  `0360c2a99fe74cd8b919d80b8228736013b5e0b2`. Automatic GitHub Actions run
+  `37763051792`, attempt 1, passed `Backend`, `Migrations`, `Frontend`, and
+  `Browser E2E` for that exact SHA without a manual rerun or workflow dispatch,
+  closing B4-3A2 CI acceptance. The push was a single regular non-force push.
+  The B4-2 CLI still has not run against a database; public demo-session
+  issuance, read isolation, remaining B4 work, B5, B6, production provisioning,
+  and deployment remain open.
 
 - **Stage 22-B0 demo design:** its B3 payment design is now implemented through
   B3-2B. B4 public session issuance and remaining bounded authorization guards,
