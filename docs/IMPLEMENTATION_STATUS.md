@@ -10,9 +10,22 @@
   `Browser E2E` for that follow-up SHA. B4-3A2 is committed and pushed on `main` at
   `0360c2a99fe74cd8b919d80b8228736013b5e0b2`; GitHub Actions run `37763051792`,
   attempt 1, completed `Backend`, `Migrations`, `Frontend`, and `Browser E2E`
-  with `success` for that exact SHA. This file records durable implementation
-  scope and acceptance evidence; repository history, independent-review records,
-  and CI are authoritative for transient commit and run status.
+  with `success` for that exact SHA. B4-3A3 implementation is committed and
+  pushed at `2a38670ee3a08890f9c06d918f5a80de7c32e56f`; its GitHub Actions run
+  `37777272806`, attempt 1, passed `Backend`, `Migrations`, and `Frontend`, while
+  `Browser E2E` failed with 30 passed, 1 failed, and 1 did not run. The test-only
+  synchronization follow-up is committed and pushed at
+  `d87e56a26119c8145280c38837a29eba2e2a94ba`, changing only
+  `frontend/e2e/guest-order-admin.e2e.ts`. Exactly one local full canonical
+  Browser E2E run for that follow-up completed with 32 passed, 0 failed, 0 did
+  not run, and no retry. Replacement GitHub Actions run `37785288724`, attempt 1,
+  completed `Backend`, `Migrations`, `Frontend`, and `Browser E2E` with
+  `success` for the follow-up SHA. Stage 22 remains in progress; the B4-2
+  CLI-on-DB, public demo-session issuance, remaining read isolation and B4 work,
+  B5, B6, production provisioning, and deployment remain open. This file
+  records durable implementation scope and acceptance evidence; repository
+  history, independent-review records, and CI are authoritative for transient
+  commit and run status.
   Recruiter-facing portfolio documentation and case-study work remain Stage 23
   and have not started
 - **Stage 1:** completed
@@ -41,10 +54,20 @@
   B4-3A2 is committed and pushed on `main` at
   `0360c2a99fe74cd8b919d80b8228736013b5e0b2`; GitHub Actions run `37763051792`,
   attempt 1, completed `Backend`, `Migrations`, `Frontend`, and `Browser E2E`
-  with `success` for that exact SHA, closing B4-3A2 CI acceptance. The original
-  Stage 20 paid Render/GHCR topology is historical and superseded for the
-  free-tier portfolio demo. Public B4 demo-session issuance and remaining
-  authorization guards, B5, B6, and any further B3 scope remain future work.
+  with `success` for that exact SHA, closing B4-3A2 CI acceptance. B4-3A3
+  implementation is committed and pushed at
+  `2a38670ee3a08890f9c06d918f5a80de7c32e56f`. Its run `37777272806`, attempt 1,
+  passed `Backend`, `Migrations`, and `Frontend`, but `Browser E2E` failed with
+  30 passed, 1 failed, and 1 did not run. The test-only synchronization follow-up
+  is committed and pushed at `d87e56a26119c8145280c38837a29eba2e2a94ba`,
+  changing only `frontend/e2e/guest-order-admin.e2e.ts`. Exactly one local full
+  canonical Browser E2E run for that follow-up completed with 32 passed, 0
+  failed, 0 did not run, and no retry. Replacement run `37785288724`, attempt 1,
+  passed all four required jobs for the follow-up SHA, closing B4-3A3 CI
+  acceptance. The original Stage 20 paid Render/GHCR topology is historical and
+  superseded for the free-tier portfolio demo. The B4-2 CLI-on-DB, public B4
+  demo-session issuance, remaining read isolation and B4 work, B5, B6, and any
+  further B3 scope remain future work.
   Stage 23 is **not started**. No Render/Neon provisioning, production
   migration/seed, public deployment, or public URL is claimed.
 - **Backend:** FastAPI, database foundation, menu models, local seed data,
@@ -897,8 +920,9 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   issuance, read isolation, remaining B4 work, B5, B6, production provisioning,
   and deployment remain open.
 
-- **B4-3A3 — Admin User role mutation guard (local candidate):** the working
-  tree protects only `PATCH /api/v1/admin/users/{user_id}/role`. Exact
+- **B4-3A3 — Admin User role mutation guard (committed, pushed, and CI green):**
+  the committed implementation protects only
+  `PATCH /api/v1/admin/users/{user_id}/role`. Exact
   `true + demo`, missing or mismatched trusted runtime state, and either
   reserved demo-administrator identifier on the acting User return one fixed
   generic 403 before `session.begin()` and before the target lookup. Exact
@@ -926,9 +950,21 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   the project container was Exited, host port 5433 was closed, and the protected
   named volume was preserved. This is not a claim of bitwise volume
   immutability. Local isolated PostgreSQL acceptance for B4-3A3 is complete.
-  Independent re-review, commit, push, and CI remain open. The B4-2 CLI still
-  has not run against a database; public demo-session issuance and the remaining
-  B4 work remain open. No frontend, migration, environment, provisioning, or
+  The B4-3A3 implementation is committed and pushed at
+  `2a38670ee3a08890f9c06d918f5a80de7c32e56f`. Its automatic GitHub Actions run
+  `37777272806`, attempt 1, completed `Backend`, `Migrations`, and `Frontend`
+  with `success`; `Browser E2E` failed with 30 passed, 1 failed, and 1 did not
+  run. The synchronization fix is committed and pushed at
+  `d87e56a26119c8145280c38837a29eba2e2a94ba` and changes only
+  `frontend/e2e/guest-order-admin.e2e.ts`. Exactly one local full canonical
+  Browser E2E run for that fix completed with 32 passed, 0 failed, 0 did not
+  run, and no retry. Replacement GitHub Actions run `37785288724`, attempt 1,
+  completed `Backend`, `Migrations`, `Frontend`, and `Browser E2E` with
+  `success` for the fix SHA. The historical failed run remains failed; B4-3A3
+  alone is committed, pushed, and CI green. The B4-2 CLI still has not run
+  against a database; public demo-session issuance, remaining read isolation
+  and B4 work, B5, B6, production provisioning, and deployment remain open. No
+  frontend application behavior, migration, environment, provisioning, or
   deployment change is included.
 
 - **Stage 22-B0 demo design:** its B3 payment design is now implemented through
