@@ -7,6 +7,7 @@ import {
   type Browser,
   type BrowserContext,
   type ConsoleMessage,
+  type JSHandle,
   type Locator,
   type Page,
   type Request,
@@ -814,6 +815,10 @@ interface RuntimeBox {
 }
 
 interface RuntimeElement {
+  addEventListener: (
+    type: 'transitioncancel' | 'transitionend',
+    listener: (event: RuntimeTransitionEvent) => void,
+  ) => void;
   readonly clientHeight?: number;
   readonly currentSrc?: string;
   readonly naturalHeight?: number;
@@ -835,6 +840,15 @@ interface RuntimeElement {
   getAttribute: (name: string) => string | null;
   getBoundingClientRect: () => RuntimeBox;
   querySelector: (selector: string) => RuntimeElement | null;
+  removeEventListener: (
+    type: 'transitioncancel' | 'transitionend',
+    listener: (event: RuntimeTransitionEvent) => void,
+  ) => void;
+}
+
+interface RuntimeTransitionEvent {
+  readonly propertyName: string;
+  readonly target: RuntimeElement | null;
 }
 
 interface BrowserRuntime {
@@ -999,6 +1013,10 @@ function browserDiagnosticPath(rawUrl: string, expectedOrigin: string): string {
 }
 
 function browserDiagnosticKind(value: string): string {
+  const [, diagnosticMessage] = value.split(/\r?\n/u, 3);
+  if (diagnosticMessage === 'H2B_BUTTON_PRESS_MOTION_MISMATCH') {
+    return 'assertion-error';
+  }
   const normalized = value.toLowerCase();
   if (
     normalized.includes('failed to fetch dynamically imported module') ||
@@ -1080,6 +1098,42 @@ function summarizeBrowserDiagnosticText(value: string, errorName: string): strin
   return `kind=${browserDiagnosticKind(boundedValue)};name=${safeName};locations=${
     locations.length === 0 ? 'none' : locations.join(',')
   }`;
+}
+
+type AdminExportsMotionCleanupCode =
+  | 'H2B_BUTTON_PRESS_MOUSE_MOVE_CLEANUP_FAILED'
+  | 'H2B_BUTTON_PRESS_MOUSE_UP_CLEANUP_FAILED'
+  | 'H2B_BUTTON_PRESS_TRANSITION_PROBE_CLEANUP_FAILED'
+  | 'H2B_BUTTON_PRESS_TRANSITION_PROBE_DISPOSE_FAILED';
+
+class SanitizedAdminExportsMotionError extends Error {
+  constructor(
+    primarySummary: string | null,
+    cleanupCodes: readonly AdminExportsMotionCleanupCode[],
+  ) {
+    const message = `H2B_BUTTON_PRESS_FAILURE;primary=${
+      primarySummary ?? 'none'
+    };cleanup=${cleanupCodes.length === 0 ? 'none' : cleanupCodes.join(',')}`;
+    super(message);
+    this.name = 'SanitizedAdminExportsMotionError';
+    this.stack = `${this.name}: ${message}`;
+  }
+}
+
+function summarizeAdminExportsMotionPrimaryFailure(error: unknown): string {
+  try {
+    const source =
+      error instanceof Error
+        ? `${error.name}\n${error.message}\n${error.stack ?? ''}`.slice(
+            0,
+            MAX_BROWSER_DIAGNOSTIC_SOURCE_LENGTH,
+          )
+        : 'non-error-thrown';
+    const errorName = error instanceof Error ? error.name : 'NonError';
+    return summarizeBrowserDiagnosticText(source, errorName);
+  } catch {
+    return 'kind=unclassified-error;name=UnknownError;locations=none';
+  }
 }
 
 function browserDiagnosticMethod(value: string): string {
@@ -1296,6 +1350,12 @@ class BrowserSafetyGuard {
   }
 
   private sanitizeFailure(label: string, error: unknown): Error {
+    if (error instanceof SanitizedAdminExportsMotionError) {
+      const sanitized = new Error(error.message);
+      sanitized.name = label;
+      sanitized.stack = `${label}: ${error.message}`;
+      return sanitized;
+    }
     const source =
       error instanceof Error
         ? `${error.name}\n${error.message}\n${error.stack ?? ''}`.slice(
@@ -9290,6 +9350,96 @@ async function assertAdminExportDownload(
   }
 }
 
+interface AdminExportButtonMotionSnapshot {
+  readonly buttonCenterX: number;
+  readonly buttonCenterY: number;
+  readonly height: number;
+  readonly relativeTop: number;
+  readonly transform: string;
+  readonly transitionDurationMs: number;
+  readonly width: number;
+}
+
+type TransformTransitionOutcome = 'cancelled' | 'cleaned-up' | 'completed';
+
+interface TransformTransitionProbe {
+  readonly finished: Promise<TransformTransitionOutcome>;
+  cleanup: () => void;
+}
+
+async function adminExportButtonMotionSnapshot(
+  button: Locator,
+): Promise<AdminExportButtonMotionSnapshot | null> {
+  return button.evaluate((element) => {
+    const runtime = globalThis as typeof globalThis & BrowserRuntime;
+    const buttonElement = element as unknown as RuntimeElement;
+    const cardElement = buttonElement.closest(
+      'section[aria-labelledby="orders-export-heading"]',
+    );
+    if (cardElement === null) return null;
+    const buttonBox = buttonElement.getBoundingClientRect();
+    const cardBox = cardElement.getBoundingClientRect();
+    const style = runtime.getComputedStyle(buttonElement);
+    const maximumDurationMs = (value: string) =>
+      Math.max(
+        ...value.split(',').map((entry) => {
+          const normalized = entry.trim();
+          const numericValue = Number.parseFloat(normalized);
+          if (!Number.isFinite(numericValue)) return Number.POSITIVE_INFINITY;
+          return normalized.endsWith('ms') ? numericValue : numericValue * 1_000;
+        }),
+      );
+    return {
+      buttonCenterX: buttonBox.left + buttonBox.width / 2,
+      buttonCenterY: buttonBox.top + buttonBox.height / 2,
+      height: buttonBox.height,
+      relativeTop: buttonBox.top - cardBox.top,
+      transform: style.transform,
+      transitionDurationMs: maximumDurationMs(style.transitionDuration),
+      width: buttonBox.width,
+    };
+  });
+}
+
+async function armTransformTransitionProbe(
+  button: Locator,
+): Promise<JSHandle<TransformTransitionProbe>> {
+  return button.evaluateHandle((element) => {
+    const runtimeElement = element as unknown as RuntimeElement;
+    let settled = false;
+    let settle: (outcome: TransformTransitionOutcome) => void = () => undefined;
+    const finished = new Promise<TransformTransitionOutcome>((resolve) => {
+      settle = resolve;
+    });
+    const removeListeners = () => {
+      runtimeElement.removeEventListener('transitionend', handleTransitionEnd);
+      runtimeElement.removeEventListener('transitioncancel', handleTransitionCancel);
+    };
+    const finish = (outcome: TransformTransitionOutcome) => {
+      if (settled) return;
+      settled = true;
+      removeListeners();
+      settle(outcome);
+    };
+    const handleTransitionEnd = (event: RuntimeTransitionEvent) => {
+      if (event.target === runtimeElement && event.propertyName === 'transform') {
+        finish('completed');
+      }
+    };
+    const handleTransitionCancel = (event: RuntimeTransitionEvent) => {
+      if (event.target === runtimeElement && event.propertyName === 'transform') {
+        finish('cancelled');
+      }
+    };
+    runtimeElement.addEventListener('transitionend', handleTransitionEnd);
+    runtimeElement.addEventListener('transitioncancel', handleTransitionCancel);
+    return {
+      cleanup: () => finish('cleaned-up'),
+      finished,
+    };
+  });
+}
+
 async function assertPurposefulAdminExportsMotion(
   pageHeader: Locator,
   parameterPanel: Locator,
@@ -9451,11 +9601,6 @@ async function assertAdminExportsViewport(
   controller.responseGates.orders = new Promise<void>((resolve) => {
     releaseOrdersResponse = resolve;
   });
-  const ordersResponse = waitForApiResponse(
-    page,
-    'GET',
-    `${ADMIN_EXPORTS_API_ROOT}/orders.csv`,
-  );
   const requestCountBeforeOrders = controller.requests.length;
   let observedDownloadCount = 0;
   page.on('download', () => {
@@ -9463,47 +9608,68 @@ async function assertAdminExportsViewport(
   });
   try {
     await ordersButton.hover();
-    const restingButtonBox = await ordersButton.boundingBox();
-    safeInvariant(restingButtonBox !== null, 'H2B_BUTTON_RESTING_BOX_MISSING');
+    const restingButtonMotion = await adminExportButtonMotionSnapshot(ordersButton);
+    safeInvariant(restingButtonMotion !== null, 'H2B_BUTTON_RESTING_BOX_MISSING');
     await page.mouse.move(
-      restingButtonBox.x + restingButtonBox.width / 2,
-      restingButtonBox.y + restingButtonBox.height / 2,
+      restingButtonMotion.buttonCenterX,
+      restingButtonMotion.buttonCenterY,
     );
+    let transitionProbe: JSHandle<TransformTransitionProbe> | null = null;
+    let primaryFailureSummary: string | null = null;
+    const cleanupFailureCodes: AdminExportsMotionCleanupCode[] = [];
     try {
+      transitionProbe = await armTransformTransitionProbe(ordersButton);
       await page.mouse.down();
-      await page.waitForTimeout(180);
-      const activeButtonBox = await ordersButton.boundingBox();
-      const activeButtonMotion = await ordersButton.evaluate((element) => {
-        const runtime = globalThis as typeof globalThis & BrowserRuntime;
-        const style = runtime.getComputedStyle(element as unknown as RuntimeElement);
-        const maximumDurationMs = (value: string) =>
-          Math.max(
-            ...value.split(',').map((entry) => {
-              const normalized = entry.trim();
-              const numericValue = Number.parseFloat(normalized);
-              if (!Number.isFinite(numericValue)) return Number.POSITIVE_INFINITY;
-              return normalized.endsWith('ms') ? numericValue : numericValue * 1_000;
-            }),
-          );
-        return {
-          transform: style.transform,
-          transitionDurationMs: maximumDurationMs(style.transitionDuration),
-        };
-      });
-      safeInvariant(activeButtonBox !== null, 'H2B_BUTTON_ACTIVE_BOX_MISSING');
+      const transitionOutcome = await adminExportOperationWithTimeout(
+        transitionProbe.evaluate((probe) => probe.finished),
+        'H2B_BUTTON_PRESS_TRANSITION_TIMEOUT',
+      );
+      safeInvariant(
+        transitionOutcome === 'completed',
+        'H2B_BUTTON_PRESS_MOTION_MISMATCH',
+      );
+      const activeButtonMotion = await adminExportButtonMotionSnapshot(ordersButton);
+      safeInvariant(activeButtonMotion !== null, 'H2B_BUTTON_ACTIVE_BOX_MISSING');
       safeInvariant(
         activeButtonMotion.transform !== 'none' &&
           activeButtonMotion.transitionDurationMs >= 100 &&
           activeButtonMotion.transitionDurationMs <= 220 &&
-          Math.abs(activeButtonBox.width - restingButtonBox.width) <= 0.1 &&
-          Math.abs(activeButtonBox.height - restingButtonBox.height) <= 0.1 &&
-          activeButtonBox.y - restingButtonBox.y >= 0.5 &&
-          activeButtonBox.y - restingButtonBox.y <= 1.1,
+          Math.abs(activeButtonMotion.width - restingButtonMotion.width) <= 0.1 &&
+          Math.abs(activeButtonMotion.height - restingButtonMotion.height) <= 0.1 &&
+          activeButtonMotion.relativeTop - restingButtonMotion.relativeTop >= 0.5 &&
+          activeButtonMotion.relativeTop - restingButtonMotion.relativeTop <= 1.1,
         'H2B_BUTTON_PRESS_MOTION_MISMATCH',
       );
-    } finally {
+    } catch (error: unknown) {
+      primaryFailureSummary = summarizeAdminExportsMotionPrimaryFailure(error);
+    }
+    if (transitionProbe !== null) {
+      try {
+        await transitionProbe.evaluate((probe) => probe.cleanup());
+      } catch {
+        cleanupFailureCodes.push('H2B_BUTTON_PRESS_TRANSITION_PROBE_CLEANUP_FAILED');
+      }
+      try {
+        await transitionProbe.dispose();
+      } catch {
+        cleanupFailureCodes.push('H2B_BUTTON_PRESS_TRANSITION_PROBE_DISPOSE_FAILED');
+      }
+    }
+    try {
       await page.mouse.move(1, 1);
+    } catch {
+      cleanupFailureCodes.push('H2B_BUTTON_PRESS_MOUSE_MOVE_CLEANUP_FAILED');
+    }
+    try {
       await page.mouse.up();
+    } catch {
+      cleanupFailureCodes.push('H2B_BUTTON_PRESS_MOUSE_UP_CLEANUP_FAILED');
+    }
+    if (primaryFailureSummary !== null || cleanupFailureCodes.length > 0) {
+      throw new SanitizedAdminExportsMotionError(
+        primaryFailureSummary,
+        cleanupFailureCodes,
+      );
     }
     expect(controller.requests).toHaveLength(requestCountBeforeOrders);
 
@@ -9629,23 +9795,28 @@ async function assertAdminExportsViewport(
     await expect(paymentsSuccess).toContainText('payments.csv');
     await expect(ordersButton).toBeDisabled();
 
-    await assertAdminExportDownload(
+    const ordersResponse = waitForApiResponse(
       page,
-      () => {
-        releaseOrdersResponse();
-      },
-      ADMIN_EXPORTS_LONG_FILENAME,
-      'ADMIN_EXPORTS_ORDERS_FILENAME_MISMATCH',
+      'GET',
+      `${ADMIN_EXPORTS_API_ROOT}/orders.csv`,
     );
+    const [ordersStatusResult, ordersDownloadResult] = await Promise.allSettled([
+      assertResponseStatus(ordersResponse, 200, 'ADMIN_EXPORTS_ORDERS_STATUS_MISMATCH'),
+      assertAdminExportDownload(
+        page,
+        () => {
+          releaseOrdersResponse();
+        },
+        ADMIN_EXPORTS_LONG_FILENAME,
+        'ADMIN_EXPORTS_ORDERS_FILENAME_MISMATCH',
+      ),
+    ] as const);
+    if (ordersDownloadResult.status === 'rejected') throw ordersDownloadResult.reason;
+    if (ordersStatusResult.status === 'rejected') throw ordersStatusResult.reason;
   } finally {
     releaseOrdersResponse();
     controller.responseGates.orders = null;
   }
-  await assertResponseStatus(
-    ordersResponse,
-    200,
-    'ADMIN_EXPORTS_ORDERS_STATUS_MISMATCH',
-  );
   const ordersSuccess = ordersCard
     .getByRole('status')
     .filter({ hasText: /Orders CSV download started/iu });
