@@ -61,9 +61,16 @@ class AdminOrderStatusMutationDeniedError(Exception):
     """Indicate that trusted identity, runtime, or provenance forbids mutation."""
 
 
+class AdminOrderReadDeniedError(Exception):
+    """Indicate that trusted identity or runtime forbids administrator reads."""
+
+
 def list_admin_orders(
     session: Session,
     *,
+    current_user: User,
+    portfolio_demo_mode: bool | None,
+    payment_provider: str | None,
     status: OrderStatus | None,
     order_type: OrderType | None,
     limit: int,
@@ -73,6 +80,9 @@ def list_admin_orders(
 
     Args:
         session: Open request-scoped database session.
+        current_user: Current active User freshly loaded by authentication.
+        portfolio_demo_mode: Trusted application-scoped demo-mode state.
+        payment_provider: Trusted application-scoped payment-provider state.
         status: Optional fulfilment-status filter.
         order_type: Optional fulfilment-type filter.
         limit: Maximum number of orders in the page.
@@ -80,8 +90,18 @@ def list_admin_orders(
 
     Returns:
         A detached strict response containing the page and total count.
+
+    Raises:
+        AdminOrderReadDeniedError: If identity or runtime forbids the read.
     """
+    origin_scope = _admin_order_read_origin_scope(
+        current_user=current_user,
+        portfolio_demo_mode=portfolio_demo_mode,
+        payment_provider=payment_provider,
+    )
     filters = []
+    if origin_scope is not None:
+        filters.append(Order.data_origin.in_(origin_scope))
     if status is not None:
         filters.append(Order.status == status.value)
     if order_type is not None:
@@ -108,22 +128,36 @@ def get_admin_order(
     session: Session,
     *,
     public_order_number: str,
+    current_user: User,
+    portfolio_demo_mode: bool | None,
+    payment_provider: str | None,
 ) -> AdminOrderDetail:
     """Return a detached administrator order detail without guest authorization.
 
     Args:
         session: Open request-scoped database session.
         public_order_number: Stable public identifier used to locate the order.
+        current_user: Current active User freshly loaded by authentication.
+        portfolio_demo_mode: Trusted application-scoped demo-mode state.
+        payment_provider: Trusted application-scoped payment-provider state.
 
     Returns:
         Strict administrator order detail assembled from durable snapshots.
 
     Raises:
         AdminOrderNotFoundError: If no order has the supplied public number.
+        AdminOrderReadDeniedError: If identity or runtime forbids the read.
     """
-    order = session.scalar(
-        select(Order).where(Order.public_order_number == public_order_number)
+    origin_scope = _admin_order_read_origin_scope(
+        current_user=current_user,
+        portfolio_demo_mode=portfolio_demo_mode,
+        payment_provider=payment_provider,
     )
+    filters = [Order.public_order_number == public_order_number]
+    if origin_scope is not None:
+        filters.append(Order.data_origin.in_(origin_scope))
+
+    order = session.scalar(select(Order).where(*filters))
     if order is None:
         raise AdminOrderNotFoundError
 
@@ -286,6 +320,42 @@ def _order_status_mutation_is_allowed(
         )
 
     return False
+
+
+def _admin_order_read_origin_scope(
+    *,
+    current_user: User,
+    portfolio_demo_mode: bool | None,
+    payment_provider: str | None,
+) -> tuple[str, str] | None:
+    """Return the allowed demo origins or no filter for trusted normal reads.
+
+    Raises:
+        AdminOrderReadDeniedError: If identity or runtime is not an exact
+            authorized read boundary.
+    """
+    has_reserved_demo_identity = (
+        current_user.id == DEMO_ADMIN_ID or current_user.email == DEMO_ADMIN_EMAIL
+    )
+
+    if portfolio_demo_mode is True and payment_provider == PaymentProvider.DEMO.value:
+        if is_demo_admin_identity(current_user):
+            return (
+                OrderDataOrigin.PORTFOLIO_SEED.value,
+                OrderDataOrigin.PORTFOLIO_RUNTIME.value,
+            )
+        raise AdminOrderReadDeniedError
+
+    if (
+        portfolio_demo_mode is False
+        and payment_provider == PaymentProvider.STRIPE_TEST.value
+        and current_user.is_active is True
+        and current_user.role in {UserRole.ADMIN, UserRole.SUPER_ADMIN}
+        and not has_reserved_demo_identity
+    ):
+        return None
+
+    raise AdminOrderReadDeniedError
 
 
 def _build_list_item(order: Order) -> AdminOrderListItem:

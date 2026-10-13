@@ -20,9 +20,15 @@
   Browser E2E run for that follow-up completed with 32 passed, 0 failed, 0 did
   not run, and no retry. Replacement GitHub Actions run `37785288724`, attempt 1,
   completed `Backend`, `Migrations`, `Frontend`, and `Browser E2E` with
-  `success` for the follow-up SHA. Stage 22 remains in progress; the B4-2
-  CLI-on-DB, public demo-session issuance, remaining read isolation and B4 work,
-  B5, B6, production provisioning, and deployment remain open. This file
+  `success` for the follow-up SHA. A later documentation commit at
+  `30e3025793bc7d04678010566bee43dc695fe0af` retained a historically failed
+  Browser E2E job in run `38052535486`, while `Backend`, `Migrations`, and
+  `Frontend` passed. The test-only Exports synchronization fix is committed at
+  `27c43bd0429a434e7e63add4528f1ee141bf8040`; replacement run `38057820650`,
+  attempt 1, passed all four required jobs. B4-3B1 is now a local implementation
+  candidate only. Stage 22 remains in progress; the B4-2 CLI-on-DB, public
+  demo-session issuance, remaining read isolation and B4 work, B5, B6,
+  production provisioning, and deployment remain open. This file
   records durable implementation scope and acceptance evidence; repository
   history, independent-review records, and CI are authoritative for transient
   commit and run status.
@@ -64,10 +70,16 @@
   canonical Browser E2E run for that follow-up completed with 32 passed, 0
   failed, 0 did not run, and no retry. Replacement run `37785288724`, attempt 1,
   passed all four required jobs for the follow-up SHA, closing B4-3A3 CI
-  acceptance. The original Stage 20 paid Render/GHCR topology is historical and
-  superseded for the free-tier portfolio demo. The B4-2 CLI-on-DB, public B4
-  demo-session issuance, remaining read isolation and B4 work, B5, B6, and any
-  further B3 scope remain future work.
+  acceptance. The later historical run `38052535486` failed only `Browser E2E`;
+  the test-only fix at `27c43bd0429a434e7e63add4528f1ee141bf8040` has four
+  successful required jobs in replacement run `38057820650`, attempt 1.
+  B4-3B1 is a local, uncommitted implementation candidate whose local isolated
+  PostgreSQL acceptance and one full canonical Browser E2E are complete. Repeat
+  independent review after this status correction, commit, push, and new CI
+  remain open. The original Stage 20 paid Render/GHCR topology is historical
+  and superseded for the free-tier portfolio demo. The
+  B4-2 CLI-on-DB, public B4 demo-session issuance, remaining read isolation and
+  B4 work, B5, B6, and any further B3 scope remain future work.
   Stage 23 is **not started**. No Render/Neon provisioning, production
   migration/seed, public deployment, or public URL is claimed.
 - **Backend:** FastAPI, database foundation, menu models, local seed data,
@@ -966,6 +978,71 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   and B4 work, B5, B6, production provisioning, and deployment remain open. No
   frontend application behavior, migration, environment, provisioning, or
   deployment change is included.
+
+- **B4-3B1 — Administrative Order-read isolation (local implementation
+  candidate):** the two administrator GET endpoints now require the canonical
+  current User plus trusted application mode and provider as mandatory service
+  inputs. Exact `true + demo` authorizes only the active reserved demo-admin
+  identity and scopes both list count/page queries and the first detail query to
+  `portfolio_seed` plus `portfolio_runtime`. A hidden `live` detail and a
+  missing Order share the existing generic 404, with no child reads or DML
+  after the scoped header lookup. Actor or runtime drift returns one fixed 403
+  before an Order-domain session operation; missing or invalid authentication
+  retains the existing 401 boundary. Exact `False + stripe_test` preserves
+  all-origin reads for active, non-reserved admins and super-admins. Response
+  schemas remain unchanged and do not expose `data_origin`.
+
+  Local no-database evidence is 132 passing targeted read-policy, B4-3A1,
+  portfolio-auth, and demo-admin regressions. The first full non-integration
+  invocation reached 1466 passing tests but had one setup error because the
+  sandbox denied pytest access to its system temporary root; it was not a
+  product-test failure. The same explicitly non-integration suite then ran
+  outside that sandbox restriction and completed with 1467 passed and one
+  non-blocking external Starlette TestClient deprecation warning. A separate
+  collect-only invocation found 98 tests in
+  `backend/tests/integration/test_admin_orders_api.py`; it did not execute the
+  PostgreSQL fixture and is not database acceptance. Ruff, Black, isort,
+  compileall, Prettier for the three changed documents, and
+  `git diff --check` passed.
+
+  One later authorized full-file PostgreSQL acceptance run executed those 98
+  tests and completed with 98 passed, 0 failed, 0 skipped, 0 deselected, native
+  exit code 0, and no retry. Its single external Starlette TestClient
+  deprecation warning was non-blocking. The read-only precheck and postcheck
+  both passed with native exit code 0. After fixture cleanup, the test database
+  was absent, the unrelated-client count was 0, and the development database
+  retained OID 16384 plus the unchanged 10-table, 28-row fingerprint
+  `7e0b9931f1dc0f56d69673cc45c8a0a1102f1272ae333fd461cede50cc2f4353`.
+  One authorized container start and one authorized graceful stop each returned
+  native exit code 0; the final container state was exited, host port 5433 was
+  closed, and the named volume was preserved. This evidence does not claim
+  bitwise volume immutability or an absence of internal PostgreSQL writes.
+
+  One later authorized full canonical Browser E2E run executed
+  `.github/scripts/run-browser-e2e.sh` exactly once through Git Bash. It
+  completed with native exit code 0, 32 passed, 0 failed, 0 did not run, an
+  8.7-minute duration, one worker, zero retries, and the list reporter. The
+  administrator governance/Orders, Order detail, Orders overview, and Exports
+  scenarios passed. Isolated project `roa-stage18-e2e-b952af6942038b5e`
+  completed its database and secret-safe log audits plus standard cleanup,
+  leaving zero containers and zero networks. Its per-run volume and two images
+  were retained under the normal harness lifecycle. The protected
+  `restaurant_ordering_analytics_postgres_data` named volume retained its
+  identity, metadata, and mounts; its contents were not compared bitwise.
+
+  The repository baseline remains `27c43bd0429a434e7e63add4528f1ee141bf8040`.
+  Historical run `38052535486`, attempt 1, passed `Backend`, `Migrations`, and
+  `Frontend` but failed `Browser E2E`; replacement run `38057820650`, attempt
+  1, passed all four required jobs for baseline commit
+  `27c43bd0429a434e7e63add4528f1ee141bf8040` after the Exports test-only fix.
+  Neither run includes this local B4-3B1 candidate, and the local Browser E2E
+  pass is not new CI. Local isolated PostgreSQL acceptance and one full
+  canonical Browser E2E are complete. Repeat independent review after this
+  correction, commit, push, and new CI remain open. The B4-2 CLI still has not
+  run against a database; public
+  demo-session issuance, Analytics/CSV/Menu/User/account read isolation,
+  remaining B4, B5, B6, production provisioning, and deployment also remain
+  open.
 
 - **Stage 22-B0 demo design:** its B3 payment design is now implemented through
   B3-2B. B4 public session issuance and remaining bounded authorization guards,

@@ -291,6 +291,7 @@ def _store_list_order(
     created_at: datetime = FIXED_NOW,
     total_amount: int = 1000,
     customer_user_id: UUID | None = None,
+    data_origin: OrderDataOrigin = OrderDataOrigin.LIVE,
 ) -> tuple[UUID, str]:
     with session_factory.begin() as session:
         table = None
@@ -302,6 +303,7 @@ def _store_list_order(
             public_order_number=generate_public_order_number(),
             order_access_token_hash=uuid.uuid4().hex + uuid.uuid4().hex,
             customer_user_id=customer_user_id,
+            data_origin=data_origin.value,
             order_type=order_type.value,
             table_id=table.id if table is not None else None,
             table_number_snapshot=table.number if table is not None else None,
@@ -321,6 +323,7 @@ def _store_detail_order(
     session_factory: sessionmaker[Session],
     *,
     customer_user_id: UUID | None = None,
+    data_origin: OrderDataOrigin = OrderDataOrigin.LIVE,
 ) -> StoredDetail:
     with session_factory.begin() as session:
         category = Category(name="Current Admin Category")
@@ -344,6 +347,7 @@ def _store_detail_order(
             public_order_number=generate_public_order_number(),
             order_access_token_hash=uuid.uuid4().hex + uuid.uuid4().hex,
             customer_user_id=customer_user_id,
+            data_origin=data_origin.value,
             order_type=OrderType.DINE_IN.value,
             table_id=table.id,
             table_number_snapshot=7,
@@ -871,6 +875,9 @@ def test_list_service_executes_exactly_two_selects_and_no_dml(
         with admin_client.session_factory() as session:
             result = list_admin_orders(
                 session,
+                current_user=_live_status_admin(),
+                portfolio_demo_mode=False,
+                payment_provider=PaymentProvider.STRIPE_TEST.value,
                 status=None,
                 order_type=None,
                 limit=50,
@@ -884,6 +891,116 @@ def test_list_service_executes_exactly_two_selects_and_no_dml(
     ]
     assert result.total == 1
     assert verbs == ["SELECT", "SELECT"]
+
+
+def test_demo_order_list_scopes_count_page_filters_and_sorting(
+    admin_session_factory: sessionmaker[Session],
+    token_service: UserTokenService,
+) -> None:
+    """Scope the demo page and count to seed/runtime before filtering and slicing."""
+    demo_admin_id = _store_policy_actor(admin_session_factory, "demo_exact")
+    _, seed_created = _store_list_order(
+        admin_session_factory,
+        created_at=FIXED_NOW,
+        total_amount=1101,
+        data_origin=OrderDataOrigin.PORTFOLIO_SEED,
+    )
+    _, seed_accepted = _store_list_order(
+        admin_session_factory,
+        status=OrderStatus.ACCEPTED,
+        order_type=OrderType.DINE_IN,
+        created_at=FIXED_NOW + timedelta(minutes=1),
+        total_amount=1102,
+        data_origin=OrderDataOrigin.PORTFOLIO_SEED,
+    )
+    _, runtime_created = _store_list_order(
+        admin_session_factory,
+        created_at=FIXED_NOW + timedelta(minutes=2),
+        total_amount=1103,
+        data_origin=OrderDataOrigin.PORTFOLIO_RUNTIME,
+    )
+    _, live_created = _store_list_order(
+        admin_session_factory,
+        created_at=FIXED_NOW + timedelta(minutes=3),
+        total_amount=1104,
+        data_origin=OrderDataOrigin.LIVE,
+    )
+    application = _application(admin_session_factory, token_service)
+    application.state.portfolio_demo_mode = True
+    application.state.payment_provider = PaymentProvider.DEMO.value
+    headers = {
+        "Authorization": f"Bearer {token_service.create_access_token(demo_admin_id)}"
+    }
+
+    with TestClient(application) as client:
+        response = client.get(LIST_PATH, headers=headers)
+        page_response = client.get(
+            LIST_PATH,
+            params={"status": "created", "limit": 1, "offset": 1},
+            headers=headers,
+        )
+        type_response = client.get(
+            LIST_PATH,
+            params={"order_type": "dine_in"},
+            headers=headers,
+        )
+
+    assert response.status_code == 200
+    assert response.json()["total"] == 3
+    assert [item["public_order_number"] for item in response.json()["items"]] == [
+        runtime_created,
+        seed_accepted,
+        seed_created,
+    ]
+    assert live_created not in response.text
+    assert page_response.status_code == 200
+    assert page_response.json()["total"] == 2
+    assert page_response.json()["limit"] == 1
+    assert page_response.json()["offset"] == 1
+    assert [item["public_order_number"] for item in page_response.json()["items"]] == [
+        seed_created
+    ]
+    assert type_response.status_code == 200
+    assert type_response.json()["total"] == 1
+    assert [item["public_order_number"] for item in type_response.json()["items"]] == [
+        seed_accepted
+    ]
+
+
+def test_normal_order_reads_preserve_all_origins(admin_client: AdminClient) -> None:
+    """Keep seed, runtime, and live visible in the trusted normal runtime."""
+    stored_seed = _store_detail_order(
+        admin_client.session_factory,
+        data_origin=OrderDataOrigin.PORTFOLIO_SEED,
+    )
+    _, runtime_number = _store_list_order(
+        admin_client.session_factory,
+        created_at=FIXED_NOW + timedelta(minutes=1),
+        data_origin=OrderDataOrigin.PORTFOLIO_RUNTIME,
+    )
+    _, live_number = _store_list_order(
+        admin_client.session_factory,
+        created_at=FIXED_NOW + timedelta(minutes=2),
+        data_origin=OrderDataOrigin.LIVE,
+    )
+
+    list_response = admin_client.client.get(LIST_PATH, headers=admin_client.headers)
+    detail_response = admin_client.client.get(
+        DETAIL_PATH.format(public_order_number=stored_seed.public_order_number),
+        headers=admin_client.headers,
+    )
+
+    assert list_response.status_code == 200
+    assert list_response.json()["total"] == 3
+    assert {item["public_order_number"] for item in list_response.json()["items"]} == {
+        stored_seed.public_order_number,
+        runtime_number,
+        live_number,
+    }
+    assert detail_response.status_code == 200
+    assert (
+        detail_response.json()["public_order_number"] == stored_seed.public_order_number
+    )
 
 
 def test_admin_order_detail_returns_ordered_snapshot_history_and_payments(
@@ -996,6 +1113,155 @@ def test_admin_order_detail_returns_ordered_snapshot_history_and_payments(
     )
 
 
+@pytest.mark.parametrize(
+    "origin",
+    [OrderDataOrigin.PORTFOLIO_SEED, OrderDataOrigin.PORTFOLIO_RUNTIME],
+)
+def test_demo_order_detail_allows_each_portfolio_origin(
+    admin_session_factory: sessionmaker[Session],
+    token_service: UserTokenService,
+    origin: OrderDataOrigin,
+) -> None:
+    """Return the unchanged detail contract for both approved demo origins."""
+    demo_admin_id = _store_policy_actor(admin_session_factory, "demo_exact")
+    stored = _store_detail_order(admin_session_factory, data_origin=origin)
+    application = _application(admin_session_factory, token_service)
+    application.state.portfolio_demo_mode = True
+    application.state.payment_provider = PaymentProvider.DEMO.value
+
+    with TestClient(application) as client:
+        response = client.get(
+            DETAIL_PATH.format(public_order_number=stored.public_order_number),
+            headers={
+                "Authorization": (
+                    f"Bearer {token_service.create_access_token(demo_admin_id)}"
+                )
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["public_order_number"] == stored.public_order_number
+    assert "data_origin" not in response.text
+
+
+@pytest.mark.parametrize("target", ["live", "missing"])
+def test_demo_hidden_live_and_missing_detail_share_404_and_stop_after_header_select(
+    admin_session_factory: sessionmaker[Session],
+    token_service: UserTokenService,
+    test_database_engine: Engine,
+    target: str,
+) -> None:
+    """Hide live existence and avoid child reads or writes after scoped lookup."""
+    demo_admin_id = _store_policy_actor(admin_session_factory, "demo_exact")
+    stored = _store_detail_order(
+        admin_session_factory,
+        data_origin=OrderDataOrigin.LIVE,
+    )
+    public_order_number = (
+        stored.public_order_number if target == "live" else "ROA-ZZZZZZZZZZZZ"
+    )
+    application = _application(admin_session_factory, token_service)
+    application.state.portfolio_demo_mode = True
+    application.state.payment_provider = PaymentProvider.DEMO.value
+    statements: list[str] = []
+
+    def capture(
+        _connection: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        statements.append(" ".join(statement.lower().split()))
+
+    event.listen(test_database_engine, "before_cursor_execute", capture)
+    try:
+        with TestClient(application) as client:
+            response = client.get(
+                DETAIL_PATH.format(public_order_number=public_order_number),
+                headers={
+                    "Authorization": (
+                        f"Bearer {token_service.create_access_token(demo_admin_id)}"
+                    )
+                },
+            )
+    finally:
+        event.remove(test_database_engine, "before_cursor_execute", capture)
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Order not found"}
+    order_selects = [
+        statement for statement in statements if " from orders " in statement
+    ]
+    assert len(order_selects) == 1
+    assert "orders.data_origin in" in order_selects[0]
+    assert all(" from order_items " not in statement for statement in statements)
+    assert all(
+        " from order_status_history " not in statement for statement in statements
+    )
+    assert all(" from payments " not in statement for statement in statements)
+    assert all(not _is_data_writing_statement(statement) for statement in statements)
+
+
+@pytest.mark.parametrize(
+    ("actor_kind", "demo_mode", "provider"),
+    [
+        ("admin", True, PaymentProvider.DEMO.value),
+        ("super_admin", True, PaymentProvider.DEMO.value),
+        ("demo_exact", False, PaymentProvider.STRIPE_TEST.value),
+        ("admin", True, PaymentProvider.STRIPE_TEST.value),
+        ("admin", False, PaymentProvider.DEMO.value),
+    ],
+)
+@pytest.mark.parametrize(
+    "path",
+    [LIST_PATH, DETAIL_PATH.format(public_order_number="ROA-ZZZZZZZZZZZZ")],
+)
+def test_read_policy_denial_returns_fixed_403_before_order_queries(
+    admin_session_factory: sessionmaker[Session],
+    token_service: UserTokenService,
+    test_database_engine: Engine,
+    actor_kind: str,
+    demo_mode: bool,
+    provider: str,
+    path: str,
+) -> None:
+    """Deny list and detail before Order access with one opaque response."""
+    actor_id = _store_policy_actor(admin_session_factory, actor_kind)
+    application = _application(admin_session_factory, token_service)
+    application.state.portfolio_demo_mode = demo_mode
+    application.state.payment_provider = provider
+    statements: list[str] = []
+
+    def capture(
+        _connection: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        statements.append(" ".join(statement.lower().split()))
+
+    event.listen(test_database_engine, "before_cursor_execute", capture)
+    try:
+        with TestClient(application) as client:
+            response = client.get(
+                path,
+                headers={
+                    "Authorization": f"Bearer {token_service.create_access_token(actor_id)}"
+                },
+            )
+    finally:
+        event.remove(test_database_engine, "before_cursor_execute", capture)
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Administrator order access is not allowed"}
+    assert all(" from orders " not in statement for statement in statements)
+    assert all(not _is_data_writing_statement(statement) for statement in statements)
+
+
 @pytest.mark.parametrize("public_order_number", ["ROA-ZZZZZZZZZZZZ", "malformed"])
 def test_unknown_and_malformed_order_numbers_share_one_404(
     admin_client: AdminClient,
@@ -1034,6 +1300,9 @@ def test_detail_service_executes_four_selects_and_no_dml(
             detail = get_admin_order(
                 session,
                 public_order_number=stored.public_order_number,
+                current_user=_live_status_admin(),
+                portfolio_demo_mode=False,
+                payment_provider=PaymentProvider.STRIPE_TEST.value,
             )
     finally:
         event.remove(test_database_engine, "before_cursor_execute", capture)
@@ -1069,6 +1338,9 @@ def test_unknown_detail_executes_one_select_and_no_dml(
                 get_admin_order(
                     session,
                     public_order_number="ROA-ZZZZZZZZZZZZ",
+                    current_user=_live_status_admin(),
+                    portfolio_demo_mode=False,
+                    payment_provider=PaymentProvider.STRIPE_TEST.value,
                 )
     finally:
         event.remove(test_database_engine, "before_cursor_execute", capture)

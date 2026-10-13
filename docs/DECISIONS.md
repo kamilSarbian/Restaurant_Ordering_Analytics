@@ -1719,6 +1719,39 @@ while preserving these financial concurrency rules.
   Render-Free plus Neon-Free target remains unprovisioned. B4 through B6 and
   any further B3 scope require separate decisions.
 
+## D-083 — Portfolio Demo Isolation for Administrative Order Reads
+
+- **Status:** accepted on 2026-10-11 for the bounded B4-3B1 contract.
+- **Scope:** this decision applies only to
+  `GET /api/v1/admin/orders` and
+  `GET /api/v1/admin/orders/{public_order_number}`. It does not authorize or
+  define isolation for Analytics, CSV exports, Menu reads, User reads, account
+  reads, public demo-session issuance, or any mutation. B4-3A1 remains the
+  separate Order-status mutation policy.
+- **Trusted actor and runtime:** exact `PORTFOLIO_DEMO_MODE=true` with
+  `PAYMENT_PROVIDER=demo` permits administrative Order reads only for the
+  active reserved demo-administrator identity recognized by the backend. That
+  identity includes the reserved UUID, email, disabled-password marker, active
+  state, and `admin` role. Any actor drift, missing or inconsistent trusted
+  runtime value, or reserved identifier outside that exact runtime fails
+  closed with one generic 403 before an Order-domain read. Existing Bearer
+  authentication and its canonical database User read remain authoritative;
+  missing or invalid authentication continues to return the existing 401.
+- **Origin scope:** the authorized demo administrator sees only
+  `portfolio_seed` and `portfolio_runtime` Orders. The list applies the same
+  origin predicate to its count and page queries before the existing filters,
+  sorting, limit, and offset. Detail applies the predicate to the first Order
+  query, so a hidden `live` Order and a missing Order return the same generic
+  404 without child-record reads or DML.
+- **Normal runtime:** exact `PORTFOLIO_DEMO_MODE=false` with
+  `PAYMENT_PROVIDER=stripe_test` preserves the existing all-origin list and
+  detail scope for an active, non-reserved `admin` or `super_admin`. Response
+  schemas stay unchanged and do not expose `data_origin`.
+- **Operational boundary:** this decision adds no model, migration, frontend,
+  deployment, seed execution, demo-admin provisioning, session issuance, or
+  broader B4 completion claim. Database acceptance, Browser E2E, commit, push,
+  and CI evidence remain separate gates for the implementation slice.
+
 ## History of Decisions That Required Resolution
 
 ### O-002: Boundary Between Order Creation and Stripe Checkout Session

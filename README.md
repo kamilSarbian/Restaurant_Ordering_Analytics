@@ -957,6 +957,16 @@ and manual Refresh. Detail renders immutable item snapshots, ordered status
 history, and bounded Payment summaries without provider event data, Checkout
 URLs, Session IDs, idempotency keys, or guest credentials.
 
+Administrative Order reads are provenance-scoped in the portfolio runtime. An
+active reserved demo administrator in exact `PORTFOLIO_DEMO_MODE=true` and
+`PAYMENT_PROVIDER=demo` sees only `portfolio_seed` and `portfolio_runtime`
+Orders in both the list and detail endpoints. A `live` Order detail is
+indistinguishable from a missing Order and returns the same generic 404 without
+reading child records. Actor or runtime drift fails closed with a generic 403
+before an Order-domain read. Exact `false + stripe_test` preserves the existing
+all-origin scope for active, non-reserved administrators and super-admins. The
+public response schemas remain unchanged and do not expose `data_origin`.
+
 The UI offers only the backend transition graph:
 
 ```text

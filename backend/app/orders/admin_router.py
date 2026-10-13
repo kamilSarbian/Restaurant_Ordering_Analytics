@@ -21,6 +21,7 @@ from app.orders.admin_service import (
     AdminOrderInvalidTransitionError,
     AdminOrderNotFoundError,
     AdminOrderNotPaidError,
+    AdminOrderReadDeniedError,
     AdminOrderStatusMutationDeniedError,
     get_admin_order,
     list_admin_orders,
@@ -33,29 +34,39 @@ router = APIRouter(prefix="/api/v1/admin/orders", tags=["admin-orders"])
 DatabaseSession = Annotated[Session, Depends(get_db_session)]
 CurrentAdmin = Annotated[AdminPrincipal, Depends(require_admin)]
 CurrentUser = Annotated[User, Depends(get_current_user)]
+ADMIN_ORDER_READ_FORBIDDEN_DETAIL = "Administrator order access is not allowed"
 
 
 @router.get(
     "",
     response_model=AdminOrderListResponse,
     summary="List administrator orders",
+    responses={403: {"description": ADMIN_ORDER_READ_FORBIDDEN_DETAIL}},
 )
 def list_admin_orders_endpoint(
+    request: Request,
     session: DatabaseSession,
     _admin: CurrentAdmin,
+    current_user: CurrentUser,
     status_filter: Annotated[OrderStatus | None, Query(alias="status")] = None,
     order_type: OrderType | None = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> AdminOrderListResponse:
     """Return one authenticated administrator order page."""
-    return list_admin_orders(
-        session,
-        status=status_filter,
-        order_type=order_type,
-        limit=limit,
-        offset=offset,
-    )
+    try:
+        return list_admin_orders(
+            session,
+            current_user=current_user,
+            portfolio_demo_mode=getattr(request.app.state, "portfolio_demo_mode", None),
+            payment_provider=getattr(request.app.state, "payment_provider", None),
+            status=status_filter,
+            order_type=order_type,
+            limit=limit,
+            offset=offset,
+        )
+    except AdminOrderReadDeniedError as error:
+        raise _admin_order_read_forbidden_error() from error
 
 
 @router.get(
@@ -63,23 +74,31 @@ def list_admin_orders_endpoint(
     response_model=AdminOrderDetail,
     summary="Get administrator order detail",
     responses={
+        403: {"description": ADMIN_ORDER_READ_FORBIDDEN_DETAIL},
         404: {
             "description": "Order not found",
             "content": {"application/json": {"example": {"detail": "Order not found"}}},
-        }
+        },
     },
 )
 def get_admin_order_endpoint(
     public_order_number: str,
+    request: Request,
     session: DatabaseSession,
     _admin: CurrentAdmin,
+    current_user: CurrentUser,
 ) -> AdminOrderDetail:
     """Return one authenticated administrator order detail."""
     try:
         return get_admin_order(
             session,
             public_order_number=public_order_number,
+            current_user=current_user,
+            portfolio_demo_mode=getattr(request.app.state, "portfolio_demo_mode", None),
+            payment_provider=getattr(request.app.state, "payment_provider", None),
         )
+    except AdminOrderReadDeniedError as error:
+        raise _admin_order_read_forbidden_error() from error
     except AdminOrderNotFoundError as error:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -145,3 +164,11 @@ def update_admin_order_status_endpoint(
             status_code=status.HTTP_409_CONFLICT,
             detail="Order cannot be cancelled",
         ) from error
+
+
+def _admin_order_read_forbidden_error() -> HTTPException:
+    """Build the fixed non-disclosing administrator Order-read denial."""
+    return HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=ADMIN_ORDER_READ_FORBIDDEN_DETAIL,
+    )
