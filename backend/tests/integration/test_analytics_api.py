@@ -10,10 +10,16 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi.testclient import TestClient
+from httpx import Response
 from sqlalchemy import delete, event, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.auth.demo_admin import (
+    DEMO_ADMIN_DISABLED_PASSWORD_HASH,
+    DEMO_ADMIN_EMAIL,
+    DEMO_ADMIN_ID,
+)
 from app.auth.models import User
 from app.auth.roles import UserRole
 from app.auth.service import UserTokenService
@@ -24,6 +30,7 @@ from app.main import create_app
 from app.menu.models import MenuItem
 from app.orders.access import generate_public_order_number
 from app.orders.models import Order, OrderItem, OrderStatusHistory
+from app.orders.origins import OrderDataOrigin
 from app.orders.statuses import OrderStatus
 from app.payments.models import Payment, StripeEvent
 from app.payments.providers import PaymentProvider
@@ -31,6 +38,8 @@ from app.payments.statuses import PaymentStatus
 from app.payments.stripe_webhook import StripeWebhookEventType
 from app.payments.webhook import WebhookProcessingOutcome
 from app.restaurant_tables.models import RestaurantTable
+
+from .test_demo_checkout_concurrency import _is_data_writing_statement
 
 pytestmark = pytest.mark.integration
 
@@ -136,12 +145,17 @@ def _delete_analytics_rows(engine: Engine) -> None:
 def _application(
     session_factory: sessionmaker[Session],
     token_service: UserTokenService | None,
+    *,
+    portfolio_demo_mode: bool = False,
+    payment_provider: PaymentProvider = PaymentProvider.STRIPE_TEST,
 ):
     return create_app(
         settings=Settings(
             _env_file=None,
             database_url=None,
             auth_jwt_secret=None,
+            portfolio_demo_mode=portfolio_demo_mode,
+            payment_provider=payment_provider.value,
         ),
         session_factory=session_factory,
         user_token_service=token_service,
@@ -151,14 +165,18 @@ def _application(
 def _store_admin(
     session_factory: sessionmaker[Session],
     *,
+    user_id: uuid.UUID | None = None,
     email: str = "analytics-admin@example.com",
+    password_hash: str = "synthetic-argon2id-hash",
+    role: UserRole = UserRole.SUPER_ADMIN,
     is_active: bool = True,
 ) -> uuid.UUID:
     with session_factory.begin() as session:
         admin = User(
+            id=user_id or uuid.uuid4(),
             email=email,
-            password_hash="synthetic-argon2id-hash",
-            role=UserRole.SUPER_ADMIN,
+            password_hash=password_hash,
+            role=role,
             is_active=is_active,
         )
         session.add(admin)
@@ -331,6 +349,7 @@ def _store_paid_order_with_lines(
     provider: PaymentProvider = PaymentProvider.STRIPE_TEST,
     persist_stripe_receipt: bool = True,
     order_status: OrderStatus = OrderStatus.CREATED,
+    data_origin: OrderDataOrigin = OrderDataOrigin.LIVE,
 ) -> uuid.UUID:
     line_total = sum(line.quantity * line.unit_price_amount for line in lines)
     with session_factory.begin() as session:
@@ -346,6 +365,7 @@ def _store_paid_order_with_lines(
             table_id=table.id if table is not None else None,
             table_number_snapshot=table.number if table is not None else None,
             status=order_status.value,
+            data_origin=data_origin.value,
             currency=currency,
             subtotal_amount=line_total,
             total_amount=line_total,
@@ -1015,6 +1035,469 @@ def test_breakdown_routes_share_representative_auth_failures(
             headers={"Authorization": "Bearer synthetic-unavailable-token"},
         )
     assert unavailable.status_code == 503
+
+
+def test_demo_admin_analytics_exclude_live_orders_from_every_result(
+    analytics_session_factory: sessionmaker[Session],
+    token_service: UserTokenService,
+    test_database_engine: Engine,
+) -> None:
+    demo_admin_id = _store_admin(
+        analytics_session_factory,
+        user_id=DEMO_ADMIN_ID,
+        email=DEMO_ADMIN_EMAIL,
+        password_hash=DEMO_ADMIN_DISABLED_PASSWORD_HASH,
+        role=UserRole.ADMIN,
+    )
+    seed_item_id, _ = _store_catalog_item(
+        analytics_session_factory,
+        item_name="Portfolio Seed Item",
+        category_name="Portfolio Seed Category",
+    )
+    runtime_item_id, _ = _store_catalog_item(
+        analytics_session_factory,
+        item_name="Portfolio Runtime Item",
+        category_name="Portfolio Runtime Category",
+        price_amount=200,
+    )
+    live_nok_item_id, _ = _store_catalog_item(
+        analytics_session_factory,
+        item_name="Hidden Live NOK Item",
+        category_name="Hidden Live NOK Category",
+        price_amount=9_900,
+    )
+    live_eur_item_id, _ = _store_catalog_item(
+        analytics_session_factory,
+        item_name="Hidden Live EUR Item",
+        category_name="Hidden Live EUR Category",
+        price_amount=8_800,
+    )
+    _store_paid_order_with_lines(
+        analytics_session_factory,
+        lines=(
+            LineSpec(
+                seed_item_id,
+                "Portfolio Seed Item",
+                "Portfolio Seed Category",
+                1,
+                100,
+            ),
+        ),
+        success_at=RANGE_START + timedelta(days=1),
+        payment_amount=100,
+        provider=PaymentProvider.DEMO,
+        persist_stripe_receipt=False,
+        data_origin=OrderDataOrigin.PORTFOLIO_SEED,
+    )
+    _store_paid_order_with_lines(
+        analytics_session_factory,
+        lines=(
+            LineSpec(
+                runtime_item_id,
+                "Portfolio Runtime Item",
+                "Portfolio Runtime Category",
+                2,
+                200,
+            ),
+        ),
+        success_at=RANGE_START + timedelta(days=2),
+        order_type="dine_in",
+        payment_amount=400,
+        provider=PaymentProvider.DEMO,
+        persist_stripe_receipt=False,
+        data_origin=OrderDataOrigin.PORTFOLIO_RUNTIME,
+    )
+    _store_paid_order_with_lines(
+        analytics_session_factory,
+        lines=(
+            LineSpec(
+                live_nok_item_id,
+                "Hidden Live NOK Item",
+                "Hidden Live NOK Category",
+                1,
+                9_900,
+            ),
+        ),
+        success_at=RANGE_START + timedelta(days=3),
+        payment_amount=9_900,
+        provider=PaymentProvider.DEMO,
+        persist_stripe_receipt=False,
+        data_origin=OrderDataOrigin.LIVE,
+    )
+    _store_paid_order_with_lines(
+        analytics_session_factory,
+        lines=(
+            LineSpec(
+                live_eur_item_id,
+                "Hidden Live EUR Item",
+                "Hidden Live EUR Category",
+                1,
+                8_800,
+            ),
+        ),
+        success_at=RANGE_START + timedelta(days=4),
+        currency="EUR",
+        order_type="dine_in",
+        payment_amount=8_800,
+        provider=PaymentProvider.DEMO,
+        persist_stripe_receipt=False,
+        data_origin=OrderDataOrigin.LIVE,
+    )
+
+    application = _application(
+        analytics_session_factory,
+        token_service,
+        portfolio_demo_mode=True,
+        payment_provider=PaymentProvider.DEMO,
+    )
+    headers = {
+        "Authorization": f"Bearer {token_service.create_access_token(demo_admin_id)}"
+    }
+
+    def get_with_scoped_sql(
+        client: TestClient,
+        path: str,
+        params: dict[str, str],
+    ) -> Response:
+        statements: list[str] = []
+
+        def capture(
+            _connection: object,
+            _cursor: object,
+            statement: str,
+            _parameters: object,
+            _context: object,
+            _executemany: bool,
+        ) -> None:
+            statements.append(statement)
+
+        event.listen(test_database_engine, "before_cursor_execute", capture)
+        try:
+            response = client.get(path, params=params, headers=headers)
+        finally:
+            event.remove(test_database_engine, "before_cursor_execute", capture)
+
+        normalized = [" ".join(statement.lower().split()) for statement in statements]
+        assert not any(
+            _is_data_writing_statement(statement) for statement in statements
+        )
+        auth_statements = [
+            statement for statement in normalized if " from users " in statement
+        ]
+        domain_statements = [
+            statement for statement in normalized if " from users " not in statement
+        ]
+        assert len(auth_statements) == 1
+        assert auth_statements[0].startswith("select ")
+        assert len(domain_statements) == 1
+        assert domain_statements[0].startswith(("select ", "with "))
+        assert "orders.data_origin in" in domain_statements[0]
+        return response
+
+    with TestClient(application) as client:
+        overview_response = get_with_scoped_sql(
+            client,
+            OVERVIEW_PATH,
+            _params(),
+        )
+        products_response = get_with_scoped_sql(
+            client,
+            PRODUCTS_PATH,
+            _params(),
+        )
+        top_product_response = get_with_scoped_sql(
+            client,
+            PRODUCTS_PATH,
+            {**_params(), "limit": "1"},
+        )
+        categories_response = get_with_scoped_sql(
+            client,
+            CATEGORIES_PATH,
+            _params(),
+        )
+        top_category_response = get_with_scoped_sql(
+            client,
+            CATEGORIES_PATH,
+            {**_params(), "limit": "1"},
+        )
+        order_types_response = get_with_scoped_sql(
+            client,
+            ORDER_TYPES_PATH,
+            _params(),
+        )
+        eur_overview_response = get_with_scoped_sql(
+            client,
+            OVERVIEW_PATH,
+            _params(currency="EUR"),
+        )
+        eur_products_response = get_with_scoped_sql(
+            client,
+            PRODUCTS_PATH,
+            _params(currency="EUR"),
+        )
+        eur_categories_response = get_with_scoped_sql(
+            client,
+            CATEGORIES_PATH,
+            _params(currency="EUR"),
+        )
+        eur_order_types_response = get_with_scoped_sql(
+            client,
+            ORDER_TYPES_PATH,
+            _params(currency="EUR"),
+        )
+
+    for response in (
+        overview_response,
+        products_response,
+        top_product_response,
+        categories_response,
+        top_category_response,
+        order_types_response,
+        eur_overview_response,
+        eur_products_response,
+        eur_categories_response,
+        eur_order_types_response,
+    ):
+        assert response.status_code == 200
+    assert overview_response.json()["currencies"] == [
+        {
+            "currency": "NOK",
+            "collected_revenue_amount": 500,
+            "succeeded_orders_count": 2,
+            "average_order_value_amount": 250,
+        }
+    ]
+    assert products_response.json()["items"] == [
+        {
+            "menu_item_id": str(runtime_item_id),
+            "item_name": "Portfolio Runtime Item",
+            "currency": "NOK",
+            "quantity_sold": 2,
+            "sales_amount": 400,
+        },
+        {
+            "menu_item_id": str(seed_item_id),
+            "item_name": "Portfolio Seed Item",
+            "currency": "NOK",
+            "quantity_sold": 1,
+            "sales_amount": 100,
+        },
+    ]
+    assert top_product_response.json()["items"] == [
+        products_response.json()["items"][0]
+    ]
+    assert categories_response.json()["items"] == [
+        {
+            "category_name": "Portfolio Runtime Category",
+            "currency": "NOK",
+            "quantity_sold": 2,
+            "sales_amount": 400,
+        },
+        {
+            "category_name": "Portfolio Seed Category",
+            "currency": "NOK",
+            "quantity_sold": 1,
+            "sales_amount": 100,
+        },
+    ]
+    assert top_category_response.json()["items"] == [
+        categories_response.json()["items"][0]
+    ]
+    assert order_types_response.json()["items"] == [
+        {
+            "order_type": "dine_in",
+            "currency": "NOK",
+            "succeeded_orders_count": 1,
+            "collected_revenue_amount": 400,
+        },
+        {
+            "order_type": "takeaway",
+            "currency": "NOK",
+            "succeeded_orders_count": 1,
+            "collected_revenue_amount": 100,
+        },
+    ]
+    assert eur_overview_response.json()["currencies"] == [
+        {
+            "currency": "EUR",
+            "collected_revenue_amount": 0,
+            "succeeded_orders_count": 0,
+            "average_order_value_amount": 0,
+        }
+    ]
+    for response in (
+        eur_products_response,
+        eur_categories_response,
+        eur_order_types_response,
+    ):
+        assert response.json()["items"] == []
+
+
+def test_demo_runtime_denial_precedes_analytics_domain_sql_and_dml(
+    analytics_session_factory: sessionmaker[Session],
+    token_service: UserTokenService,
+    test_database_engine: Engine,
+) -> None:
+    ordinary_admin_id = _store_admin(
+        analytics_session_factory,
+        email="non-demo-analytics-admin@example.com",
+        role=UserRole.ADMIN,
+    )
+    application = _application(
+        analytics_session_factory,
+        token_service,
+        portfolio_demo_mode=True,
+        payment_provider=PaymentProvider.DEMO,
+    )
+    headers = {
+        "Authorization": (
+            f"Bearer {token_service.create_access_token(ordinary_admin_id)}"
+        )
+    }
+    statements: list[str] = []
+
+    def capture_statement(
+        _connection: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        statements.append(statement)
+
+    event.listen(test_database_engine, "before_cursor_execute", capture_statement)
+    try:
+        with TestClient(application) as client:
+            responses = [
+                client.get(path, params=_params(), headers=headers)
+                for path in (
+                    OVERVIEW_PATH,
+                    PRODUCTS_PATH,
+                    CATEGORIES_PATH,
+                    ORDER_TYPES_PATH,
+                )
+            ]
+    finally:
+        event.remove(test_database_engine, "before_cursor_execute", capture_statement)
+
+    assert [response.status_code for response in responses] == [403, 403, 403, 403]
+    assert all(
+        response.json() == {"detail": "Administrator reporting access is not allowed"}
+        for response in responses
+    )
+    normalized = [" ".join(statement.lower().split()) for statement in statements]
+    assert len(normalized) == 4
+    assert all(statement.startswith("select") for statement in normalized)
+    assert all(" from users " in f" {statement} " for statement in normalized)
+    assert all(
+        domain_table not in f" {statement} "
+        for statement in normalized
+        for domain_table in (
+            " from orders ",
+            " join orders ",
+            " from payments ",
+            " join payments ",
+            " from order_items ",
+            " join order_items ",
+        )
+    )
+
+
+def test_normal_runtime_preserves_all_origins_for_admin_and_super_admin(
+    analytics_session_factory: sessionmaker[Session],
+    token_service: UserTokenService,
+) -> None:
+    admin_id = _store_admin(
+        analytics_session_factory,
+        email="normal-analytics-admin@example.com",
+        role=UserRole.ADMIN,
+    )
+    super_admin_id = _store_admin(
+        analytics_session_factory,
+        email="normal-analytics-super-admin@example.com",
+        role=UserRole.SUPER_ADMIN,
+    )
+    origins = (
+        (OrderDataOrigin.PORTFOLIO_SEED, "Normal Seed", 100),
+        (OrderDataOrigin.PORTFOLIO_RUNTIME, "Normal Runtime", 200),
+        (OrderDataOrigin.LIVE, "Normal Live", 300),
+    )
+    for index, (origin, name, amount) in enumerate(origins, start=1):
+        item_id, _ = _store_catalog_item(
+            analytics_session_factory,
+            item_name=name,
+            category_name=f"{name} Category",
+            price_amount=amount,
+        )
+        _store_paid_order_with_lines(
+            analytics_session_factory,
+            lines=(LineSpec(item_id, name, f"{name} Category", 1, amount),),
+            success_at=RANGE_START + timedelta(days=index),
+            payment_amount=amount,
+            data_origin=origin,
+        )
+
+    application = _application(
+        analytics_session_factory,
+        token_service,
+        portfolio_demo_mode=False,
+        payment_provider=PaymentProvider.STRIPE_TEST,
+    )
+    with TestClient(application) as client:
+        for user_id in (admin_id, super_admin_id):
+            headers = {
+                "Authorization": f"Bearer {token_service.create_access_token(user_id)}"
+            }
+            overview = client.get(
+                OVERVIEW_PATH,
+                params=_params(),
+                headers=headers,
+            )
+            products = client.get(
+                PRODUCTS_PATH,
+                params=_params(),
+                headers=headers,
+            )
+            categories = client.get(
+                CATEGORIES_PATH,
+                params=_params(),
+                headers=headers,
+            )
+            order_types = client.get(
+                ORDER_TYPES_PATH,
+                params=_params(),
+                headers=headers,
+            )
+
+            for response in (overview, products, categories, order_types):
+                assert response.status_code == 200
+            assert overview.json()["currencies"] == [
+                {
+                    "currency": "NOK",
+                    "collected_revenue_amount": 600,
+                    "succeeded_orders_count": 3,
+                    "average_order_value_amount": 200,
+                }
+            ]
+            assert [row["item_name"] for row in products.json()["items"]] == [
+                "Normal Live",
+                "Normal Runtime",
+                "Normal Seed",
+            ]
+            assert [row["category_name"] for row in categories.json()["items"]] == [
+                "Normal Live Category",
+                "Normal Runtime Category",
+                "Normal Seed Category",
+            ]
+            assert order_types.json()["items"] == [
+                {
+                    "order_type": "takeaway",
+                    "currency": "NOK",
+                    "succeeded_orders_count": 3,
+                    "collected_revenue_amount": 600,
+                }
+            ]
 
 
 def test_product_and_category_analytics_use_immutable_snapshots(

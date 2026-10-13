@@ -36,6 +36,7 @@ from app.demo.dataset import PaymentSeedRow, PortfolioSeedPlan
 from app.menu.models import MenuItem
 from app.orders.models import Order, OrderItem, OrderStatusHistory
 from app.payments.models import Payment, StripeEvent
+from app.payments.providers import PaymentProvider
 from app.reports.schemas import AnalyticsCsvExportQuery, OrdersCsvExportQuery
 from app.reports.service import (
     CsvExportResult,
@@ -142,6 +143,17 @@ def portfolio_session_factory(
 ) -> sessionmaker[Session]:
     """Bind the adapter only to the already validated test engine."""
     return create_session_factory(test_database_engine)
+
+
+def _normal_reporting_admin() -> User:
+    """Build an exact non-reserved administrator for direct service calls."""
+    return User(
+        id=uuid.uuid5(uuid.NAMESPACE_URL, "b2-3/reporting-admin"),
+        email="portfolio-reporting-admin@example.com",
+        password_hash="synthetic-disabled-password-hash",
+        role=UserRole.ADMIN,
+        is_active=True,
+    )
 
 
 def _model_rows(session: Session, model: type[Any]) -> tuple[dict[str, Any], ...]:
@@ -1209,6 +1221,7 @@ def test_seeded_portfolio_matches_all_analytics_services(
     expected_products = _product_oracle(portfolio_plan, qualified_payments)
     expected_categories = _category_oracle(portfolio_plan, qualified_payments)
     expected_order_types = _order_type_oracle(portfolio_plan, qualified_payments)
+    current_user = _normal_reporting_admin()
 
     assert len(qualified_payments) == 449
     assert expected_overview == (("NOK", 31_542_500, 449, 70_251),)
@@ -1225,6 +1238,9 @@ def test_seeded_portfolio_matches_all_analytics_services(
         with _capture_sql_statements(test_database_engine) as overview_statements:
             overview = get_analytics_overview(
                 session,
+                current_user=current_user,
+                portfolio_demo_mode=False,
+                payment_provider=PaymentProvider.STRIPE_TEST.value,
                 start=start,
                 end=end,
                 currency=None,
@@ -1233,6 +1249,9 @@ def test_seeded_portfolio_matches_all_analytics_services(
         with _capture_sql_statements(test_database_engine) as product_statements:
             products = get_product_analytics(
                 session,
+                current_user=current_user,
+                portfolio_demo_mode=False,
+                payment_provider=PaymentProvider.STRIPE_TEST.value,
                 start=start,
                 end=end,
                 currency=None,
@@ -1242,6 +1261,9 @@ def test_seeded_portfolio_matches_all_analytics_services(
         with _capture_sql_statements(test_database_engine) as category_statements:
             categories = get_category_analytics(
                 session,
+                current_user=current_user,
+                portfolio_demo_mode=False,
+                payment_provider=PaymentProvider.STRIPE_TEST.value,
                 start=start,
                 end=end,
                 currency=None,
@@ -1251,6 +1273,9 @@ def test_seeded_portfolio_matches_all_analytics_services(
         with _capture_sql_statements(test_database_engine) as order_type_statements:
             order_types = get_order_type_analytics(
                 session,
+                current_user=current_user,
+                portfolio_demo_mode=False,
+                payment_provider=PaymentProvider.STRIPE_TEST.value,
                 start=start,
                 end=end,
                 currency=None,
@@ -1331,6 +1356,9 @@ def test_seeded_portfolio_matches_all_analytics_services(
         with _capture_sql_statements(test_database_engine) as probe_overview_statements:
             probe_overview = get_analytics_overview(
                 session,
+                current_user=current_user,
+                portfolio_demo_mode=False,
+                payment_provider=PaymentProvider.STRIPE_TEST.value,
                 start=probe.start,
                 end=probe.end,
                 currency=None,
@@ -1342,6 +1370,9 @@ def test_seeded_portfolio_matches_all_analytics_services(
         with _capture_sql_statements(test_database_engine) as probe_product_statements:
             probe_products = get_product_analytics(
                 session,
+                current_user=current_user,
+                portfolio_demo_mode=False,
+                payment_provider=PaymentProvider.STRIPE_TEST.value,
                 start=probe.start,
                 end=probe.end,
                 currency=None,
@@ -1354,6 +1385,9 @@ def test_seeded_portfolio_matches_all_analytics_services(
         with _capture_sql_statements(test_database_engine) as probe_category_statements:
             probe_categories = get_category_analytics(
                 session,
+                current_user=current_user,
+                portfolio_demo_mode=False,
+                payment_provider=PaymentProvider.STRIPE_TEST.value,
                 start=probe.start,
                 end=probe.end,
                 currency=None,
@@ -1368,6 +1402,9 @@ def test_seeded_portfolio_matches_all_analytics_services(
         ) as probe_order_type_statements:
             probe_order_types = get_order_type_analytics(
                 session,
+                current_user=current_user,
+                portfolio_demo_mode=False,
+                payment_provider=PaymentProvider.STRIPE_TEST.value,
                 start=probe.start,
                 end=probe.end,
                 currency=None,
@@ -1453,6 +1490,7 @@ def test_seeded_portfolio_matches_all_csv_services(
     orders = {order.id: order for order in portfolio_plan.orders}
     range_start = _format_oslo_datetime(start)
     range_end = _format_oslo_datetime(end)
+    current_user = _normal_reporting_admin()
 
     expected_order_rows = tuple(
         (
@@ -1523,13 +1561,31 @@ def test_seeded_portfolio_matches_all_csv_services(
         assert session.scalar(select(func.count()).select_from(StripeEvent)) == 0
         session.connection()
         with _capture_sql_statements(test_database_engine) as orders_statements:
-            orders_export = export_orders_csv(session, orders_query)
+            orders_export = export_orders_csv(
+                session,
+                orders_query,
+                current_user=current_user,
+                portfolio_demo_mode=False,
+                payment_provider=PaymentProvider.STRIPE_TEST.value,
+            )
         _assert_single_read_statement("orders CSV export", orders_statements)
         with _capture_sql_statements(test_database_engine) as products_statements:
-            products_export = export_product_sales_csv(session, analytics_query)
+            products_export = export_product_sales_csv(
+                session,
+                analytics_query,
+                current_user=current_user,
+                portfolio_demo_mode=False,
+                payment_provider=PaymentProvider.STRIPE_TEST.value,
+            )
         _assert_single_read_statement("product-sales CSV export", products_statements)
         with _capture_sql_statements(test_database_engine) as payments_statements:
-            payments_export = export_payments_csv(session, analytics_query)
+            payments_export = export_payments_csv(
+                session,
+                analytics_query,
+                current_user=current_user,
+                portfolio_demo_mode=False,
+                payment_provider=PaymentProvider.STRIPE_TEST.value,
+            )
         _assert_single_read_statement("payments CSV export", payments_statements)
 
     application_statements = [
@@ -1571,21 +1627,37 @@ def test_seeded_portfolio_matches_all_csv_services(
     with portfolio_session_factory() as session:
         session.connection()
         with _capture_sql_statements(test_database_engine) as probe_orders_statements:
-            probe_orders_export = export_orders_csv(session, probe_orders_query)
+            probe_orders_export = export_orders_csv(
+                session,
+                probe_orders_query,
+                current_user=current_user,
+                portfolio_demo_mode=False,
+                payment_provider=PaymentProvider.STRIPE_TEST.value,
+            )
         _assert_single_read_statement(
             "orders CSV export boundary probe",
             probe_orders_statements,
         )
         with _capture_sql_statements(test_database_engine) as probe_products_statements:
             probe_products_export = export_product_sales_csv(
-                session, probe_analytics_query
+                session,
+                probe_analytics_query,
+                current_user=current_user,
+                portfolio_demo_mode=False,
+                payment_provider=PaymentProvider.STRIPE_TEST.value,
             )
         _assert_single_read_statement(
             "product-sales CSV export boundary probe",
             probe_products_statements,
         )
         with _capture_sql_statements(test_database_engine) as probe_payments_statements:
-            probe_payments_export = export_payments_csv(session, probe_analytics_query)
+            probe_payments_export = export_payments_csv(
+                session,
+                probe_analytics_query,
+                current_user=current_user,
+                portfolio_demo_mode=False,
+                payment_provider=PaymentProvider.STRIPE_TEST.value,
+            )
         _assert_single_read_statement(
             "payments CSV export boundary probe",
             probe_payments_statements,

@@ -6,17 +6,23 @@ import codecs
 import csv
 import io
 import uuid
-from collections.abc import Generator
+from collections.abc import Generator, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import pytest
 from fastapi.testclient import TestClient
+from httpx import Response
 from sqlalchemy import delete, event, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.auth.demo_admin import (
+    DEMO_ADMIN_DISABLED_PASSWORD_HASH,
+    DEMO_ADMIN_EMAIL,
+    DEMO_ADMIN_ID,
+)
 from app.auth.models import User
 from app.auth.roles import UserRole
 from app.auth.service import UserTokenService
@@ -27,6 +33,7 @@ from app.main import create_app
 from app.menu.models import MenuItem
 from app.orders.access import generate_public_order_number
 from app.orders.models import Order, OrderItem, OrderStatusHistory
+from app.orders.origins import OrderDataOrigin
 from app.orders.schemas import OrderType
 from app.orders.statuses import OrderStatus
 from app.payments.models import Payment, StripeEvent
@@ -35,6 +42,8 @@ from app.payments.statuses import PaymentStatus
 from app.payments.stripe_webhook import StripeWebhookEventType
 from app.payments.webhook import WebhookProcessingOutcome
 from app.restaurant_tables.models import RestaurantTable
+
+from .test_demo_checkout_concurrency import _is_data_writing_statement
 
 pytestmark = pytest.mark.integration
 
@@ -111,6 +120,15 @@ class StoredFinancialOrder:
 
 
 @dataclass(frozen=True)
+class OriginExportFixture:
+    """Carry one origin-specific order and its immutable product marker."""
+
+    order: StoredFinancialOrder
+    item_id: UUID
+    item_name: str
+
+
+@dataclass(frozen=True)
 class ExportClient:
     """Hold an authenticated client and isolated persistence boundary."""
 
@@ -182,12 +200,17 @@ def export_client(
 def _application(
     session_factory: sessionmaker[Session],
     token_service: UserTokenService | None,
+    *,
+    portfolio_demo_mode: bool = False,
+    payment_provider: PaymentProvider = PaymentProvider.STRIPE_TEST,
 ):
     return create_app(
         settings=Settings(
             _env_file=None,
             database_url=None,
             auth_jwt_secret=None,
+            portfolio_demo_mode=portfolio_demo_mode,
+            payment_provider=payment_provider.value,
         ),
         session_factory=session_factory,
         user_token_service=token_service,
@@ -197,15 +220,21 @@ def _application(
 def _store_admin(
     session_factory: sessionmaker[Session],
     *,
+    user_id: UUID | None = None,
+    email: str | None = None,
+    password_hash: str = "synthetic-password-hash",
+    role: UserRole = UserRole.SUPER_ADMIN,
     is_active: bool = True,
 ) -> UUID:
     with session_factory.begin() as session:
         admin = User(
-            email=f"export-{uuid.uuid4().hex}@example.com",
-            password_hash="synthetic-password-hash",
-            role=UserRole.SUPER_ADMIN,
+            email=email or f"export-{uuid.uuid4().hex}@example.com",
+            password_hash=password_hash,
+            role=role,
             is_active=is_active,
         )
+        if user_id is not None:
+            admin.id = user_id
         session.add(admin)
         session.flush()
         return admin.id
@@ -222,6 +251,7 @@ def _store_order(
     subtotal_amount: int = 12345,
     total_amount: int = 12789,
     table_number: int | None = None,
+    data_origin: OrderDataOrigin = OrderDataOrigin.LIVE,
 ) -> str:
     with session_factory.begin() as session:
         table = None
@@ -233,6 +263,7 @@ def _store_order(
         order = Order(
             public_order_number=generate_public_order_number(),
             order_access_token_hash=uuid.uuid4().hex + uuid.uuid4().hex,
+            data_origin=data_origin.value,
             order_type=order_type.value,
             table_id=table.id if table is not None else None,
             table_number_snapshot=table_number,
@@ -284,6 +315,7 @@ def _store_financial_order(
     order_created_at: datetime | None = None,
     payment_updated_at: datetime | None = None,
     public_order_number: str | None = None,
+    data_origin: OrderDataOrigin = OrderDataOrigin.LIVE,
 ) -> StoredFinancialOrder:
     resolved_order_currency = order_currency or payment_currency
     line_total = sum(line.quantity * line.unit_price_amount for line in lines) or amount
@@ -291,6 +323,7 @@ def _store_financial_order(
         order = Order(
             public_order_number=public_order_number or generate_public_order_number(),
             order_access_token_hash=uuid.uuid4().hex + uuid.uuid4().hex,
+            data_origin=data_origin.value,
             order_type=OrderType.TAKEAWAY.value,
             status=OrderStatus.CREATED.value,
             currency=resolved_order_currency,
@@ -431,6 +464,56 @@ def _transitioned_receipt(
         processing_result=WebhookProcessingOutcome.TRANSITIONED,
         success_at=at,
     )
+
+
+def _store_mixed_origin_exports(
+    session_factory: sessionmaker[Session],
+) -> dict[OrderDataOrigin, OriginExportFixture]:
+    stored: dict[OrderDataOrigin, OriginExportFixture] = {}
+    specifications = (
+        (
+            OrderDataOrigin.PORTFOLIO_SEED,
+            "Portfolio Seed CSV Product",
+            1101,
+            10,
+            PaymentProvider.STRIPE_TEST,
+        ),
+        (
+            OrderDataOrigin.PORTFOLIO_RUNTIME,
+            "Portfolio Runtime CSV Product",
+            2202,
+            20,
+            PaymentProvider.DEMO,
+        ),
+        (
+            OrderDataOrigin.LIVE,
+            "Live Confidential CSV Product",
+            9903,
+            30,
+            PaymentProvider.DEMO,
+        ),
+    )
+    for origin, item_name, amount, minute, provider in specifications:
+        item_id, _ = _store_catalog_item(
+            session_factory,
+            item_name=f"Current {item_name}",
+            category_name=f"{origin.value} CSV Category",
+        )
+        order = _store_financial_order(
+            session_factory,
+            amount=amount,
+            provider=provider,
+            data_origin=origin,
+            order_created_at=RANGE_START + timedelta(minutes=minute),
+            succeeded_at=RANGE_START + timedelta(minutes=minute),
+            lines=(SnapshotLine(item_id, item_name, 1, amount),),
+        )
+        stored[origin] = OriginExportFixture(
+            order=order,
+            item_id=item_id,
+            item_name=item_name,
+        )
+    return stored
 
 
 def _params(
@@ -1779,3 +1862,389 @@ def test_all_exports_use_oslo_offsets_across_seasons_and_dst_boundaries(
     assert orders_row["total_amount"].isdigit()
     assert product_row["sales_amount"] == "101"
     assert payment_row["amount"] == "303"
+
+
+def test_exact_demo_admin_exports_only_portfolio_origins_with_unchanged_contract(
+    export_session_factory: sessionmaker[Session],
+    token_service: UserTokenService,
+    test_database_engine: Engine,
+) -> None:
+    """Exclude live rows from every demo CSV without exposing provenance."""
+    demo_admin_id = _store_admin(
+        export_session_factory,
+        user_id=DEMO_ADMIN_ID,
+        email=DEMO_ADMIN_EMAIL,
+        password_hash=DEMO_ADMIN_DISABLED_PASSWORD_HASH,
+        role=UserRole.ADMIN,
+    )
+    fixtures = _store_mixed_origin_exports(export_session_factory)
+    application = _application(
+        export_session_factory,
+        token_service,
+        portfolio_demo_mode=True,
+        payment_provider=PaymentProvider.DEMO,
+    )
+    headers = {
+        "Authorization": f"Bearer {token_service.create_access_token(demo_admin_id)}"
+    }
+    sql_by_path: dict[str, list[tuple[str, tuple[object, ...]]]] = {}
+
+    def parameter_values(parameters: object) -> tuple[object, ...]:
+        if isinstance(parameters, Mapping):
+            return tuple(parameters.values())
+        if isinstance(parameters, (list, tuple)):
+            return tuple(parameters)
+        return (parameters,)
+
+    def get_with_scoped_sql(client: TestClient, path: str) -> Response:
+        captured: list[tuple[str, tuple[object, ...]]] = []
+
+        def capture(
+            _connection: object,
+            _cursor: object,
+            statement: str,
+            parameters: object,
+            _context: object,
+            _executemany: bool,
+        ) -> None:
+            captured.append(
+                (
+                    " ".join(statement.lower().split()),
+                    parameter_values(parameters),
+                )
+            )
+
+        event.listen(test_database_engine, "before_cursor_execute", capture)
+        try:
+            response = client.get(path, params=_params(), headers=headers)
+        finally:
+            event.remove(test_database_engine, "before_cursor_execute", capture)
+        sql_by_path[path] = captured
+        return response
+
+    with TestClient(application) as client:
+        responses = {
+            path: get_with_scoped_sql(client, path)
+            for path in (
+                EXPORT_PATH,
+                PRODUCT_SALES_EXPORT_PATH,
+                PAYMENTS_EXPORT_PATH,
+            )
+        }
+
+    expected_origins = {
+        OrderDataOrigin.PORTFOLIO_SEED,
+        OrderDataOrigin.PORTFOLIO_RUNTIME,
+    }
+    seed_fixture = fixtures[OrderDataOrigin.PORTFOLIO_SEED]
+    runtime_fixture = fixtures[OrderDataOrigin.PORTFOLIO_RUNTIME]
+
+    def exact_csv_bytes(rows: tuple[tuple[str, ...], ...]) -> bytes:
+        return codecs.BOM_UTF8 + "".join(f"{','.join(row)}\r\n" for row in rows).encode(
+            "utf-8"
+        )
+
+    expected_content = {
+        EXPORT_PATH: exact_csv_bytes(
+            (
+                tuple(EXPECTED_HEADERS),
+                (
+                    "2026-08-11T12:00:00+02:00",
+                    "2026-08-11T16:00:00+02:00",
+                    "Europe/Oslo",
+                    seed_fixture.order.public_order_number,
+                    "2026-08-11T12:10:00+02:00",
+                    "2026-08-11T12:10:00+02:00",
+                    "created",
+                    "takeaway",
+                    "",
+                    "NOK",
+                    "1101",
+                    "1101",
+                ),
+                (
+                    "2026-08-11T12:00:00+02:00",
+                    "2026-08-11T16:00:00+02:00",
+                    "Europe/Oslo",
+                    runtime_fixture.order.public_order_number,
+                    "2026-08-11T12:20:00+02:00",
+                    "2026-08-11T12:20:00+02:00",
+                    "created",
+                    "takeaway",
+                    "",
+                    "NOK",
+                    "2202",
+                    "2202",
+                ),
+            )
+        ),
+        PRODUCT_SALES_EXPORT_PATH: exact_csv_bytes(
+            (
+                tuple(PRODUCT_SALES_HEADERS),
+                (
+                    "2026-08-11T12:00:00+02:00",
+                    "2026-08-11T16:00:00+02:00",
+                    "Europe/Oslo",
+                    str(runtime_fixture.item_id),
+                    runtime_fixture.item_name,
+                    "NOK",
+                    "1",
+                    "2202",
+                ),
+                (
+                    "2026-08-11T12:00:00+02:00",
+                    "2026-08-11T16:00:00+02:00",
+                    "Europe/Oslo",
+                    str(seed_fixture.item_id),
+                    seed_fixture.item_name,
+                    "NOK",
+                    "1",
+                    "1101",
+                ),
+            )
+        ),
+        PAYMENTS_EXPORT_PATH: exact_csv_bytes(
+            (
+                tuple(PAYMENTS_HEADERS),
+                (
+                    "2026-08-11T12:00:00+02:00",
+                    "2026-08-11T16:00:00+02:00",
+                    "Europe/Oslo",
+                    seed_fixture.order.public_order_number,
+                    "succeeded",
+                    "2026-08-11T12:10:00+02:00",
+                    "NOK",
+                    "1101",
+                ),
+                (
+                    "2026-08-11T12:00:00+02:00",
+                    "2026-08-11T16:00:00+02:00",
+                    "Europe/Oslo",
+                    runtime_fixture.order.public_order_number,
+                    "succeeded",
+                    "2026-08-11T12:20:00+02:00",
+                    "NOK",
+                    "2202",
+                ),
+            )
+        ),
+    }
+    for response in responses.values():
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "text/csv; charset=utf-8"
+        assert b"data_origin" not in response.content
+    for path, response in responses.items():
+        assert response.content == expected_content[path]
+    rows_by_path = {path: _rows(response) for path, response in responses.items()}
+    assert len(rows_by_path[EXPORT_PATH]) == 2
+    assert len(rows_by_path[PRODUCT_SALES_EXPORT_PATH]) == 2
+    assert len(rows_by_path[PAYMENTS_EXPORT_PATH]) == 2
+
+    assert responses[EXPORT_PATH].headers["content-disposition"] == (
+        'attachment; filename="orders_20260811T100000Z_'
+        '20260811T140000Z_all_all_all.csv"'
+    )
+    assert responses[PRODUCT_SALES_EXPORT_PATH].headers["content-disposition"] == (
+        'attachment; filename="product-sales_20260811T100000Z_'
+        '20260811T140000Z_all.csv"'
+    )
+    assert responses[PAYMENTS_EXPORT_PATH].headers["content-disposition"] == (
+        'attachment; filename="payments_20260811T100000Z_' '20260811T140000Z_all.csv"'
+    )
+
+    assert list(rows_by_path[EXPORT_PATH][0]) == EXPECTED_HEADERS
+    assert {row["public_order_number"] for row in rows_by_path[EXPORT_PATH]} == {
+        fixtures[origin].order.public_order_number for origin in expected_origins
+    }
+    assert list(rows_by_path[PRODUCT_SALES_EXPORT_PATH][0]) == PRODUCT_SALES_HEADERS
+    assert {row["item_name"] for row in rows_by_path[PRODUCT_SALES_EXPORT_PATH]} == {
+        fixtures[origin].item_name for origin in expected_origins
+    }
+    assert list(rows_by_path[PAYMENTS_EXPORT_PATH][0]) == PAYMENTS_HEADERS
+    assert {
+        row["public_order_number"] for row in rows_by_path[PAYMENTS_EXPORT_PATH]
+    } == {fixtures[origin].order.public_order_number for origin in expected_origins}
+
+    live_fixture = fixtures[OrderDataOrigin.LIVE]
+    live_number = live_fixture.order.public_order_number.encode("ascii")
+    assert live_number not in responses[EXPORT_PATH].content
+    assert live_number not in responses[PAYMENTS_EXPORT_PATH].content
+    assert (
+        live_fixture.item_name.encode("utf-8")
+        not in responses[PRODUCT_SALES_EXPORT_PATH].content
+    )
+
+    portfolio_origins = {
+        OrderDataOrigin.PORTFOLIO_SEED.value,
+        OrderDataOrigin.PORTFOLIO_RUNTIME.value,
+    }
+    all_origins = {origin.value for origin in OrderDataOrigin}
+    for path, captured in sql_by_path.items():
+        statements = [statement for statement, _parameters in captured]
+        assert not any(
+            _is_data_writing_statement(statement) for statement in statements
+        )
+        auth_selects = [record for record in captured if " from users " in record[0]]
+        domain_selects = [
+            record for record in captured if " from users " not in record[0]
+        ]
+        assert len(captured) == 2
+        assert len(auth_selects) == 1
+        assert auth_selects[0][0].startswith("select ")
+        assert len(domain_selects) == 1
+        domain_statement, domain_parameters = domain_selects[0]
+        assert domain_statement.startswith(("select ", "with "))
+        assert "orders.data_origin in" in domain_statement
+        scoped_origins = [value for value in domain_parameters if value in all_origins]
+        assert len(scoped_origins) == 2
+        assert set(scoped_origins) == portfolio_origins
+        assert OrderDataOrigin.LIVE.value not in scoped_origins
+        if path == EXPORT_PATH:
+            assert " from orders " in domain_statement
+            assert "qualified_succeeded_payments" not in domain_statement
+        else:
+            assert "qualified_succeeded_payments" in domain_statement
+            assert (
+                " from payments join orders on orders.id = payments.order_id "
+                "where orders.data_origin in"
+            ) in domain_statement
+
+
+@pytest.mark.parametrize(
+    "role",
+    [UserRole.ADMIN, UserRole.SUPER_ADMIN],
+    ids=["admin", "super-admin"],
+)
+def test_normal_admin_exports_preserve_all_order_origins(
+    export_session_factory: sessionmaker[Session],
+    token_service: UserTokenService,
+    role: UserRole,
+) -> None:
+    """Keep all origins visible to each trusted normal administrator role."""
+    admin_id = _store_admin(
+        export_session_factory,
+        email=f"normal-{role.value}-exports@example.com",
+        role=role,
+    )
+    fixtures = _store_mixed_origin_exports(export_session_factory)
+    application = _application(
+        export_session_factory,
+        token_service,
+        portfolio_demo_mode=False,
+        payment_provider=PaymentProvider.STRIPE_TEST,
+    )
+    headers = {"Authorization": f"Bearer {token_service.create_access_token(admin_id)}"}
+    with TestClient(application) as client:
+        responses = {
+            path: client.get(path, params=_params(), headers=headers)
+            for path in (EXPORT_PATH, PRODUCT_SALES_EXPORT_PATH, PAYMENTS_EXPORT_PATH)
+        }
+
+    expected_numbers = {
+        fixture.order.public_order_number for fixture in fixtures.values()
+    }
+    expected_names = {fixture.item_name for fixture in fixtures.values()}
+    for response in responses.values():
+        assert response.status_code == 200
+    rows_by_path = {path: _rows(response) for path, response in responses.items()}
+    assert len(rows_by_path[EXPORT_PATH]) == 3
+    assert len(rows_by_path[PRODUCT_SALES_EXPORT_PATH]) == 3
+    assert len(rows_by_path[PAYMENTS_EXPORT_PATH]) == 3
+    assert {
+        row["public_order_number"] for row in rows_by_path[EXPORT_PATH]
+    } == expected_numbers
+    assert {
+        row["item_name"] for row in rows_by_path[PRODUCT_SALES_EXPORT_PATH]
+    } == expected_names
+    assert {
+        row["public_order_number"] for row in rows_by_path[PAYMENTS_EXPORT_PATH]
+    } == expected_numbers
+
+
+@pytest.mark.parametrize(
+    ("actor_kind", "demo_mode", "provider", "missing_runtime"),
+    [
+        ("normal", True, PaymentProvider.DEMO.value, False),
+        ("demo_exact", False, PaymentProvider.STRIPE_TEST.value, False),
+        ("normal", True, PaymentProvider.STRIPE_TEST.value, False),
+        ("normal", False, PaymentProvider.DEMO.value, False),
+        ("normal", None, None, True),
+    ],
+)
+@pytest.mark.parametrize(
+    "path", [EXPORT_PATH, PRODUCT_SALES_EXPORT_PATH, PAYMENTS_EXPORT_PATH]
+)
+def test_reporting_policy_denial_precedes_domain_sql_and_dml(
+    export_session_factory: sessionmaker[Session],
+    token_service: UserTokenService,
+    test_database_engine: Engine,
+    actor_kind: str,
+    demo_mode: bool | None,
+    provider: str | None,
+    missing_runtime: bool,
+    path: str,
+) -> None:
+    """Return one opaque denial after auth but before report-domain access."""
+    if actor_kind == "demo_exact":
+        actor_id = _store_admin(
+            export_session_factory,
+            user_id=DEMO_ADMIN_ID,
+            email=DEMO_ADMIN_EMAIL,
+            password_hash=DEMO_ADMIN_DISABLED_PASSWORD_HASH,
+            role=UserRole.ADMIN,
+        )
+    else:
+        actor_id = _store_admin(export_session_factory)
+    application = _application(export_session_factory, token_service)
+    if missing_runtime:
+        delattr(application.state, "portfolio_demo_mode")
+        delattr(application.state, "payment_provider")
+    else:
+        application.state.portfolio_demo_mode = demo_mode
+        application.state.payment_provider = provider
+    statements: list[str] = []
+
+    def capture(
+        _connection: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        statements.append(" ".join(statement.lower().split()))
+
+    event.listen(test_database_engine, "before_cursor_execute", capture)
+    try:
+        with TestClient(application) as client:
+            response = client.get(
+                path,
+                params=_params(),
+                headers={
+                    "Authorization": (
+                        f"Bearer {token_service.create_access_token(actor_id)}"
+                    )
+                },
+            )
+    finally:
+        event.remove(test_database_engine, "before_cursor_execute", capture)
+
+    assert response.status_code == 403
+    assert response.json() == {
+        "detail": "Administrator reporting access is not allowed"
+    }
+    assert "content-disposition" not in response.headers
+    assert len(statements) == 1
+    assert " from users " in statements[0]
+    assert all(
+        token not in statements[0]
+        for token in (
+            " from orders ",
+            " join orders ",
+            " from payments ",
+            " join payments ",
+            " from order_items ",
+            " join order_items ",
+        )
+    )
+    assert not any(_is_data_writing_statement(statement) for statement in statements)

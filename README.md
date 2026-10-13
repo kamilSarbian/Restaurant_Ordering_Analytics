@@ -796,6 +796,16 @@ uppercase ASCII letters. Product and category routes additionally accept a
 per-currency `limit` from 1 through 100, defaulting to 50. There are no public
 analytics routes.
 
+Administrative Analytics reads use the server-owned portfolio read policy.
+After canonical Bearer authentication and a reload of the current active User,
+exact `PORTFOLIO_DEMO_MODE=true` with `PAYMENT_PROVIDER=demo` permits only the
+exact reserved ordinary demo administrator and includes only Orders with
+`data_origin=portfolio_seed` or `portfolio_runtime`. Exact `false +
+stripe_test` preserves all-origin results for active, non-reserved
+administrators and super-administrators. Actor or runtime drift, and either
+reserved identifier outside the demo runtime, return the same generic 403
+before Analytics SQL.
+
 The six KPIs are collected revenue, succeeded paid-order count, average order
 value, product quantity and value, category quantity and value, and dine-in
 versus takeaway paid-order count and collected revenue. Financial KPIs use
@@ -832,6 +842,15 @@ the existing `require_admin` dependency and OpenAPI `UserBearer` scheme:
 - `GET /api/v1/admin/exports/orders.csv`
 - `GET /api/v1/admin/exports/product-sales.csv`
 - `GET /api/v1/admin/exports/payments.csv`
+
+The same portfolio read policy protects all three exports. In the authorized
+demo runtime, `orders.csv` applies the permitted-origin predicate directly to
+Orders, while `product-sales.csv` and `payments.csv` receive it through the
+shared qualified succeeded-Payment source. A `live` Order therefore contributes
+to neither Analytics nor CSV output in that runtime. Normal `false +
+stripe_test` behavior remains all-origin for an authorized non-reserved
+administrator. Existing JSON schemas, CSV headers, filenames, filters, and
+ordering remain unchanged; `data_origin` is not exposed.
 
 There is no public or fourth export route, streaming or background export,
 XLSX/PDF output, or generated file on disk. The customer frontend is the

@@ -22,6 +22,8 @@ from app.analytics.schemas import (
     AnalyticsProductResponse,
     AnalyticsRangeResponse,
 )
+from app.auth.models import User
+from app.orders.admin_service import resolve_admin_order_read_origin_scope
 from app.orders.models import Order, OrderItem
 from app.payments.models import Payment
 from app.payments.statuses import PaymentStatus
@@ -33,6 +35,9 @@ ANALYTICS_TIMEZONE = ZoneInfo(ANALYTICS_TIMEZONE_NAME)
 def get_analytics_overview(
     session: Session,
     *,
+    current_user: User,
+    portfolio_demo_mode: bool | None,
+    payment_provider: str | None,
     start: datetime,
     end: datetime,
     currency: str | None,
@@ -41,19 +46,31 @@ def get_analytics_overview(
 
     Args:
         session: Request-scoped database session.
+        current_user: Current active User freshly loaded by authentication.
+        portfolio_demo_mode: Trusted application-scoped demo-mode state.
+        payment_provider: Trusted application-scoped payment-provider state.
         start: Inclusive aware reporting boundary.
         end: Exclusive aware reporting boundary.
         currency: Optional exact ISO-style currency code.
 
     Returns:
         Per-currency revenue, succeeded-order count, and rounded average value.
+
+    Raises:
+        AdminOrderReadDeniedError: If identity or runtime forbids the read.
     """
+    origin_scope = resolve_admin_order_read_origin_scope(
+        current_user=current_user,
+        portfolio_demo_mode=portfolio_demo_mode,
+        payment_provider=payment_provider,
+    )
     start_utc = start.astimezone(UTC)
     end_utc = end.astimezone(UTC)
     qualified_payments = build_qualified_succeeded_payments(
         start_utc=start_utc,
         end_utc=end_utc,
         currency=currency,
+        order_origin_scope=origin_scope,
     )
 
     overview_statement = (
@@ -95,18 +112,44 @@ def get_analytics_overview(
 def get_product_analytics(
     session: Session,
     *,
+    current_user: User,
+    portfolio_demo_mode: bool | None,
+    payment_provider: str | None,
     start: datetime,
     end: datetime,
     currency: str | None,
     limit: int,
 ) -> AnalyticsProductResponse:
-    """Aggregate historical product snapshots with a per-currency limit."""
+    """Aggregate authorized historical product snapshots.
+
+    Args:
+        session: Request-scoped database session.
+        current_user: Current active User freshly loaded by authentication.
+        portfolio_demo_mode: Trusted application-scoped demo-mode state.
+        payment_provider: Trusted application-scoped payment-provider state.
+        start: Inclusive aware reporting boundary.
+        end: Exclusive aware reporting boundary.
+        currency: Optional exact ISO-style currency code.
+        limit: Maximum product groups returned per currency.
+
+    Returns:
+        Historical product sales with a deterministic per-currency limit.
+
+    Raises:
+        AdminOrderReadDeniedError: If identity or runtime forbids the read.
+    """
+    origin_scope = resolve_admin_order_read_origin_scope(
+        current_user=current_user,
+        portfolio_demo_mode=portfolio_demo_mode,
+        payment_provider=payment_provider,
+    )
     rows = session.execute(
         build_product_sales_statement(
             start_utc=start.astimezone(UTC),
             end_utc=end.astimezone(UTC),
             currency=currency,
             limit_per_currency=limit,
+            order_origin_scope=origin_scope,
         )
     ).all()
     return AnalyticsProductResponse(
@@ -128,16 +171,42 @@ def get_product_analytics(
 def get_category_analytics(
     session: Session,
     *,
+    current_user: User,
+    portfolio_demo_mode: bool | None,
+    payment_provider: str | None,
     start: datetime,
     end: datetime,
     currency: str | None,
     limit: int,
 ) -> AnalyticsCategoryResponse:
-    """Aggregate historical category snapshots with a per-currency limit."""
+    """Aggregate authorized historical category snapshots.
+
+    Args:
+        session: Request-scoped database session.
+        current_user: Current active User freshly loaded by authentication.
+        portfolio_demo_mode: Trusted application-scoped demo-mode state.
+        payment_provider: Trusted application-scoped payment-provider state.
+        start: Inclusive aware reporting boundary.
+        end: Exclusive aware reporting boundary.
+        currency: Optional exact ISO-style currency code.
+        limit: Maximum category groups returned per currency.
+
+    Returns:
+        Historical category sales with a deterministic per-currency limit.
+
+    Raises:
+        AdminOrderReadDeniedError: If identity or runtime forbids the read.
+    """
+    origin_scope = resolve_admin_order_read_origin_scope(
+        current_user=current_user,
+        portfolio_demo_mode=portfolio_demo_mode,
+        payment_provider=payment_provider,
+    )
     qualified = build_qualified_succeeded_payments(
         start_utc=start.astimezone(UTC),
         end_utc=end.astimezone(UTC),
         currency=currency,
+        order_origin_scope=origin_scope,
     )
     category_groups_statement = (
         select(
@@ -196,15 +265,40 @@ def get_category_analytics(
 def get_order_type_analytics(
     session: Session,
     *,
+    current_user: User,
+    portfolio_demo_mode: bool | None,
+    payment_provider: str | None,
     start: datetime,
     end: datetime,
     currency: str | None,
 ) -> AnalyticsOrderTypeResponse:
-    """Aggregate collected payment KPIs by order type and currency."""
+    """Aggregate authorized payment KPIs by order type and currency.
+
+    Args:
+        session: Request-scoped database session.
+        current_user: Current active User freshly loaded by authentication.
+        portfolio_demo_mode: Trusted application-scoped demo-mode state.
+        payment_provider: Trusted application-scoped payment-provider state.
+        start: Inclusive aware reporting boundary.
+        end: Exclusive aware reporting boundary.
+        currency: Optional exact ISO-style currency code.
+
+    Returns:
+        Collected payment KPIs grouped by order type and currency.
+
+    Raises:
+        AdminOrderReadDeniedError: If identity or runtime forbids the read.
+    """
+    origin_scope = resolve_admin_order_read_origin_scope(
+        current_user=current_user,
+        portfolio_demo_mode=portfolio_demo_mode,
+        payment_provider=payment_provider,
+    )
     qualified = build_qualified_succeeded_payments(
         start_utc=start.astimezone(UTC),
         end_utc=end.astimezone(UTC),
         currency=currency,
+        order_origin_scope=origin_scope,
     )
     rows = session.execute(
         select(
@@ -238,6 +332,7 @@ def build_qualified_succeeded_payments(
     start_utc: datetime,
     end_utc: datetime,
     currency: str | None,
+    order_origin_scope: tuple[str, str] | None,
 ) -> CTE:
     """Build the reusable one-row-per-qualified-payment financial source.
 
@@ -245,6 +340,8 @@ def build_qualified_succeeded_payments(
         start_utc: Inclusive UTC success-time boundary.
         end_utc: Exclusive UTC success-time boundary.
         currency: Optional exact Payment currency filter.
+        order_origin_scope: Allowed Order origins, or no origin filter for the
+            exact normal administrator runtime.
 
     Returns:
         A CTE containing one row per succeeded Payment with its persisted
@@ -258,7 +355,13 @@ def build_qualified_succeeded_payments(
         Payment.amount.label("amount"),
         Payment.currency.label("currency"),
         Payment.succeeded_at.label("success_at"),
-    ).where(
+    )
+    if order_origin_scope is not None:
+        qualified_payments_statement = qualified_payments_statement.join(
+            Order,
+            Order.id == Payment.order_id,
+        ).where(Order.data_origin.in_(order_origin_scope))
+    qualified_payments_statement = qualified_payments_statement.where(
         Payment.status == PaymentStatus.SUCCEEDED.value,
         Payment.succeeded_at.is_not(None),
         Payment.succeeded_at >= start_utc,
@@ -280,6 +383,7 @@ def build_product_sales_statement(
     end_utc: datetime,
     currency: str | None,
     limit_per_currency: int | None,
+    order_origin_scope: tuple[str, str] | None,
 ) -> Select[tuple[object, ...]]:
     """Build the shared historical product-sales aggregation statement.
 
@@ -289,6 +393,8 @@ def build_product_sales_statement(
         currency: Optional currency required on both Payment and Order.
         limit_per_currency: Optional per-currency rank cutoff. ``None`` keeps
             every product group for CSV export.
+        order_origin_scope: Allowed Order origins, or no origin filter for the
+            exact normal administrator runtime.
 
     Returns:
         Deterministically ordered product-sales aggregate SELECT.
@@ -297,6 +403,7 @@ def build_product_sales_statement(
         start_utc=start_utc,
         end_utc=end_utc,
         currency=currency,
+        order_origin_scope=order_origin_scope,
     )
     product_groups_statement = (
         select(

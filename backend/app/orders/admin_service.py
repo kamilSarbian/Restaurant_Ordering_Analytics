@@ -94,7 +94,7 @@ def list_admin_orders(
     Raises:
         AdminOrderReadDeniedError: If identity or runtime forbids the read.
     """
-    origin_scope = _admin_order_read_origin_scope(
+    origin_scope = resolve_admin_order_read_origin_scope(
         current_user=current_user,
         portfolio_demo_mode=portfolio_demo_mode,
         payment_provider=payment_provider,
@@ -148,7 +148,7 @@ def get_admin_order(
         AdminOrderNotFoundError: If no order has the supplied public number.
         AdminOrderReadDeniedError: If identity or runtime forbids the read.
     """
-    origin_scope = _admin_order_read_origin_scope(
+    origin_scope = resolve_admin_order_read_origin_scope(
         current_user=current_user,
         portfolio_demo_mode=portfolio_demo_mode,
         payment_provider=payment_provider,
@@ -322,13 +322,22 @@ def _order_status_mutation_is_allowed(
     return False
 
 
-def _admin_order_read_origin_scope(
+def resolve_admin_order_read_origin_scope(
     *,
     current_user: User,
     portfolio_demo_mode: bool | None,
     payment_provider: str | None,
 ) -> tuple[str, str] | None:
-    """Return the allowed demo origins or no filter for trusted normal reads.
+    """Return the allowed origins for one trusted administrator read.
+
+    Args:
+        current_user: Current active User freshly loaded by authentication.
+        portfolio_demo_mode: Trusted application-scoped demo-mode state.
+        payment_provider: Trusted application-scoped payment-provider state.
+
+    Returns:
+        The two permitted portfolio origins in the exact demo runtime, or no
+        origin filter in the exact normal runtime.
 
     Raises:
         AdminOrderReadDeniedError: If identity or runtime is not an exact

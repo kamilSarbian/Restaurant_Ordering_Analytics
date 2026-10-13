@@ -252,18 +252,28 @@ not add `payment_summary` even though Payment persistence now exists.
 
 The implemented `backend/app/analytics/` package contains `router.py`,
 `service.py`, `schemas.py`, and `__init__.py`. The router owns query validation,
-the existing `require_admin` dependency, and the HTTP boundary only. Strict
+canonical `require_admin` authentication, and transfer of the freshly loaded
+User plus trusted application mode and provider. Before any Analytics SQL,
+each service entry point resolves one server-owned administrative origin scope.
+Exact `true + demo` authorizes only the active reserved ordinary demo
+administrator and resolves to `portfolio_seed` plus `portfolio_runtime`; exact
+`false + stripe_test` authorizes an active non-reserved administrator or
+super-administrator and resolves to the existing all-origin scope. Every other
+actor/runtime combination fails closed with the same generic 403. Strict
 Pydantic schemas require aware timestamps, expose integer minor-unit values,
 and keep currencies separate. The service owns the shared qualified-payment
 source and set-based PostgreSQL aggregation; it performs no DML, provider call,
 or current-catalog join.
 
-The current shared source includes only `Payment(status=succeeded)` rows
-with authoritative non-null `Payment.succeeded_at`. Migration 0009 backfills
-that timestamp for historical Stripe successes from the earliest qualifying
-transitioned success event and fails closed if the evidence is missing.
-StripeEvent remains the Stripe webhook audit/deduplication record, not the
-current analytics success-time source. There is no fallback to
+The shared qualified-payment source requires the already resolved origin scope.
+It selects only `Payment(status=succeeded)` rows with authoritative non-null
+`Payment.succeeded_at` and, when the demo scope is active, constrains the joined
+Order to `portfolio_seed` or `portfolio_runtime`. The predicate is part of the
+same set-based statement; it adds no preliminary domain read. Migration 0009
+backfills the timestamp for historical Stripe successes from the earliest
+qualifying transitioned success event and fails closed if the evidence is
+missing. StripeEvent remains the Stripe webhook audit/deduplication record, not
+the current analytics success-time source. There is no fallback to
 `Payment.updated_at`.
 
 The six metrics are collected revenue, succeeded paid-order count, average
@@ -285,6 +295,9 @@ Product and category endpoints execute one set-based aggregate SELECT with
 per-currency ranking through PostgreSQL window functions. Thus every endpoint
 performs one analytics SELECT after authentication, with no N+1 queries,
 Python full-table grouping, Pandas, DML, or Stripe network access.
+The fail-closed actor/runtime policy runs before that statement. Provenance
+scoping therefore preserves the one-SELECT boundary and adds no DML, N+1 query,
+or provider call.
 
 The Stage 13 performance audit used EXPLAIN on isolated PostgreSQL and observed
 the expected aggregates, joins, and window operations. Sequential scans on the
@@ -308,22 +321,25 @@ deterministic filenames, and Europe/Oslo datetime formatting. The service owns
 set-based data retrieval and CSV row mapping. The router owns the canonical
 `UserBearer` boundary and the CSV HTTP response headers.
 
-The reports service reuses the analytics service's qualified
+The reports service reuses the Analytics service's explicitly scoped qualified
 succeeded-Payment source. Product aggregation is also shared: Stage 13 JSON
 applies a per-currency top-N rank, while product-sales CSV invokes the same
-aggregation without a cutoff. Provider-neutral succeeded-Payment selection is
-therefore not duplicated, and reports do not call analytics endpoints over
-HTTP.
+aggregation without a cutoff. The demo origin predicate therefore reaches all
+four Analytics statements plus `product-sales.csv` and `payments.csv` through
+one production builder rather than copied caller-side policy. Provider-neutral
+succeeded-Payment selection is not duplicated, and reports do not call
+Analytics endpoints over HTTP.
 
 The query boundary is one report SELECT after administrator authentication for
 each dataset:
 
 - `orders.csv` performs one Order SELECT over the half-open
-  `Order.created_at` range and orders by creation time and internal ID;
-- `product-sales.csv` performs one set-based aggregate SELECT over the shared
-  qualified-Payment source and historical OrderItem snapshots;
-- `payments.csv` performs one set-based qualified-Payment SELECT joined to
-  Order only for the public order number.
+  `Order.created_at` range, applies the resolved origin predicate directly,
+  and orders by creation time and internal ID;
+- `product-sales.csv` performs one set-based aggregate SELECT over the same
+  scoped qualified-Payment source and historical OrderItem snapshots;
+- `payments.csv` performs one scoped qualified-Payment SELECT joined to Order
+  for both provenance enforcement and the public order number.
 
 All three paths perform zero DML, make no provider call, avoid N+1 queries, and
 create no local CSV file. The response is generated completely in memory. This

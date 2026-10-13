@@ -1752,6 +1752,49 @@ while preserving these financial concurrency rules.
   broader B4 completion claim. Database acceptance, Browser E2E, commit, push,
   and CI evidence remain separate gates for the implementation slice.
 
+## D-084 — Portfolio Demo Isolation for Administrative Analytics and CSV Reads
+
+- **Status:** accepted on 2026-10-13 for the bounded B4-3B2 contract.
+- **Scope:** this decision applies exactly to
+  `GET /api/v1/admin/analytics/overview`,
+  `GET /api/v1/admin/analytics/products`,
+  `GET /api/v1/admin/analytics/categories`,
+  `GET /api/v1/admin/analytics/order-types`,
+  `GET /api/v1/admin/exports/orders.csv`,
+  `GET /api/v1/admin/exports/product-sales.csv`, and
+  `GET /api/v1/admin/exports/payments.csv`. D-083 remains the separate
+  administrative Order-list/detail decision. This decision does not authorize
+  Menu reads, User reads, account reads, public demo-session issuance, or any
+  mutation.
+- **Trusted actor and runtime:** canonical Bearer validation, the current active
+  database User reload, and the existing administrator-role requirement remain
+  authoritative. Exact `PORTFOLIO_DEMO_MODE=true` with
+  `PAYMENT_PROVIDER=demo` permits these reads only for the exact reserved,
+  active, ordinary demo administrator. Missing or inconsistent trusted runtime,
+  actor drift, or either reserved identifier outside that runtime fails closed
+  with one generic 403 before Analytics or report SQL. Missing or invalid
+  authentication retains the existing 401.
+- **Origin scope:** the authorized demo administrator receives results derived
+  only from `portfolio_seed` and `portfolio_runtime` Orders. All four Analytics
+  services plus `product-sales.csv` and `payments.csv` apply that scope through
+  the shared qualified succeeded-Payment source joined to Order. `orders.csv`
+  applies the same predicate directly to its Order statement. `live` data
+  cannot affect an aggregate, ranking, zero-filled currency result, or CSV row
+  in the demo runtime.
+- **Normal runtime:** exact `PORTFOLIO_DEMO_MODE=false` with
+  `PAYMENT_PROVIDER=stripe_test` preserves the existing all-origin behavior for
+  an active, non-reserved `admin` or `super_admin`.
+- **Preserved contracts:** succeeded-Payment qualification remains
+  provider-neutral and based on `Payment.status` plus
+  `Payment.succeeded_at`. Existing half-open ranges, currency separation,
+  zero-fill, ranking, deterministic ordering, CSV headers, filenames,
+  spreadsheet safety, and one-SELECT-per-service boundary remain unchanged.
+  JSON schemas and CSV columns do not expose `data_origin`; no DML is added.
+- **Operational boundary:** this decision adds no model, migration, frontend,
+  seed execution, demo-session, provisioning, deployment, or broader B4
+  completion claim. Isolated PostgreSQL acceptance, a full canonical Browser
+  E2E, independent review, commit, push, and CI remain separate gates.
+
 ## History of Decisions That Required Resolution
 
 ### O-002: Boundary Between Order Creation and Stripe Checkout Session

@@ -29,11 +29,19 @@
   `main` at `cee29b0fa1f14043bf7a661f045e20aa0772fac6`; GitHub Actions run
   `38402519676`, attempt 1, completed `Backend`, `Migrations`, `Frontend`, and
   `Browser E2E` with `success` for that exact SHA. Stage 22 remains in progress;
-  the B4-2 CLI-on-DB, public demo-session issuance, remaining read isolation and
-  B4 work, B5, B6, production provisioning, and deployment remain open. This file
-  records durable implementation scope and acceptance evidence; repository
-  history, independent-review records, and CI are authoritative for transient
-  commit and run status.
+  B4-3B2 is a local, uncommitted implementation candidate that scopes the four
+  administrative Analytics reads and three CSV reads to portfolio data in the
+  exact demo runtime. Its local isolated PostgreSQL acceptance is complete: one
+  authorized full four-file run completed with 302 passed, and the read-only
+  precheck, postcheck, and fixture cleanup were confirmed. Independent
+  post-database review is complete, and one later full local canonical Browser
+  E2E completed with 32 passed, 0 failed, 0 did not run, and no retry. Final
+  independent review, commit, push, and new CI remain open.
+  The B4-2 CLI-on-DB, public demo-session issuance, remaining read isolation and
+  B4 work, B5, B6, production provisioning, and deployment remain open. This
+  file records durable implementation scope and acceptance evidence;
+  repository history, independent-review records, and CI are authoritative for
+  transient commit and run status.
   Recruiter-facing portfolio documentation and case-study work remain Stage 23
   and have not started
 - **Stage 1:** completed
@@ -79,7 +87,13 @@
   `cee29b0fa1f14043bf7a661f045e20aa0772fac6`; GitHub Actions run `38402519676`,
   attempt 1, completed `Backend`, `Migrations`, `Frontend`, and `Browser E2E`
   with `success` for that exact SHA, closing only the B4-3B1 CI gate. The
-  original Stage 20 paid Render/GHCR topology is historical
+  B4-3B2 production policy and seven read paths remain a local implementation
+  candidate. One isolated PostgreSQL acceptance of the complete four-file scope
+  completed with 302 passed, 0 failed, 0 skipped, 0 deselected, and no retry.
+  Independent post-database review is complete. One later full local canonical
+  Browser E2E completed with 32 passed, 0 failed, 0 did not run, and no retry.
+  Final independent review, commit, push, and new CI remain separate open
+  gates. The original Stage 20 paid Render/GHCR topology is historical
   and superseded for the free-tier portfolio demo. The
   B4-2 CLI-on-DB, public B4 demo-session issuance, remaining read isolation and
   B4 work, B5, B6, and any further B3 scope remain future work.
@@ -1049,6 +1063,99 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   demo-session issuance, Analytics/CSV/Menu/User/account read isolation,
   remaining B4, B5, B6, production provisioning, and deployment also remain
   open.
+
+- **B4-3B2 — Administrative Analytics and CSV read isolation (local
+  implementation candidate):** all four administrative Analytics GET routes
+  and all three CSV GET routes require the canonical current User plus trusted
+  application mode and provider as mandatory service inputs. The exact
+  `true + demo` runtime authorizes only the active reserved ordinary demo
+  administrator and derives the exact `portfolio_seed` plus
+  `portfolio_runtime` scope. Exact `false + stripe_test` preserves all-origin
+  reads for active, non-reserved
+  admins and super-admins. Missing or inconsistent runtime, actor drift, and
+  either reserved identifier outside the demo runtime return one generic 403
+  before Analytics or report SQL; missing or invalid authentication retains the
+  existing 401 boundary.
+
+  The shared qualified succeeded-Payment source carries the derived provenance
+  predicate for overview, products, categories, order types,
+  `product-sales.csv`, and `payments.csv`. `orders.csv` applies the same scope
+  directly to its Order statement. Existing provider-neutral success
+  qualification, time and currency rules, ranking, zero-fill, CSV wire
+  contracts, deterministic ordering, and one-SELECT-per-service boundary remain
+  unchanged. Neither JSON nor CSV exposes `data_origin`; this slice adds no
+  model, migration, frontend, or DML behavior.
+
+  Local no-database evidence includes 219 passing targeted B4-3B1/B4-3B2 policy
+  regressions. The first explicitly non-integration backend run completed 1,639
+  tests but had one setup error because pytest could not read its default system
+  temporary directory; the affected test body did not start. The same suite
+  then ran with a new dedicated temporary directory outside the repository and
+  completed with 1,640 passed. Both runs reported one external Starlette
+  TestClient deprecation warning. Before the later CSV role and SQL-capture
+  remediation, a separate safe collect-only invocation found 203 tests across
+  the three changed integration files; it did not execute a fixture or connect
+  to PostgreSQL. After that remediation, another collect-only invocation found
+  110 tests in `backend/tests/integration/test_csv_exports_api.py` alone; it
+  likewise did not execute the fixture or connect to PostgreSQL. These
+  collection scopes differ; neither result is database acceptance, and the
+  counts are not intended to sum to the later four-file execution. Ruff, Black,
+  isort, compileall, and the changed-document checks were run without a
+  database.
+
+  One later separately authorized isolated PostgreSQL acceptance executed the
+  complete four-file scope exactly once:
+
+  ```powershell
+  .\.venv\Scripts\python.exe -B -m pytest -p no:cacheprovider -q --tb=line --show-capture=no tests/integration/test_analytics_api.py tests/integration/test_csv_exports_api.py tests/integration/test_portfolio_seed_data.py tests/integration/test_admin_orders_api.py
+  ```
+
+  It completed with 302 passed, 0 failed, 0 skipped, 0 deselected, native exit
+  code 0, and a 69.03-second duration, without retry, test filters, or xdist. One
+  external Starlette/httpx deprecation warning was non-blocking. The first
+  three files exercise B4-3B2; `test_admin_orders_api.py` provides regression
+  coverage for the shared B4-3B1 Orders policy. This is not a whole-backend
+  result.
+
+  The same read-only precheck script ran exactly once before and once after the
+  test run. Both checks returned `PASS` / `READ_ONLY_PREFLIGHT_OK` with native
+  exit code 0. At both boundaries, the test database was absent, the unrelated
+  client count was 0, and the development database retained OID 16384 plus the
+  same ten-table, 28-row logical fingerprint
+  `7e0b9931f1dc0f56d69673cc45c8a0a1102f1272ae333fd461cede50cc2f4353`.
+  The fixture completed its test-database cleanup. Exactly one container start
+  and one graceful stop each returned native exit code 0; the final container
+  state was exited, host port 5433 was closed, and named volume
+  `restaurant_ordering_analytics_postgres_data` was preserved. This evidence
+  does not claim bitwise volume immutability or an absence of internal
+  PostgreSQL writes.
+
+  One later full local canonical Browser E2E ran exactly once through the
+  existing `.github/scripts/run-browser-e2e.sh` with Git Bash. It completed with
+  native exit code 0, 32 passed, 0 failed, 0 did not run, a 7.7-minute
+  Playwright duration, and a 547.90-second full-harness duration, using one
+  worker, zero retries, and the `list` reporter. Passing coverage included guest
+  payment and administrator governance, Orders overview and detail,
+  Analytics/reporting, Exports/CSV, Users/Menu, and the complete seven-viewport
+  matrix: 320×568, 375×812, 430×932 at DPR 2, 768×1024, 1024×768, 1280×800, and
+  1440×900. The database and secret-safe log audits passed.
+
+  Cleanup for isolated project `roa-stage18-e2e-49113cef4568c299` left zero
+  project containers and zero project networks. Its per-run volume and two
+  images remained under the harness's standard lifecycle. Protected volume
+  `restaurant_ordering_analytics_postgres_data` retained its identity,
+  metadata, and mounts, was not attached to the E2E project, and the development
+  PostgreSQL container remained exited. This evidence makes no claim that the
+  protected volume contents were bitwise unchanged. Two earlier helper checks
+  failed because of command quoting before Docker activity; they were neither
+  harness attempts nor E2E failures, and the successful harness was not retried.
+
+  Local isolated PostgreSQL acceptance and the local canonical Browser E2E gate
+  for B4-3B2 are complete. Final independent review, commit, push, and new CI
+  remain open; the local Browser E2E result is not CI for the uncommitted slice.
+  The B4-2 CLI still has not run against a database. Public demo-session
+  issuance, Menu/User/account read isolation, remaining B4, B5, B6, production
+  provisioning, and deployment also remain open.
 
 - **Stage 22-B0 demo design:** its B3 payment design is now implemented through
   B3-2B. B4 public session issuance and remaining bounded authorization guards,

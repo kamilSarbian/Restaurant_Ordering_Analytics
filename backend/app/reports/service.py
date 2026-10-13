@@ -12,6 +12,8 @@ from app.analytics.service import (
     build_product_sales_statement,
     build_qualified_succeeded_payments,
 )
+from app.auth.models import User
+from app.orders.admin_service import resolve_admin_order_read_origin_scope
 from app.orders.models import Order
 from app.reports.csv_utils import (
     build_csv_bytes,
@@ -67,16 +69,31 @@ class CsvExportResult:
 def export_orders_csv(
     session: Session,
     query: OrdersCsvExportQuery,
+    *,
+    current_user: User,
+    portfolio_demo_mode: bool | None,
+    payment_provider: str | None,
 ) -> CsvExportResult:
     """Export orders created within the requested half-open UTC range.
 
     Args:
         session: Open database session used for one read-only report query.
         query: Validated export range and optional exact filters.
+        current_user: Current active User freshly loaded by authentication.
+        portfolio_demo_mode: Trusted application-scoped demo-mode state.
+        payment_provider: Trusted application-scoped payment-provider state.
 
     Returns:
         Buffered CSV bytes and deterministic filename.
+
+    Raises:
+        AdminOrderReadDeniedError: If identity or runtime forbids the read.
     """
+    origin_scope = resolve_admin_order_read_origin_scope(
+        current_user=current_user,
+        portfolio_demo_mode=portfolio_demo_mode,
+        payment_provider=payment_provider,
+    )
     range_start_utc = query.start.astimezone(UTC)
     range_end_utc = query.end.astimezone(UTC)
     statement = select(
@@ -93,6 +110,8 @@ def export_orders_csv(
         Order.created_at >= range_start_utc,
         Order.created_at < range_end_utc,
     )
+    if origin_scope is not None:
+        statement = statement.where(Order.data_origin.in_(origin_scope))
     if query.currency is not None:
         statement = statement.where(Order.currency == query.currency)
     if query.status is not None:
@@ -137,22 +156,38 @@ def export_orders_csv(
 def export_product_sales_csv(
     session: Session,
     query: AnalyticsCsvExportQuery,
+    *,
+    current_user: User,
+    portfolio_demo_mode: bool | None,
+    payment_provider: str | None,
 ) -> CsvExportResult:
     """Export every qualified historical product-sales group.
 
     Args:
         session: Open database session used for one read-only report query.
         query: Validated payment-success range and optional currency filter.
+        current_user: Current active User freshly loaded by authentication.
+        portfolio_demo_mode: Trusted application-scoped demo-mode state.
+        payment_provider: Trusted application-scoped payment-provider state.
 
     Returns:
         Buffered CSV bytes and deterministic filename.
+
+    Raises:
+        AdminOrderReadDeniedError: If identity or runtime forbids the read.
     """
+    origin_scope = resolve_admin_order_read_origin_scope(
+        current_user=current_user,
+        portfolio_demo_mode=portfolio_demo_mode,
+        payment_provider=payment_provider,
+    )
     result_rows = session.execute(
         build_product_sales_statement(
             start_utc=query.start.astimezone(UTC),
             end_utc=query.end.astimezone(UTC),
             currency=query.currency,
             limit_per_currency=None,
+            order_origin_scope=origin_scope,
         )
     ).all()
     range_start = format_oslo_datetime(query.start)
@@ -184,20 +219,36 @@ def export_product_sales_csv(
 def export_payments_csv(
     session: Session,
     query: AnalyticsCsvExportQuery,
+    *,
+    current_user: User,
+    portfolio_demo_mode: bool | None,
+    payment_provider: str | None,
 ) -> CsvExportResult:
     """Export one row per qualified succeeded Payment.
 
     Args:
         session: Open database session used for one read-only report query.
         query: Validated payment-success range and optional currency filter.
+        current_user: Current active User freshly loaded by authentication.
+        portfolio_demo_mode: Trusted application-scoped demo-mode state.
+        payment_provider: Trusted application-scoped payment-provider state.
 
     Returns:
         Buffered CSV bytes and deterministic filename.
+
+    Raises:
+        AdminOrderReadDeniedError: If identity or runtime forbids the read.
     """
+    origin_scope = resolve_admin_order_read_origin_scope(
+        current_user=current_user,
+        portfolio_demo_mode=portfolio_demo_mode,
+        payment_provider=payment_provider,
+    )
     qualified = build_qualified_succeeded_payments(
         start_utc=query.start.astimezone(UTC),
         end_utc=query.end.astimezone(UTC),
         currency=query.currency,
+        order_origin_scope=origin_scope,
     )
     statement = (
         select(
