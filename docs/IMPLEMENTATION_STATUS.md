@@ -25,10 +25,12 @@
   Browser E2E job in run `38052535486`, while `Backend`, `Migrations`, and
   `Frontend` passed. The test-only Exports synchronization fix is committed at
   `27c43bd0429a434e7e63add4528f1ee141bf8040`; replacement run `38057820650`,
-  attempt 1, passed all four required jobs. B4-3B1 is now a local implementation
-  candidate only. Stage 22 remains in progress; the B4-2 CLI-on-DB, public
-  demo-session issuance, remaining read isolation and B4 work, B5, B6,
-  production provisioning, and deployment remain open. This file
+  attempt 1, passed all four required jobs. B4-3B1 is committed and pushed on
+  `main` at `cee29b0fa1f14043bf7a661f045e20aa0772fac6`; GitHub Actions run
+  `38402519676`, attempt 1, completed `Backend`, `Migrations`, `Frontend`, and
+  `Browser E2E` with `success` for that exact SHA. Stage 22 remains in progress;
+  the B4-2 CLI-on-DB, public demo-session issuance, remaining read isolation and
+  B4 work, B5, B6, production provisioning, and deployment remain open. This file
   records durable implementation scope and acceptance evidence; repository
   history, independent-review records, and CI are authoritative for transient
   commit and run status.
@@ -72,11 +74,12 @@
   passed all four required jobs for the follow-up SHA, closing B4-3A3 CI
   acceptance. The later historical run `38052535486` failed only `Browser E2E`;
   the test-only fix at `27c43bd0429a434e7e63add4528f1ee141bf8040` has four
-  successful required jobs in replacement run `38057820650`, attempt 1.
-  B4-3B1 is a local, uncommitted implementation candidate whose local isolated
-  PostgreSQL acceptance and one full canonical Browser E2E are complete. Repeat
-  independent review after this status correction, commit, push, and new CI
-  remain open. The original Stage 20 paid Render/GHCR topology is historical
+  successful required jobs in replacement run `38057820650`, attempt 1. B4-3B1
+  is committed and pushed on `main` at
+  `cee29b0fa1f14043bf7a661f045e20aa0772fac6`; GitHub Actions run `38402519676`,
+  attempt 1, completed `Backend`, `Migrations`, `Frontend`, and `Browser E2E`
+  with `success` for that exact SHA, closing only the B4-3B1 CI gate. The
+  original Stage 20 paid Render/GHCR topology is historical
   and superseded for the free-tier portfolio demo. The
   B4-2 CLI-on-DB, public B4 demo-session issuance, remaining read isolation and
   B4 work, B5, B6, and any further B3 scope remain future work.
@@ -979,8 +982,8 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   frontend application behavior, migration, environment, provisioning, or
   deployment change is included.
 
-- **B4-3B1 — Administrative Order-read isolation (local implementation
-  candidate):** the two administrator GET endpoints now require the canonical
+- **B4-3B1 — Administrative Order-read isolation:** the two administrator GET
+  endpoints now require the canonical
   current User plus trusted application mode and provider as mandatory service
   inputs. Exact `true + demo` authorizes only the active reserved demo-admin
   identity and scopes both list count/page queries and the first detail query to
@@ -1030,16 +1033,19 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   `restaurant_ordering_analytics_postgres_data` named volume retained its
   identity, metadata, and mounts; its contents were not compared bitwise.
 
-  The repository baseline remains `27c43bd0429a434e7e63add4528f1ee141bf8040`.
-  Historical run `38052535486`, attempt 1, passed `Backend`, `Migrations`, and
-  `Frontend` but failed `Browser E2E`; replacement run `38057820650`, attempt
-  1, passed all four required jobs for baseline commit
-  `27c43bd0429a434e7e63add4528f1ee141bf8040` after the Exports test-only fix.
-  Neither run includes this local B4-3B1 candidate, and the local Browser E2E
-  pass is not new CI. Local isolated PostgreSQL acceptance and one full
-  canonical Browser E2E are complete. Repeat independent review after this
-  correction, commit, push, and new CI remain open. The B4-2 CLI still has not
-  run against a database; public
+  The pre-B4-3B1 repository baseline was
+  `27c43bd0429a434e7e63add4528f1ee141bf8040`. Historical run `38052535486`,
+  attempt 1, passed `Backend`, `Migrations`, and `Frontend` but failed
+  `Browser E2E`; replacement run `38057820650`, attempt 1, passed all four
+  required jobs for that baseline after the Exports test-only fix. Both runs
+  predate B4-3B1, and the local Browser E2E pass remains separate local
+  evidence rather than GitHub CI. Following final independent review, B4-3B1
+  was committed and pushed on `main` at
+  `cee29b0fa1f14043bf7a661f045e20aa0772fac6`. GitHub Actions run `38402519676`,
+  attempt 1, completed `Backend`, `Migrations`, `Frontend`, and `Browser E2E`
+  with `success` for that exact SHA. Local isolated PostgreSQL acceptance, one
+  full canonical Browser E2E, and the B4-3B1 review, commit, push, and CI gates
+  are complete. The B4-2 CLI still has not run against a database; public
   demo-session issuance, Analytics/CSV/Menu/User/account read isolation,
   remaining B4, B5, B6, production provisioning, and deployment also remain
   open.
