@@ -29,14 +29,16 @@
   `main` at `cee29b0fa1f14043bf7a661f045e20aa0772fac6`; GitHub Actions run
   `38402519676`, attempt 1, completed `Backend`, `Migrations`, `Frontend`, and
   `Browser E2E` with `success` for that exact SHA. Stage 22 remains in progress;
-  B4-3B2 is a local, uncommitted implementation candidate that scopes the four
-  administrative Analytics reads and three CSV reads to portfolio data in the
-  exact demo runtime. Its local isolated PostgreSQL acceptance is complete: one
-  authorized full four-file run completed with 302 passed, and the read-only
-  precheck, postcheck, and fixture cleanup were confirmed. Independent
-  post-database review is complete, and one later full local canonical Browser
-  E2E completed with 32 passed, 0 failed, 0 did not run, and no retry. Final
-  independent review, commit, push, and new CI remain open.
+  B4-3B2 is committed and pushed on `main` at
+  `a7bcd5ec7fd104961d69a6df4c3972275a3dbbfc`; GitHub Actions run `38440913993`,
+  attempt 1, completed `Backend`, `Migrations`, `Frontend`, and `Browser E2E`
+  with `success` for that exact SHA. Its earlier local isolated PostgreSQL
+  acceptance remains separately recorded: one authorized full four-file run
+  completed with 302 passed, and the read-only precheck, postcheck, and fixture
+  cleanup were confirmed. Independent post-database review completed, and one
+  later full local canonical Browser E2E completed with 32 passed, 0 failed, 0
+  did not run, and no retry. These local gates remain distinct from the
+  automatic GitHub Actions run.
   The B4-2 CLI-on-DB, public demo-session issuance, remaining read isolation and
   B4 work, B5, B6, production provisioning, and deployment remain open. This
   file records durable implementation scope and acceptance evidence;
@@ -87,14 +89,17 @@
   `cee29b0fa1f14043bf7a661f045e20aa0772fac6`; GitHub Actions run `38402519676`,
   attempt 1, completed `Backend`, `Migrations`, `Frontend`, and `Browser E2E`
   with `success` for that exact SHA, closing only the B4-3B1 CI gate. The
-  B4-3B2 production policy and seven read paths remain a local implementation
-  candidate. One isolated PostgreSQL acceptance of the complete four-file scope
-  completed with 302 passed, 0 failed, 0 skipped, 0 deselected, and no retry.
-  Independent post-database review is complete. One later full local canonical
-  Browser E2E completed with 32 passed, 0 failed, 0 did not run, and no retry.
-  Final independent review, commit, push, and new CI remain separate open
-  gates. The original Stage 20 paid Render/GHCR topology is historical
-  and superseded for the free-tier portfolio demo. The
+  B4-3B2 production policy and seven read paths are committed and pushed on
+  `main` at `a7bcd5ec7fd104961d69a6df4c3972275a3dbbfc`; automatic GitHub Actions
+  push run `38440913993`, attempt 1, completed `Backend`, `Migrations`,
+  `Frontend`, and `Browser E2E` with `success` for that exact SHA, closing only
+  the B4-3B2 CI gate. One earlier isolated PostgreSQL acceptance of the complete
+  four-file scope completed with 302 passed, 0 failed, 0 skipped, 0 deselected,
+  and no retry. Independent post-database review completed. One later full
+  local canonical Browser E2E completed with 32 passed, 0 failed, 0 did not
+  run, and no retry; these local gates remain separate from CI. The original
+  Stage 20 paid Render/GHCR topology is historical and superseded for the
+  free-tier portfolio demo. The
   B4-2 CLI-on-DB, public B4 demo-session issuance, remaining read isolation and
   B4 work, B5, B6, and any further B3 scope remain future work.
   Stage 23 is **not started**. No Render/Neon provisioning, production
@@ -1060,12 +1065,11 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   with `success` for that exact SHA. Local isolated PostgreSQL acceptance, one
   full canonical Browser E2E, and the B4-3B1 review, commit, push, and CI gates
   are complete. The B4-2 CLI still has not run against a database; public
-  demo-session issuance, Analytics/CSV/Menu/User/account read isolation,
-  remaining B4, B5, B6, production provisioning, and deployment also remain
-  open.
+  demo-session issuance, Menu/User/account read isolation, remaining B4, B5,
+  B6, production provisioning, and deployment also remain open.
 
-- **B4-3B2 — Administrative Analytics and CSV read isolation (local
-  implementation candidate):** all four administrative Analytics GET routes
+- **B4-3B2 — Administrative Analytics and CSV read isolation (committed,
+  pushed, and CI green):** all four administrative Analytics GET routes
   and all three CSV GET routes require the canonical current User plus trusted
   application mode and provider as mandatory service inputs. The exact
   `true + demo` runtime authorizes only the active reserved ordinary demo
@@ -1151,8 +1155,11 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   harness attempts nor E2E failures, and the successful harness was not retried.
 
   Local isolated PostgreSQL acceptance and the local canonical Browser E2E gate
-  for B4-3B2 are complete. Final independent review, commit, push, and new CI
-  remain open; the local Browser E2E result is not CI for the uncommitted slice.
+  for B4-3B2 are complete and remain separate evidence from CI. Final
+  independent review completed without blockers, and B4-3B2 is committed and
+  pushed on `main` at `a7bcd5ec7fd104961d69a6df4c3972275a3dbbfc`. Automatic
+  GitHub Actions push run `38440913993`, attempt 1, completed `Backend`,
+  `Migrations`, `Frontend`, and `Browser E2E` with `success` for that exact SHA.
   The B4-2 CLI still has not run against a database. Public demo-session
   issuance, Menu/User/account read isolation, remaining B4, B5, B6, production
   provisioning, and deployment also remain open.
