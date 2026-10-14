@@ -1019,7 +1019,7 @@ ambiguous mutation result must be resolved by Refresh before resubmission.
 Changes affect future orders only. Historical order snapshots and analytics do
 not change.
 
-The local, uncommitted B4-3B3 candidate changes only the two administrative
+The committed B4-3B3 slice changes only the two administrative
 Menu GET routes. Canonical Bearer authentication, the current active database
 User, and `require_admin` remain authoritative. Exact `true + demo` returns
 `403 {"detail":"Administrator menu access is not allowed"}` before any
@@ -1047,8 +1047,11 @@ failed, 0 did not run, an 11.8-minute Playwright duration, one worker, zero
 retries, and the `list` reporter. The normal `false + stripe_test` harness
 confirmed normal-runtime regression safety, including Admin Menu across all
 seven viewports; it did not exercise the demo 403, which remains evidenced by
-the earlier isolated PostgreSQL 56/56 acceptance. Final independent review,
-commit, push, and new CI remain separate open gates.
+the earlier isolated PostgreSQL 56/56 acceptance. Final independent review
+completed without blockers. B4-3B3 was committed and pushed on `main` at
+`364bee0dbf5df38ba46c7bfc6ce71f7b59be830e`; automatic GitHub Actions push run
+`38562956173`, attempt 1, completed Backend, Migrations, Frontend, and Browser
+E2E with `success` for that exact SHA.
 
 ### Administrator analytics
 

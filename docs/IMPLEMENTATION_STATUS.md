@@ -38,13 +38,16 @@
   cleanup were confirmed. Independent post-database review completed, and one
   later full local canonical Browser E2E completed with 32 passed, 0 failed, 0
   did not run, and no retry. These local gates remain distinct from the
-  automatic GitHub Actions run. B4-3B3 is a local, uncommitted implementation
-  candidate that adds the bounded administrative Menu read guard. Its local
-  isolated PostgreSQL acceptance is complete, and repeat independent read-only
-  review closed both P2-DOC findings. One later full local canonical Browser E2E
-  completed with native exit 0, 32 passed, 0 failed, 0 did not run, and no retry.
-  This local E2E remains distinct from CI; final independent review, commit,
-  push, and CI remain open.
+  automatic GitHub Actions run. B4-3B3 adds the bounded administrative Menu
+  read guard. Its local isolated PostgreSQL acceptance is complete, and repeat
+  independent read-only review closed both P2-DOC findings. One later full local
+  canonical Browser E2E completed with native exit 0, 32 passed, 0 failed, 0 did
+  not run, and no retry. This local E2E remains distinct from CI. Final
+  independent review completed without blockers. B4-3B3 was committed and
+  pushed on `main` at `364bee0dbf5df38ba46c7bfc6ce71f7b59be830e`;
+  automatic GitHub Actions push run `38562956173`, attempt 1, completed
+  `Backend`, `Migrations`, `Frontend`, and `Browser E2E` with `success` for that
+  exact SHA.
   The B4-2 CLI-on-DB, safe final Menu UX, User/account read isolation, public
   demo-session issuance, remaining B4 work, B5, B6, production provisioning,
   and deployment remain open. This
@@ -104,13 +107,17 @@
   four-file scope completed with 302 passed, 0 failed, 0 skipped, 0 deselected,
   and no retry. Independent post-database review completed. One later full
   local canonical Browser E2E completed with 32 passed, 0 failed, 0 did not
-  run, and no retry; these local gates remain separate from CI. B4-3B3 is a
-  local, uncommitted implementation candidate for the two administrative Menu
-  GET routes. Its local isolated PostgreSQL acceptance is complete, repeat
-  independent read-only review closed both P2-DOC findings, and one later full
-  local canonical Browser E2E completed with native exit 0, 32 passed, 0 failed,
-  0 did not run, and no retry. These are local gates, not CI; final independent
-  review, commit, push, and CI remain open.
+  run, and no retry; these local gates remain separate from CI. B4-3B3 guards
+  the two administrative Menu GET routes. Its local isolated PostgreSQL
+  acceptance is complete, repeat independent read-only review closed both
+  P2-DOC findings, and one later full local canonical Browser E2E completed with
+  native exit 0, 32 passed, 0 failed, 0 did not run, and no retry. These are
+  local gates, not CI. Final independent review completed without blockers.
+  B4-3B3 was committed and pushed on `main` at
+  `364bee0dbf5df38ba46c7bfc6ce71f7b59be830e`; automatic GitHub Actions push run
+  `38562956173`, attempt 1, completed `Backend`, `Migrations`, `Frontend`, and
+  `Browser E2E` with `success` for that exact SHA, closing only the B4-3B3 CI
+  gate.
   The original
   Stage 20 paid Render/GHCR topology is historical and superseded for the
   free-tier portfolio demo. The
@@ -1181,8 +1188,8 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   issuance, safe final Menu UX, User/account read isolation, remaining B4, B5,
   B6, production provisioning, and deployment also remain open.
 
-- **B4-3B3 — Administrative Menu read guard (local implementation
-  candidate):** both administrative Menu GET routes retain canonical Bearer
+- **B4-3B3 — Administrative Menu read guard (committed, pushed, and CI
+  green):** both administrative Menu GET routes retain canonical Bearer
   validation, the current active database User reload, and `require_admin`,
   then pass the current User plus trusted application mode and provider as
   mandatory service inputs. Exact `true + demo` returns one fixed generic 403
@@ -1264,11 +1271,15 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   immutability of its contents.
 
   Local isolated PostgreSQL acceptance and the local canonical Browser E2E for
-  B4-3B3 are complete. The local E2E is not GitHub CI for this uncommitted
-  slice. Final independent review, commit, push, and new CI remain open. Stage
-  22 remains in progress, and Stage 23 is not started. The B4-2 CLI-on-DB, safe
-  final Menu UX, User and account read isolation, public demo-session issuance,
-  B5, B6, production provisioning, and deployment remain open.
+  B4-3B3 are complete. The local E2E remains separate from GitHub CI. Final
+  independent review completed without blockers. B4-3B3 was committed and
+  pushed on `main` at `364bee0dbf5df38ba46c7bfc6ce71f7b59be830e`;
+  automatic GitHub Actions push run `38562956173`, attempt 1, completed
+  `Backend`, `Migrations`, `Frontend`, and `Browser E2E` with `success` for that
+  exact SHA. Stage 22 remains in progress, and Stage 23 is not started. The B4-2
+  CLI-on-DB, safe final Menu UX, User and account read isolation, public
+  demo-session issuance, B5, B6, production provisioning, and deployment remain
+  open.
 
 - **Stage 22-B0 demo design:** its B3 payment design is now implemented through
   B3-2B. B4 public session issuance and remaining bounded authorization guards,

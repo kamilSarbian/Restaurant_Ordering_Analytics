@@ -831,8 +831,8 @@ the Order lock serializes the next history sequence. No Stripe provider call is
 made while these locks are held, and Stage 12 adds no actor field.
 
 In exact `false + stripe_test`, administrator Menu lists use one count and one
-deterministic page query and include inactive resources. The local B4-3B3
-candidate places a fail-closed read boundary before those queries. Both
+deterministic page query and include inactive resources. The committed B4-3B3
+slice places a fail-closed read boundary before those queries. Both
 administrative Menu GET routes receive the canonical current User and trusted
 application mode and provider as mandatory service inputs. Category and
 MenuItem have no durable provenance field, and fixed seed UUIDs are not an
@@ -865,8 +865,11 @@ failed, 0 did not run, an 11.8-minute Playwright duration, one worker, zero
 retries, and the `list` reporter. The normal `false + stripe_test` harness
 confirmed normal-runtime regression safety, including Admin Menu across all
 seven viewports; it did not exercise the demo 403, which remains evidenced by
-the earlier isolated PostgreSQL 56/56 acceptance. Final independent review,
-commit, push, and new CI remain open.
+the earlier isolated PostgreSQL 56/56 acceptance. Final independent review
+completed without blockers. B4-3B3 was committed and pushed on `main` at
+`364bee0dbf5df38ba46c7bfc6ce71f7b59be830e`; automatic GitHub Actions push run
+`38562956173`, attempt 1, completed Backend, Migrations, Frontend, and Browser
+E2E with `success` for that exact SHA.
 
 Stage 12 changes no SQLAlchemy model and requires no migration after
 `0006_create_admin_user_model`. RestaurantTable administration, refunds,
