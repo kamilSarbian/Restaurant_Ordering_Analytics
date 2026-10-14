@@ -20,7 +20,6 @@ from app.auth.roles import UserRole
 from app.core.config import Settings
 from app.database.dependencies import get_db_session
 from app.main import create_app
-from app.menu import admin_router
 from app.menu.admin_schemas import (
     AdminCategoryCreateRequest,
     AdminCategoryUpdateRequest,
@@ -530,51 +529,4 @@ def test_missing_or_mismatched_runtime_state_returns_fixed_403(
         403,
         {"detail": "Menu mutation is not allowed"},
     )
-    _assert_session_untouched(session)
-
-
-@pytest.mark.parametrize(
-    ("path", "service_name"),
-    [
-        ("/api/v1/admin/menu/categories", "list_admin_categories"),
-        ("/api/v1/admin/menu/items", "list_admin_menu_items"),
-    ],
-)
-def test_portfolio_runtime_keeps_menu_reads_outside_mutation_guard(
-    monkeypatch: pytest.MonkeyPatch,
-    path: str,
-    service_name: str,
-) -> None:
-    settings = Settings(
-        _env_file=None,
-        database_url=None,
-        auth_jwt_secret="a" * 32,
-    )
-    app = create_app(settings=settings)
-    app.state.portfolio_demo_mode = True
-    app.state.payment_provider = PaymentProvider.DEMO.value
-    session = _Session()
-
-    def current_user_override() -> User:
-        return _user("demo_exact")
-
-    def session_override() -> Iterator[_Session]:
-        yield session
-
-    def list_override(
-        _session: object,
-        *,
-        limit: int,
-        offset: int,
-    ) -> dict[str, object]:
-        return {"items": [], "total": 0, "limit": limit, "offset": offset}
-
-    monkeypatch.setattr(admin_router, service_name, list_override)
-    app.dependency_overrides[get_current_user] = current_user_override
-    app.dependency_overrides[get_db_session] = session_override
-    with TestClient(app) as client:
-        response = client.get(path)
-
-    assert response.status_code == 200
-    assert response.json() == {"items": [], "total": 0, "limit": 50, "offset": 0}
     _assert_session_untouched(session)

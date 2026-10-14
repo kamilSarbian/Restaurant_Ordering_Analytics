@@ -26,6 +26,7 @@ from app.menu.admin_service import (
     AdminMenuItemConflictError,
     AdminMenuItemNotFoundError,
     AdminMenuMutationDeniedError,
+    AdminMenuReadDeniedError,
     create_admin_category,
     create_admin_menu_item,
     list_admin_categories,
@@ -41,10 +42,15 @@ CurrentUser = Annotated[User, Depends(get_current_user)]
 PageLimit = Annotated[int, Query(ge=1, le=100)]
 PageOffset = Annotated[int, Query(ge=0)]
 MENU_MUTATION_FORBIDDEN_DETAIL = "Menu mutation is not allowed"
+MENU_READ_FORBIDDEN_DETAIL = "Administrator menu access is not allowed"
 
 AUTH_RESPONSES = {
     401: {"description": "Invalid authentication credentials"},
     503: {"description": "Authentication service unavailable"},
+}
+MENU_READ_RESPONSES = {
+    **AUTH_RESPONSES,
+    403: {"description": MENU_READ_FORBIDDEN_DETAIL},
 }
 
 
@@ -52,16 +58,28 @@ AUTH_RESPONSES = {
     "/categories",
     response_model=AdminCategoryListResponse,
     summary="List administrator categories",
-    responses=AUTH_RESPONSES,
+    responses=MENU_READ_RESPONSES,
 )
 def list_admin_categories_endpoint(
+    request: Request,
     session: DatabaseSession,
+    current_user: CurrentUser,
     _admin: CurrentAdmin,
     limit: PageLimit = 50,
     offset: PageOffset = 0,
 ) -> AdminCategoryListResponse:
     """Return one authenticated administrator category page."""
-    return list_admin_categories(session, limit=limit, offset=offset)
+    try:
+        return list_admin_categories(
+            session,
+            limit=limit,
+            offset=offset,
+            current_user=current_user,
+            portfolio_demo_mode=getattr(request.app.state, "portfolio_demo_mode", None),
+            payment_provider=getattr(request.app.state, "payment_provider", None),
+        )
+    except AdminMenuReadDeniedError as error:
+        raise _menu_read_forbidden_error() from error
 
 
 @router.post(
@@ -149,16 +167,28 @@ def update_admin_category_endpoint(
     "/items",
     response_model=AdminMenuItemListResponse,
     summary="List administrator menu items",
-    responses=AUTH_RESPONSES,
+    responses=MENU_READ_RESPONSES,
 )
 def list_admin_menu_items_endpoint(
+    request: Request,
     session: DatabaseSession,
+    current_user: CurrentUser,
     _admin: CurrentAdmin,
     limit: PageLimit = 50,
     offset: PageOffset = 0,
 ) -> AdminMenuItemListResponse:
     """Return one authenticated administrator menu-item page."""
-    return list_admin_menu_items(session, limit=limit, offset=offset)
+    try:
+        return list_admin_menu_items(
+            session,
+            limit=limit,
+            offset=offset,
+            current_user=current_user,
+            portfolio_demo_mode=getattr(request.app.state, "portfolio_demo_mode", None),
+            payment_provider=getattr(request.app.state, "payment_provider", None),
+        )
+    except AdminMenuReadDeniedError as error:
+        raise _menu_read_forbidden_error() from error
 
 
 @router.post(
@@ -258,4 +288,12 @@ def _menu_mutation_forbidden_error() -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
         detail=MENU_MUTATION_FORBIDDEN_DETAIL,
+    )
+
+
+def _menu_read_forbidden_error() -> HTTPException:
+    """Build the fixed non-disclosing administrator-menu read denial."""
+    return HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=MENU_READ_FORBIDDEN_DETAIL,
     )

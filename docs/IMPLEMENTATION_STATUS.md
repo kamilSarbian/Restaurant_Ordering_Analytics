@@ -38,9 +38,16 @@
   cleanup were confirmed. Independent post-database review completed, and one
   later full local canonical Browser E2E completed with 32 passed, 0 failed, 0
   did not run, and no retry. These local gates remain distinct from the
-  automatic GitHub Actions run.
-  The B4-2 CLI-on-DB, public demo-session issuance, remaining read isolation and
-  B4 work, B5, B6, production provisioning, and deployment remain open. This
+  automatic GitHub Actions run. B4-3B3 is a local, uncommitted implementation
+  candidate that adds the bounded administrative Menu read guard. Its local
+  isolated PostgreSQL acceptance is complete, and repeat independent read-only
+  review closed both P2-DOC findings. One later full local canonical Browser E2E
+  completed with native exit 0, 32 passed, 0 failed, 0 did not run, and no retry.
+  This local E2E remains distinct from CI; final independent review, commit,
+  push, and CI remain open.
+  The B4-2 CLI-on-DB, safe final Menu UX, User/account read isolation, public
+  demo-session issuance, remaining B4 work, B5, B6, production provisioning,
+  and deployment remain open. This
   file records durable implementation scope and acceptance evidence;
   repository history, independent-review records, and CI are authoritative for
   transient commit and run status.
@@ -97,11 +104,19 @@
   four-file scope completed with 302 passed, 0 failed, 0 skipped, 0 deselected,
   and no retry. Independent post-database review completed. One later full
   local canonical Browser E2E completed with 32 passed, 0 failed, 0 did not
-  run, and no retry; these local gates remain separate from CI. The original
+  run, and no retry; these local gates remain separate from CI. B4-3B3 is a
+  local, uncommitted implementation candidate for the two administrative Menu
+  GET routes. Its local isolated PostgreSQL acceptance is complete, repeat
+  independent read-only review closed both P2-DOC findings, and one later full
+  local canonical Browser E2E completed with native exit 0, 32 passed, 0 failed,
+  0 did not run, and no retry. These are local gates, not CI; final independent
+  review, commit, push, and CI remain open.
+  The original
   Stage 20 paid Render/GHCR topology is historical and superseded for the
   free-tier portfolio demo. The
-  B4-2 CLI-on-DB, public B4 demo-session issuance, remaining read isolation and
-  B4 work, B5, B6, and any further B3 scope remain future work.
+  B4-2 CLI-on-DB, safe final Menu UX, User/account read isolation, public B4
+  demo-session issuance, remaining B4 work, B5, B6, and any further B3 scope
+  remain future work.
   Stage 23 is **not started**. No Render/Neon provisioning, production
   migration/seed, public deployment, or public URL is claimed.
 - **Backend:** FastAPI, database foundation, menu models, local seed data,
@@ -1064,9 +1079,11 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   attempt 1, completed `Backend`, `Migrations`, `Frontend`, and `Browser E2E`
   with `success` for that exact SHA. Local isolated PostgreSQL acceptance, one
   full canonical Browser E2E, and the B4-3B1 review, commit, push, and CI gates
-  are complete. The B4-2 CLI still has not run against a database; public
-  demo-session issuance, Menu/User/account read isolation, remaining B4, B5,
-  B6, production provisioning, and deployment also remain open.
+  are complete. At the B4-3B1 closeout, the B4-2 CLI had not run against a
+  database; public demo-session issuance, Menu/User/account read isolation,
+  remaining B4, B5, B6, production provisioning, and deployment were still
+  open. The later B4-3B2 and B4-3B3 sections record subsequent read-isolation
+  closures.
 
 - **B4-3B2 — Administrative Analytics and CSV read isolation (committed,
   pushed, and CI green):** all four administrative Analytics GET routes
@@ -1161,8 +1178,97 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   GitHub Actions push run `38440913993`, attempt 1, completed `Backend`,
   `Migrations`, `Frontend`, and `Browser E2E` with `success` for that exact SHA.
   The B4-2 CLI still has not run against a database. Public demo-session
-  issuance, Menu/User/account read isolation, remaining B4, B5, B6, production
-  provisioning, and deployment also remain open.
+  issuance, safe final Menu UX, User/account read isolation, remaining B4, B5,
+  B6, production provisioning, and deployment also remain open.
+
+- **B4-3B3 — Administrative Menu read guard (local implementation
+  candidate):** both administrative Menu GET routes retain canonical Bearer
+  validation, the current active database User reload, and `require_admin`,
+  then pass the current User plus trusted application mode and provider as
+  mandatory service inputs. Exact `true + demo` returns one fixed generic 403
+  before any Category or MenuItem session operation, including for the exact
+  demo administrator. Missing or inconsistent trusted runtime, actor drift,
+  and either reserved identifier outside the exact demo runtime fail closed
+  with the same response. Exact `false + stripe_test` preserves the global
+  count, deterministic page, sorting, pagination, and response schemas for
+  active, non-reserved admins and super-admins.
+
+  Category and MenuItem have no durable provenance field. Fixed seed UUIDs are
+  not used as an authorization allowlist, and this slice does not return a
+  synthetic empty list or redact fields. The public Menu API, all four B4-3A2
+  mutations, models, migrations, seed behavior, and the production frontend
+  remain unchanged.
+
+  In the unchanged frontend, `/admin` may show the existing partial Menu error
+  while retaining successful Orders and Analytics data. `/admin/menu` shows
+  the existing generic category and item error/retry states; its navigation and
+  ineffective actions are not replaced with a dedicated demo state. This is
+  not approved as final public-demo UX. Dedicated safe handling remains
+  required before public demo-session issuance.
+
+  Local no-database evidence includes one corrected targeted run with 283
+  passed tests and one later complete non-integration backend run with 1687
+  passed tests. The first targeted attempt had 282 passed and one test-only
+  OpenAPI assertion failure; the assertion was corrected to inspect the
+  generated OpenAPI paths. An earlier full non-integration invocation did not
+  produce a trustworthy final result after its runner session detached; its
+  verified task process group was stopped, four segmented diagnostic runs
+  completed with 558, 238, 399, and 232 passed tests, and the later monitored
+  complete run passed all 1687 tests. The passing runs reported one
+  non-blocking external Starlette TestClient deprecation warning. A separate
+  collect-only invocation found 56 tests in
+  `backend/tests/integration/test_admin_menu_api.py`; it did not execute the
+  fixture or connect to PostgreSQL. Ruff without cache, Black without cache
+  and with one worker, isort, compileall, Prettier for the changed documents,
+  and `git diff --check` passed.
+
+  One later separately authorized isolated PostgreSQL acceptance executed the
+  complete integration file exactly once:
+
+  ```powershell
+  .\.venv\Scripts\python.exe -B -m pytest -p no:cacheprovider -q --tb=line --show-capture=no tests/integration/test_admin_menu_api.py
+  ```
+
+  It completed with 56 passed, 0 failed, 0 skipped, native exit 0, in 8.23
+  seconds, without retry. It reported one non-blocking external Starlette/httpx
+  deprecation warning. This result covers only that integration file and is not
+  a full-backend test result.
+
+  The single read-only precheck and single read-only postcheck both returned
+  PASS with native exit 0. After fixture cleanup, the isolated test database was
+  absent and the unrelated-client count was zero. Before and after the run, the
+  development database retained OID 16384, 10 public tables, 28 public rows,
+  and the same logical fingerprint,
+  `7e0b9931f1dc0f56d69673cc45c8a0a1102f1272ae333fd461cede50cc2f4353`.
+  Exactly one Docker start and one graceful Docker stop returned exit 0. The
+  project PostgreSQL container ended exited with `running=false`, host endpoint
+  `127.0.0.1:5433` was closed, and the protected named volume was preserved.
+  This evidence does not establish bitwise volume-content immutability or the
+  absence of PostgreSQL internal writes.
+
+  A repeat independent read-only post-database review closed both P2-DOC
+  findings. One later separately authorized full canonical Browser E2E ran the
+  existing `.github/scripts/run-browser-e2e.sh` exactly once through Git Bash.
+  It completed with native exit code 0, 32 passed, 0 failed, 0 did not run, an
+  11.8-minute Playwright duration, one worker, zero retries, and the `list`
+  reporter. The normal `false + stripe_test` harness confirmed normal-runtime
+  regression safety, including Admin Menu across all seven viewports. It did
+  not exercise the demo 403; that denial remains evidenced by the earlier
+  isolated PostgreSQL run with 56 passed.
+
+  The E2E database and secret-safe log audits passed. The isolated project
+  `roa-stage18-e2e-7c56cfc16c5b5081` left zero containers and zero networks;
+  its per-run volume and two images remain according to the standard lifecycle.
+  The protected `restaurant_ordering_analytics_postgres_data` volume retained
+  its identity, metadata, and mounts. This evidence does not claim bitwise
+  immutability of its contents.
+
+  Local isolated PostgreSQL acceptance and the local canonical Browser E2E for
+  B4-3B3 are complete. The local E2E is not GitHub CI for this uncommitted
+  slice. Final independent review, commit, push, and new CI remain open. Stage
+  22 remains in progress, and Stage 23 is not started. The B4-2 CLI-on-DB, safe
+  final Menu UX, User and account read isolation, public demo-session issuance,
+  B5, B6, production provisioning, and deployment remain open.
 
 - **Stage 22-B0 demo design:** its B3 payment design is now implemented through
   B3-2B. B4 public session issuance and remaining bounded authorization guards,

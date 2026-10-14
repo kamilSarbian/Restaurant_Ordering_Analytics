@@ -1795,6 +1795,44 @@ while preserving these financial concurrency rules.
   completion claim. Isolated PostgreSQL acceptance, a full canonical Browser
   E2E, independent review, commit, push, and CI remain separate gates.
 
+## D-085 — Portfolio Demo Denial for Administrative Menu Reads
+
+- **Status:** accepted on 2026-10-13 for the bounded B4-3B3 contract.
+- **Scope:** this decision applies exactly to
+  `GET /api/v1/admin/menu/categories` and
+  `GET /api/v1/admin/menu/items`. It does not authorize or change the public
+  Menu API, the four B4-3A2 Menu mutations, User or account reads, public
+  demo-session issuance, or any other B4 surface.
+- **Rationale:** Category and MenuItem have no durable origin or namespace. The
+  canonical fixed seed UUIDs identify rows owned by the seed process, but they
+  do not prove demo-only provenance, exclude unrelated records, or form a
+  request-time authorization boundary. A filtered demo catalog therefore
+  cannot be derived safely without a separately designed persistence boundary.
+- **Authentication and fail-closed boundary:** canonical Bearer validation, the
+  active database User reload, and `require_admin` remain authoritative. The
+  router passes the current User plus trusted application mode and provider as
+  mandatory service inputs. Exact `true + demo` returns
+  `403 {"detail":"Administrator menu access is not allowed"}` for every actor
+  that reaches the administrator service, including the exact reserved demo
+  administrator, before any Category or MenuItem session operation. The
+  canonical authentication User read remains allowed. Missing or inconsistent
+  trusted runtime, actor drift, and either reserved identifier outside the
+  exact demo runtime fail closed with the same response. Missing or invalid
+  authentication retains the existing 401, while inactive and non-admin Users
+  retain the existing authentication or role denial.
+- **Normal runtime:** exact `false + stripe_test` preserves the existing global
+  count, deterministic page, sorting, pagination, and response schemas for an
+  active, non-reserved `admin` or `super_admin`.
+- **Preserved contracts:** this decision adds no seed-ID allowlist, synthetic
+  empty 200 response, field redaction, model, migration, seed, schema, public
+  Menu, frontend, or mutation change.
+- **UX and evidence boundary:** the existing partial Menu failure on `/admin`
+  and generic failure/retry states on `/admin/menu` are accepted only for this
+  bounded implementation slice. Dedicated safe UX and ineffective-action
+  handling remain required before public demo-session issuance. Independent
+  review, isolated PostgreSQL acceptance, canonical Browser E2E, commit, push,
+  and CI remain separate gates.
+
 ## History of Decisions That Required Resolution
 
 ### O-002: Boundary Between Order Creation and Stripe Checkout Session

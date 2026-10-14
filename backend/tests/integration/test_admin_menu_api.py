@@ -12,6 +12,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
+from httpx import Response
 from sqlalchemy import delete, event, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -24,6 +25,7 @@ from app.auth.demo_admin import (
 from app.auth.models import User
 from app.auth.roles import UserRole
 from app.auth.service import UserTokenService
+from app.catalog import CATEGORY_SEEDS, MENU_ITEM_SEEDS
 from app.categories.models import Category
 from app.core.config import Settings
 from app.database.session import create_session_factory
@@ -50,6 +52,8 @@ from app.orders.statuses import OrderStatus
 from app.payments.models import Payment, StripeEvent
 from app.payments.providers import PaymentProvider
 from app.restaurant_tables.models import RestaurantTable
+
+from .test_demo_checkout_concurrency import _is_data_writing_statement
 
 pytestmark = pytest.mark.integration
 
@@ -313,6 +317,33 @@ def _store_portfolio_actor(
     )
 
 
+def _captured_get(
+    *,
+    client: TestClient,
+    engine: Engine,
+    path: str,
+    headers: dict[str, str],
+) -> tuple[Response, tuple[str, ...]]:
+    statements: list[str] = []
+
+    def capture(
+        _connection: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        response = client.get(path, headers=headers)
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
+    return response, tuple(statements)
+
+
 def test_all_six_routes_require_user_bearer(
     api_session_factory: sessionmaker[Session],
     token_service: UserTokenService,
@@ -407,6 +438,183 @@ def test_all_six_routes_reject_authenticated_customer(
     for response in responses:
         assert response.status_code == 403
         assert response.json() == {"detail": "Administrator access required"}
+
+
+@pytest.mark.parametrize("path", [CATEGORIES_PATH, ITEMS_PATH])
+@pytest.mark.parametrize(
+    ("actor", "demo_mode", "provider"),
+    [
+        ("demo_exact", True, PaymentProvider.DEMO.value),
+        ("admin", True, PaymentProvider.DEMO.value),
+        ("super_admin", True, PaymentProvider.DEMO.value),
+        ("reserved_id", True, PaymentProvider.DEMO.value),
+        ("reserved_email", True, PaymentProvider.DEMO.value),
+        ("demo_exact", False, PaymentProvider.STRIPE_TEST.value),
+        ("reserved_id", False, PaymentProvider.STRIPE_TEST.value),
+        ("reserved_email", False, PaymentProvider.STRIPE_TEST.value),
+        ("admin", True, PaymentProvider.STRIPE_TEST.value),
+        ("admin", False, PaymentProvider.DEMO.value),
+        ("admin", None, PaymentProvider.STRIPE_TEST.value),
+        ("admin", False, None),
+        ("admin", None, None),
+    ],
+)
+def test_admin_menu_reads_fail_closed_before_domain_sql(
+    api_session_factory: sessionmaker[Session],
+    token_service: UserTokenService,
+    test_database_engine: Engine,
+    path: str,
+    actor: str,
+    demo_mode: bool | None,
+    provider: str | None,
+) -> None:
+    actor_id = _store_portfolio_actor(api_session_factory, actor)
+    category = _category(name="Stable category")
+    item = _item(category, name="Stable item")
+    _store(api_session_factory, category, item)
+    before_snapshot = _menu_tables_snapshot(api_session_factory)
+    application = _application(
+        api_session_factory,
+        token_service,
+        portfolio_demo_mode=False,
+        payment_provider=PaymentProvider.STRIPE_TEST.value,
+    )
+    if demo_mode is None:
+        delattr(application.state, "portfolio_demo_mode")
+    else:
+        application.state.portfolio_demo_mode = demo_mode
+    if provider is None:
+        delattr(application.state, "payment_provider")
+    else:
+        application.state.payment_provider = provider
+    headers = {"Authorization": f"Bearer {token_service.create_access_token(actor_id)}"}
+
+    with TestClient(application) as client:
+        response, statements = _captured_get(
+            client=client,
+            engine=test_database_engine,
+            path=path,
+            headers=headers,
+        )
+
+    assert (response.status_code, response.json()) == (
+        403,
+        {"detail": "Administrator menu access is not allowed"},
+    )
+    normalized = [" ".join(statement.upper().split()) for statement in statements]
+    application_statements = [
+        statement for statement in normalized if statement != "SELECT 1"
+    ]
+    assert len(application_statements) == 1
+    assert application_statements[0].startswith("SELECT ")
+    assert "FROM USERS" in application_statements[0]
+    assert "CATEGORIES" not in application_statements[0]
+    assert "MENU_ITEMS" not in application_statements[0]
+    assert not any(
+        _is_data_writing_statement(statement) for statement in application_statements
+    )
+    assert _menu_tables_snapshot(api_session_factory) == before_snapshot
+
+
+@pytest.mark.parametrize("role", [UserRole.ADMIN, UserRole.SUPER_ADMIN])
+def test_normal_administrators_keep_global_menu_reads_and_bounded_sql(
+    api_session_factory: sessionmaker[Session],
+    token_service: UserTokenService,
+    test_database_engine: Engine,
+    role: UserRole,
+) -> None:
+    actor_id = _store_admin(
+        api_session_factory,
+        email=f"normal-menu-{role.value}@example.com",
+        role=role,
+    )
+    category_seed = CATEGORY_SEEDS[0]
+    item_seed = MENU_ITEM_SEEDS[0]
+    canonical_category = _category(
+        name=category_seed.name,
+        display_order=category_seed.display_order,
+        category_id=category_seed.id,
+    )
+    unrelated_category = _category(
+        name="Unrelated inactive category",
+        display_order=category_seed.display_order + 1,
+        is_active=False,
+        category_id=UUID("ffffffff-ffff-4fff-8fff-fffffffffff0"),
+    )
+    canonical_item = _item(
+        canonical_category,
+        name=item_seed.name,
+        display_order=item_seed.display_order,
+        item_id=item_seed.id,
+    )
+    unrelated_item = _item(
+        unrelated_category,
+        name="Unrelated unavailable item",
+        is_active=False,
+        is_available=False,
+        item_id=UUID("ffffffff-ffff-4fff-8fff-fffffffffff1"),
+    )
+    _store(
+        api_session_factory,
+        canonical_category,
+        unrelated_category,
+        canonical_item,
+        unrelated_item,
+    )
+    application = _application(
+        api_session_factory,
+        token_service,
+        portfolio_demo_mode=False,
+        payment_provider=PaymentProvider.STRIPE_TEST.value,
+    )
+    headers = {"Authorization": f"Bearer {token_service.create_access_token(actor_id)}"}
+
+    with TestClient(application) as client:
+        categories_response, category_statements = _captured_get(
+            client=client,
+            engine=test_database_engine,
+            path=f"{CATEGORIES_PATH}?limit=1&offset=1",
+            headers=headers,
+        )
+        items_response, item_statements = _captured_get(
+            client=client,
+            engine=test_database_engine,
+            path=f"{ITEMS_PATH}?limit=1&offset=1",
+            headers=headers,
+        )
+
+    assert categories_response.status_code == 200
+    assert categories_response.json()["total"] == 2
+    assert [item["id"] for item in categories_response.json()["items"]] == [
+        str(unrelated_category.id)
+    ]
+    assert categories_response.json()["items"][0]["is_active"] is False
+    assert items_response.status_code == 200
+    assert items_response.json()["total"] == 2
+    assert [item["id"] for item in items_response.json()["items"]] == [
+        str(unrelated_item.id)
+    ]
+    assert items_response.json()["items"][0]["is_active"] is False
+    assert items_response.json()["items"][0]["is_available"] is False
+
+    for statements, table_name in (
+        (category_statements, "CATEGORIES"),
+        (item_statements, "MENU_ITEMS"),
+    ):
+        normalized = [" ".join(statement.upper().split()) for statement in statements]
+        application_statements = [
+            statement for statement in normalized if statement != "SELECT 1"
+        ]
+        assert len(application_statements) == 3
+        assert all(
+            statement.startswith("SELECT ") for statement in application_statements
+        )
+        assert "FROM USERS" in application_statements[0]
+        assert sum(table_name in statement for statement in application_statements) == 2
+        assert not any(
+            _is_data_writing_statement(statement)
+            for statement in application_statements
+        )
 
 
 @pytest.mark.parametrize(
@@ -1149,7 +1357,14 @@ def test_list_services_use_one_count_one_page_select_and_zero_dml(
     event.listen(test_database_engine, "before_cursor_execute", capture)
     try:
         with api_session_factory() as session:
-            service(session, limit=50, offset=0)
+            service(
+                session,
+                limit=50,
+                offset=0,
+                current_user=_normal_service_admin(),
+                portfolio_demo_mode=False,
+                payment_provider=PaymentProvider.STRIPE_TEST.value,
+            )
     finally:
         event.remove(test_database_engine, "before_cursor_execute", capture)
 

@@ -830,15 +830,43 @@ not. The Order status update and exactly one history insert commit atomically;
 the Order lock serializes the next history sequence. No Stripe provider call is
 made while these locks are held, and Stage 12 adds no actor field.
 
-Administrator menu lists use one count and one deterministic page query and
-include inactive resources. Create and PATCH operations use short transactions;
-PATCH locks its target row with `FOR UPDATE`. PostgreSQL normalized unique
-indexes remain the final arbiter for global category names and category-scoped
-menu-item names. Known uniqueness violations alone become 409 conflicts.
-Category and item changes are soft: there is no DELETE, item activity and
-availability remain independent, category deactivation does not rewrite child
-flags, and historical OrderItem snapshots remain unchanged. The separate public
-menu router stays unauthenticated and retains its existing visibility rules.
+In exact `false + stripe_test`, administrator Menu lists use one count and one
+deterministic page query and include inactive resources. The local B4-3B3
+candidate places a fail-closed read boundary before those queries. Both
+administrative Menu GET routes receive the canonical current User and trusted
+application mode and provider as mandatory service inputs. Category and
+MenuItem have no durable provenance field, and fixed seed UUIDs are not an
+authorization boundary. Exact `true + demo` therefore returns the same generic
+403 before any Category or MenuItem session operation, including for the exact
+demo administrator. Missing or inconsistent runtime, actor drift, and either
+reserved identifier outside the exact demo runtime also fail closed. This adds
+no model, migration, seed, response-schema, public Menu, or mutation change.
+
+Create and PATCH operations use short transactions; PATCH locks its target row
+with `FOR UPDATE`. PostgreSQL normalized unique indexes remain the final arbiter
+for global category names and category-scoped menu-item names. Known uniqueness
+violations alone become 409 conflicts. Category and item changes are soft:
+there is no DELETE, item activity and availability remain independent, category
+deactivation does not rewrite child flags, and historical OrderItem snapshots
+remain unchanged. The separate public menu router stays unauthenticated and
+retains its existing visibility rules.
+
+The frontend deliberately has no B4-3B3 capability branch. The administrator
+home keeps independent Orders and Analytics results while Menu uses its
+existing partial-error state; `/admin/menu` renders generic category and item
+failure/retry states and does not hide every ineffective action. This is not
+the final public-demo experience. Dedicated safe handling remains required
+before public demo-session issuance. One later full run of
+`test_admin_menu_api.py` completed with 56 passed, 0 failed, 0 skipped, native
+exit 0, and no retry; its read-only precheck, postcheck, and cleanup passed.
+A repeat independent read-only review closed both P2-DOC findings. One later
+full canonical Browser E2E ran exactly once with native exit 0, 32 passed, 0
+failed, 0 did not run, an 11.8-minute Playwright duration, one worker, zero
+retries, and the `list` reporter. The normal `false + stripe_test` harness
+confirmed normal-runtime regression safety, including Admin Menu across all
+seven viewports; it did not exercise the demo 403, which remains evidenced by
+the earlier isolated PostgreSQL 56/56 acceptance. Final independent review,
+commit, push, and new CI remain open.
 
 Stage 12 changes no SQLAlchemy model and requires no migration after
 `0006_create_admin_user_model`. RestaurantTable administration, refunds,

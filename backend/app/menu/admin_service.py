@@ -49,11 +49,18 @@ class AdminMenuMutationDeniedError(Exception):
     """Indicate that trusted identity or runtime state forbids menu mutation."""
 
 
+class AdminMenuReadDeniedError(Exception):
+    """Indicate that trusted identity or runtime state forbids menu reads."""
+
+
 def list_admin_categories(
     session: Session,
     *,
     limit: int,
     offset: int,
+    current_user: User,
+    portfolio_demo_mode: bool | None,
+    payment_provider: str | None,
 ) -> AdminCategoryListResponse:
     """Return all categories in one deterministic administrator page.
 
@@ -61,10 +68,21 @@ def list_admin_categories(
         session: Open request-scoped database session.
         limit: Maximum number of categories returned.
         offset: Number of categories skipped before the page.
+        current_user: Current active User freshly loaded by authentication.
+        portfolio_demo_mode: Trusted application-scoped demo-mode state.
+        payment_provider: Trusted application-scoped payment-provider state.
 
     Returns:
         Strict detached category page including inactive rows.
+
+    Raises:
+        AdminMenuReadDeniedError: If identity or runtime forbids the read.
     """
+    _ensure_admin_menu_read_allowed(
+        current_user=current_user,
+        portfolio_demo_mode=portfolio_demo_mode,
+        payment_provider=payment_provider,
+    )
     total = session.scalar(select(func.count()).select_from(Category))
     categories = session.scalars(
         select(Category)
@@ -183,6 +201,9 @@ def list_admin_menu_items(
     *,
     limit: int,
     offset: int,
+    current_user: User,
+    portfolio_demo_mode: bool | None,
+    payment_provider: str | None,
 ) -> AdminMenuItemListResponse:
     """Return all menu items in one deterministic administrator page.
 
@@ -190,10 +211,21 @@ def list_admin_menu_items(
         session: Open request-scoped database session.
         limit: Maximum number of items returned.
         offset: Number of items skipped before the page.
+        current_user: Current active User freshly loaded by authentication.
+        portfolio_demo_mode: Trusted application-scoped demo-mode state.
+        payment_provider: Trusted application-scoped payment-provider state.
 
     Returns:
         Strict detached menu-item page including inactive and unavailable rows.
+
+    Raises:
+        AdminMenuReadDeniedError: If identity or runtime forbids the read.
     """
+    _ensure_admin_menu_read_allowed(
+        current_user=current_user,
+        portfolio_demo_mode=portfolio_demo_mode,
+        payment_provider=payment_provider,
+    )
     total = session.scalar(select(func.count()).select_from(MenuItem))
     items = session.scalars(
         select(MenuItem)
@@ -370,15 +402,43 @@ def _ensure_admin_menu_mutation_allowed(
     payment_provider: str | None,
 ) -> None:
     """Reject menu mutation unless trusted runtime and identity allow it."""
+    if not _is_normal_admin_menu_actor_allowed(
+        current_user=current_user,
+        portfolio_demo_mode=portfolio_demo_mode,
+        payment_provider=payment_provider,
+    ):
+        raise AdminMenuMutationDeniedError
+
+
+def _ensure_admin_menu_read_allowed(
+    *,
+    current_user: User,
+    portfolio_demo_mode: bool | None,
+    payment_provider: str | None,
+) -> None:
+    """Reject administrative menu reads before any domain database access."""
+    if not _is_normal_admin_menu_actor_allowed(
+        current_user=current_user,
+        portfolio_demo_mode=portfolio_demo_mode,
+        payment_provider=payment_provider,
+    ):
+        raise AdminMenuReadDeniedError
+
+
+def _is_normal_admin_menu_actor_allowed(
+    *,
+    current_user: User,
+    portfolio_demo_mode: bool | None,
+    payment_provider: str | None,
+) -> bool:
+    """Return whether trusted normal runtime permits this menu administrator."""
     has_reserved_demo_identity = (
         current_user.id == DEMO_ADMIN_ID or current_user.email == DEMO_ADMIN_EMAIL
     )
-    is_allowed = (
+    return (
         portfolio_demo_mode is False
         and payment_provider == PaymentProvider.STRIPE_TEST.value
         and current_user.is_active is True
         and current_user.role in {UserRole.ADMIN, UserRole.SUPER_ADMIN}
         and not has_reserved_demo_identity
     )
-    if not is_allowed:
-        raise AdminMenuMutationDeniedError

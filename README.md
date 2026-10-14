@@ -1019,6 +1019,37 @@ ambiguous mutation result must be resolved by Refresh before resubmission.
 Changes affect future orders only. Historical order snapshots and analytics do
 not change.
 
+The local, uncommitted B4-3B3 candidate changes only the two administrative
+Menu GET routes. Canonical Bearer authentication, the current active database
+User, and `require_admin` remain authoritative. Exact `true + demo` returns
+`403 {"detail":"Administrator menu access is not allowed"}` before any
+Category or MenuItem session operation, including for the exact demo
+administrator. Missing or inconsistent trusted runtime, actor drift, and
+either reserved identifier outside the exact demo runtime fail closed with the
+same response. Exact `false + stripe_test` preserves the existing global count,
+deterministic page, pagination, and response schemas for active, non-reserved
+administrators and super-administrators. The public Menu API and the four
+B4-3A2 mutations remain unchanged.
+
+The production frontend is intentionally unchanged in this slice. In the
+portfolio runtime, `/admin` retains independent Orders and Analytics results
+while the Menu snapshot uses its existing partial-error and retry state.
+`/admin/menu` uses its existing generic category and menu-item error and retry
+states; navigation and ineffective mutation affordances are not replaced with
+a dedicated demo state. This is an accepted bounded implementation condition,
+not final public-demo UX. Dedicated safe handling and action visibility must be
+resolved before public demo-session issuance. One later full run of
+`test_admin_menu_api.py` completed with 56 passed, 0 failed, 0 skipped, native
+exit 0, and no retry; its read-only precheck, postcheck, and cleanup passed.
+A repeat independent read-only review closed both P2-DOC findings. One later
+full canonical Browser E2E ran exactly once with native exit 0, 32 passed, 0
+failed, 0 did not run, an 11.8-minute Playwright duration, one worker, zero
+retries, and the `list` reporter. The normal `false + stripe_test` harness
+confirmed normal-runtime regression safety, including Admin Menu across all
+seven viewports; it did not exercise the demo 403, which remains evidenced by
+the earlier isolated PostgreSQL 56/56 acceptance. Final independent review,
+commit, push, and new CI remain separate open gates.
+
 ### Administrator analytics
 
 The dashboard calls the protected overview, products, categories, and
