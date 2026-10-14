@@ -32,6 +32,10 @@ class UserAuthenticationError(Exception):
     """Report a canonical credential failure without distinguishing its cause."""
 
 
+class UserListReadDeniedError(Exception):
+    """Report that trusted runtime or actor state forbids the user-list read."""
+
+
 class UserNotFoundError(Exception):
     """Report that a requested registered user does not exist."""
 
@@ -123,6 +127,9 @@ def list_users(
     *,
     limit: int,
     offset: int,
+    current_user: User,
+    portfolio_demo_mode: bool | None,
+    payment_provider: str | None,
 ) -> UserAdminListResponse:
     """Return one deterministic safe page of registered users.
 
@@ -130,10 +137,22 @@ def list_users(
         session: Open request-scoped database session.
         limit: Maximum number of identities returned.
         offset: Number of identities skipped before the page.
+        current_user: Current active User freshly loaded by authentication.
+        portfolio_demo_mode: Trusted application-scoped demo-mode state.
+        payment_provider: Trusted application-scoped payment-provider state.
 
     Returns:
         Safe user identities ordered by creation time and UUID.
+
+    Raises:
+        UserListReadDeniedError: If trusted runtime or actor state forbids the
+            read.
     """
+    _ensure_user_list_read_allowed(
+        current_user=current_user,
+        portfolio_demo_mode=portfolio_demo_mode,
+        payment_provider=payment_provider,
+    )
     total = session.scalar(select(func.count()).select_from(User))
     users = session.scalars(
         select(User)
@@ -219,18 +238,46 @@ def _ensure_user_role_mutation_allowed(
     payment_provider: str | None,
 ) -> None:
     """Reject role mutation before database access unless runtime is normal."""
+    if not _is_normal_super_admin_actor_allowed(
+        current_user=current_user,
+        portfolio_demo_mode=portfolio_demo_mode,
+        payment_provider=payment_provider,
+    ):
+        raise UserRoleMutationDeniedError
+
+
+def _ensure_user_list_read_allowed(
+    *,
+    current_user: User,
+    portfolio_demo_mode: bool | None,
+    payment_provider: str | None,
+) -> None:
+    """Reject user-list reads before any domain database operation."""
+    if not _is_normal_super_admin_actor_allowed(
+        current_user=current_user,
+        portfolio_demo_mode=portfolio_demo_mode,
+        payment_provider=payment_provider,
+    ):
+        raise UserListReadDeniedError
+
+
+def _is_normal_super_admin_actor_allowed(
+    *,
+    current_user: User,
+    portfolio_demo_mode: bool | None,
+    payment_provider: str | None,
+) -> bool:
+    """Return whether trusted normal runtime permits this super-administrator."""
     has_reserved_demo_identity = (
         current_user.id == DEMO_ADMIN_ID or current_user.email == DEMO_ADMIN_EMAIL
     )
-    is_allowed = (
+    return (
         portfolio_demo_mode is False
         and payment_provider == PaymentProvider.STRIPE_TEST.value
         and current_user.is_active is True
         and current_user.role is UserRole.SUPER_ADMIN
         and not has_reserved_demo_identity
     )
-    if not is_allowed:
-        raise UserRoleMutationDeniedError
 
 
 def _build_user_list_item(user: User) -> UserAdminListItem:
@@ -252,6 +299,7 @@ def _constraint_name(error: IntegrityError) -> str | None:
 
 __all__ = [
     "UserAuthenticationError",
+    "UserListReadDeniedError",
     "UserNotFoundError",
     "UserRegistrationConflictError",
     "UserRoleConflictError",

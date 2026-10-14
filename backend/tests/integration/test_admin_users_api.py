@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Generator, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from uuid import UUID, uuid4
 
 import jwt
@@ -16,10 +17,9 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.auth.demo_admin import DEMO_ADMIN_EMAIL, DEMO_ADMIN_ID
-from app.auth.dependencies import require_super_admin
+from app.auth.dependencies import get_current_user
 from app.auth.models import User
 from app.auth.roles import UserRole
-from app.auth.schemas import AdminPrincipal
 from app.auth.service import (
     ALGORITHM,
     ISSUER,
@@ -38,6 +38,7 @@ ME_PATH = "/api/v1/auth/me"
 SYNTHETIC_SECRET = "m" * 32
 FIXED_NOW = datetime(2026, 8, 12, 12, tzinfo=UTC)
 LEGACY_AUDIENCE = "restaurant-ordering-analytics-admin"
+MISSING_RUNTIME_STATE = object()
 SAFE_LIST_FIELDS = {
     "id",
     "email",
@@ -84,6 +85,8 @@ def application(
             _env_file=None,
             database_url=None,
             auth_jwt_secret=None,
+            portfolio_demo_mode=False,
+            payment_provider=PaymentProvider.STRIPE_TEST.value,
         ),
         session_factory=user_session_factory,
         user_token_service=user_token_service,
@@ -197,6 +200,40 @@ def _assert_no_dml(statements: list[str]) -> None:
     )
 
 
+def _assert_only_auth_user_select(statements: list[str]) -> None:
+    """Require only the canonical authentication User query before denial."""
+    application_statements = [
+        statement for statement in statements if statement != "SELECT 1"
+    ]
+    assert len(application_statements) == 1
+    auth_select = application_statements[0]
+    assert auth_select.startswith("SELECT ")
+    assert "FROM USERS" in auth_select
+    assert "WHERE USERS.ID" in auth_select
+    assert "COUNT(" not in auth_select
+    assert "ORDER BY" not in auth_select
+    assert "FOR UPDATE" not in auth_select
+    _assert_no_dml(statements)
+
+
+def _set_runtime_state(
+    application: Any,
+    *,
+    demo_mode: bool | object,
+    provider: str | object,
+) -> None:
+    """Mutate only trusted application state after legal app construction."""
+    state = application.state
+    if demo_mode is MISSING_RUNTIME_STATE:
+        delattr(state, "portfolio_demo_mode")
+    else:
+        state.portfolio_demo_mode = demo_mode
+    if provider is MISSING_RUNTIME_STATE:
+        delattr(state, "payment_provider")
+    else:
+        state.payment_provider = provider
+
+
 @pytest.mark.parametrize("token", [None, "not-a-jwt"])
 def test_list_rejects_missing_and_malformed_credentials(
     client: TestClient,
@@ -306,12 +343,14 @@ def test_list_defaults_metadata_safe_fields_and_all_roles(
     client: TestClient,
     user_session_factory: sessionmaker[Session],
     user_token_service: UserTokenService,
+    test_database_engine: Engine,
 ) -> None:
     """Return exact safe fields and default pagination for every role."""
     token = _super_admin_token(user_session_factory, user_token_service)
     for role in (UserRole.CUSTOMER, UserRole.ADMIN):
         _store_user(user_session_factory, role=role)
-    response = client.get(USERS_PATH, headers=_authorization(token))
+    with _captured_sql(test_database_engine) as statements:
+        response = client.get(USERS_PATH, headers=_authorization(token))
     assert response.status_code == 200
     body = response.json()
     assert set(body) == {"items", "total", "limit", "offset"}
@@ -328,6 +367,22 @@ def test_list_defaults_metadata_safe_fields_and_all_roles(
         )
         for item in body["items"]
     )
+    user_selects = [
+        statement
+        for statement in statements
+        if statement.startswith("SELECT ") and "FROM USERS" in statement
+    ]
+    auth_selects = [
+        statement for statement in user_selects if "WHERE USERS.ID" in statement
+    ]
+    count_selects = [statement for statement in user_selects if "COUNT(" in statement]
+    page_selects = [statement for statement in user_selects if "ORDER BY" in statement]
+    assert len(user_selects) == 3
+    assert len(auth_selects) == 1
+    assert len(count_selects) == 1
+    assert len(page_selects) == 1
+    assert "USERS.CREATED_AT ASC, USERS.ID ASC" in page_selects[0]
+    _assert_no_dml(statements)
 
 
 def test_list_empty_page_behavior(
@@ -402,21 +457,97 @@ def test_list_orders_by_created_at_then_id(
     assert ids[:2] == [str(low_id), str(high_id)]
 
 
-def test_portfolio_runtime_keeps_super_admin_list_read_outside_mutation_guard(
+def test_portfolio_runtime_denies_super_admin_list_before_domain_sql(
     application,
     client: TestClient,
     user_session_factory: sessionmaker[Session],
     user_token_service: UserTokenService,
+    test_database_engine: Engine,
 ) -> None:
-    """Keep the existing super-administrator list route outside B4-3A3."""
+    """Deny the portfolio User list after auth and before its count or page."""
     application.state.portfolio_demo_mode = True
     application.state.payment_provider = PaymentProvider.DEMO.value
     token = _super_admin_token(user_session_factory, user_token_service)
+    before = _users_snapshot(user_session_factory)
 
-    response = client.get(USERS_PATH, headers=_authorization(token))
+    with _captured_sql(test_database_engine) as statements:
+        response = client.get(USERS_PATH, headers=_authorization(token))
 
-    assert response.status_code == 200
-    assert response.json()["total"] == 1
+    assert response.status_code == 403
+    assert response.json() == {"detail": "User list access is not allowed"}
+    assert _users_snapshot(user_session_factory) == before
+    _assert_only_auth_user_select(statements)
+
+
+@pytest.mark.parametrize(
+    ("demo_mode", "provider"),
+    [
+        (True, PaymentProvider.STRIPE_TEST.value),
+        (False, PaymentProvider.DEMO.value),
+        (MISSING_RUNTIME_STATE, PaymentProvider.STRIPE_TEST.value),
+        (False, MISSING_RUNTIME_STATE),
+        (MISSING_RUNTIME_STATE, MISSING_RUNTIME_STATE),
+    ],
+)
+def test_missing_or_mismatched_runtime_denies_user_list_before_domain_sql(
+    application,
+    client: TestClient,
+    user_session_factory: sessionmaker[Session],
+    user_token_service: UserTokenService,
+    test_database_engine: Engine,
+    demo_mode: bool | object,
+    provider: str | object,
+) -> None:
+    """Fail closed when trusted runtime state is missing or inconsistent."""
+    _set_runtime_state(
+        application,
+        demo_mode=demo_mode,
+        provider=provider,
+    )
+    token = _super_admin_token(user_session_factory, user_token_service)
+    before = _users_snapshot(user_session_factory)
+
+    with _captured_sql(test_database_engine) as statements:
+        response = client.get(USERS_PATH, headers=_authorization(token))
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "User list access is not allowed"}
+    assert _users_snapshot(user_session_factory) == before
+    _assert_only_auth_user_select(statements)
+
+
+@pytest.mark.parametrize(
+    ("caller_id", "caller_email"),
+    [
+        (DEMO_ADMIN_ID, "reserved-list-id@example.com"),
+        (UUID("00000000-0000-4000-8000-00000000e301"), DEMO_ADMIN_EMAIL),
+    ],
+)
+def test_normal_runtime_denies_reserved_super_admin_list_before_domain_sql(
+    client: TestClient,
+    user_session_factory: sessionmaker[Session],
+    user_token_service: UserTokenService,
+    test_database_engine: Engine,
+    caller_id: UUID,
+    caller_email: str,
+) -> None:
+    """Reject either reserved actor identifier outside portfolio runtime."""
+    stored_id = _store_user(
+        user_session_factory,
+        role=UserRole.SUPER_ADMIN,
+        user_id=caller_id,
+        email=caller_email,
+    )
+    token = user_token_service.create_access_token(stored_id)
+    before = _users_snapshot(user_session_factory)
+
+    with _captured_sql(test_database_engine) as statements:
+        response = client.get(USERS_PATH, headers=_authorization(token))
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "User list access is not allowed"}
+    assert _users_snapshot(user_session_factory) == before
+    _assert_only_auth_user_select(statements)
 
 
 @pytest.mark.parametrize("target_exists", [False, True])
@@ -853,8 +984,12 @@ def test_service_database_failure_returns_safe_503(
     test_database_engine: Engine,
 ) -> None:
     """Hide role-service SQL details after authorization succeeds."""
-    application.dependency_overrides[require_super_admin] = lambda: AdminPrincipal(
-        id=uuid4(), email="synthetic-super@example.com"
+    application.dependency_overrides[get_current_user] = lambda: User(
+        id=uuid4(),
+        email="synthetic-super@example.com",
+        password_hash="synthetic-super-password-hash",
+        role=UserRole.SUPER_ADMIN,
+        is_active=True,
     )
 
     def fail_statement(*_: object, **__: object) -> None:
@@ -885,3 +1020,5 @@ def test_openapi_adds_exactly_two_user_management_operations(application) -> Non
         ("GET", USERS_PATH),
         ("PATCH", f"{USERS_PATH}/{{user_id}}/role"),
     }
+    get_responses = document["paths"][USERS_PATH]["get"]["responses"]
+    assert get_responses["403"]["description"] == "User list access is not allowed"

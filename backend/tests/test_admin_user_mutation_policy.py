@@ -13,7 +13,6 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.dialects import postgresql
 
-from app.auth import admin_router
 from app.auth.demo_admin import DEMO_ADMIN_EMAIL, DEMO_ADMIN_ID
 from app.auth.dependencies import get_current_user
 from app.auth.models import User
@@ -444,6 +443,8 @@ def _request_endpoint(
             _env_file=None,
             database_url=None,
             auth_jwt_secret="a" * 32,
+            portfolio_demo_mode=False,
+            payment_provider=PaymentProvider.STRIPE_TEST.value,
         )
     )
     if demo_mode is not MISSING_RUNTIME_VALUE:
@@ -568,14 +569,14 @@ def test_endpoint_keeps_invalid_body_422_before_service_access(
     _assert_session_untouched(session)
 
 
-def test_portfolio_runtime_keeps_user_list_outside_mutation_guard(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_portfolio_runtime_applies_separate_user_list_read_guard() -> None:
     app = create_app(
         settings=Settings(
             _env_file=None,
             database_url=None,
             auth_jwt_secret="a" * 32,
+            portfolio_demo_mode=False,
+            payment_provider=PaymentProvider.STRIPE_TEST.value,
         )
     )
     app.state.portfolio_demo_mode = True
@@ -588,20 +589,11 @@ def test_portfolio_runtime_keeps_user_list_outside_mutation_guard(
     def session_override() -> Iterator[_Session]:
         yield session
 
-    def list_override(
-        _session: object,
-        *,
-        limit: int,
-        offset: int,
-    ) -> dict[str, object]:
-        return {"items": [], "total": 0, "limit": limit, "offset": offset}
-
-    monkeypatch.setattr(admin_router, "list_users", list_override)
     app.dependency_overrides[get_current_user] = current_user_override
     app.dependency_overrides[get_db_session] = session_override
     with TestClient(app) as client:
         response = client.get("/api/v1/admin/users")
 
-    assert response.status_code == 200
-    assert response.json() == {"items": [], "total": 0, "limit": 50, "offset": 0}
+    assert response.status_code == 403
+    assert response.json() == {"detail": "User list access is not allowed"}
     _assert_session_untouched(session)

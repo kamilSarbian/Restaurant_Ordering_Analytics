@@ -18,6 +18,7 @@ from app.auth.user_schemas import (
     UserRoleUpdateResponse,
 )
 from app.auth.user_service import (
+    UserListReadDeniedError,
     UserNotFoundError,
     UserRoleConflictError,
     UserRoleMutationDeniedError,
@@ -32,6 +33,7 @@ CurrentSuperAdmin = Annotated[AdminPrincipal, Depends(require_super_admin)]
 CurrentUser = Annotated[User, Depends(get_current_user)]
 PageLimit = Annotated[int, Query(ge=1, le=100)]
 PageOffset = Annotated[int, Query(ge=0)]
+USER_LIST_FORBIDDEN_DETAIL = "User list access is not allowed"
 USER_ROLE_MUTATION_FORBIDDEN_DETAIL = "User role mutation is not allowed"
 
 AUTH_RESPONSES = {
@@ -39,23 +41,38 @@ AUTH_RESPONSES = {
     403: {"description": "Super-administrator access required"},
     503: {"description": "Authentication service unavailable"},
 }
+USER_LIST_RESPONSES = {
+    **AUTH_RESPONSES,
+    403: {"description": USER_LIST_FORBIDDEN_DETAIL},
+}
 
 
 @router.get(
     "",
     response_model=UserAdminListResponse,
     summary="List registered users",
-    responses=AUTH_RESPONSES,
+    responses=USER_LIST_RESPONSES,
 )
 def list_users_endpoint(
+    request: Request,
     session: DatabaseSession,
+    current_user: CurrentUser,
     _super_admin: CurrentSuperAdmin,
     limit: PageLimit = 50,
     offset: PageOffset = 0,
 ) -> UserAdminListResponse:
     """Return one super-administrator-only page of safe user identities."""
     try:
-        return list_users(session, limit=limit, offset=offset)
+        return list_users(
+            session,
+            limit=limit,
+            offset=offset,
+            current_user=current_user,
+            portfolio_demo_mode=getattr(request.app.state, "portfolio_demo_mode", None),
+            payment_provider=getattr(request.app.state, "payment_provider", None),
+        )
+    except UserListReadDeniedError as error:
+        raise _user_list_forbidden_error() from error
     except SQLAlchemyError:
         raise _service_unavailable_error() from None
 
@@ -113,4 +130,12 @@ def _service_unavailable_error() -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
         detail="User management service unavailable",
+    )
+
+
+def _user_list_forbidden_error() -> HTTPException:
+    """Build the fixed non-disclosing user-list read denial."""
+    return HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=USER_LIST_FORBIDDEN_DETAIL,
     )

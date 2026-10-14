@@ -1124,12 +1124,27 @@ preserved the historical administrator as an active `super_admin`, replaced
 The project PostgreSQL remains exposed on host port 5433 to container port 5432;
 the separate host PostgreSQL service on port 5432 was untouched.
 
-Public registration always creates `customer`. The super-admin-only list API
-returns safe User fields and deterministic pagination. Its role PATCH locks the
-target row and allows only `customer <-> admin`; it cannot assign or modify a
-`super_admin`, mutate active state, or delete a User. Stage 16F implements the
-shared authentication, personal account, and `/admin/users` frontend without
-expanding those backend permissions.
+Public registration always creates `customer`. The local B4-3B4 candidate
+places a fail-closed boundary around only the super-admin User list. Canonical
+Bearer validation, the active database User reload, and `require_super_admin`
+remain authoritative, and the router supplies the current User plus trusted
+application mode and provider as mandatory service inputs. Exact `true + demo`
+returns `403 {"detail":"User list access is not allowed"}` for every
+super-administrator reaching the service before the User-domain count or page
+SELECT. The authentication User read remains allowed. Missing or inconsistent
+runtime and either reserved identifier outside the exact demo runtime fail
+closed with the same response.
+
+User has no durable provenance field, so the candidate neither filters by a
+reserved identifier nor returns a synthetic empty page. Exact
+`false + stripe_test` preserves the global safe-field count, deterministic
+`created_at, id` page order, pagination, and response schema for an active,
+non-reserved `super_admin`. The separate role PATCH still locks the target row
+and allows only `customer <-> admin`; it cannot assign or modify a
+`super_admin`, mutate active state, or delete a User. B4-3B4 changes no model,
+migration, frontend, PATCH, `/auth/me`, or account-read contract. Stage 16F
+implements the shared authentication, personal account, and `/admin/users`
+frontend without expanding those backend permissions.
 Because every protected request reloads the User, a successful role change
 affects authorization immediately even when the client reuses the same token.
 

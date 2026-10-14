@@ -50,9 +50,10 @@ committed at `b7fcd9faa2fade1b042e7f004d60c43afea5a547`; the final dependency
 remediation and retained Exports E2E diagnostics are committed at
 `97fc166cc6d79c4ee455ad91834eae266f72d757`. GitHub Actions run `36629606589`,
 attempt 1, passed `Backend`, `Migrations`, `Frontend`, and `Browser E2E` for
-that final SHA. No Render or Neon resource, production migration or seed, demo
-administrator behavior, online release, or public acceptance has been
-executed. A recruiter-facing public URL may be claimed only after Stage 22-D.
+that final SHA. No Render or Neon resource, production migration or seed, public
+demo-administrator provisioning or public demo-session issuance, online
+release, or public acceptance has been executed. A recruiter-facing public URL
+may be claimed only after Stage 22-D.
 Stage 23 — Portfolio Documentation & Case Study is **not started**.
 
 The FastAPI backend provides public menu and quote APIs, anonymous or owned
@@ -740,7 +741,9 @@ customer receives 403. User governance is separately restricted to
 `super_admin`:
 
 - `GET /api/v1/admin/users` returns deterministic `limit`/`offset` pages with
-  safe identity fields only;
+  safe identity fields only for an active, non-reserved `super_admin` in exact
+  `false + stripe_test`; the bounded B4-3B4 policy described below denies the
+  portfolio and fail-closed cases before User-domain SQL;
 - `PATCH /api/v1/admin/users/{user_id}/role` permits only
   `customer -> admin` and `admin -> customer`.
 
@@ -1094,6 +1097,32 @@ the explicit inverse transitions `customer -> admin` and `admin -> customer`.
 Rows whose role is `super_admin` are read-only. The UI cannot assign or demote a
 `super_admin`, delete a User, reset a password, or change active state.
 
+The local, uncommitted B4-3B4 candidate changes only authenticated
+`GET /api/v1/admin/users`. Canonical Bearer validation, the current active
+database User reload, and `require_super_admin` remain authoritative. The
+router passes the current User plus trusted application mode and provider as
+mandatory service inputs. Exact `true + demo` returns
+`403 {"detail":"User list access is not allowed"}` for every super-administrator
+that reaches the service, before the global User count or page query. The
+canonical authentication User read remains allowed. Missing or inconsistent
+trusted runtime and either reserved identifier outside the exact demo runtime
+fail closed with the same response.
+
+Exact `false + stripe_test` preserves the existing global count, deterministic
+page order, pagination, safe fields, and response schema for an active,
+non-reserved `super_admin`. The slice adds no synthetic empty response,
+provenance heuristic, field redaction, model, migration, frontend, role-PATCH,
+`/auth/me`, or account-read change. Local isolated PostgreSQL acceptance is
+complete: one full `test_admin_users_api.py` run completed with 58 passed,
+native exit code 0, and no retry; that run evidences the demo 403. Independent
+post-database review completed without blockers. One later full local canonical
+Browser E2E ran exactly once with native exit code 0, 32 passed, 0 failed, 0 did
+not run, one worker, and zero retries. It confirms normal
+`false + stripe_test` regression safety and is local evidence, not CI. E2E
+cleanup left zero project containers and zero project networks; the protected
+named volume was not an E2E target, and no bitwise-content comparison is
+claimed. Final independent review, commit, push, and CI remain open.
+
 The role PATCH also enforces the portfolio boundary on the server. Exact
 `true + demo`, missing or mismatched runtime state, and either reserved demo
 administrator identifier on the acting User return one generic 403 before the
@@ -1101,8 +1130,9 @@ domain transaction or target lookup. Exact `False + stripe_test` preserves
 legal ordinary User transitions for an active, non-reserved super-admin. An
 existing target with either reserved identifier returns the existing generic
 409 only after the locked existence lookup, while a missing target still
-returns 404. The authenticated `GET /api/v1/admin/users` read contract is
-unchanged by this mutation guard.
+returns 404. The authenticated GET was unchanged by the earlier B4-3A3
+mutation guard; its separate portfolio read boundary is the B4-3B4 candidate
+described above.
 
 Every role action requires confirmation and is serialized to one PATCH. The UI
 does not update optimistically: after success it reloads the authoritative

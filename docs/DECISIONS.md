@@ -1833,6 +1833,42 @@ while preserving these financial concurrency rules.
   review, isolated PostgreSQL acceptance, canonical Browser E2E, commit, push,
   and CI remain separate gates.
 
+## D-086 — Portfolio Demo Denial for Administrative User List Reads
+
+- **Status:** accepted on 2026-10-14 for the bounded B4-3B4 contract.
+- **Scope:** this decision applies only to `GET /api/v1/admin/users`. It does not
+  authorize or change `PATCH /api/v1/admin/users/{user_id}/role`, `/auth/me`,
+  account reads, public demo-session issuance, the frontend, or any other B4
+  surface.
+- **Rationale:** User has no durable portfolio provenance. Reserved UUID or
+  email values identify the protected demo-administrator boundary but cannot
+  safely partition a global User list. Safe list fields still contain identity
+  data, so heuristic filtering or a synthetic empty 200 would not establish a
+  truthful authorization contract.
+- **Authentication and fail-closed boundary:** canonical Bearer validation, the
+  active database User reload, and `require_super_admin` remain authoritative.
+  The router passes the current User plus trusted application mode and provider
+  as mandatory service inputs. Exact `true + demo` returns
+  `403 {"detail":"User list access is not allowed"}` for every
+  super-administrator that reaches the service, before any User-domain count or
+  page SELECT. The canonical authentication User read remains allowed. Missing
+  or inconsistent trusted runtime and either reserved identifier outside the
+  exact demo runtime fail closed with the same response. Missing or invalid
+  authentication retains 401, and a non-super-admin retains the existing role
+  403 before the service.
+- **Normal runtime:** exact `false + stripe_test` preserves the existing global
+  count, deterministic `created_at, id` order, pagination, safe fields, and
+  response schema for an active, non-reserved `super_admin`.
+- **Preserved contracts:** this decision adds no synthetic empty response,
+  provenance allowlist, field redaction, DML, model, migration, frontend,
+  role-mutation, `/auth/me`, or account-read change. Existing pagination
+  validation and safe 503 handling remain unchanged.
+- **Operational boundary:** isolated PostgreSQL acceptance, independent review,
+  one full canonical Browser E2E, commit, push, and CI remain separate gates.
+  B4-2 CLI-on-DB, final Menu UX, account-read isolation, public demo-session
+  issuance, B5/B6, provisioning, and deployment remain open. The broader
+  inherited ROADMAP wording is deferred to a separately authorized task.
+
 ## History of Decisions That Required Resolution
 
 ### O-002: Boundary Between Order Creation and Stripe Checkout Session
