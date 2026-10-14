@@ -1124,7 +1124,7 @@ preserved the historical administrator as an active `super_admin`, replaced
 The project PostgreSQL remains exposed on host port 5433 to container port 5432;
 the separate host PostgreSQL service on port 5432 was untouched.
 
-Public registration always creates `customer`. The local B4-3B4 candidate
+Public registration always creates `customer`. The committed B4-3B4 boundary
 places a fail-closed boundary around only the super-admin User list. Canonical
 Bearer validation, the active database User reload, and `require_super_admin`
 remain authoritative, and the router supplies the current User plus trusted
@@ -1135,7 +1135,7 @@ SELECT. The authentication User read remains allowed. Missing or inconsistent
 runtime and either reserved identifier outside the exact demo runtime fail
 closed with the same response.
 
-User has no durable provenance field, so the candidate neither filters by a
+User has no durable provenance field, so the boundary neither filters by a
 reserved identifier nor returns a synthetic empty page. Exact
 `false + stripe_test` preserves the global safe-field count, deterministic
 `created_at, id` page order, pagination, and response schema for an active,
@@ -1145,6 +1145,17 @@ and allows only `customer <-> admin`; it cannot assign or modify a
 migration, frontend, PATCH, `/auth/me`, or account-read contract. Stage 16F
 implements the shared authentication, personal account, and `/admin/users`
 frontend without expanding those backend permissions.
+
+Local evidence remains separated by purpose: one isolated PostgreSQL run with
+58 passed tests verifies the demo 403, while one full local canonical Browser
+E2E run with 32 passed tests verifies normal `false + stripe_test` regression
+safety. Final independent review completed without blockers. B4-3B4 was
+committed and pushed on `main` at
+`62a92eb619cae2642758c5b123bc2ae28bc2327d`; automatic GitHub Actions push run
+`38596011794`, attempt 1, completed `Backend`, `Migrations`, `Frontend`, and
+`Browser E2E` with `success` for that exact SHA. Neither local run is presented
+as the automatic CI result.
+
 Because every protected request reloads the User, a successful role change
 affects authorization immediately even when the client reuses the same token.
 

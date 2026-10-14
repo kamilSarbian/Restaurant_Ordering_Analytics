@@ -47,8 +47,8 @@
   pushed on `main` at `364bee0dbf5df38ba46c7bfc6ce71f7b59be830e`;
   automatic GitHub Actions push run `38562956173`, attempt 1, completed
   `Backend`, `Migrations`, `Frontend`, and `Browser E2E` with `success` for that
-  exact SHA. B4-3B4 is a local, uncommitted candidate that adds the bounded
-  `GET /api/v1/admin/users` read guard. Its isolated PostgreSQL acceptance is
+  exact SHA. B4-3B4 adds the bounded `GET /api/v1/admin/users` read guard. Its
+  isolated PostgreSQL acceptance is
   complete: one full `test_admin_users_api.py` run completed with 58 passed and
   no retry, and the read-only precheck, postcheck, and fixture cleanup were
   confirmed. The remaining historical-test P3 is also closed by an explicit
@@ -58,7 +58,11 @@
   with native exit code 0, 32 passed, 0 failed, 0 did not run, one worker, and
   zero retries. It confirms normal `false + stripe_test` regression safety;
   demo-403 evidence remains the separate PostgreSQL 58/58 run. The local E2E is
-  not CI. Final independent review, commit, push, and CI remain open.
+  not CI. Final independent review completed without blockers. B4-3B4 was
+  committed and pushed on `main` at
+  `62a92eb619cae2642758c5b123bc2ae28bc2327d`; automatic GitHub Actions push run
+  `38596011794`, attempt 1, completed `Backend`, `Migrations`, `Frontend`, and
+  `Browser E2E` with `success` for that exact SHA.
   The B4-2 CLI-on-DB, safe final Menu UX, account read isolation, public
   demo-session issuance, remaining B4 work, B5, B6, production provisioning,
   and deployment remain open. This
@@ -128,8 +132,8 @@
   `364bee0dbf5df38ba46c7bfc6ce71f7b59be830e`; automatic GitHub Actions push run
   `38562956173`, attempt 1, completed `Backend`, `Migrations`, `Frontend`, and
   `Browser E2E` with `success` for that exact SHA, closing only the B4-3B3 CI
-  gate. B4-3B4 is a local, uncommitted candidate for the bounded administrative
-  User-list read guard. Its local isolated PostgreSQL acceptance is complete
+  gate. B4-3B4 provides the bounded administrative User-list read guard. Its
+  local isolated PostgreSQL acceptance is complete
   with one full 58-test integration run, read-only pre/postchecks, and fixture
   cleanup. The remaining historical-test P3 is closed by an explicit
   `false + stripe_test` `Settings` baseline, and fresh no-database User-policy
@@ -138,7 +142,12 @@
   with native exit code 0, 32 passed, 0 failed, 0 did not run, one worker, and
   zero retries. It confirms normal `false + stripe_test` regression safety;
   demo-403 evidence remains the separate PostgreSQL 58/58 run. The local E2E is
-  not CI. Final independent review, commit, push, and CI remain open.
+  not CI. Final independent review completed without blockers. B4-3B4 was
+  committed and pushed on `main` at
+  `62a92eb619cae2642758c5b123bc2ae28bc2327d`; automatic GitHub Actions push run
+  `38596011794`, attempt 1, completed `Backend`, `Migrations`, `Frontend`, and
+  `Browser E2E` with `success` for that exact SHA, closing only the B4-3B4 CI
+  gate.
   The original
   Stage 20 paid Render/GHCR topology is historical and superseded for the
   free-tier portfolio demo. The
@@ -1303,10 +1312,10 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   B4-3B3 closeout, the B4-2 CLI-on-DB, safe final Menu UX, User and account read
   isolation, public demo-session issuance, B5, B6, production provisioning, and
   deployment remained open. The following B4-3B4 section records the later
-  User-list candidate.
+  User-list boundary.
 
-- **B4-3B4 — Administrative User-list read guard (local implementation
-  candidate):** canonical Bearer validation, the current active database User
+- **B4-3B4 — Administrative User-list read guard (committed, pushed, and CI
+  green):** canonical Bearer validation, the current active database User
   reload, and `require_super_admin` remain authoritative. The list router passes
   the current User plus trusted application mode and provider as mandatory
   service inputs. Exact `true + demo` returns the fixed
@@ -1394,11 +1403,14 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   `restaurant_ordering_analytics_postgres_data` volume was not an E2E target;
   this evidence does not claim a bitwise comparison of its contents.
 
-  B4-3B4 remains a local, uncommitted candidate. Local isolated PostgreSQL
-  acceptance, the remaining test-only P3 remediation, independent post-database
-  review, and the local canonical Browser E2E are complete. The local E2E is not
-  CI. Final independent review, commit, push, and CI remain open. Stage 22
-  remains in progress, and Stage 23 is not started.
+  Local isolated PostgreSQL acceptance, the historical test-only P3 remediation,
+  independent post-database review, the local canonical Browser E2E, and final
+  independent review are complete. The local E2E is not CI. B4-3B4 was
+  committed and pushed on `main` at
+  `62a92eb619cae2642758c5b123bc2ae28bc2327d`; automatic GitHub Actions push run
+  `38596011794`, attempt 1, completed `Backend`, `Migrations`, `Frontend`, and
+  `Browser E2E` with `success` for that exact SHA. Stage 22 remains in progress,
+  and Stage 23 is not started.
   B4-2 CLI-on-DB, final Menu UX, account-read isolation, public demo-session
   issuance, B5, B6, provisioning, and deployment remain open.
 

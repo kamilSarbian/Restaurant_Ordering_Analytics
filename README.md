@@ -1097,7 +1097,7 @@ the explicit inverse transitions `customer -> admin` and `admin -> customer`.
 Rows whose role is `super_admin` are read-only. The UI cannot assign or demote a
 `super_admin`, delete a User, reset a password, or change active state.
 
-The local, uncommitted B4-3B4 candidate changes only authenticated
+The committed B4-3B4 boundary changes only authenticated
 `GET /api/v1/admin/users`. Canonical Bearer validation, the current active
 database User reload, and `require_super_admin` remain authoritative. The
 router passes the current User plus trusted application mode and provider as
@@ -1121,7 +1121,12 @@ not run, one worker, and zero retries. It confirms normal
 `false + stripe_test` regression safety and is local evidence, not CI. E2E
 cleanup left zero project containers and zero project networks; the protected
 named volume was not an E2E target, and no bitwise-content comparison is
-claimed. Final independent review, commit, push, and CI remain open.
+claimed. Final independent review completed without blockers. B4-3B4 was
+committed and pushed on `main` at
+`62a92eb619cae2642758c5b123bc2ae28bc2327d`; automatic GitHub Actions push run
+`38596011794`, attempt 1, completed `Backend`, `Migrations`, `Frontend`, and
+`Browser E2E` with `success` for that exact SHA. The local PostgreSQL and
+Browser E2E runs remain separate from that automatic CI evidence.
 
 The role PATCH also enforces the portfolio boundary on the server. Exact
 `true + demo`, missing or mismatched runtime state, and either reserved demo
@@ -1131,7 +1136,7 @@ legal ordinary User transitions for an active, non-reserved super-admin. An
 existing target with either reserved identifier returns the existing generic
 409 only after the locked existence lookup, while a missing target still
 returns 404. The authenticated GET was unchanged by the earlier B4-3A3
-mutation guard; its separate portfolio read boundary is the B4-3B4 candidate
+mutation guard; its separate portfolio read boundary is the B4-3B4 boundary
 described above.
 
 Every role action requires confirmation and is serialized to one PATCH. The UI
