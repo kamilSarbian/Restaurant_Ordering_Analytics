@@ -15,6 +15,11 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.auth.demo_admin import (
+    DEMO_ADMIN_DISABLED_PASSWORD_HASH,
+    DEMO_ADMIN_EMAIL,
+    DEMO_ADMIN_ID,
+)
 from app.auth.models import User
 from app.auth.roles import UserRole
 from app.auth.service import (
@@ -200,13 +205,17 @@ def _store_menu(session_factory: sessionmaker[Session]) -> MenuRecords:
 def _store_user(
     session_factory: sessionmaker[Session],
     *,
+    user_id: UUID | None = None,
+    email: str | None = None,
+    password_hash: str = "synthetic-order-ownership-password-hash",
     role: UserRole = UserRole.CUSTOMER,
     is_active: bool = True,
 ) -> UUID:
     with session_factory.begin() as session:
         user = User(
-            email=f"ownership-{role.value}-{uuid4().hex}@example.com",
-            password_hash="synthetic-order-ownership-password-hash",
+            id=user_id or uuid4(),
+            email=email or f"ownership-{role.value}-{uuid4().hex}@example.com",
+            password_hash=password_hash,
             role=role,
             is_active=is_active,
         )
@@ -375,11 +384,183 @@ def test_public_creation_derives_origin_from_bound_runtime_mode(
     assert [response.status_code for response in responses] == [201, 201]
     assert all("data_origin" not in response.json() for response in responses)
     with creation_session_factory() as session:
-        origins = session.scalars(
-            select(Order.data_origin).order_by(Order.created_at.asc(), Order.id.asc())
-        ).all()
-    assert origins == [expected_origin.value, expected_origin.value]
+        orders_by_number = {
+            order.public_order_number: order
+            for order in session.scalars(select(Order)).all()
+        }
+        for response in responses:
+            body = response.json()
+            order = orders_by_number[body["public_order_number"]]
+            assert order.data_origin == expected_origin.value
+            assert order.customer_user_id is None
+            assert order.order_access_token_hash == hash_order_access_token(
+                body["order_access_token"]
+            )
+            assert order.order_access_token_hash != body["order_access_token"]
     assert _aggregate_counts(creation_session_factory) == (2, 4, 2)
+
+
+def test_demo_guest_and_exact_demo_admin_create_unowned_runtime_orders(
+    creation_session_factory: sessionmaker[Session],
+    menu_records: MenuRecords,
+    user_token_service: UserTokenService,
+) -> None:
+    """Give guest and shared demo-admin callers distinct one-time capabilities."""
+    demo_admin_id = _store_user(
+        creation_session_factory,
+        user_id=DEMO_ADMIN_ID,
+        email=DEMO_ADMIN_EMAIL,
+        password_hash=DEMO_ADMIN_DISABLED_PASSWORD_HASH,
+        role=UserRole.ADMIN,
+    )
+    application = _application(
+        creation_session_factory,
+        user_token_service=user_token_service,
+        portfolio_demo_mode=True,
+        payment_provider=PaymentProvider.DEMO,
+    )
+
+    with TestClient(application) as test_client:
+        guest_response = test_client.post(
+            CREATE_PATH,
+            json=_takeaway_payload(menu_records),
+        )
+        demo_admin_response = test_client.post(
+            CREATE_PATH,
+            json=_takeaway_payload(menu_records),
+            headers=_authorization(
+                user_token_service.create_access_token(demo_admin_id)
+            ),
+        )
+
+    assert guest_response.status_code == demo_admin_response.status_code == 201
+    response_bodies = [guest_response.json(), demo_admin_response.json()]
+    assert (
+        response_bodies[0]["order_access_token"]
+        != response_bodies[1]["order_access_token"]
+    )
+    with creation_session_factory() as session:
+        orders_by_number = {
+            order.public_order_number: order
+            for order in session.scalars(select(Order)).all()
+        }
+        for body in response_bodies:
+            order = orders_by_number[body["public_order_number"]]
+            assert order.data_origin == OrderDataOrigin.PORTFOLIO_RUNTIME.value
+            assert order.customer_user_id is None
+            assert order.order_access_token_hash == hash_order_access_token(
+                body["order_access_token"]
+            )
+            assert order.order_access_token_hash != body["order_access_token"]
+
+
+@pytest.mark.parametrize(
+    "actor_kind",
+    ["ordinary_admin", "reserved_id_drift", "reserved_email_drift", "normal_demo"],
+)
+def test_creation_actor_drift_fails_closed_before_order_domain_sql(
+    test_database_engine: Engine,
+    creation_session_factory: sessionmaker[Session],
+    menu_records: MenuRecords,
+    user_token_service: UserTokenService,
+    actor_kind: str,
+) -> None:
+    """Reject non-exact or out-of-runtime demo actors before creation SQL."""
+    user_arguments: dict[str, object] = {"role": UserRole.ADMIN}
+    portfolio_demo_mode = True
+    payment_provider = PaymentProvider.DEMO
+    if actor_kind == "reserved_id_drift":
+        user_arguments.update(
+            user_id=DEMO_ADMIN_ID,
+            password_hash=DEMO_ADMIN_DISABLED_PASSWORD_HASH,
+        )
+    elif actor_kind == "reserved_email_drift":
+        user_arguments.update(
+            email=DEMO_ADMIN_EMAIL,
+            password_hash=DEMO_ADMIN_DISABLED_PASSWORD_HASH,
+        )
+    elif actor_kind == "normal_demo":
+        user_arguments.update(
+            user_id=DEMO_ADMIN_ID,
+            email=DEMO_ADMIN_EMAIL,
+            password_hash=DEMO_ADMIN_DISABLED_PASSWORD_HASH,
+        )
+        portfolio_demo_mode = False
+        payment_provider = PaymentProvider.STRIPE_TEST
+
+    user_id = _store_user(creation_session_factory, **user_arguments)
+    application = _application(
+        creation_session_factory,
+        user_token_service=user_token_service,
+        portfolio_demo_mode=portfolio_demo_mode,
+        payment_provider=payment_provider,
+    )
+    statements: list[str] = []
+
+    def capture_statement(*args: object) -> None:
+        statements.append(str(args[2]))
+
+    event.listen(test_database_engine, "before_cursor_execute", capture_statement)
+    try:
+        with TestClient(application) as test_client:
+            response = test_client.post(
+                CREATE_PATH,
+                json=_takeaway_payload(menu_records),
+                headers=_authorization(user_token_service.create_access_token(user_id)),
+            )
+    finally:
+        event.remove(test_database_engine, "before_cursor_execute", capture_statement)
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Order access is not allowed"}
+    assert len(statements) == 1
+    assert statements[0].lstrip().upper().startswith("SELECT")
+    assert "FROM users" in statements[0]
+    assert "FROM menu_items" not in statements[0]
+    assert "FROM restaurant_tables" not in statements[0]
+    assert "orders" not in statements[0].lower()
+    assert _aggregate_counts(creation_session_factory) == (0, 0, 0)
+
+
+@pytest.mark.parametrize(
+    "runtime_case",
+    ["missing_mode", "missing_provider", "true_stripe", "false_demo"],
+)
+def test_guest_creation_runtime_drift_fails_closed_before_sql(
+    test_database_engine: Engine,
+    creation_session_factory: sessionmaker[Session],
+    menu_records: MenuRecords,
+    runtime_case: str,
+) -> None:
+    """Reject absent or inconsistent trusted runtime before any database work."""
+    application = _application(creation_session_factory)
+    if runtime_case == "missing_mode":
+        del application.state.portfolio_demo_mode
+    elif runtime_case == "missing_provider":
+        del application.state.payment_provider
+    elif runtime_case == "true_stripe":
+        application.state.portfolio_demo_mode = True
+    else:
+        application.state.payment_provider = PaymentProvider.DEMO.value
+    statements: list[str] = []
+
+    def capture_statement(*args: object) -> None:
+        statements.append(str(args[2]))
+
+    event.listen(test_database_engine, "before_cursor_execute", capture_statement)
+    try:
+        with TestClient(application) as test_client:
+            response = test_client.post(
+                CREATE_PATH,
+                json=_takeaway_payload(menu_records),
+            )
+    finally:
+        event.remove(test_database_engine, "before_cursor_execute", capture_statement)
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Order access is not allowed"}
+    assert statements == []
+    assert _aggregate_counts(creation_session_factory) == (0, 0, 0)
 
 
 def test_guest_creation_skips_unconfigured_authentication_and_user_lookup(
@@ -452,6 +633,7 @@ def test_every_active_canonical_role_creates_a_personally_owned_order(
     with creation_session_factory() as session:
         order = session.scalars(select(Order)).one()
         assert order.customer_user_id == user_id
+        assert order.data_origin == OrderDataOrigin.LIVE.value
         assert order.order_access_token_hash == hash_order_access_token(
             body["order_access_token"]
         )
@@ -1156,7 +1338,7 @@ def test_openapi_documents_creation_without_payment_or_internal_fields(
     assert operation["responses"]["201"]["content"]["application/json"]["schema"][
         "$ref"
     ].endswith("/OrderCreateResponse")
-    assert {"201", "401", "404", "409", "422", "429", "503"} <= set(
+    assert {"201", "401", "403", "404", "409", "422", "429", "503"} <= set(
         operation["responses"]
     )
     assert "get" in document["paths"]["/api/v1/orders/{public_order_number}"]

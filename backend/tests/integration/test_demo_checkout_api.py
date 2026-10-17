@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Generator
+from collections.abc import Generator, Mapping
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
@@ -15,6 +15,11 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.auth.demo_admin import (
+    DEMO_ADMIN_DISABLED_PASSWORD_HASH,
+    DEMO_ADMIN_EMAIL,
+    DEMO_ADMIN_ID,
+)
 from app.auth.models import User
 from app.auth.roles import UserRole
 from app.auth.service import UserTokenService
@@ -106,6 +111,20 @@ def _store_user(session_factory: sessionmaker[Session]) -> UUID:
         session.add(user)
         session.flush()
         return user.id
+
+
+def _store_demo_admin(session_factory: sessionmaker[Session]) -> UUID:
+    with session_factory.begin() as session:
+        session.add(
+            User(
+                id=DEMO_ADMIN_ID,
+                email=DEMO_ADMIN_EMAIL,
+                password_hash=DEMO_ADMIN_DISABLED_PASSWORD_HASH,
+                role=UserRole.ADMIN,
+                is_active=True,
+            )
+        )
+    return DEMO_ADMIN_ID
 
 
 def _store_order(
@@ -304,9 +323,11 @@ def _post_with_statement_capture(
     authorization: str | None = None,
 ):
     statements: list[str] = []
+    parameter_sets: list[object] = []
 
     def capture_statement(*args: object) -> None:
         statements.append(str(args[2]))
+        parameter_sets.append(args[3])
 
     event.listen(engine, "before_cursor_execute", capture_statement)
     try:
@@ -319,7 +340,176 @@ def _post_with_statement_capture(
         )
     finally:
         event.remove(engine, "before_cursor_execute", capture_statement)
-    return response, statements
+    return response, statements, parameter_sets
+
+
+def _assert_runtime_scoped_order_read(
+    *,
+    statement: str,
+    parameters: object,
+    public_number: str,
+) -> None:
+    """Prove the first Order query predicates both number and demo provenance."""
+    compact = " ".join(statement.split())
+    number_binds = re.findall(
+        r"\borders\.public_order_number\s*=\s*%\(([A-Za-z_][A-Za-z0-9_]*)\)s",
+        compact,
+        flags=re.IGNORECASE,
+    )
+    origin_binds = re.findall(
+        r"\borders\.data_origin\s*=\s*%\(([A-Za-z_][A-Za-z0-9_]*)\)s",
+        compact,
+        flags=re.IGNORECASE,
+    )
+
+    if len(number_binds) != 1 or len(origin_binds) != 1:
+        raise AssertionError("Demo checkout Order read used an unsupported bind format")
+    if not isinstance(parameters, Mapping):
+        raise AssertionError("Demo checkout Order read did not bind named parameters")
+
+    number_key = number_binds[0]
+    origin_key = origin_binds[0]
+    if number_key == origin_key:
+        raise AssertionError("Demo checkout Order read reused an ambiguous bind")
+    if number_key not in parameters or origin_key not in parameters:
+        raise AssertionError("Demo checkout Order read omitted a required bind")
+    if parameters[number_key] != public_number:
+        raise AssertionError("Demo checkout Order read bound the wrong public number")
+    if parameters[origin_key] != OrderDataOrigin.PORTFOLIO_RUNTIME.value:
+        raise AssertionError("Demo checkout Order read bound the wrong origin")
+
+
+def _captured_records_without_exact_probe(
+    statements: list[str],
+    parameter_sets: list[object],
+) -> list[tuple[str, object]]:
+    if len(statements) != len(parameter_sets):
+        raise AssertionError("Demo checkout SQL capture lost statement parameters")
+    return [
+        (statement, parameters)
+        for statement, parameters in zip(statements, parameter_sets, strict=True)
+        if " ".join(statement.upper().split()) != "SELECT 1"
+    ]
+
+
+def _assert_anonymous_demo_denial_sql(
+    *,
+    statements: list[str],
+    parameter_sets: list[object],
+    public_number: str,
+) -> None:
+    """Require one isolated runtime-scoped Order read before anonymous denial."""
+    records = _captured_records_without_exact_probe(statements, parameter_sets)
+    if len(records) != 1:
+        raise AssertionError("Anonymous demo checkout denial performed unexpected SQL")
+
+    statement, parameters = records[0]
+    normalized = " ".join(statement.upper().split())
+    if (
+        not normalized.startswith("SELECT ")
+        or "FROM ORDERS" not in normalized
+        or normalized.count(" FROM ") != 1
+    ):
+        raise AssertionError(
+            "Anonymous demo checkout denial did not use one Order SELECT"
+        )
+    forbidden_markers = (
+        " JOIN ",
+        "ORDER_ITEMS",
+        "ORDER_STATUS_HISTORY",
+        "PAYMENTS",
+        "STRIPE_EVENTS",
+        "USERS",
+    )
+    if any(marker in normalized for marker in forbidden_markers):
+        raise AssertionError(
+            "Anonymous demo checkout denial performed a joined or child read"
+        )
+    _assert_runtime_scoped_order_read(
+        statement=statement,
+        parameters=parameters,
+        public_number=public_number,
+    )
+
+
+def _assert_demo_identity_denial_sql(
+    *,
+    statements: list[str],
+    parameter_sets: list[object],
+    public_number: str,
+) -> None:
+    """Require one auth read and one scoped Order read before demo denial."""
+    records = _captured_records_without_exact_probe(statements, parameter_sets)
+    if any(_is_data_writing_statement(statement) for statement, _ in records):
+        raise AssertionError("Demo checkout denial performed data-writing SQL")
+
+    normalized_records = [
+        (" ".join(statement.upper().split()), statement, parameters)
+        for statement, parameters in records
+    ]
+    if any(
+        not normalized.startswith("SELECT ") for normalized, _, _ in normalized_records
+    ):
+        raise AssertionError("Demo checkout denial performed unexpected non-SELECT SQL")
+    if len(normalized_records) != 2:
+        raise AssertionError("Demo checkout denial performed unexpected SQL")
+
+    user_reads = [
+        (statement, parameters)
+        for normalized, statement, parameters in normalized_records
+        if "FROM USERS" in normalized
+    ]
+    order_reads = [
+        (statement, parameters)
+        for normalized, statement, parameters in normalized_records
+        if "FROM ORDERS" in normalized
+    ]
+    if len(user_reads) != 1:
+        raise AssertionError("Demo checkout denial used an unexpected auth query count")
+    if len(order_reads) != 1:
+        raise AssertionError(
+            "Demo checkout denial used an unexpected Order query count"
+        )
+    if "FROM USERS" not in normalized_records[0][0]:
+        raise AssertionError(
+            "Demo checkout denial did not authenticate before Order read"
+        )
+    if "FROM ORDERS" not in normalized_records[1][0]:
+        raise AssertionError("Demo checkout denial did not stop after the Order read")
+    forbidden_domain_tables = (
+        "ORDER_ITEMS",
+        "ORDER_STATUS_HISTORY",
+        "PAYMENTS",
+        "STRIPE_EVENTS",
+    )
+    if any(
+        any(table_name in normalized for table_name in forbidden_domain_tables)
+        for normalized, _, _ in normalized_records
+    ):
+        raise AssertionError("Demo checkout denial performed a child or Payment read")
+
+    user_statement, user_parameters = user_reads[0]
+    normalized_user_statement = " ".join(user_statement.upper().split())
+    if "USERS.ID =" not in normalized_user_statement.partition(" WHERE ")[2]:
+        raise AssertionError("Demo checkout auth read lacks its User-id predicate")
+    if any(
+        marker in normalized_user_statement
+        for marker in ("COUNT(", "ORDER BY", "FOR UPDATE", " JOIN ")
+    ):
+        raise AssertionError("Demo checkout auth read was not canonical")
+    if not isinstance(user_parameters, Mapping):
+        raise AssertionError("Demo checkout auth read did not bind named parameters")
+    if DEMO_ADMIN_ID not in user_parameters.values():
+        raise AssertionError("Demo checkout auth read bound the wrong User")
+
+    order_statement, order_parameters = order_reads[0]
+    if "FOR UPDATE" not in " ".join(order_statement.upper().split()):
+        raise AssertionError("Demo checkout denial Order read lost its row lock")
+    _assert_runtime_scoped_order_read(
+        statement=order_statement,
+        parameters=order_parameters,
+        public_number=public_number,
+    )
 
 
 @pytest.mark.parametrize(
@@ -407,7 +597,7 @@ def test_same_key_replay_after_order_acceptance_is_200_and_zero_dml(
             "select_demo_outcome",
             reject_recomputed_outcome,
         )
-        replay, statements = _post_with_statement_capture(
+        replay, statements, _ = _post_with_statement_capture(
             test_database_engine,
             client,
             public_number,
@@ -488,61 +678,200 @@ def test_new_key_after_demo_success_is_409_without_another_payment(
     assert stripe.requests == []
 
 
-def test_owner_and_capability_can_create_demo_payments(
+def test_demo_checkout_is_capability_only_for_shared_identity_and_guest(
+    test_database_engine: Engine,
     api_session_factory: sessionmaker[Session],
     user_token_service: UserTokenService,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Preserve canonical owner and guest-capability access in demo mode."""
-    owner_id = _store_user(api_session_factory)
-    _, owned_number, _ = _store_order(
+    """Require capability for exact demo-admin and anonymous demo checkout."""
+    demo_admin_id = _store_demo_admin(api_session_factory)
+    _, legacy_owned_number, _ = _store_order(
         api_session_factory,
-        customer_user_id=owner_id,
+        customer_user_id=demo_admin_id,
     )
-    _, capability_number, capability_token = _store_order(api_session_factory)
+    order_id_a, runtime_number_a, runtime_token_a = _store_order(api_session_factory)
+    order_id_b, runtime_number_b, runtime_token_b = _store_order(api_session_factory)
+    guest_order_id, guest_number, guest_token = _store_order(api_session_factory)
+    if hash_order_access_token(runtime_token_a) == hash_order_access_token(
+        runtime_token_b
+    ):
+        raise AssertionError("Independent demo Orders received colliding capabilities")
     stripe = BombStripeClient()
-    _install_payment_ids(monkeypatch, GOLDEN_FAILED_ID, GOLDEN_EXPIRED_ID)
-    application = _application(
+    _install_payment_ids(
+        monkeypatch,
+        GOLDEN_FAILED_ID,
+        GOLDEN_EXPIRED_ID,
+        GOLDEN_SUCCEEDED_ID,
+    )
+    visitor_a_application = _application(
         api_session_factory,
         stripe_client=stripe,
         user_token_service=user_token_service,
     )
+    visitor_b_application = _application(
+        api_session_factory,
+        stripe_client=stripe,
+        user_token_service=user_token_service,
+    )
+    guest_application = _application(
+        api_session_factory,
+        stripe_client=stripe,
+        user_token_service=user_token_service,
+    )
+    demo_auth = _bearer(user_token_service.create_access_token(demo_admin_id))
+    state_before_denials = _checkout_state_snapshot(test_database_engine)
 
-    with TestClient(application) as client:
-        owner_response = _post(
-            client,
-            owned_number,
+    with (
+        TestClient(
+            visitor_a_application,
+            client=("198.51.100.20", 50000),
+        ) as visitor_a,
+        TestClient(
+            visitor_b_application,
+            client=("198.51.100.21", 50000),
+        ) as visitor_b,
+    ):
+        owner_only_response, statements, parameter_sets = _post_with_statement_capture(
+            test_database_engine,
+            visitor_a,
+            legacy_owned_number,
             None,
             uuid4(),
-            authorization=_bearer(user_token_service.create_access_token(owner_id)),
+            authorization=demo_auth,
         )
-        capability_response = _post(
-            client,
-            capability_number,
-            capability_token,
+        if owner_only_response.status_code != 404 or owner_only_response.json() != {
+            "detail": "Order not found"
+        }:
+            raise AssertionError("Shared demo JWT unexpectedly gained owner authority")
+        _assert_demo_identity_denial_sql(
+            statements=statements,
+            parameter_sets=parameter_sets,
+            public_number=legacy_owned_number,
+        )
+
+        visitor_a_cross, statements, parameter_sets = _post_with_statement_capture(
+            test_database_engine,
+            visitor_a,
+            runtime_number_b,
+            runtime_token_a,
+            uuid4(),
+            authorization=demo_auth,
+        )
+        if visitor_a_cross.status_code != 404 or visitor_a_cross.json() != {
+            "detail": "Order not found"
+        }:
+            raise AssertionError("Visitor A cross-capability checkout denial changed")
+        _assert_demo_identity_denial_sql(
+            statements=statements,
+            parameter_sets=parameter_sets,
+            public_number=runtime_number_b,
+        )
+
+        visitor_b_cross, statements, parameter_sets = _post_with_statement_capture(
+            test_database_engine,
+            visitor_b,
+            runtime_number_a,
+            runtime_token_b,
+            uuid4(),
+            authorization=demo_auth,
+        )
+        if visitor_b_cross.status_code != 404 or visitor_b_cross.json() != {
+            "detail": "Order not found"
+        }:
+            raise AssertionError("Visitor B cross-capability checkout denial changed")
+        _assert_demo_identity_denial_sql(
+            statements=statements,
+            parameter_sets=parameter_sets,
+            public_number=runtime_number_a,
+        )
+
+        if _checkout_state_snapshot(test_database_engine) != state_before_denials:
+            raise AssertionError("Demo checkout denial changed persisted state")
+
+        visitor_a_success = _post(
+            visitor_a,
+            runtime_number_a,
+            runtime_token_a,
+            uuid4(),
+            authorization=demo_auth,
+        )
+        visitor_b_success = _post(
+            visitor_b,
+            runtime_number_b,
+            runtime_token_b,
+            uuid4(),
+            authorization=demo_auth,
+        )
+
+    with TestClient(
+        guest_application,
+        client=("198.51.100.22", 50000),
+    ) as guest_client:
+        guest_capability_response = _post(
+            guest_client,
+            guest_number,
+            guest_token,
             uuid4(),
         )
 
-    assert owner_response.status_code == capability_response.status_code == 201
-    assert owner_response.json()["payment_status"] == PaymentStatus.FAILED.value
-    assert capability_response.json()["payment_status"] == PaymentStatus.EXPIRED.value
+    if visitor_a_success.status_code != 201:
+        raise AssertionError("Visitor A capability checkout failed")
+    if visitor_a_success.json().get("public_order_number") != runtime_number_a:
+        raise AssertionError("Visitor A checkout returned the wrong Order")
+    if visitor_a_success.json().get("payment_status") != PaymentStatus.FAILED.value:
+        raise AssertionError("Visitor A checkout returned an unexpected outcome")
+    if visitor_b_success.status_code != 201:
+        raise AssertionError("Visitor B capability checkout failed")
+    if visitor_b_success.json().get("public_order_number") != runtime_number_b:
+        raise AssertionError("Visitor B checkout returned the wrong Order")
+    if visitor_b_success.json().get("payment_status") != PaymentStatus.EXPIRED.value:
+        raise AssertionError("Visitor B checkout returned an unexpected outcome")
+    if guest_capability_response.status_code != 201:
+        raise AssertionError("Anonymous capability checkout failed")
+    if guest_capability_response.json().get("public_order_number") != guest_number:
+        raise AssertionError("Anonymous checkout returned the wrong Order")
+    if (
+        guest_capability_response.json().get("payment_status")
+        != PaymentStatus.SUCCEEDED.value
+    ):
+        raise AssertionError("Anonymous checkout returned an unexpected outcome")
     with api_session_factory() as session:
-        assert len(session.scalars(select(Payment)).all()) == 2
-    assert stripe.requests == []
+        payments = list(session.scalars(select(Payment)).all())
+        payment_order_ids = {payment.id: payment.order_id for payment in payments}
+        runtime_owners = list(
+            session.scalars(
+                select(Order.customer_user_id).where(
+                    Order.public_order_number.in_([runtime_number_a, runtime_number_b])
+                )
+            ).all()
+        )
+    if len(payments) != 3:
+        raise AssertionError("Capability checkout persisted the wrong Payment count")
+    if payment_order_ids != {
+        GOLDEN_FAILED_ID: order_id_a,
+        GOLDEN_EXPIRED_ID: order_id_b,
+        GOLDEN_SUCCEEDED_ID: guest_order_id,
+    }:
+        raise AssertionError("Capability checkout persisted Payments for wrong Orders")
+    if len(runtime_owners) != 2 or any(
+        owner_id is not None for owner_id in runtime_owners
+    ):
+        raise AssertionError("Demo runtime Orders unexpectedly gained an owner")
+    if stripe.requests:
+        raise AssertionError("Demo checkout unexpectedly called Stripe")
 
 
 def test_privacy_and_invalid_present_bearer_precede_demo_checkout(
+    test_database_engine: Engine,
     api_session_factory: sessionmaker[Session],
     user_token_service: UserTokenService,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Return privacy-safe 404s and never fall back from an invalid bearer."""
-    owner_id = _store_user(api_session_factory)
+    """Separate capability privacy from actor and malformed-bearer denial."""
+    demo_admin_id = _store_demo_admin(api_session_factory)
     other_id = _store_user(api_session_factory)
-    _, public_number, token = _store_order(
-        api_session_factory,
-        customer_user_id=owner_id,
-    )
+    _, public_number, token = _store_order(api_session_factory)
     stripe = BombStripeClient()
     _install_payment_ids(monkeypatch)
     application = _application(
@@ -550,13 +879,50 @@ def test_privacy_and_invalid_present_bearer_precede_demo_checkout(
         stripe_client=stripe,
         user_token_service=user_token_service,
     )
+    demo_auth = _bearer(user_token_service.create_access_token(demo_admin_id))
+    state_before_denials = _checkout_state_snapshot(test_database_engine)
 
     with TestClient(application) as client:
-        wrong_capability = _post(client, public_number, "wrong-token", uuid4())
-        non_owner = _post(
+        missing_capability, statements, parameter_sets = _post_with_statement_capture(
+            test_database_engine,
             client,
             public_number,
             None,
+            uuid4(),
+            authorization=demo_auth,
+        )
+        if missing_capability.status_code != 404 or missing_capability.json() != {
+            "detail": "Order not found"
+        }:
+            raise AssertionError("Missing demo capability privacy response changed")
+        _assert_demo_identity_denial_sql(
+            statements=statements,
+            parameter_sets=parameter_sets,
+            public_number=public_number,
+        )
+
+        wrong_capability, statements, parameter_sets = _post_with_statement_capture(
+            test_database_engine,
+            client,
+            public_number,
+            "wrong-token",
+            uuid4(),
+            authorization=demo_auth,
+        )
+        if wrong_capability.status_code != 404 or wrong_capability.json() != {
+            "detail": "Order not found"
+        }:
+            raise AssertionError("Wrong demo capability privacy response changed")
+        _assert_demo_identity_denial_sql(
+            statements=statements,
+            parameter_sets=parameter_sets,
+            public_number=public_number,
+        )
+
+        wrong_actor = _post(
+            client,
+            public_number,
+            token,
             uuid4(),
             authorization=_bearer(user_token_service.create_access_token(other_id)),
         )
@@ -568,31 +934,115 @@ def test_privacy_and_invalid_present_bearer_precede_demo_checkout(
             authorization="Bearer invalid-present-token",
         )
 
-    assert [wrong_capability.status_code, non_owner.status_code] == [404, 404]
-    assert wrong_capability.json() == non_owner.json() == {"detail": "Order not found"}
-    assert invalid_bearer.status_code == 401
-    assert invalid_bearer.json() == {"detail": "Invalid authentication credentials"}
+    if wrong_actor.status_code != 403 or wrong_actor.json() != {
+        "detail": "Order access is not allowed"
+    }:
+        raise AssertionError("Reserved demo checkout actor denial changed")
+    if invalid_bearer.status_code != 401 or invalid_bearer.json() != {
+        "detail": "Invalid authentication credentials"
+    }:
+        raise AssertionError("Invalid bearer checkout denial changed")
+    if _checkout_state_snapshot(test_database_engine) != state_before_denials:
+        raise AssertionError("Demo checkout privacy denial changed persisted state")
     with api_session_factory() as session:
-        assert session.scalar(select(Payment)) is None
+        if session.scalar(select(Payment)) is not None:
+            raise AssertionError("Demo checkout privacy denial persisted a Payment")
+    if stripe.requests:
+        raise AssertionError("Demo checkout denial unexpectedly called Stripe")
+
+
+@pytest.mark.parametrize(
+    ("number_kind", "capability_kind"),
+    [
+        ("existing", "missing"),
+        ("existing", "wrong"),
+        ("unknown", "valid"),
+    ],
+)
+def test_anonymous_demo_checkout_denials_stop_after_scoped_order_select(
+    test_database_engine: Engine,
+    api_session_factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+    number_kind: str,
+    capability_kind: str,
+) -> None:
+    """Use one provenance-scoped Order read for every anonymous denial."""
+    _, public_number, token = _store_order(api_session_factory)
+    requested_number = (
+        public_number if number_kind == "existing" else "ROA-ZZZZZZZZZZZZ"
+    )
+    presented_capability = {
+        "valid": token,
+        "wrong": "wrong-token",
+        "missing": None,
+    }[capability_kind]
+    stripe = BombStripeClient()
+    _install_payment_ids(monkeypatch)
+    application = _application(api_session_factory, stripe_client=stripe)
+
+    with TestClient(application) as client:
+        response, statements, parameter_sets = _post_with_statement_capture(
+            test_database_engine,
+            client,
+            requested_number,
+            presented_capability,
+            uuid4(),
+        )
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Order not found"}
+    _assert_anonymous_demo_denial_sql(
+        statements=statements,
+        parameter_sets=parameter_sets,
+        public_number=requested_number,
+    )
+    assert not any(_is_data_writing_statement(statement) for statement in statements)
     assert stripe.requests == []
 
 
 @pytest.mark.parametrize(
-    ("data_origin", "provider_override"),
+    (
+        "data_origin",
+        "provider_override",
+        "expected_status",
+        "expected_detail",
+        "expected_order_reads",
+    ),
     [
-        (OrderDataOrigin.LIVE, PaymentProvider.DEMO.value),
-        (OrderDataOrigin.PORTFOLIO_SEED, PaymentProvider.DEMO.value),
-        (OrderDataOrigin.PORTFOLIO_RUNTIME, "unsupported"),
+        (
+            OrderDataOrigin.LIVE,
+            PaymentProvider.DEMO.value,
+            404,
+            "Order not found",
+            1,
+        ),
+        (
+            OrderDataOrigin.PORTFOLIO_SEED,
+            PaymentProvider.DEMO.value,
+            404,
+            "Order not found",
+            1,
+        ),
+        (
+            OrderDataOrigin.PORTFOLIO_RUNTIME,
+            "unsupported",
+            403,
+            "Order access is not allowed",
+            0,
+        ),
     ],
 )
-def test_invalid_demo_boundary_is_503_without_dml(
+def test_invalid_demo_boundary_fails_closed_without_payment_work(
     test_database_engine: Engine,
     api_session_factory: sessionmaker[Session],
     monkeypatch: pytest.MonkeyPatch,
     data_origin: OrderDataOrigin,
     provider_override: str,
+    expected_status: int,
+    expected_detail: str,
+    expected_order_reads: int,
 ) -> None:
-    """Fail closed for invalid origin/provider pairs without mutating state."""
+    """Hide invalid provenance and reject invalid runtime before domain SQL."""
     _, public_number, token = _store_order(
         api_session_factory,
         data_origin=data_origin,
@@ -604,7 +1054,7 @@ def test_invalid_demo_boundary_is_503_without_dml(
     state_before = _checkout_state_snapshot(test_database_engine)
 
     with TestClient(application) as client:
-        response, statements = _post_with_statement_capture(
+        response, statements, parameter_sets = _post_with_statement_capture(
             test_database_engine,
             client,
             public_number,
@@ -612,8 +1062,19 @@ def test_invalid_demo_boundary_is_503_without_dml(
             uuid4(),
         )
 
-    assert response.status_code == 503
-    assert response.json() == {"detail": "Payment service unavailable"}
+    assert response.status_code == expected_status
+    assert response.json() == {"detail": expected_detail}
+    if expected_order_reads == 1:
+        _assert_anonymous_demo_denial_sql(
+            statements=statements,
+            parameter_sets=parameter_sets,
+            public_number=public_number,
+        )
+    elif expected_order_reads == 0:
+        if _captured_records_without_exact_probe(statements, parameter_sets):
+            raise AssertionError("Invalid demo runtime performed unexpected SQL")
+    else:
+        raise AssertionError("Invalid demo boundary test expectation")
     assert not any(_is_data_writing_statement(item) for item in statements)
     assert _checkout_state_snapshot(test_database_engine) == state_before
     assert stripe.requests == []
@@ -654,7 +1115,7 @@ def test_unsafe_persisted_demo_state_requires_reconciliation_without_dml(
     state_before = _checkout_state_snapshot(test_database_engine)
 
     with TestClient(application) as client:
-        response, statements = _post_with_statement_capture(
+        response, statements, _ = _post_with_statement_capture(
             test_database_engine,
             client,
             public_number,

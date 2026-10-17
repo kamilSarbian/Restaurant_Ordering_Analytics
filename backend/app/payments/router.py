@@ -8,7 +8,11 @@ from sqlalchemy.orm import Session
 from app.auth.dependencies import UserBearerCredentials, get_optional_current_user
 from app.core.rate_limit import get_client_bucket_key
 from app.database.dependencies import get_db_session
-from app.orders.access import OrderNotFoundError
+from app.orders.access import (
+    CustomerOrderAccessDeniedError,
+    OrderNotFoundError,
+    resolve_customer_order_access_policy,
+)
 from app.payments import checkout, demo_checkout
 from app.payments.providers import PaymentProvider
 from app.payments.schemas import CheckoutSessionResponse
@@ -32,6 +36,7 @@ DatabaseSession = Annotated[Session, Depends(get_db_session)]
             "description": "Existing idempotent checkout session",
         },
         401: {"description": "Invalid canonical authentication credentials"},
+        403: {"description": "Order access is not allowed"},
         404: {"description": "Order not found"},
         409: {"description": "Order or payment state conflict"},
         422: {"description": "Invalid Idempotency-Key"},
@@ -81,8 +86,13 @@ def create_checkout_session_endpoint(
     current_user = get_optional_current_user(request, credentials)
 
     try:
-        payment_provider = request.app.state.payment_provider
-        current_user_id = None if current_user is None else current_user.id
+        payment_provider = getattr(request.app.state, "payment_provider", None)
+        policy = resolve_customer_order_access_policy(
+            current_user=current_user,
+            portfolio_demo_mode=getattr(request.app.state, "portfolio_demo_mode", None),
+            payment_provider=payment_provider,
+        )
+        current_user_id = policy.effective_owner_id
         if payment_provider == PaymentProvider.STRIPE_TEST.value:
             outcome = checkout.checkout_order(
                 session,
@@ -103,11 +113,14 @@ def create_checkout_session_endpoint(
                 access_token=access_token,
                 request_idempotency_key=parsed_idempotency_key,
                 payment_provider=payment_provider,
-                current_user_id=current_user_id,
                 now_provider=request.app.state.checkout_now_provider,
             )
         else:
             raise checkout.PaymentServiceUnavailableError
+    except CustomerOrderAccessDeniedError as error:
+        raise _http_error(
+            status.HTTP_403_FORBIDDEN, "Order access is not allowed"
+        ) from error
     except OrderNotFoundError as error:
         raise _http_error(status.HTTP_404_NOT_FOUND, "Order not found") from error
     except checkout.OrderNotPayableError as error:

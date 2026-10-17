@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 import traceback
-from collections.abc import Callable, Generator
+from collections.abc import Callable, Generator, Mapping
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
@@ -422,22 +422,34 @@ def test_new_checkout_uses_durable_money_and_persists_one_pending_attempt(
 
 
 @pytest.mark.parametrize(
-    ("data_origin", "portfolio_demo_mode", "payment_provider"),
+    (
+        "data_origin",
+        "portfolio_demo_mode",
+        "payment_provider",
+        "expected_status",
+        "expected_detail",
+    ),
     [
         (
             OrderDataOrigin.PORTFOLIO_SEED,
             False,
             PaymentProvider.STRIPE_TEST,
+            503,
+            "Payment service unavailable",
         ),
         (
             OrderDataOrigin.PORTFOLIO_RUNTIME,
             False,
             PaymentProvider.STRIPE_TEST,
+            503,
+            "Payment service unavailable",
         ),
         (
             OrderDataOrigin.PORTFOLIO_SEED,
             True,
             PaymentProvider.DEMO,
+            404,
+            "Order not found",
         ),
     ],
 )
@@ -447,6 +459,8 @@ def test_non_live_origins_never_enter_stripe_checkout(
     data_origin: OrderDataOrigin,
     portfolio_demo_mode: bool,
     payment_provider: PaymentProvider,
+    expected_status: int,
+    expected_detail: str,
 ) -> None:
     """Reject same- and different-key checkout before DML or provider work."""
     order_id, public_number, token = _store_order(
@@ -507,11 +521,12 @@ def test_non_live_origins_never_enter_stripe_checkout(
     finally:
         event.remove(test_database_engine, "before_cursor_execute", capture_statement)
 
-    assert [response.status_code for response in responses] == [503, 503, 503]
-    assert all(
-        response.json() == {"detail": "Payment service unavailable"}
-        for response in responses
-    )
+    assert [response.status_code for response in responses] == [
+        expected_status,
+        expected_status,
+        expected_status,
+    ]
+    assert all(response.json() == {"detail": expected_detail} for response in responses)
     assert fake.requests == []
     assert not any(
         statement.lstrip().upper().startswith(("INSERT", "UPDATE", "DELETE"))
@@ -565,11 +580,11 @@ def test_non_live_origin_blocks_stored_same_key_replay(
         assert session.scalar(select(StripeEvent)) is None
 
 
-def test_demo_mode_rejects_existing_live_order_without_stripe_work(
+def test_demo_mode_hides_existing_live_order_without_payment_work(
     test_database_engine: Engine,
     api_session_factory: sessionmaker[Session],
 ) -> None:
-    """Keep B3-1 demo mode fail-closed without a Payment or Stripe adapter."""
+    """Hide live provenance at the first demo Order read without side effects."""
     _, public_number, token = _store_order(api_session_factory)
     application = _application(
         api_session_factory,
@@ -578,9 +593,11 @@ def test_demo_mode_rejects_existing_live_order_without_stripe_work(
         payment_provider=PaymentProvider.DEMO,
     )
     statements: list[str] = []
+    parameter_sets: list[object] = []
 
     def capture_statement(*args: object) -> None:
         statements.append(str(args[2]))
+        parameter_sets.append(args[3])
 
     event.listen(test_database_engine, "before_cursor_execute", capture_statement)
     try:
@@ -592,11 +609,27 @@ def test_demo_mode_rejects_existing_live_order_without_stripe_work(
     finally:
         event.remove(test_database_engine, "before_cursor_execute", capture_statement)
 
-    assert [response.status_code for response in responses] == [503, 503]
+    assert [response.status_code for response in responses] == [404, 404]
     assert all(
-        response.json() == {"detail": "Payment service unavailable"}
-        for response in responses
+        response.json() == {"detail": "Order not found"} for response in responses
     )
+    order_read_indexes = [
+        index
+        for index, statement in enumerate(statements)
+        if "FROM orders" in statement
+        and statement.lstrip().upper().startswith("SELECT")
+    ]
+    assert len(order_read_indexes) == 2
+    for order_read_index in order_read_indexes:
+        normalized = " ".join(statements[order_read_index].upper().split())
+        where_clause = normalized.partition(" WHERE ")[2]
+        parameters = parameter_sets[order_read_index]
+        assert "ORDERS.PUBLIC_ORDER_NUMBER =" in where_clause
+        assert "ORDERS.DATA_ORIGIN =" in where_clause
+        assert isinstance(parameters, Mapping)
+        assert public_number in parameters.values()
+        assert OrderDataOrigin.PORTFOLIO_RUNTIME.value in parameters.values()
+    assert not any("FROM payments" in statement for statement in statements)
     assert not any(
         statement.lstrip().upper().startswith(("INSERT", "UPDATE", "DELETE"))
         for statement in statements
@@ -1283,14 +1316,16 @@ def test_demo_mode_blocks_stored_live_stripe_replay_without_side_effects(
     finally:
         event.remove(test_database_engine, "before_cursor_execute", capture_statement)
 
-    for response in (same_key_response, different_key_response):
-        assert response.status_code == 503
-        assert response.json() == {"detail": "Payment service unavailable"}
+    for response in (
+        same_key_response,
+        different_key_response,
+        unauthorized_response,
+    ):
+        assert response.status_code == 403
+        assert response.json() == {"detail": "Order access is not allowed"}
         assert "checkout_url" not in response.text
         assert "checkout.example.test" not in response.text
         assert "session/example" not in response.text
-    assert unauthorized_response.status_code == 404
-    assert unauthorized_response.json() == {"detail": "Order not found"}
     assert stripe_replay_response.status_code == 200
     assert stripe_replay_response.json() == initial_response.json()
     assert demo_fake.requests == []
@@ -1759,6 +1794,7 @@ def test_openapi_documents_the_complete_checkout_transport_contract(
         "200",
         "201",
         "401",
+        "403",
         "404",
         "409",
         "422",

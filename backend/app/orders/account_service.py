@@ -5,7 +5,12 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.orders.access import build_order_status_response
+from app.auth.models import User
+from app.orders.access import (
+    CustomerOrderAccessDeniedError,
+    build_order_status_response,
+    resolve_customer_order_access_policy,
+)
 from app.orders.account_schemas import AccountOrderListItem, AccountOrderListResponse
 from app.orders.models import Order, OrderItem
 from app.orders.schemas import OrderStatusResponse, OrderType
@@ -16,10 +21,16 @@ class AccountOrderNotFoundError(Exception):
     """Hide whether an account detail Order is unknown or not personally owned."""
 
 
+class AccountOrderAccessDeniedError(Exception):
+    """Reject account Order reads outside the exact normal customer boundary."""
+
+
 def list_account_orders(
     session: Session,
     *,
-    current_user_id: UUID,
+    current_user: User,
+    portfolio_demo_mode: bool | None,
+    payment_provider: str | None,
     limit: int,
     offset: int,
 ) -> AccountOrderListResponse:
@@ -27,13 +38,23 @@ def list_account_orders(
 
     Args:
         session: Open request-scoped database session.
-        current_user_id: Current canonical User identifier used in both queries.
+        current_user: Current canonical active User loaded by authentication.
+        portfolio_demo_mode: Trusted application-scoped portfolio mode.
+        payment_provider: Trusted application-scoped payment provider.
         limit: Maximum number of personally owned Orders in the page.
         offset: Number of personally owned Orders skipped before the page.
 
     Returns:
         A strict detached page whose total and items share the owner predicate.
+
+    Raises:
+        AccountOrderAccessDeniedError: If actor or runtime policy denies access.
     """
+    current_user_id = _account_owner_id(
+        current_user=current_user,
+        portfolio_demo_mode=portfolio_demo_mode,
+        payment_provider=payment_provider,
+    )
     owner_filter = Order.customer_user_id == current_user_id
     total = session.scalar(select(func.count()).select_from(Order).where(owner_filter))
     order_rows = (
@@ -77,22 +98,32 @@ def list_account_orders(
 def get_account_order(
     session: Session,
     *,
-    current_user_id: UUID,
+    current_user: User,
+    portfolio_demo_mode: bool | None,
+    payment_provider: str | None,
     public_order_number: str,
 ) -> OrderStatusResponse:
     """Return one owner-scoped customer-safe account Order detail.
 
     Args:
         session: Open request-scoped database session.
-        current_user_id: Current canonical User identifier used in the SQL lookup.
+        current_user: Current canonical active User loaded by authentication.
+        portfolio_demo_mode: Trusted application-scoped portfolio mode.
+        payment_provider: Trusted application-scoped payment provider.
         public_order_number: Requested public identifier used in the SQL lookup.
 
     Returns:
         The shared strict customer-safe Order status response.
 
     Raises:
+        AccountOrderAccessDeniedError: If actor or runtime policy denies access.
         AccountOrderNotFoundError: If the Order is unknown or not personally owned.
     """
+    current_user_id = _account_owner_id(
+        current_user=current_user,
+        portfolio_demo_mode=portfolio_demo_mode,
+        payment_provider=payment_provider,
+    )
     order_row = (
         session.execute(
             select(
@@ -133,3 +164,23 @@ def get_account_order(
         .all()
     )
     return build_order_status_response(order_row=order_row, item_rows=item_rows)
+
+
+def _account_owner_id(
+    *,
+    current_user: User,
+    portfolio_demo_mode: bool | None,
+    payment_provider: str | None,
+) -> UUID:
+    """Return the normal-runtime owner ID before any account-domain query."""
+    try:
+        policy = resolve_customer_order_access_policy(
+            current_user=current_user,
+            portfolio_demo_mode=portfolio_demo_mode,
+            payment_provider=payment_provider,
+        )
+    except CustomerOrderAccessDeniedError:
+        raise AccountOrderAccessDeniedError from None
+    if not policy.account_reads_allowed or policy.effective_owner_id is None:
+        raise AccountOrderAccessDeniedError
+    return policy.effective_owner_id

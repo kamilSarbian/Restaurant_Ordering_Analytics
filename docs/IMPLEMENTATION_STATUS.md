@@ -63,9 +63,22 @@
   `62a92eb619cae2642758c5b123bc2ae28bc2327d`; automatic GitHub Actions push run
   `38596011794`, attempt 1, completed `Backend`, `Migrations`, `Frontend`, and
   `Browser E2E` with `success` for that exact SHA.
-  The B4-2 CLI-on-DB, safe final Menu UX, account read isolation, public
-  demo-session issuance, remaining B4 work, B5, B6, production provisioning,
-  and deployment remain open. This
+  B4-3B5 is now a local, uncommitted customer-order isolation candidate: exact
+  demo Account reads are denied, demo creation is unowned, and public status
+  plus demo Checkout are capability-only and `portfolio_runtime`-scoped. An
+  earlier six-file isolated PostgreSQL run completed with `256 passed` in 24.11
+  seconds on bytes that predated stricter anonymous demo-Checkout SQL-shape
+  assertions. One later repeat of the same six complete files on the current
+  bytes completed with `256 passed`, 0 failed, 0 skipped, 0 deselected, native
+  exit code 0, in 25.31 seconds, without filters, xdist, or retry. Current-byte
+  isolated PostgreSQL acceptance and independent post-database review are
+  complete. One later local canonical Browser E2E ran exactly once with native
+  exit code 0, 32 passed, 0 failed, 0 did not run, one worker, and zero retries
+  in normal `false + stripe_test`. That normal-runtime evidence is separate from
+  the PostgreSQL demo capability-only evidence and is not CI. Final independent
+  review, commit, push, and CI remain open. The B4-2 CLI-on-DB, safe final Menu
+  UX, public demo-session issuance, remaining B4 work, B5, B6, production
+  provisioning, and deployment also remain open. This
   file records durable implementation scope and acceptance evidence;
   repository history, independent-review records, and CI are authoritative for
   transient commit and run status.
@@ -151,9 +164,20 @@
   The original
   Stage 20 paid Render/GHCR topology is historical and superseded for the
   free-tier portfolio demo. The
-  B4-2 CLI-on-DB, safe final Menu UX, account read isolation, public B4
-  demo-session issuance, remaining B4 work, B5, B6, and any further B3 scope
-  remain future work.
+  B4-3B5 customer-order isolation is a local, uncommitted candidate. Its earlier
+  six-file isolated PostgreSQL run completed with `256 passed` in 24.11 seconds
+  on bytes that predated stricter anonymous demo-Checkout SQL-shape assertions.
+  One later repeat of the same six complete files on the current bytes completed
+  with `256 passed`, 0 failed, 0 skipped, 0 deselected, native exit code 0, in
+  25.31 seconds, without filters, xdist, or retry. Current-byte isolated
+  PostgreSQL acceptance and independent post-database review are complete. One
+  later local canonical Browser E2E ran exactly once with native exit code 0, 32
+  passed, 0 failed, 0 did not run, one worker, and zero retries in normal
+  `false + stripe_test`. This normal-runtime evidence is separate from the
+  PostgreSQL demo capability-only evidence and is not CI. Final independent
+  review, commit, push, and CI remain open. B4-2 CLI-on-DB, safe final Menu UX,
+  public B4 demo-session issuance, remaining B4 work, B5, B6, and any further
+  B3 scope remain future work.
   Stage 23 is **not started**. No Render/Neon provisioning, production
   migration/seed, public deployment, or public URL is claimed.
 - **Backend:** FastAPI, database foundation, menu models, local seed data,
@@ -1411,8 +1435,119 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   `38596011794`, attempt 1, completed `Backend`, `Migrations`, `Frontend`, and
   `Browser E2E` with `success` for that exact SHA. Stage 22 remains in progress,
   and Stage 23 is not started.
-  B4-2 CLI-on-DB, final Menu UX, account-read isolation, public demo-session
-  issuance, B5, B6, provisioning, and deployment remain open.
+  At the B4-3B4 closeout, B4-2 CLI-on-DB, final Menu UX, account-read isolation,
+  public demo-session issuance, B5, B6, provisioning, and deployment remained
+  open. The following B4-3B5 section records the later customer-order isolation
+  boundary.
+
+- **B4-3B5 — Shared demo identity customer-order isolation (local,
+  uncommitted candidate):** D-087 preserves the intentionally shared
+  administrative synthetic workspace from D-083/D-084: Admin Orders,
+  Analytics, and CSV still expose the combined `portfolio_seed` and
+  `portfolio_runtime` scope to the authorized demo administrator. This slice
+  does not claim administrative or application-wide isolation between people
+  who may later share one demo JWT.
+
+  One mandatory customer access policy combines the canonical current User
+  with trusted application mode and provider. Exact `true + demo` accepts only
+  an absent User or the exact active reserved demo administrator. Both create
+  `portfolio_runtime` Orders with `customer_user_id=NULL` and receive the
+  existing raw-once capability. The shared identity has no customer ownership:
+  both Account reads return the fixed general 403 before Order-domain SQL.
+  Exact `false + stripe_test` preserves active non-reserved User ownership,
+  anonymous NULL ownership, normal Account reads, all-origin public status, and
+  Stripe Checkout. Missing or inconsistent runtime, a non-exact demo actor,
+  and either reserved identifier outside exact demo fail closed before customer
+  Order-domain work. A malformed present Bearer remains 401 without capability
+  fallback.
+
+  Demo public status and Checkout require the capability even when the shared
+  demo JWT is present. Their first Order SELECT includes
+  `portfolio_runtime`. Live, seed, missing, missing-capability, and
+  wrong-capability cases share one 404 before OrderItem reads, Payment reads or
+  writes, or provider work. The normal Stripe service, schemas, models,
+  migrations, frontend, and financial lock protocol are unchanged.
+
+  Local no-database verification on the current implementation completed the
+  targeted customer-access and demo-checkout tests with `49 passed`, then the
+  full backend suite with the explicit `--ignore=tests/integration` boundary
+  with `1735 passed` and one non-blocking Starlette/httpx deprecation warning.
+  An earlier full-suite attempt reached `1734 passed` but ended with one setup
+  error because pytest could not access its shared system temporary directory;
+  the clean full result used a new dedicated external `--basetemp`. A
+  collect-only run of the five changed integration files found `158 tests`
+  without executing their fixtures. Ruff, Black check-only, isort check-only,
+  compileall, document Prettier check, and `git diff --check` passed. At that
+  initial no-database verification point, PostgreSQL acceptance, Docker, Browser
+  E2E, B4-2 CLI, and CI had not run.
+
+  After the integration-test remediations, a separate collect-only invocation
+  found `45 tests` across `test_order_status_api.py` and
+  `test_demo_checkout_api.py`; a later final-file collect-only invocation found
+  `22 tests` in `test_demo_checkout_api.py`. These were collection results for
+  their respective file versions and scopes, did not execute the fixtures, and
+  were not PostgreSQL acceptance.
+
+  One later separately authorized isolated PostgreSQL acceptance executed the
+  complete `test_account_orders_api.py`, `test_order_creation_api.py`,
+  `test_order_status_api.py`, `test_checkout_api.py`,
+  `test_demo_checkout_api.py`, and `test_admin_orders_api.py` files exactly
+  once. It completed with 256 passed, 0 failed, 0 skipped, 0 deselected, native
+  exit code 0, and a duration of 24.11 seconds, without filters, xdist, or
+  retry. Its one external Starlette/httpx deprecation warning was non-blocking;
+  this six-file result is not a claim about the complete backend suite.
+
+  That 24.11-second run predates the stricter anonymous demo-Checkout SQL-shape
+  assertions added after post-database review, so it remains historical evidence
+  for the earlier bytes. One later separately authorized repeat executed the same
+  six complete files exactly once on the current bytes. It completed with 256
+  passed, 0 failed, 0 skipped, 0 deselected, native exit code 0, and a duration
+  of 25.31 seconds, without filters, xdist, or retry. Current-byte isolated
+  PostgreSQL acceptance is complete.
+
+  The repeat run's read-only precheck and postcheck each ran once and returned
+  `PASS / READ_ONLY_PREFLIGHT_OK` with native exit code 0. Both confirmed that
+  the test database was absent, unrelated client count was zero, the
+  development database OID was 16384, and the logical fingerprint across ten
+  tables and 28 rows remained
+  `7e0b9931f1dc0f56d69673cc45c8a0a1102f1272ae333fd461cede50cc2f4353`.
+  Fixture cleanup was complete. The verified existing PostgreSQL container was
+  started once and gently stopped once, each with native exit code 0; it ended
+  Exited with host port 5433 closed, and the protected named volume was
+  preserved. This is not a claim that the volume contents were compared
+  bit-for-bit or that PostgreSQL made no internal writes.
+
+  Independent post-database review completed without blockers. One later
+  separately authorized full local canonical Browser E2E ran the existing
+  `.github/scripts/run-browser-e2e.sh` exactly once through Git Bash with
+  process-only `RUNNER_TEMP=/tmp/roa-browser-e2e`, using
+  `& 'C:\Program Files\Git\bin\bash.exe' '.github/scripts/run-browser-e2e.sh'`.
+  It completed with native exit code 0, 32 passed, 0 failed, 0 did not run, a
+  7.1-minute Playwright duration, and an approximately 8.3-minute full-harness
+  duration, using one worker, zero retries, the `list` reporter, and no filter.
+  Run ID `1f47abcacdfeb303` used isolated project
+  `roa-stage18-e2e-1f47abcacdfeb303`. The database and secret-safe log audits
+  passed. Cleanup left zero project containers and zero project networks; one
+  isolated per-run volume and two run-tagged images remain according to the
+  standard lifecycle. The development PostgreSQL container remained Exited and
+  host port 5433 remained closed. Protected volume
+  `restaurant_ordering_analytics_postgres_data` retained its identity,
+  metadata, and mounts; this is not a claim that its contents were compared
+  bit-for-bit.
+
+  The PostgreSQL 256/256 result evidences the demo capability-only boundary.
+  The local Browser E2E ran in normal `false + stripe_test` and evidences
+  normal-runtime regression safety; it is not GitHub CI.
+
+  The frontend already keeps the raw capability in current-tab
+  `sessionStorage` and forwards it with Bearer where present. The capability is
+  a transferable bearer secret, not proof of a person or tab. The visible
+  `My account` link and generic denied state are temporarily accepted; no public
+  demo session is issued. The earlier 24.11-second isolated PostgreSQL run
+  remains historical evidence for the pre-assertion bytes; the later 25.31-second
+  repeat acceptance of the current test bytes is complete. Independent
+  post-database review and the local canonical Browser E2E are complete. Final
+  independent review, commit, push, and CI remain open.
 
 - **Stage 22-B0 demo design:** its B3 payment design is now implemented through
   B3-2B. B4 public session issuance and remaining bounded authorization guards,

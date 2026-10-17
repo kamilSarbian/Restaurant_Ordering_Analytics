@@ -49,6 +49,19 @@ B3-2B are complete and committed. The B3-2B implementation commit, final
 follow-up commit, and green required CI are recorded in Section 4.14. Stage 23
 — Portfolio Documentation & Case Study is **not started**. No public
 deployment or public URL is claimed.
+The bounded B4-3B5 customer-order isolation implementation remains a local,
+uncommitted candidate. Its earlier six-file isolated PostgreSQL run reported
+`256 passed` in 24.11 seconds on bytes that predated the latest SQL assertions.
+One later repeat of the same six complete files on the current bytes reported
+`256 passed`, 0 failed, 0 skipped, 0 deselected, native exit code 0, in 25.31
+seconds, without filters, xdist, or retry. Current-byte isolated PostgreSQL
+acceptance and independent post-database review are complete. One later local
+canonical Browser E2E ran exactly once with native exit code 0, 32 passed, 0
+failed, 0 did not run, one worker, and zero retries in normal
+`false + stripe_test`. That normal-runtime evidence is separate from the
+PostgreSQL demo capability-only evidence and is not CI. Final independent
+review, commit, push, and CI remain open, and the slice issues no public demo
+session.
 
 ## 3. Users
 
@@ -146,12 +159,18 @@ table is absent.
 6. The durable aggregate has a private internal UUID and a separate
    `public_order_number`. Dine-in orders preserve a table-number snapshot, and
    later menu or table changes cannot alter the historical order.
-7. Creation without Authorization stores NULL ownership. Valid canonical
-   `user_access` assigns the current active User in the same aggregate
-   transaction; an invalid present Bearer is never downgraded to guest.
+7. In exact `false + stripe_test`, creation without Authorization stores NULL
+   ownership and valid canonical `user_access` assigns the current active
+   non-reserved User in the same aggregate transaction. In exact
+   `true + demo`, an anonymous guest and the exact demo administrator both
+   create unowned `portfolio_runtime` Orders. An invalid present Bearer is
+   never downgraded to guest, and actor or runtime drift fails closed before
+   Order-domain persistence.
 8. Creation returns a one-time raw `order_access_token` for every Order;
    PostgreSQL stores only its SHA-256 hash. Public status permits the matching
-   owner or a caller presenting the valid independent capability.
+   owner or a caller presenting the valid independent capability in normal
+   runtime. Exact demo status is capability-only and restricts its first Order
+   SELECT to `portfolio_runtime`.
 9. Every valid creation POST creates a distinct Order. Stage 8 has no
    `Idempotency-Key` or request fingerprint, so a network retry may create a
    duplicate order.
@@ -165,17 +184,21 @@ table is absent.
 
 1. The customer calls one bodyless Checkout endpoint with the
    `public_order_number`, required canonical UUIDv4 `Idempotency-Key`, and
-   either canonical owner authentication or the independent
-   `X-Order-Access-Token` capability. Request data cannot choose the provider
+   either the normal canonical-owner proof or the independent
+   `X-Order-Access-Token` capability. Exact demo requires the capability even
+   when the shared demo JWT is present. Request data cannot choose the provider
    or an outcome.
 2. Server-owned configuration and provenance bind the path fail-closed:
    `stripe_test` accepts only `live` Orders, while `demo` accepts only
    `portfolio_runtime` Orders. The public Order request cannot set
    `data_origin`; `portfolio_seed` Orders never enter interactive Checkout.
 3. After validation, rate limiting, and optional canonical User resolution,
-   the backend locks `Order`, authorizes owner or capability, and then locks
-   related Payments in deterministic order. It uses only amount and currency
-   stored on Order. Denied access reaches no Payment or provider work.
+   the backend applies the trusted runtime/actor policy. Demo Checkout places
+   `portfolio_runtime` in the first locking Order SELECT and authorizes only
+   the capability; normal Checkout preserves owner-or-capability behavior.
+   Only then may it lock related Payments in deterministic order. It uses only
+   amount and currency stored on Order. Denied access reaches no Payment or
+   provider work.
 4. When the endpoint returns a Checkout response for a newly created attempt,
    it uses HTTP 201; provider errors retain their documented error codes.
    Provider-specific replay rules determine later response codes. The
@@ -188,11 +211,13 @@ table is absent.
    Checkout may persist `failed` after definitive Session-creation rejection,
    while later provider-confirmed terminal transitions and `StripeEvent`
    deduplication remain webhook-owned.
-6. For `demo`, one transaction locks `Order -> Payments`, creates the logical
-   pending attempt, and makes it terminal before commit. No Stripe request,
-   Checkout URL, expiry, or `StripeEvent` exists. Amount and currency come from
-   Order; only success receives an aware `Payment.succeeded_at`; Order and
-   fulfilment history are unchanged.
+6. For `demo`, one transaction first selects and locks only a matching
+   `portfolio_runtime` Order, requires its capability, then locks Payments,
+   creates the logical pending attempt, and makes it terminal before commit.
+   The shared demo identity is not owner authority. No Stripe request, Checkout
+   URL, expiry, or `StripeEvent` exists. Amount and currency come from Order;
+   only success receives an aware `Payment.succeeded_at`; Order and fulfilment
+   history are unchanged.
 7. Demo outcome v1 hashes the versioned domain plus backend-generated
    `Payment.id.bytes`, reduces the unsigned SHA-256 digest modulo 100, and maps
    buckets 0–79 to succeeded, 80–89 to failed, and 90–99 to expired. The
@@ -375,11 +400,13 @@ redirect to `/login`.
 Menu and quote requests remain credential-free. Guest creation sends no
 Bearer and retains the independent Order capability for status and Checkout.
 Authenticated creation sends the current canonical Bearer so the backend can
-assign ownership, while still retaining the capability returned for every
-Order. Authenticated status and Checkout send Bearer plus the capability when
-available; the matching owner also works without that capability. A checking
-or temporarily unavailable session never silently becomes a guest request, and
-an authenticated 401 is not retried anonymously.
+apply its runtime policy, while still retaining the capability returned for
+every Order. Normal runtime assigns ownership and permits matching-owner access
+without that capability. Exact demo deliberately stores NULL ownership and
+requires the capability for public status and Checkout even when the shared
+demo Bearer is present. A checking or temporarily unavailable session never
+silently becomes a guest request, and an authenticated 401 is not retried
+anonymously.
 
 Order creation remains deliberately non-idempotent, so ambiguous failures are
 not retried automatically. Provider-selected Checkout is a separate idempotent
@@ -434,26 +461,39 @@ The backend implements `POST /api/v1/auth/register`,
 offers guest ordering, login, and account creation; guest ordering leads to
 `/menu` and preserves the complete no-login flow.
 
-Stage 16E implements nullable `Order.customer_user_id`. A newly created Order
-is linked to the current registered User when valid optional canonical Bearer
-authentication is supplied; an absent Authorization header means anonymous
-guest creation. Invalid, malformed, legacy, inactive, or missing-User
-authentication returns 401 instead of silently downgrading to guest. Every
-active `customer`, `admin`, or `super_admin` may create only its own owned
-Order. Every Order still receives its independent capability for Checkout and
-public status, so the matching owner or a valid capability holder may use those
-public routes. An authenticated non-owner without the capability receives the
-same 404 as an unknown Order, not an ownership-revealing 403.
+Stage 16E implements nullable `Order.customer_user_id`. Exact
+`false + stripe_test` links a newly created Order to the current active,
+non-reserved User when valid optional canonical Bearer authentication is
+supplied; an absent Authorization header means anonymous guest creation. Exact
+`true + demo` instead creates unowned `portfolio_runtime` Orders for both the
+anonymous guest and exact demo administrator. Invalid, malformed, legacy,
+inactive, or missing-User authentication returns 401 instead of silently
+downgrading to guest. Every Order still receives its independent capability.
+Normal public status and Checkout preserve owner-or-capability access. Demo
+status and Checkout are capability-only and include `portfolio_runtime` in the
+first Order SELECT, so live, seed, missing, and missing-or-wrong-capability
+cases share one 404 before child or Payment work.
 
 The `GET /api/v1/account/orders` and
 `GET /api/v1/account/orders/{public_order_number}` routes and their Stage 16F
-list/detail screens require strict canonical authentication. Every active role
-uses personal scope only. The UI provides deterministic pagination and a shared
-safe Order-status summary. List, count, and detail predicates are owner-scoped
-in SQL; another User's, unowned, and unknown detail all return one generic 404.
-A guest capability does not bypass this boundary. Responses expose no owner,
-customer PII, Payment, Stripe, cost, or margin data, and there is no account
-mutation, ownership reassignment, or retroactive guest-Order claim.
+list/detail screens require strict canonical authentication. In exact normal
+runtime every active non-reserved role uses personal scope only. The UI
+provides deterministic pagination and a shared safe Order-status summary.
+List, count, and detail predicates are owner-scoped in SQL; another User's,
+unowned, and unknown detail all return one generic 404. In exact demo, the
+reserved demo administrator receives one fixed general 403 before Order-domain
+SQL. A guest capability does not bypass either Account boundary. Responses
+expose no owner, customer PII, Payment, Stripe, cost, or margin data, and there
+is no account mutation, ownership reassignment, or retroactive guest-Order
+claim. The existing visible `My account` entry and generic denied state remain
+temporary UX pending a separate pre-public-session decision.
+
+This B4-3B5 boundary does not isolate the intentional administrative synthetic
+workspace. D-083 and D-084 keep Admin Orders, Analytics, and CSV shared across
+`portfolio_seed` and `portfolio_runtime`; callers sharing a future demo JWT may
+therefore see the same synthetic administrative records. A per-Order
+capability is a transferable bearer secret, not proof of a distinct human
+session.
 
 The last recorded development-database evidence is revision
 `0008_add_order_ownership`, separate from the repository's current 0009 head;
@@ -958,10 +998,11 @@ discounts. Dine-in orders additionally preserve `table_number_snapshot`.
   work.
 - Sign-in, order creation, and Checkout initiation are rate-limited.
 - Logs do not contain passwords, tokens, keys, or card data.
-- The public order view reveals only necessary information and permits either
-  the matching canonical owner or a caller with the independent Order
-  capability. Invalid present authentication cannot fall back to capability
-  access, and public denials use 404 rather than an ownership-revealing 403.
+- The public order view reveals only necessary information. Normal runtime
+  permits the matching canonical owner or a caller with the independent Order
+  capability; exact demo is `portfolio_runtime`-scoped and capability-only.
+  Invalid present authentication cannot fall back to capability access, and
+  public denials use 404 rather than an ownership-revealing 403.
 - `order_access_token` has at least 256 bits of randomness, is returned in raw
   form only during order creation, and only its SHA-256 hash exists in the
   database. Token comparison must be secure.
@@ -972,9 +1013,10 @@ discounts. Dine-in orders additionally preserve `table_number_snapshot`.
   a separately approved public contract.
 - Public status does not expose an email address, owner identity, internal
   UUIDs, Stripe identifiers, or administrator data. Account list and detail
-  are filtered by current User in SQL and expose no capability, Payment, or
-  Stripe data. Unknown, unowned, and cross-user account details share the same
-  generic 404.
+  are filtered by current User in normal runtime and expose no capability,
+  Payment, or Stripe data. Unknown, unowned, and cross-user account details
+  share the same generic 404. Exact demo rejects both Account reads before
+  Order-domain SQL with a fixed general 403.
 - Order creation is rate-limited per direct peer host by an app-scoped,
   per-process fixed window. Forwarded headers are not trusted without a future
   trusted-proxy configuration.
@@ -992,11 +1034,20 @@ baseline immediately before Stage 20.
 Stage 20 — Production Deployment Readiness and Stage 21 — UI/UX Redesign &
 Product Polish are complete. The original Stage 20 paid Render/GHCR target is
 historical and superseded for the portfolio demo, while its security principles
-remain relevant. The current implementation baseline contains committed B1-1
-through B1-4, B2-1 through B2-3, and B3-1 through B3-2B. Stage 22 — Production
-Deployment & Public Acceptance remains in progress and is not deployed. B4
-through B6 remain future work. Stage 23 — Portfolio Documentation & Case Study
-is not started. A
+remain relevant. The current implementation baseline contains the committed B1
+through B3 slices and bounded B4 slices through B4-3B4 documented above.
+B4-3B5 remains a local, uncommitted candidate: its earlier six-file isolated
+PostgreSQL run completed with `256 passed` in 24.11 seconds on pre-assertion
+bytes, and one later repeat of the same six complete files on the current bytes
+completed with `256 passed` in 25.31 seconds. Current-byte isolated PostgreSQL
+acceptance and independent post-database review are complete. One later local
+canonical Browser E2E ran exactly once with 32 passed, 0 failed, 0 did not run,
+and native exit code 0 in normal `false + stripe_test`; it is separate from the
+PostgreSQL demo capability-only evidence and is not CI. Final independent
+review, commit, push, and CI remain open.
+Stage 22 — Production Deployment & Public Acceptance remains in progress and is
+not deployed. The remaining B4 work, B5, and B6 remain open. Stage 23 — Portfolio
+Documentation & Case Study is not started. A
 recruiter-facing URL can be claimed only after Stage 22-D public-demo
 acceptance.
 

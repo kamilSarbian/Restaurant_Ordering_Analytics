@@ -4,19 +4,24 @@ import hashlib
 import hmac
 import secrets
 from collections.abc import Sequence
+from dataclasses import dataclass
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.engine import RowMapping
 from sqlalchemy.orm import Session
 
+from app.auth.demo_admin import DEMO_ADMIN_EMAIL, DEMO_ADMIN_ID, is_demo_admin_identity
+from app.auth.models import User
 from app.orders.models import Order, OrderItem
+from app.orders.origins import OrderDataOrigin
 from app.orders.schemas import (
     OrderCreateItemResponse,
     OrderStatusResponse,
     OrderType,
 )
 from app.orders.statuses import OrderStatus
+from app.payments.providers import PaymentProvider
 
 PUBLIC_ORDER_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
 PUBLIC_ORDER_PREFIX = "ROA-"
@@ -25,6 +30,76 @@ PUBLIC_ORDER_SUFFIX_LENGTH = 12
 
 class OrderNotFoundError(Exception):
     """Hide whether an order number or guest access token was invalid."""
+
+
+class CustomerOrderAccessDeniedError(Exception):
+    """Reject an actor or trusted runtime outside the customer Order boundary."""
+
+
+@dataclass(frozen=True)
+class CustomerOrderAccessPolicy:
+    """Carry trusted customer Order ownership and provenance decisions."""
+
+    effective_owner_id: UUID | None
+    creation_origin: OrderDataOrigin
+    public_origin_scope: OrderDataOrigin | None
+    account_reads_allowed: bool
+
+
+def resolve_customer_order_access_policy(
+    *,
+    current_user: User | None,
+    portfolio_demo_mode: bool | None,
+    payment_provider: str | None,
+) -> CustomerOrderAccessPolicy:
+    """Resolve the customer Order boundary from trusted runtime and identity.
+
+    Args:
+        current_user: Canonical active User, or None when Authorization is absent.
+        portfolio_demo_mode: Trusted application-scoped portfolio mode.
+        payment_provider: Trusted application-scoped payment provider.
+
+    Returns:
+        The effective owner, creation origin, public origin scope, and account
+        permission for the exact approved runtime.
+
+    Raises:
+        CustomerOrderAccessDeniedError: If runtime or identity is not approved.
+    """
+    has_reserved_demo_identity = current_user is not None and (
+        current_user.id == DEMO_ADMIN_ID or current_user.email == DEMO_ADMIN_EMAIL
+    )
+
+    if portfolio_demo_mode is True and payment_provider == PaymentProvider.DEMO.value:
+        if current_user is not None and not is_demo_admin_identity(current_user):
+            raise CustomerOrderAccessDeniedError
+        return CustomerOrderAccessPolicy(
+            effective_owner_id=None,
+            creation_origin=OrderDataOrigin.PORTFOLIO_RUNTIME,
+            public_origin_scope=OrderDataOrigin.PORTFOLIO_RUNTIME,
+            account_reads_allowed=False,
+        )
+
+    if (
+        portfolio_demo_mode is False
+        and payment_provider == PaymentProvider.STRIPE_TEST.value
+    ):
+        if current_user is None:
+            return CustomerOrderAccessPolicy(
+                effective_owner_id=None,
+                creation_origin=OrderDataOrigin.LIVE,
+                public_origin_scope=None,
+                account_reads_allowed=False,
+            )
+        if current_user.is_active is True and not has_reserved_demo_identity:
+            return CustomerOrderAccessPolicy(
+                effective_owner_id=current_user.id,
+                creation_origin=OrderDataOrigin.LIVE,
+                public_origin_scope=None,
+                account_reads_allowed=True,
+            )
+
+    raise CustomerOrderAccessDeniedError
 
 
 def generate_public_order_number() -> str:
@@ -147,7 +222,8 @@ def get_order_status(
     public_order_number: str,
     access_token: str | None,
     *,
-    current_user_id: UUID | None = None,
+    current_user_id: UUID | None,
+    required_data_origin: OrderDataOrigin | None,
 ) -> OrderStatusResponse:
     """Retrieve an authenticated public order snapshot without mutation.
 
@@ -156,6 +232,7 @@ def get_order_status(
         public_order_number: Unvalidated path value presented by the caller.
         access_token: Optional raw token from the guest capability header.
         current_user_id: Canonical current User identifier, when authenticated.
+        required_data_origin: Optional trusted provenance scope for the first read.
 
     Returns:
         A detached response containing only approved public snapshot fields.
@@ -163,6 +240,10 @@ def get_order_status(
     Raises:
         OrderNotFoundError: If the number or token cannot authenticate the order.
     """
+    predicates = [Order.public_order_number == public_order_number]
+    if required_data_origin is not None:
+        predicates.append(Order.data_origin == required_data_origin.value)
+
     order_row = (
         session.execute(
             select(
@@ -178,7 +259,7 @@ def get_order_status(
                 Order.total_amount,
                 Order.created_at,
                 Order.updated_at,
-            ).where(Order.public_order_number == public_order_number)
+            ).where(*predicates)
         )
         .mappings()
         .one_or_none()

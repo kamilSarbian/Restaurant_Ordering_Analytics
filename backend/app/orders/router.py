@@ -9,7 +9,12 @@ from app.auth.dependencies import UserBearerCredentials, get_optional_current_us
 from app.core.rate_limit import get_client_bucket_key
 from app.database.dependencies import get_db_session
 from app.orders import creation, quoting
-from app.orders.access import OrderNotFoundError, get_order_status
+from app.orders.access import (
+    CustomerOrderAccessDeniedError,
+    OrderNotFoundError,
+    get_order_status,
+    resolve_customer_order_access_policy,
+)
 from app.orders.schemas import (
     OrderCreateRequest,
     OrderCreateResponse,
@@ -17,7 +22,6 @@ from app.orders.schemas import (
     OrderQuoteResponse,
     OrderStatusResponse,
 )
-from app.payments.providers import order_data_origin_for_runtime
 
 router = APIRouter(prefix="/api/v1/orders", tags=["orders"])
 DatabaseSession = Annotated[Session, Depends(get_db_session)]
@@ -30,6 +34,7 @@ DatabaseSession = Annotated[Session, Depends(get_db_session)]
     summary="Create an order",
     responses={
         401: {"description": "Invalid canonical authentication credentials"},
+        403: {"description": "Order access is not allowed"},
         404: {"description": "Menu item not found"},
         409: {
             "description": "Unavailable item, mixed currencies, or creation conflict"
@@ -60,15 +65,19 @@ def create_order_endpoint(
     current_user = get_optional_current_user(request, credentials)
 
     try:
+        policy = resolve_customer_order_access_policy(
+            current_user=current_user,
+            portfolio_demo_mode=getattr(request.app.state, "portfolio_demo_mode", None),
+            payment_provider=getattr(request.app.state, "payment_provider", None),
+        )
         created_order = creation.create_order(
             session,
             payload,
-            customer_user_id=(None if current_user is None else current_user.id),
-            data_origin=order_data_origin_for_runtime(
-                portfolio_demo_mode=request.app.state.portfolio_demo_mode,
-                payment_provider=request.app.state.payment_provider,
-            ),
+            customer_user_id=policy.effective_owner_id,
+            data_origin=policy.creation_origin,
         )
+    except CustomerOrderAccessDeniedError as error:
+        raise _order_access_denied_error() from error
     except creation.InvalidTableError as error:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -177,6 +186,7 @@ def reject_quote_get() -> None:
     ),
     responses={
         401: {"description": "Invalid canonical authentication credentials"},
+        403: {"description": "Order access is not allowed"},
         404: {
             "description": "Order not found",
             "content": {"application/json": {"example": {"detail": "Order not found"}}},
@@ -198,14 +208,30 @@ def get_order_status_endpoint(
     """Return an order snapshot to its owner or a capability holder."""
     current_user = get_optional_current_user(request, credentials)
     try:
+        policy = resolve_customer_order_access_policy(
+            current_user=current_user,
+            portfolio_demo_mode=getattr(request.app.state, "portfolio_demo_mode", None),
+            payment_provider=getattr(request.app.state, "payment_provider", None),
+        )
         return get_order_status(
             session,
             public_order_number,
             access_token,
-            current_user_id=(None if current_user is None else current_user.id),
+            current_user_id=policy.effective_owner_id,
+            required_data_origin=policy.public_origin_scope,
         )
+    except CustomerOrderAccessDeniedError as error:
+        raise _order_access_denied_error() from error
     except OrderNotFoundError as error:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Order not found",
         ) from error
+
+
+def _order_access_denied_error() -> HTTPException:
+    """Build one stable customer Order policy denial."""
+    return HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Order access is not allowed",
+    )

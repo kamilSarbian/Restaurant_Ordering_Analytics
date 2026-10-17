@@ -65,7 +65,6 @@ def checkout_demo_order(
     access_token: str | None,
     request_idempotency_key: UUID,
     payment_provider: str,
-    current_user_id: UUID | None = None,
     now_provider: Callable[[], datetime] = checkout.utc_now,
     payment_id_provider: Callable[[], UUID] | None = None,
 ) -> checkout.CheckoutOutcome:
@@ -77,7 +76,6 @@ def checkout_demo_order(
         access_token: Optional raw guest capability.
         request_idempotency_key: Validated canonical request UUIDv4.
         payment_provider: Trusted current provider from application settings.
-        current_user_id: Canonical current User identifier, when authenticated.
         now_provider: Injectable timezone-aware server clock.
         payment_id_provider: Internal backend UUID generator and test seam.
 
@@ -85,13 +83,16 @@ def checkout_demo_order(
         Public terminal checkout response and HTTP creation semantics.
 
     Raises:
-        OrderNotFoundError: If neither ownership nor capability grants access.
+        OrderNotFoundError: If the runtime-scoped capability does not grant access.
         checkout.OrderNotPayableError: If a new attempt is not permitted.
         checkout.OrderAlreadyPaidError: If a new key follows a success.
         checkout.PaymentSessionReconciliationRequiredError: If persisted or
             persistence state is unsafe.
         checkout.PaymentServiceUnavailableError: If runtime isolation fails.
     """
+    if payment_provider != PaymentProvider.DEMO.value:
+        raise checkout.PaymentServiceUnavailableError
+
     persistence_failed = False
     try:
         return _checkout_demo_order(
@@ -99,8 +100,6 @@ def checkout_demo_order(
             public_order_number=public_order_number,
             access_token=access_token,
             request_idempotency_key=request_idempotency_key,
-            payment_provider=payment_provider,
-            current_user_id=current_user_id,
             now_provider=now_provider,
             payment_id_provider=payment_id_provider,
         )
@@ -121,8 +120,6 @@ def _checkout_demo_order(
     public_order_number: str,
     access_token: str | None,
     request_idempotency_key: UUID,
-    payment_provider: str,
-    current_user_id: UUID | None,
     now_provider: Callable[[], datetime],
     payment_id_provider: Callable[[], UUID] | None,
 ) -> checkout.CheckoutOutcome:
@@ -130,21 +127,19 @@ def _checkout_demo_order(
     with session.begin():
         order = session.scalar(
             select(Order)
-            .where(Order.public_order_number == public_order_number)
+            .where(
+                Order.public_order_number == public_order_number,
+                Order.data_origin == OrderDataOrigin.PORTFOLIO_RUNTIME.value,
+            )
             .with_for_update()
         )
         if order is None or not can_access_order(
             order_customer_user_id=order.customer_user_id,
-            current_user_id=current_user_id,
+            current_user_id=None,
             access_token=access_token,
             expected_access_token_hash=order.order_access_token_hash,
         ):
             raise OrderNotFoundError
-        if (
-            payment_provider != PaymentProvider.DEMO.value
-            or order.data_origin != OrderDataOrigin.PORTFOLIO_RUNTIME.value
-        ):
-            raise checkout.PaymentServiceUnavailableError
 
         payments = _lock_payments(session, order.id)
         statuses = {

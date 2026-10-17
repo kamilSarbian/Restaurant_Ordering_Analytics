@@ -1869,6 +1869,52 @@ while preserving these financial concurrency rules.
   issuance, B5/B6, provisioning, and deployment remain open. The broader
   inherited ROADMAP wording is deferred to a separately authorized task.
 
+## D-087 — Capability-Only Customer Order Access for the Shared Demo Identity
+
+- **Status:** accepted on 2026-10-14 for the bounded B4-3B5 contract.
+- **Scope:** this decision applies to customer Order creation, both Account
+  Order reads, public Order status, and demo Checkout. It does not issue a
+  public demo session, alter an API schema, model, migration, or frontend, or
+  change the administrative Order, Analytics, or CSV contracts.
+- **Administrative boundary:** D-083 and D-084 remain authoritative. The
+  administrative synthetic workspace intentionally combines
+  `portfolio_seed` and `portfolio_runtime`; it is not isolated between people
+  who later share the same demo-administrator session. B4-3B5 must not be
+  described as application-wide or administrative per-session isolation.
+- **Trusted actor and runtime:** one mandatory server-side policy resolves the
+  canonical current User together with trusted application mode and provider.
+  Exact `true + demo` permits only an absent User or the exact active reserved
+  demo administrator. Exact `false + stripe_test` preserves the established
+  active non-reserved User and anonymous behavior. Missing, inconsistent, or
+  unsupported runtime state, a non-exact actor in demo, and either reserved
+  identifier outside exact demo fail closed before customer Order-domain SQL.
+  A present invalid Bearer remains a canonical 401 and never falls back to a
+  capability.
+- **Demo creation and Account reads:** both an anonymous demo guest and the
+  exact demo administrator create `portfolio_runtime` Orders with
+  `customer_user_id=NULL` and receive the existing raw-once independent guest
+  capability. The shared demo administrator is not a customer owner principal.
+  Its Account list and detail return the fixed general 403 before any Order or
+  OrderItem read; a capability has no Account authority.
+- **Public status and demo Checkout:** exact demo status and Checkout are
+  capability-only. Their first Order SELECT includes the
+  `portfolio_runtime` predicate. `live`, `portfolio_seed`, a missing Order, or
+  a missing or incorrect capability all return the same general 404 before
+  child reads, Payment reads or writes, or provider work. This applies equally
+  to an anonymous demo guest and a caller presenting the shared demo JWT.
+- **Normal-runtime compatibility:** exact `false + stripe_test` retains current
+  ownership, Account, all-origin public-status, Stripe Checkout, and anonymous
+  capability behavior. The normal Stripe service and financial lock protocol
+  are unchanged.
+- **Frontend and operational boundary:** the browser continues to keep each
+  raw capability in current-tab `sessionStorage` and send it with status and
+  Checkout requests. A capability remains a transferable bearer secret, not a
+  claim of absolute browser-session isolation. The visible `My account` link
+  and its generic denied state are temporarily accepted; dedicated demo UX is
+  required before public session issuance. Independent review, isolated
+  PostgreSQL acceptance, canonical Browser E2E, commit, push, and CI remain
+  separate gates.
+
 ## History of Decisions That Required Resolution
 
 ### O-002: Boundary Between Order Creation and Stripe Checkout Session

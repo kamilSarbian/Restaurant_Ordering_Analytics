@@ -16,6 +16,11 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.auth.demo_admin import (
+    DEMO_ADMIN_DISABLED_PASSWORD_HASH,
+    DEMO_ADMIN_EMAIL,
+    DEMO_ADMIN_ID,
+)
 from app.auth.models import User
 from app.auth.roles import UserRole
 from app.auth.service import (
@@ -37,8 +42,10 @@ from app.orders.access import (
 )
 from app.orders.account_service import get_account_order, list_account_orders
 from app.orders.models import Order, OrderItem, OrderStatusHistory
+from app.orders.origins import OrderDataOrigin
 from app.orders.statuses import OrderStatus
 from app.payments.models import Payment
+from app.payments.providers import PaymentProvider
 from app.payments.statuses import PaymentStatus
 from app.payments.stripe_checkout import build_stripe_idempotency_key
 from app.restaurant_tables.models import RestaurantTable
@@ -130,12 +137,16 @@ def _application(
     session_factory: sessionmaker[Session],
     *,
     user_token_service: UserTokenService | None,
+    portfolio_demo_mode: bool = False,
+    payment_provider: PaymentProvider = PaymentProvider.STRIPE_TEST,
 ) -> FastAPI:
     return create_app(
         settings=Settings(
             _env_file=None,
             database_url=None,
             auth_jwt_secret=None,
+            portfolio_demo_mode=portfolio_demo_mode,
+            payment_provider=payment_provider.value,
         ),
         session_factory=session_factory,
         user_token_service=user_token_service,
@@ -157,13 +168,17 @@ def _clear_tables(engine: Engine) -> None:
 def _store_user(
     session_factory: sessionmaker[Session],
     *,
+    user_id: UUID | None = None,
+    email: str | None = None,
+    password_hash: str = "synthetic-account-password-hash",
     role: UserRole = UserRole.CUSTOMER,
     is_active: bool = True,
 ) -> UUID:
     with session_factory.begin() as session:
         user = User(
-            email=f"account-{role.value}-{uuid4().hex}@example.com",
-            password_hash="synthetic-account-password-hash",
+            id=user_id or uuid4(),
+            email=email or f"account-{role.value}-{uuid4().hex}@example.com",
+            password_hash=password_hash,
             role=role,
             is_active=is_active,
         )
@@ -181,6 +196,7 @@ def _store_order(
     created_at: datetime = FIXED_NOW,
     total_amount: int = 1500,
     currency: str = "NOK",
+    data_origin: OrderDataOrigin = OrderDataOrigin.LIVE,
 ) -> StoredOrder:
     raw_access_token = generate_order_access_token()
     order = Order(
@@ -192,6 +208,7 @@ def _store_order(
         table_id=None,
         table_number_snapshot=None,
         status=OrderStatus.CREATED.value,
+        data_origin=data_origin.value,
         currency=currency,
         subtotal_amount=total_amount,
         total_amount=total_amount,
@@ -301,6 +318,63 @@ def test_account_routes_require_strict_canonical_current_user(
             assert response.status_code == 401
             assert response.json() == {"detail": "Invalid authentication credentials"}
             assert response.headers["WWW-Authenticate"] == "Bearer"
+
+
+@pytest.mark.parametrize("route_kind", ["list", "detail"])
+def test_exact_demo_admin_account_reads_return_403_before_order_sql(
+    account_session_factory: sessionmaker[Session],
+    test_database_engine: Engine,
+    menu_item_id: UUID,
+    user_token_service: UserTokenService,
+    route_kind: str,
+) -> None:
+    """Deny shared demo identity account reads before any Order-domain SQL."""
+    demo_admin_id = _store_user(
+        account_session_factory,
+        user_id=DEMO_ADMIN_ID,
+        email=DEMO_ADMIN_EMAIL,
+        password_hash=DEMO_ADMIN_DISABLED_PASSWORD_HASH,
+        role=UserRole.ADMIN,
+    )
+    stored = _store_order(
+        account_session_factory,
+        menu_item_id,
+        customer_user_id=None,
+        data_origin=OrderDataOrigin.PORTFOLIO_RUNTIME,
+    )
+    application = _application(
+        account_session_factory,
+        user_token_service=user_token_service,
+        portfolio_demo_mode=True,
+        payment_provider=PaymentProvider.DEMO,
+    )
+    statements: list[str] = []
+
+    def capture_statement(*args: object) -> None:
+        statements.append(str(args[2]))
+
+    event.listen(test_database_engine, "before_cursor_execute", capture_statement)
+    try:
+        with TestClient(application) as test_client:
+            response = test_client.get(
+                LIST_PATH if route_kind == "list" else _detail_path(stored),
+                headers={
+                    **_authorization(
+                        user_token_service.create_access_token(demo_admin_id)
+                    ),
+                    "X-Order-Access-Token": stored.raw_access_token,
+                },
+            )
+    finally:
+        event.remove(test_database_engine, "before_cursor_execute", capture_statement)
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Account order access is not allowed"}
+    assert len(statements) == 1
+    assert statements[0].lstrip().upper().startswith("SELECT")
+    assert "FROM users" in statements[0]
+    assert "FROM orders" not in statements[0]
+    assert "FROM order_items" not in statements[0]
 
 
 @pytest.mark.parametrize(
@@ -486,6 +560,10 @@ def test_account_service_queries_are_owner_scoped_in_sql(
         menu_item_id,
         customer_user_id=owner_id,
     )
+    with account_session_factory() as session:
+        current_user = session.get(User, owner_id)
+        assert current_user is not None
+        session.expunge(current_user)
     statements: list[tuple[str, object]] = []
 
     def capture_statement(
@@ -503,7 +581,9 @@ def test_account_service_queries_are_owner_scoped_in_sql(
         with account_session_factory() as session:
             listed = list_account_orders(
                 session,
-                current_user_id=owner_id,
+                current_user=current_user,
+                portfolio_demo_mode=False,
+                payment_provider=PaymentProvider.STRIPE_TEST.value,
                 limit=50,
                 offset=0,
             )
@@ -512,7 +592,9 @@ def test_account_service_queries_are_owner_scoped_in_sql(
         with account_session_factory() as session:
             detail = get_account_order(
                 session,
-                current_user_id=owner_id,
+                current_user=current_user,
+                portfolio_demo_mode=False,
+                payment_provider=PaymentProvider.STRIPE_TEST.value,
                 public_order_number=own.public_order_number,
             )
         detail_statements = list(statements)
@@ -735,7 +817,7 @@ def test_openapi_contains_exactly_two_strict_account_order_operations(
         assert "X-Order-Access-Token" not in {
             parameter["name"] for parameter in operation.get("parameters", [])
         }
-        assert {"200", "401", "503"} <= set(operation["responses"])
+        assert {"200", "401", "403", "503"} <= set(operation["responses"])
     assert "404" in detail_operation["responses"]
     assert list_operation["responses"]["200"]["content"]["application/json"]["schema"][
         "$ref"

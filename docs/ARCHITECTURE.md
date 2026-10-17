@@ -102,13 +102,15 @@ Stripe. The response contains the `public_order_number` and, once, the raw
 `order_access_token`.
 
 A separate bodyless Checkout endpoint requires the `public_order_number` and
-`Idempotency-Key`, and authorizes either the matching canonical owner or the
-independent `X-Order-Access-Token` capability. The trusted application provider
-selects one of two paths; no request body, header, query value, or browser route
-can select a provider or outcome. `stripe_test` accepts only server-owned
-`live` Orders. `demo` accepts only server-owned `portfolio_runtime` Orders.
-`portfolio_seed` Orders cannot enter interactive Checkout, and every mismatch
-fails closed.
+`Idempotency-Key`. Exact `false + stripe_test` authorizes either the matching
+canonical owner or the independent `X-Order-Access-Token` capability. Exact
+`true + demo` treats the shared demo identity as no owner and requires that
+capability. The trusted application provider selects one of two paths; no
+request body, header, query value, or browser route can select a provider or
+outcome. `stripe_test` accepts only server-owned `live` Orders. The demo first
+locking Order SELECT accepts only `portfolio_runtime`; `portfolio_seed` and
+`live` Orders cannot enter interactive demo Checkout, and every mismatch fails
+closed.
 
 Both paths use the amount and currency persisted on Order and follow the
 `Order -> Payment` lock order. The Stripe path surrounds its external call with
@@ -116,9 +118,10 @@ short transactions and holds no lock during network I/O. The demo path has no
 external I/O: one transaction locks Order and ordered Payments, creates the
 logical pending attempt, resolves it terminally, and commits. The same Order
 and key pair cannot create another attempt. Stage 9 and Stage 10 remain the
-Stripe Checkout/webhook boundaries, Stage 16E provides owner-or-capability
-access, and B3-1 through B3-2B add provenance isolation, the shared terminal
-response, and atomic demo Checkout without changing the financial lock order.
+Stripe Checkout/webhook boundaries, Stage 16E provides normal
+owner-or-capability access, B3-1 through B3-2B add provenance isolation and
+atomic demo Checkout, and B4-3B5 makes demo customer access capability-only
+without changing the financial lock order.
 
 ### 5.3. Authentication, Administration, and Analytics
 
@@ -237,13 +240,15 @@ attempt `failed`, while an ambiguous result stays `pending`.
 returned only when the order is created. The database stores only its SHA-256
 hash, and verification compares the calculated hash in constant time.
 
-Public status retrieval requires the number and authorizes either a current
-canonical User whose ID matches the persisted owner or a caller presenting the
-valid `X-Order-Access-Token`. The capability stays independently valid for an
-owned Order. An unknown number or denied owner/capability check produces the
-same generic 404, never an ownership-revealing public 403. A present invalid
-Bearer returns 401 before capability fallback. The response contains only the
-public number,
+In exact `false + stripe_test`, public status retrieval requires the number and
+authorizes either a current canonical User whose ID matches the persisted owner
+or a caller presenting the valid `X-Order-Access-Token`. The capability stays
+independently valid for an owned Order. In exact `true + demo`, the shared demo
+identity is not an owner principal: status requires the capability and the first
+Order SELECT is scoped to `portfolio_runtime`. An unknown number or denied
+owner/capability check produces the same generic 404, never an
+ownership-revealing public 403. A present invalid Bearer returns 401 before
+capability fallback. The response contains only the public number,
 `status`, order type, optional table-number snapshot, currency, public
 historical item lines, totals, and creation and update timestamps. Stage 9 does
 not add `payment_summary` even though Payment persistence now exists.
@@ -664,18 +669,23 @@ absent Authorization header enters the guest path without requiring the auth
 service or a User query. A valid `user_access` reloads the current active User;
 any present malformed, invalid, legacy, inactive, or missing-User credential
 returns 401 rather than falling back to guest. Auth configuration or User-query
-failure returns a safe 503.
+failure returns a safe 503. A mandatory policy then combines that canonical
+User with trusted app-scoped mode and provider. Actor or runtime drift returns
+a fixed 403 before Menu, RestaurantTable, or Order SQL.
 
 The trusted `customer_user_id` or NULL is written in the initial Order
 constructor inside the same aggregate transaction, not through a follow-up
-UPDATE. The public request cannot supply an owner, and current public/account
-routes cannot mutate or claim ownership. The creation response contains the
-one-time raw guest capability and a presentational public number for every
-Order; only the SHA-256 capability hash is persisted. Public status reads the
-Order and item snapshots through explicit column-level queries, applies the
-role-independent owner-or-constant-time-capability decision before reading
-items, executes no writes, and exposes no owner, internal Order UUID,
-OrderItem ID, cost, token hash, Payment, or Stripe field.
+UPDATE. Exact normal runtime preserves owned creation for every active
+non-reserved User and NULL for guests. Exact demo stores NULL for both an
+anonymous guest and the exact demo administrator and assigns
+`portfolio_runtime`. The public request cannot supply an owner, and current
+public/account routes cannot mutate or claim ownership. The creation response
+contains the one-time raw guest capability and a presentational public number
+for every Order; only the SHA-256 capability hash is persisted. Public status
+reads explicit columns, applies normal owner-or-capability or demo
+capability-only authorization before reading items, executes no writes, and
+exposes no owner, internal Order UUID, OrderItem ID, cost, token hash, Payment,
+or Stripe field.
 
 The app-scoped fixed-window limiter allows 10 creation attempts per 60 seconds
 for each direct `request.client.host`. It is thread-safe, per process, resets on
@@ -700,9 +710,9 @@ key, and automated tests inject a narrow fake client that performs no network
 request.
 
 `POST /api/v1/orders/{public_order_number}/checkout-session` has no request
-body. It requires a canonical lowercase hyphenated UUIDv4 `Idempotency-Key` and
-authorizes the matching canonical owner or a valid independent
-`X-Order-Access-Token`. The server owns amount and currency and creates one
+body. In exact normal runtime it requires a canonical lowercase hyphenated
+UUIDv4 `Idempotency-Key` and authorizes the matching canonical owner or a valid
+independent `X-Order-Access-Token`. The server owns amount and currency and creates one
 hosted `mode=payment` line item. Safe metadata contains only internal Order and
 Payment identifiers and the public order number; it contains no guest token.
 Redirect templates accept an absolute HTTP(S) URL with at most the approved
@@ -1006,14 +1016,17 @@ redirect failures. It replaces the key only through explicit customer action
 after a definitive Stripe HTTP 502 or a terminal demo `failed` or `expired`
 response.
 
-Menu and quote requests remain anonymous. Order creation captures the current
-authentication generation: an unauthenticated request sends no Bearer, while
-an authenticated request sends canonical Bearer and becomes owned in the
-backend transaction. Both keep the independently returned capability. Checkout
-and status send Bearer for an authenticated session plus the capability when it
-is available; ownership works without capability, and capability remains valid
-for a guest or non-owner. Checking or temporarily unavailable authentication
-blocks these actions rather than silently selecting guest mode. An
+Menu and quote requests remain anonymous. In exact `false + stripe_test`, Order
+creation captures the current authentication generation: an unauthenticated
+request sends no Bearer and remains unowned, while an authenticated request
+sends canonical Bearer and becomes owned in the backend transaction. In exact
+`true + demo`, both the anonymous guest and exact demo administrator create
+unowned `portfolio_runtime` Orders. Every successful creation keeps the
+independently returned capability. Checkout and status send Bearer for an
+authenticated session plus the capability when it is available; normal
+ownership works without capability, while exact demo always requires the
+capability. Checking or temporarily unavailable authentication blocks these
+actions rather than silently selecting guest mode. An
 authenticated 401 invalidates only the captured session and is never retried
 anonymously. Stripe redirect navigation carries no application auth header.
 
@@ -1086,14 +1099,15 @@ The implemented browser transports preserve explicit trust boundaries:
 - `adminApi` may send Bearer only to `/api/v1/admin/...`;
 - no global interceptor may attach the account token to arbitrary requests.
 
-Guest Checkout and public status continue to use `X-Order-Access-Token`; a
-canonical account token does not replace this per-Order capability. Ownership
-and capability are independent. Public status and Checkout permit access only
-when `current_user_id` matches the non-NULL persisted `customer_user_id` or the
-guest capability verifies in constant time. An owner can omit or mistype the
-capability; an anonymous or authenticated non-owner can still use a valid
-capability. A non-owner without it receives the same 404 as an unknown Order,
-never an ownership-revealing public 403. There is no role-based public bypass.
+Guest Checkout and public status continue to use `X-Order-Access-Token`.
+Ownership and capability are independent in exact normal runtime: public status
+and Stripe Checkout permit access when `current_user_id` matches the non-NULL
+persisted `customer_user_id` or the capability verifies in constant time. In
+exact demo the policy supplies no effective owner, and status and demo Checkout
+require the capability even with the shared demo JWT. Their first Order SELECT
+includes `portfolio_runtime`; live, seed, missing, and missing-or-wrong-token
+cases return the same 404 before child or Payment reads. There is no role-based
+public bypass.
 
 The ownership extension is nullable
 `Order.customer_user_id -> User.id` with `ON DELETE SET NULL`, no default,
@@ -1161,14 +1175,17 @@ affects authorization immediately even when the client reuses the same token.
 
 The account boundary exposes exactly two strict canonical read-only routes:
 `GET /api/v1/account/orders` and
-`GET /api/v1/account/orders/{public_order_number}`. Every active role has
-personal scope only. Both the count and page SELECT apply the current User owner
-predicate; the page orders by `created_at DESC, id DESC` with default
+`GET /api/v1/account/orders/{public_order_number}`. In exact normal runtime,
+every active non-reserved role has personal scope only. Both the count and page
+SELECT apply the current User owner predicate; the page orders by
+`created_at DESC, id DESC` with default
 `limit=50`, maximum 100, and default `offset=0`. Detail combines
 `public_order_number` and `customer_user_id` in the same SQL predicate rather
 than fetching broadly and filtering in Python. Cross-user, unowned, and unknown
 details share one 404, and a guest capability is irrelevant to account
-authorization.
+authorization. In exact demo, the reserved demo administrator receives a fixed
+403 before any Order-domain query; only the canonical authentication User read
+may precede it.
 
 The account list uses a dedicated seven-field safe DTO. Account detail reuses
 the same query-free `OrderStatusResponse` builder as public status after the
@@ -1198,13 +1215,13 @@ session, allowing current database role state to drive the route guard.
 
 The route and guard matrix is:
 
-| Boundary          | Routes                                                                                        | Allowed identity                                  |
-| ----------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| public            | `/`, `/menu`, `/cart`, `/login`, `/register`, `/orders/:publicOrderNumber/...`, `*`           | anonymous or authenticated as the feature permits |
-| account           | `/account`, `/account/orders/:publicOrderNumber`                                              | every authenticated role, personal scope only     |
-| operational admin | `/admin`, `/admin/orders...`, `/admin/menu`, `/admin/analytics`, `/admin/exports`, `/admin/*` | `admin` or `super_admin`                          |
-| User governance   | `/admin/users`                                                                                | `super_admin` only                                |
-| compatibility     | `/admin/login`                                                                                | redirect to `/login?next=%2Fadmin`                |
+| Boundary          | Routes                                                                                        | Allowed identity                                                    |
+| ----------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| public            | `/`, `/menu`, `/cart`, `/login`, `/register`, `/orders/:publicOrderNumber/...`, `*`           | anonymous or authenticated as the feature permits                   |
+| account           | `/account`, `/account/orders/:publicOrderNumber`                                              | active non-reserved User in exact normal runtime; exact demo denied |
+| operational admin | `/admin`, `/admin/orders...`, `/admin/menu`, `/admin/analytics`, `/admin/exports`, `/admin/*` | `admin` or `super_admin`                                            |
+| User governance   | `/admin/users`                                                                                | `super_admin` only                                                  |
+| compatibility     | `/admin/login`                                                                                | redirect to `/login?next=%2Fadmin`                                  |
 
 An unauthenticated protected-route visit goes to unified `/login` with a safe
 continuation. Customers rejected from administrator routes go to `/account`; an
@@ -1225,12 +1242,18 @@ The customer credential matrix is:
 | Checkout        | capability plus idempotency key | Bearer plus optional capability and idempotency key |
 | Stripe redirect | no application header           | no application header                               |
 
+The table describes transport. In exact demo, Bearer identifies the shared
+demo administrator but grants no customer ownership: creation remains unowned,
+and status plus Checkout still require the per-Order capability. A malformed
+present Bearer remains 401 without anonymous fallback.
+
 The account list and detail use strict canonical Bearer and never accept the
-guest capability. List pagination and detail authorization are owner-scoped in
-SQL. Both customer screens use safe DTOs; detail shares the query-free
-`OrderStatusSummary` renderer with public status and performs no polling.
-Generic 404 protects unknown, unowned, and cross-user Orders, while 503 keeps
-the canonical session available for retry.
+guest capability. Exact normal list pagination and detail authorization are
+owner-scoped in SQL. Exact demo rejects the reserved shared identity with a
+fixed 403 before those queries. Both customer screens use safe DTOs; detail
+shares the query-free `OrderStatusSummary` renderer with public status and
+performs no polling. Generic normal-runtime 404 protects unknown, unowned, and
+cross-user Orders, while 503 keeps the canonical session available for retry.
 
 Stage 16F automated acceptance passed. The automated browser environment was
 unavailable, so the developer/user performed the required local-browser QA and
@@ -1615,10 +1638,12 @@ an explicit new-key retry for failed or expired. Ambiguous transport retains the
 same key. Return/cancel navigation remains neutral under D-060.
 
 Demo Checkout is synchronous and contains no provider network boundary. One
-transaction locks the Order, authorizes owner or capability, locks Payments by
+transaction locks an Order selected by public number plus
+`portfolio_runtime`, authorizes only its capability, locks Payments by
 `created_at, id`, validates all persisted attempts, and either returns an exact
 same-key terminal replay or creates one logical pending Payment and changes it
-to terminal before commit. Only success receives an aware `succeeded_at`.
+to terminal before commit. The shared demo identity is never an owner proof.
+Only success receives an aware `succeeded_at`.
 Provider session ID, URL, expiry, and all `StripeEvent` rows remain absent. The
 Order and `OrderStatusHistory` are not mutated. Any persistence failure rolls
 back the transaction; unsafe pending, provider, amount/currency, provider-key,
@@ -1635,12 +1660,41 @@ attempt; a new key after success returns 409. The 80/10/10 mapping is a bucket
 distribution rather than an exact small-sample promise, and the backend UUID is
 not a public control input or secret-based security boundary.
 
-Succeeded demo Payments can enter existing analytics and reports through
+Succeeded demo Payments can enter the shared administrative synthetic
+analytics and reports through
 provider-neutral `Payment.status` and `Payment.succeeded_at` qualification,
 without `StripeEvent`. Portfolio-runtime traffic may therefore increase live
 aggregates, but the immutable B2 500-Order dataset is unchanged. There is still
 no public deployment, production reference end, Neon seed, reset/prune policy,
-runtime cap, constrained demo administrator, or recruiter acceptance.
+runtime cap, public demo session, or recruiter acceptance.
+
+### 5.31. Shared Demo Identity Customer-Order Isolation
+
+B4-3B5 centralizes the customer actor/runtime decision in a mandatory policy.
+Exact `true + demo` accepts only an absent User or the exact active reserved
+demo administrator. Both create unowned `portfolio_runtime` Orders and receive
+the existing raw-once capability. The reserved demo administrator is not a
+customer owner principal and receives a fixed Account list/detail 403 before
+Order-domain SQL. Exact `false + stripe_test` keeps active non-reserved User
+ownership and anonymous NULL ownership unchanged. Every missing or inconsistent
+runtime, non-exact demo actor, or reserved identifier outside exact demo fails
+closed before customer Order-domain work.
+
+Demo public status and Checkout are capability-only. Their first Order SELECT
+combines the public number with `portfolio_runtime`. Live, seed, missing,
+missing-capability, and wrong-capability cases therefore share one 404 without
+OrderItem reads, Payment reads or writes, or provider work. A malformed present
+Bearer remains a 401 before the policy and cannot fall back to capability. The
+normal status path intentionally retains its earlier all-origin behavior, and
+normal Stripe Checkout and the `Order -> Payment` protocol are unchanged.
+
+This is customer-surface isolation, not whole-application session isolation.
+D-083 and D-084 retain one administrative synthetic workspace containing
+`portfolio_seed` and `portfolio_runtime` for Admin Orders, Analytics, and CSV.
+The browser keeps each capability in current-tab `sessionStorage`, but it is a
+transferable bearer secret rather than proof of a person or tab. No public demo
+session is issued. The existing visible `My account` link and generic 403 state
+are accepted only temporarily pending dedicated UX before public issuance.
 
 ## 6. Architecture Diagram
 
@@ -1768,12 +1822,14 @@ mobile, tablet, and desktop viewports.
   independently of Pydantic validation.
 - Partial unique indexes limit `Payment` attempts with status `pending` and
   `succeeded` to one each per `Order`.
-- UUIDs are internal primary keys; public access to order status requires the
-  `public_order_number` and either matching canonical ownership or a capability
-  whose raw value is not stored.
+- UUIDs are internal primary keys; normal public access to order status requires
+  the `public_order_number` and either matching canonical ownership or a
+  capability whose raw value is not stored. Exact demo additionally requires
+  `portfolio_runtime` and the capability; the shared JWT is not owner proof.
 - Canonical role and activation authority comes from PostgreSQL through
   `/api/v1/auth/me`, never from frontend JWT decoding.
-- Account reads require strict canonical Bearer and an owner predicate; an Order
+- Account reads require strict canonical Bearer and a normal-runtime owner
+  predicate; exact demo rejects the shared identity before Order SQL. An Order
   capability provides no account authority or administrator bypass.
 - Customer and auth state use current-session storage only. No Bearer token,
   Order capability, or Checkout URL is placed in a URL, Router state,
@@ -1787,8 +1843,10 @@ creation, provider-selected Checkout initiation, restricted status retrieval, an
 implemented provider-facing Stripe webhook. `POST /api/v1/orders` does not
 create a payment. Order creation, public status, and Checkout advertise
 `UserBearer OR anonymous`; an absent Bearer uses the guest path, while a valid
-canonical User may own or access its Order. Status and Checkout also accept the
-independent `X-Order-Access-Token`. Checkout still requires `Idempotency-Key`;
+canonical User may own or access its Order in normal runtime. Exact demo
+creation is unowned, and status plus Checkout require the independent
+`X-Order-Access-Token` despite the shared JWT. Checkout still requires
+`Idempotency-Key`;
 the path parameter is the returned public number, not an internal UUID.
 `POST /api/v1/orders/quote` has no security requirement.
 `POST /api/v1/stripe/webhook` requires a valid Stripe signature and is
