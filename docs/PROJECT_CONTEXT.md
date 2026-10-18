@@ -49,19 +49,25 @@ B3-2B are complete and committed. The B3-2B implementation commit, final
 follow-up commit, and green required CI are recorded in Section 4.14. Stage 23
 — Portfolio Documentation & Case Study is **not started**. No public
 deployment or public URL is claimed.
-The bounded B4-3B5 customer-order isolation implementation remains a local,
-uncommitted candidate. Its earlier six-file isolated PostgreSQL run reported
-`256 passed` in 24.11 seconds on bytes that predated the latest SQL assertions.
-One later repeat of the same six complete files on the current bytes reported
-`256 passed`, 0 failed, 0 skipped, 0 deselected, native exit code 0, in 25.31
-seconds, without filters, xdist, or retry. Current-byte isolated PostgreSQL
-acceptance and independent post-database review are complete. One later local
-canonical Browser E2E ran exactly once with native exit code 0, 32 passed, 0
-failed, 0 did not run, one worker, and zero retries in normal
+The bounded B4-3B5 customer-order isolation implementation was committed and
+pushed on `main` at `dcbbe0c3b8b69ac0759c56ed9b48340c55993e0b`. Automatic
+GitHub Actions push run `39032664802`, attempt 1, completed `Backend`,
+`Migrations`, `Frontend`, and `Browser E2E` with `success` for that exact SHA.
+Its earlier six-file isolated PostgreSQL run reported `256 passed` in 24.11
+seconds on bytes that predated the latest SQL assertions. One later repeat of
+the same six complete files on the current bytes reported `256 passed`, 0
+failed, 0 skipped, 0 deselected, native exit code 0, in 25.31 seconds, without
+filters, xdist, or retry. Current-byte isolated PostgreSQL acceptance and
+independent post-database review are complete. One later local canonical Browser
+E2E ran exactly once with native exit code 0, 32 passed, 0 failed, 0 did not run,
+one worker, zero retries, and the `list` reporter in normal
 `false + stripe_test`. That normal-runtime evidence is separate from the
-PostgreSQL demo capability-only evidence and is not CI. Final independent
-review, commit, push, and CI remain open, and the slice issues no public demo
-session.
+PostgreSQL demo capability-only evidence and from the automatic GitHub Actions
+run; it is not CI. Final independent review is complete, closing only B4-3B5.
+The slice issues no public demo session; the B4-2 CLI-on-DB, final Menu UX,
+public demo-administrator provisioning and public demo-session issuance,
+remaining B4, B5/B6, Render/Neon, production seed, deployment, and public
+acceptance remain open.
 
 ## 3. Users
 
@@ -1035,16 +1041,20 @@ Stage 20 — Production Deployment Readiness and Stage 21 — UI/UX Redesign &
 Product Polish are complete. The original Stage 20 paid Render/GHCR target is
 historical and superseded for the portfolio demo, while its security principles
 remain relevant. The current implementation baseline contains the committed B1
-through B3 slices and bounded B4 slices through B4-3B4 documented above.
-B4-3B5 remains a local, uncommitted candidate: its earlier six-file isolated
+through B3 slices and bounded B4 slices through B4-3B5 documented above.
+B4-3B5 was committed and pushed on `main` at
+`dcbbe0c3b8b69ac0759c56ed9b48340c55993e0b`; automatic GitHub Actions push run
+`39032664802`, attempt 1, completed `Backend`, `Migrations`, `Frontend`, and
+`Browser E2E` with `success` for that exact SHA. Its earlier six-file isolated
 PostgreSQL run completed with `256 passed` in 24.11 seconds on pre-assertion
 bytes, and one later repeat of the same six complete files on the current bytes
 completed with `256 passed` in 25.31 seconds. Current-byte isolated PostgreSQL
 acceptance and independent post-database review are complete. One later local
 canonical Browser E2E ran exactly once with 32 passed, 0 failed, 0 did not run,
 and native exit code 0 in normal `false + stripe_test`; it is separate from the
-PostgreSQL demo capability-only evidence and is not CI. Final independent
-review, commit, push, and CI remain open.
+PostgreSQL demo capability-only evidence and from the automatic GitHub Actions
+run, and it is not CI. Final independent review is complete, closing only
+B4-3B5.
 Stage 22 — Production Deployment & Public Acceptance remains in progress and is
 not deployed. The remaining B4 work, B5, and B6 remain open. Stage 23 — Portfolio
 Documentation & Case Study is not started. A

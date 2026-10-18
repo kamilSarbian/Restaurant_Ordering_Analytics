@@ -63,9 +63,12 @@
   `62a92eb619cae2642758c5b123bc2ae28bc2327d`; automatic GitHub Actions push run
   `38596011794`, attempt 1, completed `Backend`, `Migrations`, `Frontend`, and
   `Browser E2E` with `success` for that exact SHA.
-  B4-3B5 is now a local, uncommitted customer-order isolation candidate: exact
-  demo Account reads are denied, demo creation is unowned, and public status
-  plus demo Checkout are capability-only and `portfolio_runtime`-scoped. An
+  B4-3B5 customer-order isolation is committed and pushed on `main` at
+  `dcbbe0c3b8b69ac0759c56ed9b48340c55993e0b`: exact demo Account reads are
+  denied, demo creation is unowned, and public status plus demo Checkout are
+  capability-only and `portfolio_runtime`-scoped. Automatic GitHub Actions push
+  run `39032664802`, attempt 1, completed `Backend`, `Migrations`, `Frontend`,
+  and `Browser E2E` with `success` for that exact SHA. An
   earlier six-file isolated PostgreSQL run completed with `256 passed` in 24.11
   seconds on bytes that predated stricter anonymous demo-Checkout SQL-shape
   assertions. One later repeat of the same six complete files on the current
@@ -75,10 +78,11 @@
   complete. One later local canonical Browser E2E ran exactly once with native
   exit code 0, 32 passed, 0 failed, 0 did not run, one worker, and zero retries
   in normal `false + stripe_test`. That normal-runtime evidence is separate from
-  the PostgreSQL demo capability-only evidence and is not CI. Final independent
-  review, commit, push, and CI remain open. The B4-2 CLI-on-DB, safe final Menu
-  UX, public demo-session issuance, remaining B4 work, B5, B6, production
-  provisioning, and deployment also remain open. This
+  the PostgreSQL demo capability-only evidence and from the automatic GitHub
+  Actions run; it is not CI. Final independent review is complete, closing only
+  B4-3B5. The B4-2 CLI-on-DB, safe final Menu UX, public demo-administrator
+  provisioning and public demo-session issuance, remaining B4 work, B5, B6,
+  production provisioning, and deployment also remain open. This
   file records durable implementation scope and acceptance evidence;
   repository history, independent-review records, and CI are authoritative for
   transient commit and run status.
@@ -164,8 +168,11 @@
   The original
   Stage 20 paid Render/GHCR topology is historical and superseded for the
   free-tier portfolio demo. The
-  B4-3B5 customer-order isolation is a local, uncommitted candidate. Its earlier
-  six-file isolated PostgreSQL run completed with `256 passed` in 24.11 seconds
+  B4-3B5 customer-order isolation is committed and pushed on `main` at
+  `dcbbe0c3b8b69ac0759c56ed9b48340c55993e0b`. Automatic GitHub Actions push run
+  `39032664802`, attempt 1, completed `Backend`, `Migrations`, `Frontend`, and
+  `Browser E2E` with `success` for that exact SHA. Its earlier six-file isolated
+  PostgreSQL run completed with `256 passed` in 24.11 seconds
   on bytes that predated stricter anonymous demo-Checkout SQL-shape assertions.
   One later repeat of the same six complete files on the current bytes completed
   with `256 passed`, 0 failed, 0 skipped, 0 deselected, native exit code 0, in
@@ -174,10 +181,11 @@
   later local canonical Browser E2E ran exactly once with native exit code 0, 32
   passed, 0 failed, 0 did not run, one worker, and zero retries in normal
   `false + stripe_test`. This normal-runtime evidence is separate from the
-  PostgreSQL demo capability-only evidence and is not CI. Final independent
-  review, commit, push, and CI remain open. B4-2 CLI-on-DB, safe final Menu UX,
-  public B4 demo-session issuance, remaining B4 work, B5, B6, and any further
-  B3 scope remain future work.
+  PostgreSQL demo capability-only evidence and from the automatic GitHub Actions
+  run; it is not CI. Final independent review is complete, closing only B4-3B5.
+  B4-2 CLI-on-DB, safe final Menu UX, public demo-administrator provisioning and
+  public B4 demo-session issuance, remaining B4 work, B5, B6, and any further B3
+  scope remain future work.
   Stage 23 is **not started**. No Render/Neon provisioning, production
   migration/seed, public deployment, or public URL is claimed.
 - **Backend:** FastAPI, database foundation, menu models, local seed data,
@@ -1440,8 +1448,8 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   open. The following B4-3B5 section records the later customer-order isolation
   boundary.
 
-- **B4-3B5 — Shared demo identity customer-order isolation (local,
-  uncommitted candidate):** D-087 preserves the intentionally shared
+- **B4-3B5 — Shared demo identity customer-order isolation (committed, pushed,
+  and CI green):** D-087 preserves the intentionally shared
   administrative synthetic workspace from D-083/D-084: Admin Orders,
   Analytics, and CSV still expose the combined `portfolio_seed` and
   `portfolio_runtime` scope to the authorized demo administrator. This slice
@@ -1543,11 +1551,20 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   `sessionStorage` and forwards it with Bearer where present. The capability is
   a transferable bearer secret, not proof of a person or tab. The visible
   `My account` link and generic denied state are temporarily accepted; no public
-  demo session is issued. The earlier 24.11-second isolated PostgreSQL run
-  remains historical evidence for the pre-assertion bytes; the later 25.31-second
-  repeat acceptance of the current test bytes is complete. Independent
-  post-database review and the local canonical Browser E2E are complete. Final
-  independent review, commit, push, and CI remain open.
+  demo-administrator provisioning or public demo-session issuance has occurred.
+  The earlier 24.11-second isolated PostgreSQL run remains historical evidence
+  for the pre-assertion bytes; the later 25.31-second repeat acceptance of the
+  current test bytes is complete. Independent post-database review, the local
+  canonical Browser E2E, and final independent review are complete. B4-3B5 was
+  committed and pushed on `main` at
+  `dcbbe0c3b8b69ac0759c56ed9b48340c55993e0b`; automatic GitHub Actions push run
+  `39032664802`, attempt 1, completed `Backend`, `Migrations`, `Frontend`, and
+  `Browser E2E` with `success` for that exact SHA. The automatic Browser E2E is a
+  CI job and remains distinct from the local Browser E2E evidence. This closes
+  only B4-3B5; Stage 22 remains in progress, and Stage 23 is not started. The
+  B4-2 CLI-on-DB, final Menu UX, public demo-administrator provisioning and
+  public demo-session issuance, remaining B4, B5/B6, Render/Neon, production
+  seed, deployment, and public acceptance remain open.
 
 - **Stage 22-B0 demo design:** its B3 payment design is now implemented through
   B3-2B. B4 public session issuance and remaining bounded authorization guards,

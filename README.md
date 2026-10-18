@@ -54,19 +54,25 @@ that final SHA. No Render or Neon resource, production migration or seed, public
 demo-administrator provisioning or public demo-session issuance, online
 release, or public acceptance has been executed. A recruiter-facing public URL
 may be claimed only after Stage 22-D.
-The bounded B4-3B5 customer-order isolation change is a local, uncommitted
-candidate. An earlier six-file isolated PostgreSQL run completed with
-`256 passed` in 24.11 seconds on bytes that predated the latest SQL assertions.
-One later repeat of the same six complete files on the current bytes completed with
-`256 passed`, 0 failed, 0 skipped, 0 deselected, native exit code 0, in 25.31
-seconds, without filters, xdist, or retry. Current-byte isolated PostgreSQL
-acceptance and independent post-database review are complete. One later full
-local canonical Browser E2E ran exactly once in `false + stripe_test` with
-native exit code 0, 32 passed, 0 failed, 0 did not run, a 7.1-minute Playwright
-duration, one worker, zero retries, and the `list` reporter. This normal-runtime
-regression evidence is separate from the PostgreSQL demo capability-only
-evidence and is not CI. Final independent review, commit, push, and CI remain
-open.
+The bounded B4-3B5 customer-order isolation change was committed and pushed on
+`main` at `dcbbe0c3b8b69ac0759c56ed9b48340c55993e0b`. Automatic GitHub Actions
+push run `39032664802`, attempt 1, completed `Backend`, `Migrations`, `Frontend`,
+and `Browser E2E` with `success` for that exact SHA. An earlier six-file isolated
+PostgreSQL run completed with `256 passed` in 24.11 seconds on bytes that
+predated the latest SQL assertions. One later repeat of the same six complete
+files on the current bytes completed with `256 passed`, 0 failed, 0 skipped, 0
+deselected, native exit code 0, in 25.31 seconds, without filters, xdist, or
+retry. Current-byte isolated PostgreSQL acceptance and independent
+post-database review are complete. One later full local canonical Browser E2E
+ran exactly once in `false + stripe_test` with native exit code 0, 32 passed, 0
+failed, 0 did not run, a 7.1-minute Playwright duration, one worker, zero
+retries, and the `list` reporter. This normal-runtime regression evidence is
+separate from the PostgreSQL demo capability-only evidence and from the
+automatic GitHub Actions run; it is not CI. Final independent review is
+complete, closing only B4-3B5. The B4-2 CLI-on-DB, final Menu UX, public
+demo-administrator provisioning and public demo-session issuance, remaining
+B4, B5/B6, Render/Neon, production seed, deployment, and public acceptance
+remain open.
 Stage 23 — Portfolio Documentation & Case Study is **not started**.
 
 The FastAPI backend provides public menu and quote APIs, runtime-scoped
@@ -1898,14 +1904,14 @@ or network failure keeps the session and offers an explicit retry.
 
 ### Shared demo identity customer-order boundary
 
-B4-3B5 is a local implementation candidate for D-087. It isolates customer
-Account Orders, public status, and demo Checkout from the shared demo identity,
-but does not promise full isolation across administrative data. Under D-083 and
-D-084, Admin Orders, Analytics, and CSV intentionally remain one shared
-synthetic workspace over `portfolio_seed` and `portfolio_runtime`, so two people
-using a future shared demo JWT may see the same synthetic administrative
-records. A capability remains a transferable bearer secret held per current
-browser tab; it is not cryptographic proof of a human session.
+The committed B4-3B5 boundary implements D-087. It isolates customer Account
+Orders, public status, and demo Checkout from the shared demo identity, but does
+not promise full isolation across administrative data. Under D-083 and D-084,
+Admin Orders, Analytics, and CSV intentionally remain one shared synthetic
+workspace over `portfolio_seed` and `portfolio_runtime`, so two people using a
+future shared demo JWT may see the same synthetic administrative records. A
+capability remains a transferable bearer secret held per current browser tab;
+it is not cryptographic proof of a human session.
 
 No public demo JWT or session is issued by this slice. The earlier six-file
 isolated PostgreSQL run completed with `256 passed` in 24.11 seconds on bytes
@@ -1933,8 +1939,16 @@ and mounts; this is not a claim that its contents were compared bit-for-bit.
 
 The PostgreSQL 256/256 result evidences the demo capability-only boundary. The
 local Browser E2E ran in normal `false + stripe_test` and evidences
-normal-runtime regression safety; it is not GitHub CI. Final independent
-review, commit, push, and CI remain open.
+normal-runtime regression safety; it is not GitHub CI. Final independent review
+is complete. B4-3B5 was committed and pushed on `main` at
+`dcbbe0c3b8b69ac0759c56ed9b48340c55993e0b`; automatic GitHub Actions push run
+`39032664802`, attempt 1, completed `Backend`, `Migrations`, `Frontend`, and
+`Browser E2E` with `success` for that exact SHA. This automatic run remains
+distinct from the local PostgreSQL and Browser E2E evidence and closes only
+B4-3B5. Stage 22 remains in progress, and the B4-2 CLI-on-DB, final Menu UX,
+public demo-administrator provisioning and public demo-session issuance,
+remaining B4, B5/B6, Render/Neon, production seed, deployment, and public
+acceptance remain open.
 
 ### Historical Stage 16F visual, responsive, and accessibility direction
 
