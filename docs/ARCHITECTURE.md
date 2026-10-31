@@ -1560,6 +1560,33 @@ GitHub protection rules or the secret have been configured. No migration
 workflow has been dispatched, no cloud resources have been provisioned, and no
 public deployment exists.
 
+The deployment dataset seed is a third, separately authorized boundary rather
+than part of runtime startup or migration:
+
+```text
+Explicit operator seed command -> dedicated Neon pooled runtime-role URL -> exact migrated schema 0009
+```
+
+`python -m app.seed.deployment` requires an exact confirmation phrase, aware
+reference end, independently approved canonical plan SHA-256, and exact release
+SHA. It loads only process-scoped seed settings, requires exact
+`production + true + demo`, rejects target-changing libpq environment controls,
+and validates the dedicated pooled Neon URL for `roa_runtime`. Before domain
+access, the connected session must prove the expected login and database,
+read-write transaction state, and an effective search path containing only
+`public`. One transaction-scoped advisory lock serializes the complete target
+check and atomic portfolio persistence.
+
+The existing portfolio persistence core remains the only writer. It verifies
+exact revision 0009 before DML, inserts the canonical menu and portfolio rows in
+one transaction, treats an exact rerun as zero-DML, and rejects partial, drifted,
+or colliding state without repair. The command emits only stable messages and
+aggregate counts. It does not migrate, reset, prune, or run automatically.
+Repository configuration does not yet provision or prove the least-privilege
+DML grants required by `roa_runtime`; that operational check, the reference end,
+credentials, live resources, migration, and actual Neon seed remain separate
+STOP conditions before deployment use.
+
 The schema represents demo provenance and provider-neutral payment state. The
 one public Checkout route dispatches from trusted application state:
 `stripe_test` for `live` Orders or `demo` for `portfolio_runtime` Orders, and

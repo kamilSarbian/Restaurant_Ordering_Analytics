@@ -1915,6 +1915,43 @@ while preserving these financial concurrency rules.
   PostgreSQL acceptance, canonical Browser E2E, commit, push, and CI remain
   separate gates.
 
+## D-088 — Explicit Deployment Demo Dataset Seed Boundary
+
+- **Status:** accepted on 2026-10-30 for the bounded local implementation
+  candidate. Commit, CI, live infrastructure, and operational execution remain
+  separate evidence.
+- **Scope:** this decision adds one explicit operator command for persisting the
+  existing canonical `portfolio-60d-v1` dataset into an already migrated demo
+  deployment database. It does not change the local-only `app.seed`, the plan,
+  models, migrations, application startup, frontend, public demo-session, or
+  infrastructure.
+- **Operator authorization:** every invocation must supply the exact confirmation
+  phrase, one timezone-aware reference end resolving to Europe/Oslo midnight,
+  an independently approved canonical plan SHA-256, and the exact deployed Git
+  SHA. The CLI release pin must equal process-scoped `RELEASE_SHA`; the command
+  does not read `.env`.
+- **Runtime and target boundary:** only exact `production + true + demo` is
+  accepted. A separate `DEPLOYMENT_SEED_DATABASE_URL` must be the TLS and
+  channel-binding protected Neon pooled URL for `roa_runtime`, and its database
+  must equal the explicit expected name. Target-changing `PG*` variables are
+  rejected. The connected session must prove the exact login, database,
+  read-write state, and `public`-only effective search path before domain SQL.
+- **Execution boundary:** migration is a distinct prerequisite and is never
+  invoked by the seed. One transaction-scoped advisory lock covers the target
+  checks and the unchanged atomic portfolio writer. Exact revision 0009 is
+  required before DML. Empty state is inserted once, an exact rerun performs no
+  DML, and partial, drifted, or colliding canonical data fails closed without
+  repair or pruning.
+- **Disclosure boundary:** CLI output is limited to stable result categories and
+  aggregate row counts. Connection URLs, credentials, SQL parameters, raw
+  exceptions, and seed capabilities are not rendered.
+- **Operational boundary:** this decision does not select the production
+  reference end, provision Neon or Render, provide credentials, perform the
+  migration or seed, or claim a deployment. The repository does not yet
+  provision or prove the least-privilege DML grants required by `roa_runtime`;
+  those grants and the actual target must be independently verified before any
+  Neon invocation.
+
 ## History of Decisions That Required Resolution
 
 ### O-002: Boundary Between Order Creation and Stripe Checkout Session

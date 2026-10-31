@@ -82,7 +82,10 @@
   Actions run; it is not CI. Final independent review is complete, closing only
   B4-3B5. The B4-2 CLI-on-DB, safe final Menu UX, public demo-administrator
   provisioning and public demo-session issuance, remaining B4 work, B5, B6,
-  production provisioning, and deployment also remain open. This
+  production provisioning, and deployment also remain open. A separate,
+  operator-gated deployment dataset seed is now an uncommitted local
+  implementation candidate; it has been exercised only against the isolated
+  local integration database and has not targeted Neon. This
   file records durable implementation scope and acceptance evidence;
   repository history, independent-review records, and CI are authoritative for
   transient commit and run status.
@@ -187,7 +190,10 @@
   public B4 demo-session issuance, remaining B4 work, B5, B6, and any further B3
   scope remain future work.
   Stage 23 is **not started**. No Render/Neon provisioning, production
-  migration/seed, public deployment, or public URL is claimed.
+  migration or seed execution, public deployment, or public URL is claimed. A
+  guarded deployment seed path exists only as a local candidate; selecting its
+  reference end and target, provisioning and proving `roa_runtime` privileges,
+  migrating Neon, and authorizing an exact invocation remain open.
 - **Backend:** FastAPI, database foundation, menu models, local seed data,
   public menu, transient quoting, persistent order creation, and secure public
   order status, provider-selected Stripe-test or atomic demo Checkout, verified
@@ -1566,6 +1572,41 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   public demo-session issuance, remaining B4, B5/B6, Render/Neon, production
   seed, deployment, and public acceptance remain open.
 
+- **Stage 22 deployment demo dataset seed — local implementation candidate:**
+  D-088 adds a separate `python -m app.seed.deployment` command without changing
+  the local-only `app.seed`. The command requires the exact operator
+  confirmation, aware reference end, canonical plan SHA-256, full release SHA,
+  exact `production + true + demo`, a dedicated pooled Neon URL for
+  `roa_runtime`, the matching expected database, and exact schema head 0009. It
+  reads no `.env`, rejects target-changing `PG*`, verifies actual database and
+  role identity plus read-write and `public`-only session state, and holds one
+  transaction-scoped advisory lock around the unchanged atomic writer.
+  Migration remains a separate prerequisite and is never run by this command.
+  The existing exact no-op and partial/drift/collision STOP semantics remain
+  authoritative, and CLI failures use stable secret-free messages.
+
+  Fresh no-database acceptance completed with 21 passed. One isolated
+  PostgreSQL run of the new deployment wrapper plus the complete existing
+  portfolio-persistence regression initially recorded 15 passed and one failed
+  test-only Analytics assertion because the test constructed the reserved demo
+  administrator with a non-canonical disabled password hash. After correcting
+  only that test fixture to the existing canonical constant, one complete
+  repeat of the same two files recorded 16 passed in 25.48 seconds. The green
+  run proves 500 Orders, 484 Payments, 449 succeeded Payments, NOK 31,542,500
+  revenue, NOK 70,251 average order value, the existing product/category/order
+  type and CSV expectations, exact zero-DML rerun, partial-state refusal, and
+  wrong-target refusal on the isolated database. The fixture removed the test
+  database; the development database OID remained 16384, unrelated clients were
+  zero, the existing container was returned to `exited`, and the named volume
+  was preserved. This is not evidence that volume contents were compared
+  bit-for-bit.
+
+  No production reference end, Neon/Render resource, credential, migration,
+  seed execution, or public URL is selected or claimed. The repository does not
+  yet provision or prove the least-privilege DML grants needed by
+  `roa_runtime`; that is an explicit deployment blocker. Independent review,
+  commit, push, CI, and every remaining Stage 22 gate remain open.
+
 - **Stage 22-B0 demo design:** its B3 payment design is now implemented through
   B3-2B. B4 public session issuance and remaining bounded authorization guards,
   any
@@ -1635,8 +1676,11 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   adapters or test fakes and synthetic signed webhooks; runtime demo Checkout is
   a distinct persisted provider path and performs no Stripe traffic. Stage 18
   performs no real Stripe traffic.
-- The seed is restricted to the exact local development database and is not a
-  production bootstrap process.
+- The existing `python -m app.seed` remains restricted to the exact local
+  development database and is not a production bootstrap process. The separate
+  operator-gated deployment dataset command is not automatic and has not been
+  run against Neon; target provisioning, runtime-role grants, migration, and an
+  exact approved invocation remain required.
 - Stage 17 provides a repeatable loopback-only local container stack. Stage 20
   adds deployment-ready configuration, security contracts, portable images,
   migration isolation, and an immutable release blueprint, but does not itself

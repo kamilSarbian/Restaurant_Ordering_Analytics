@@ -73,6 +73,11 @@ complete, closing only B4-3B5. The B4-2 CLI-on-DB, final Menu UX, public
 demo-administrator provisioning and public demo-session issuance, remaining
 B4, B5/B6, Render/Neon, production seed, deployment, and public acceptance
 remain open.
+An uncommitted local implementation candidate now provides a separate,
+operator-gated deployment demo dataset command. It has been exercised only
+against the isolated local integration database; no production reference end,
+Neon credentials or resources, runtime-role grants, migration, or deployment
+seed execution is selected or claimed.
 Stage 23 — Portfolio Documentation & Case Study is **not started**.
 
 The FastAPI backend provides public menu and quote APIs, runtime-scoped
@@ -1291,6 +1296,55 @@ The PostgreSQL container must be available on host port 5433 for integration
 tests. Stop it afterward with `docker compose --env-file .env down`. Never use
 `docker compose down -v` unless permanent removal of the local PostgreSQL
 volume and its data is intentional.
+
+## Deployment demo dataset seed
+
+`python -m app.seed.deployment` is a separate manual boundary for persisting
+the existing canonical 500-Order portfolio dataset in an already migrated demo
+deployment database. It does not change, wrap, or redirect the local-only
+`python -m app.seed` command. Application startup, migrations, Docker Compose,
+CI, and deployment do not invoke either seed automatically.
+
+The deployment command accepts only an explicit operator invocation with all
+four command-line pins:
+
+```powershell
+python -m app.seed.deployment `
+  --confirmation SEED_NORDIC_HEARTH_DEMO `
+  --portfolio-reference-end "<approved aware Europe/Oslo midnight>" `
+  --expected-plan-sha256 "<independently approved canonical plan SHA-256>" `
+  --expected-release-sha "<exact 40-character deployed Git SHA>"
+```
+
+It reads no `.env` file. Its process environment must independently provide
+exact `APP_ENVIRONMENT=production`, `PORTFOLIO_DEMO_MODE=true`,
+`PAYMENT_PROVIDER=demo`, `EXPECTED_ALEMBIC_HEAD`, `RELEASE_SHA`, one dedicated
+`DEPLOYMENT_SEED_DATABASE_URL`, and the matching
+`DEPLOYMENT_SEED_EXPECTED_DATABASE_NAME`. The dedicated URL must be the Neon
+pooled TLS URL for the exact `roa_runtime` login and include the existing
+`sslmode=require` plus `channel_binding=require` contract. The ordinary runtime
+`DATABASE_URL` and the direct migration URL are not accepted as seed inputs.
+Target-changing `PG*` settings are rejected.
+
+Before DML, the command independently generates the canonical plan and checks
+its SHA-256, binds the CLI release pin to `RELEASE_SHA`, validates the actual
+database and login identities, requires a read-write transaction, pins the
+effective search path to only `public`, obtains one transaction-scoped advisory
+lock, and relies on the existing exact schema-0009 check. Migration remains a
+separate, earlier operator action. The command never upgrades or repairs the
+schema.
+
+The existing atomic portfolio persistence core remains authoritative: an empty
+portfolio state is inserted once, an exact rerun is a zero-DML no-op, and any
+partial, changed, or colliding canonical state aborts without repair. Output is
+limited to stable status text and aggregate counts; it does not render database
+URLs, credentials, SQL parameters, or raw exceptions.
+
+This repository does not provision or prove the required least-privilege DML
+grants for `roa_runtime`. Those grants, the final reference end, live resources,
+credentials, migrated schema, exact deployed SHA, and an independently reviewed
+operator invocation must all be verified before this command may target Neon.
+The command has not been run against Neon or any production database.
 
 ## Public menu API
 
