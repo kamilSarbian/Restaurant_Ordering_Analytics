@@ -37,7 +37,10 @@
     "prettier": "^3.9.6",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.67.0",
-    "vite": "^8.2.1",
-    "vitest": "^4.1.11"
+    "vite": "^8.2.4",
+    "vitest": "^4.1.12"
+  },
+  "overrides": {
+    "minimatch": "11.0.1"
   }
 }

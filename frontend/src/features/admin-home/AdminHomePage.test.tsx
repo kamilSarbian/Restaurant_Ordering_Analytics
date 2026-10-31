@@ -297,9 +297,11 @@ describe('administrator home dashboard', () => {
     await user.click(screen.getByRole('button', { name: 'Retry menu availability' }));
 
     expect(await screen.findByText('All active items available')).toBeVisible();
-    expect(
-      screen.getByRole('heading', { level: 2, name: 'Menu availability' }),
-    ).toHaveFocus();
+    await waitFor(() =>
+      expect(
+        screen.getByRole('heading', { level: 2, name: 'Menu availability' }),
+      ).toHaveFocus(),
+    );
     expect(screen.queryByText('Menu availability unavailable')).not.toBeInTheDocument();
     await waitFor(() => expect(stub.calls).toHaveLength(5));
     expect(stub.calls[4]?.url).toBe('/api/v1/admin/menu/items?limit=100&offset=0');
@@ -348,9 +350,11 @@ describe('administrator home dashboard', () => {
     );
 
     expect(await screen.findByText('All active items available')).toBeVisible();
-    expect(
-      screen.getByRole('heading', { level: 2, name: 'Menu availability' }),
-    ).toHaveFocus();
+    await waitFor(() =>
+      expect(
+        screen.getByRole('heading', { level: 2, name: 'Menu availability' }),
+      ).toHaveFocus(),
+    );
     expect(screen.getByText('Recent orders unavailable')).toBeVisible();
     await waitFor(() => expect(stub.calls).toHaveLength(5));
     expect(stub.calls[4]?.url).toBe('/api/v1/admin/menu/items?limit=100&offset=0');
