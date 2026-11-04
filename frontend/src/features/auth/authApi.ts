@@ -10,6 +10,7 @@ import {
 
 const LOGIN_PATH = '/api/v1/auth/login';
 const REGISTER_PATH = '/api/v1/auth/register';
+const DEMO_SESSION_PATH = '/api/v1/auth/demo-session';
 const ME_PATH = '/api/v1/auth/me';
 const TOKEN_RESPONSE_KEYS = ['access_token', 'expires_in', 'token_type'];
 const USER_RESPONSE_KEYS = ['email', 'id', 'is_active', 'role'];
@@ -113,20 +114,18 @@ function parseRetryAfter(value: string | null): number | undefined {
 }
 
 async function requestAuthToken(
-  path: typeof LOGIN_PATH | typeof REGISTER_PATH,
-  email: string,
-  password: string,
-  signal?: AbortSignal,
+  path: typeof DEMO_SESSION_PATH | typeof LOGIN_PATH | typeof REGISTER_PATH,
+  options: { body?: string; signal?: AbortSignal },
 ): Promise<AuthTokenResponse> {
   const timeoutMs = resolveApiRequestTimeoutMs();
   const controller = new AbortController();
   let timeoutTriggered = false;
   let responseReceived = false;
-  const forwardAbort = () => controller.abort(signal?.reason);
-  if (signal?.aborted === true) {
+  const forwardAbort = () => controller.abort(options.signal?.reason);
+  if (options.signal?.aborted === true) {
     forwardAbort();
   } else {
-    signal?.addEventListener('abort', forwardAbort, { once: true });
+    options.signal?.addEventListener('abort', forwardAbort, { once: true });
   }
 
   const timeoutId = window.setTimeout(() => {
@@ -135,14 +134,15 @@ async function requestAuthToken(
   }, timeoutMs);
 
   try {
+    const headers = new Headers({ Accept: 'application/json' });
+    if (options.body !== undefined) {
+      headers.set('Content-Type', 'application/json');
+    }
     const response = await fetch(buildApiUrl(path), {
-      body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
+      body: options.body,
       cache: 'no-store',
       credentials: 'omit',
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-      },
+      headers,
       method: 'POST',
       signal: controller.signal,
     });
@@ -191,7 +191,7 @@ async function requestAuthToken(
     );
   } finally {
     window.clearTimeout(timeoutId);
-    signal?.removeEventListener('abort', forwardAbort);
+    options.signal?.removeEventListener('abort', forwardAbort);
   }
 }
 
@@ -201,7 +201,10 @@ export function loginUser(
   password: string,
   signal?: AbortSignal,
 ): Promise<AuthTokenResponse> {
-  return requestAuthToken(LOGIN_PATH, email, password, signal);
+  return requestAuthToken(LOGIN_PATH, {
+    body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
+    signal,
+  });
 }
 
 /** Register one customer account without persisting submitted credentials. */
@@ -210,7 +213,15 @@ export function registerUser(
   password: string,
   signal?: AbortSignal,
 ): Promise<AuthTokenResponse> {
-  return requestAuthToken(REGISTER_PATH, email, password, signal);
+  return requestAuthToken(REGISTER_PATH, {
+    body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
+    signal,
+  });
+}
+
+/** Request one canonical demo-administrator token without credentials or a body. */
+export function startDemoSession(signal?: AbortSignal): Promise<AuthTokenResponse> {
+  return requestAuthToken(DEMO_SESSION_PATH, { signal });
 }
 
 /** Fetch the current database-authoritative user through canonical Bearer auth. */

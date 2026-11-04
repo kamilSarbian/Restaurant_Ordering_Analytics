@@ -288,6 +288,165 @@ describe('AuthProvider credential flows', () => {
   );
 });
 
+describe('AuthProvider demo-session flow', () => {
+  it('waits for authoritative me validation before exposing the demo session', async () => {
+    let resolveCurrentUser!: (response: Response) => void;
+    const currentUserResponse = new Promise<Response>((resolve) => {
+      resolveCurrentUser = resolve;
+    });
+    const localStorageWrite = vi.spyOn(window.localStorage, 'setItem');
+    const stub = installFetchStub(
+      { json: tokenResponse() },
+      { responsePromise: currentUserResponse },
+    );
+    renderAuth();
+
+    let outcome!: Promise<AuthActionOutcome>;
+    await act(async () => {
+      outcome = auth().startDemoSession();
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(stub.calls).toHaveLength(2));
+
+    expect(auth().phase).toBe('checking-session');
+    expect(auth().user).toBeNull();
+    expect(auth().getAuthenticatedSession()).toBeNull();
+    expect(stub.calls[0]).toMatchObject({
+      body: null,
+      method: 'POST',
+      url: '/api/v1/auth/demo-session',
+    });
+    expect(stub.calls[1]?.url).toBe('/api/v1/auth/me');
+    expect(stub.calls[1]?.headers.get('Authorization')).toBe(`Bearer ${TOKEN}`);
+
+    await act(async () => {
+      resolveCurrentUser(
+        new Response(JSON.stringify(USER), {
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+      expect(await outcome).toEqual({ kind: 'authenticated' });
+    });
+
+    expect(auth().phase).toBe('authenticated');
+    expect(auth().user).toMatchObject({ id: USER_ID, role: 'admin' });
+    expect(auth().getAuthenticatedSession()?.accessToken).toBe(TOKEN);
+    expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toContain(TOKEN);
+    expect(localStorageWrite).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [404, undefined, { kind: 'service-unavailable' }],
+    [429, '17', { kind: 'rate-limited', retryAfterSeconds: 17 }],
+    [503, undefined, { kind: 'service-unavailable' }],
+  ] as const)(
+    'maps demo-session HTTP %i without retaining a session',
+    async (status, retryAfter, expectedOutcome) => {
+      const stub = installFetchStub({
+        headers: retryAfter === undefined ? undefined : { 'Retry-After': retryAfter },
+        status,
+      });
+      renderAuth();
+
+      await act(async () => {
+        expect(await auth().startDemoSession()).toEqual(expectedOutcome);
+      });
+
+      expect(stub.calls).toHaveLength(1);
+      expect(auth().phase).toBe('unauthenticated');
+      expect(auth().user).toBeNull();
+      expect(auth().getAuthenticatedSession()).toBeNull();
+      expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toBeNull();
+    },
+  );
+
+  it.each([
+    [{ error: new TypeError('synthetic network') }, { kind: 'network' }],
+    [
+      {
+        json: { access_token: 'invalid token', expires_in: 900, token_type: 'bearer' },
+      },
+      { kind: 'invalid-response' },
+    ],
+  ] as const)(
+    'keeps a failed demo-session response unauthenticated',
+    async (step, expectedOutcome) => {
+      const stub = installFetchStub(step);
+      renderAuth();
+
+      await act(async () => {
+        expect(await auth().startDemoSession()).toEqual(expectedOutcome);
+      });
+
+      expect(stub.calls).toHaveLength(1);
+      expect(auth().phase).toBe('unauthenticated');
+      expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toBeNull();
+    },
+  );
+
+  it('aborts a pending demo-session request on logout', async () => {
+    const stub = installFetchStub({ waitForAbort: true });
+    renderAuth();
+    let outcome!: Promise<AuthActionOutcome>;
+
+    act(() => {
+      outcome = auth().startDemoSession();
+    });
+    await waitFor(() => expect(stub.calls).toHaveLength(1));
+    act(() => auth().logout());
+
+    await act(async () => {
+      expect(await outcome).toEqual({ kind: 'aborted' });
+    });
+    expect(auth().phase).toBe('unauthenticated');
+    expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toBeNull();
+  });
+
+  it('prevents an older demo validation from overwriting a newer session', async () => {
+    let resolveFirstCurrentUser!: (response: Response) => void;
+    const firstCurrentUser = new Promise<Response>((resolve) => {
+      resolveFirstCurrentUser = resolve;
+    });
+    const secondUser = {
+      ...USER,
+      email: 'second-admin@example.invalid',
+    };
+    const stub = installFetchStub(
+      { json: tokenResponse() },
+      { responsePromise: firstCurrentUser },
+      { json: tokenResponse(SECOND_TOKEN) },
+      { json: secondUser },
+    );
+    renderAuth();
+    let firstOutcome!: Promise<AuthActionOutcome>;
+
+    await act(async () => {
+      firstOutcome = auth().startDemoSession();
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(stub.calls).toHaveLength(2));
+
+    await act(async () => {
+      expect(await auth().startDemoSession()).toEqual({ kind: 'authenticated' });
+    });
+    expect(auth().accessToken).toBe(SECOND_TOKEN);
+    expect(auth().user?.email).toBe(secondUser.email);
+
+    await act(async () => {
+      resolveFirstCurrentUser(
+        new Response(JSON.stringify(USER), {
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+      expect(await firstOutcome).toEqual({ kind: 'aborted' });
+    });
+
+    expect(auth().accessToken).toBe(SECOND_TOKEN);
+    expect(auth().user?.email).toBe(secondUser.email);
+    expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toContain(SECOND_TOKEN);
+  });
+});
+
 describe('AuthProvider session safety', () => {
   it('logout clears both auth stores but preserves unrelated browser state', async () => {
     saveAuthToken(TOKEN);

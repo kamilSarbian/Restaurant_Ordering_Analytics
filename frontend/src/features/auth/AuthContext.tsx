@@ -16,6 +16,7 @@ import {
   fetchCurrentUser,
   loginUser,
   registerUser,
+  startDemoSession as requestDemoSession,
 } from './authApi';
 import {
   clearAuthToken,
@@ -58,6 +59,7 @@ interface AuthContextValue extends AuthState {
   refreshCurrentUser: () => Promise<AuthUser | null>;
   register: (email: string, password: string) => Promise<AuthActionOutcome>;
   retrySession: () => Promise<void>;
+  startDemoSession: () => Promise<AuthActionOutcome>;
 }
 
 export interface AuthenticatedSession {
@@ -118,6 +120,17 @@ function classifyCredentialError(error: unknown): AuthActionOutcome {
     return { kind: 'service-unavailable' };
   }
   return { kind: 'network' };
+}
+
+function classifyDemoSessionError(error: unknown): AuthActionOutcome {
+  if (
+    error instanceof AuthApiRequestError &&
+    error.kind === 'http' &&
+    error.status === 404
+  ) {
+    return { kind: 'service-unavailable' };
+  }
+  return classifyCredentialError(error);
 }
 
 /** Provide one canonical authentication session to every application route. */
@@ -247,6 +260,7 @@ export function AuthProvider({ children }: { children?: ReactNode }) {
   const establishCredentials = useCallback(
     async (
       requestToken: (signal: AbortSignal) => Promise<{ accessToken: string }>,
+      classifyError: (error: unknown) => AuthActionOutcome = classifyCredentialError,
     ): Promise<AuthActionOutcome> => {
       const { controller, generation } = beginRequest();
       try {
@@ -284,7 +298,7 @@ export function AuthProvider({ children }: { children?: ReactNode }) {
           return { kind: 'aborted' };
         }
         activeControllerRef.current = null;
-        return classifyCredentialError(error);
+        return classifyError(error);
       }
     },
     [beginRequest, requestIsCurrent, validateToken],
@@ -299,6 +313,11 @@ export function AuthProvider({ children }: { children?: ReactNode }) {
   const register = useCallback(
     (email: string, password: string) =>
       establishCredentials((signal) => registerUser(email, password, signal)),
+    [establishCredentials],
+  );
+
+  const startDemoSession = useCallback(
+    () => establishCredentials(requestDemoSession, classifyDemoSessionError),
     [establishCredentials],
   );
 
@@ -357,6 +376,7 @@ export function AuthProvider({ children }: { children?: ReactNode }) {
       refreshCurrentUser,
       register,
       retrySession,
+      startDemoSession,
     }),
     [
       clearSession,
@@ -366,6 +386,7 @@ export function AuthProvider({ children }: { children?: ReactNode }) {
       refreshCurrentUser,
       register,
       retrySession,
+      startDemoSession,
       state,
     ],
   );

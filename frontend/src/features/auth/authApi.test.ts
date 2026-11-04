@@ -8,6 +8,7 @@ import {
   parseAuthTokenResponse,
   parseAuthUser,
   registerUser,
+  startDemoSession,
 } from './authApi';
 
 const SYNTHETIC_TOKEN = 'synthetic-canonical-token';
@@ -66,6 +67,120 @@ describe('canonical authentication API', () => {
       password: 'synthetic password',
     });
     expect(stub.calls[0]?.body).not.toMatch(/role|is_active|confirmPassword/);
+  });
+
+  it('sends one bodyless credential-free demo-session request', async () => {
+    const fetchMock = vi.fn<typeof fetch>(() =>
+      Promise.resolve(
+        new Response(JSON.stringify(VALID_TOKEN_RESPONSE), {
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(startDemoSession()).resolves.toEqual({
+      accessToken: SYNTHETIC_TOKEN,
+      expiresIn: 3_600,
+      tokenType: 'bearer',
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [input, init] = fetchMock.mock.calls[0]!;
+    const headers = new Headers(init?.headers);
+    expect(input).toBe('/api/v1/auth/demo-session');
+    expect(init).toMatchObject({
+      cache: 'no-store',
+      credentials: 'omit',
+      method: 'POST',
+    });
+    expect(init?.body).toBeUndefined();
+    expect(headers.get('Accept')).toBe('application/json');
+    expect(headers.get('Authorization')).toBeNull();
+    expect(headers.get('Content-Type')).toBeNull();
+    expect(headers.get('Cookie')).toBeNull();
+  });
+
+  it.each([404, 503])(
+    'preserves safe demo-session HTTP %i without retry',
+    async (status) => {
+      const stub = installFetchStub({
+        json: { detail: 'private backend context' },
+        status,
+      });
+
+      const request = startDemoSession();
+      await expect(request).rejects.toMatchObject({
+        kind: 'http',
+        retryAfterSeconds: null,
+        status,
+      });
+      await expect(request).rejects.not.toThrow('private backend context');
+      expect(stub.calls).toHaveLength(1);
+    },
+  );
+
+  it('preserves a valid demo-session Retry-After without retrying', async () => {
+    const stub = installFetchStub({
+      headers: { 'Retry-After': '23' },
+      status: 429,
+    });
+
+    await expect(startDemoSession()).rejects.toMatchObject({
+      kind: 'http',
+      retryAfterSeconds: 23,
+      status: 429,
+    });
+    expect(stub.calls).toHaveLength(1);
+  });
+
+  it('classifies a rejected demo-session fetch as a one-shot network failure', async () => {
+    const stub = installFetchStub({ error: new TypeError('offline detail') });
+
+    await expect(startDemoSession()).rejects.toMatchObject({
+      kind: 'network',
+      status: null,
+    });
+    expect(stub.calls).toHaveLength(1);
+  });
+
+  it('rejects an invalid demo-session token response', async () => {
+    const stub = installFetchStub({
+      json: { ...VALID_TOKEN_RESPONSE, access_token: 'invalid token' },
+    });
+
+    await expect(startDemoSession()).rejects.toMatchObject({
+      kind: 'invalid-response',
+      status: null,
+    });
+    expect(stub.calls).toHaveLength(1);
+  });
+
+  it('forwards an external demo-session abort', async () => {
+    const stub = installFetchStub({ waitForAbort: true });
+    const controller = new AbortController();
+    const request = startDemoSession(controller.signal);
+
+    controller.abort();
+
+    await expect(request).rejects.toMatchObject({ kind: 'aborted', status: null });
+    expect(stub.calls).toHaveLength(1);
+  });
+
+  it('applies the configured timeout to one demo-session request', async () => {
+    vi.useFakeTimers();
+    const stub = installFetchStub({ waitForAbort: true });
+    const request = startDemoSession();
+    const rejection = expect(request).rejects.toMatchObject({
+      kind: 'timeout',
+      status: null,
+    });
+
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    await rejection;
+    expect(stub.calls).toHaveLength(1);
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it('fetches current User only from canonical /auth/me with explicit Bearer', async () => {
