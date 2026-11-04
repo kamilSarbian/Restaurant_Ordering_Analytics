@@ -86,7 +86,7 @@
     display: inline-flex;
     min-width: 0;
     flex: 0 1 auto;
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
     align-items: center;
     gap: var(--space-1);
 }
