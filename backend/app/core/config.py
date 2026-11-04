@@ -26,6 +26,8 @@ PRODUCTION_RUNTIME_DATABASE_ROLE = "roa_runtime"
 AppEnvironment = Literal["development", "test", "e2e", "production"]
 PaymentProvider = Literal["demo", "stripe_test"]
 NeonConnectionPurpose = Literal["migration", "runtime"]
+RenderRuntime = Literal["true"]
+RenderServiceType = Literal["web", "pserv", "cron", "worker", "static"]
 
 
 class Settings(BaseSettings):
@@ -59,6 +61,11 @@ class Settings(BaseSettings):
     public_app_origin: str | None = None
     public_api_origin: str | None = None
     trusted_hosts: tuple[str, ...] = ()
+    render_runtime: RenderRuntime | None = Field(
+        default=None,
+        validation_alias=AliasChoices("RENDER", "render_runtime"),
+    )
+    render_service_type: RenderServiceType | None = None
     render_external_hostname: str | None = None
     trusted_proxy_mode: Literal["direct"] | None = None
     stripe_expected_livemode: bool | None = None

@@ -70,9 +70,33 @@ retries, and the `list` reporter. This normal-runtime regression evidence is
 separate from the PostgreSQL demo capability-only evidence and from the
 automatic GitHub Actions run; it is not CI. Final independent review is
 complete, closing only B4-3B5. The B4-2 CLI-on-DB, final Menu UX, public
-demo-administrator provisioning and public demo-session issuance, remaining
-B4, B5/B6, Render/Neon, production seed, deployment, and public acceptance
-remain open.
+demo-administrator provisioning, public activation of demo-session issuance,
+remaining B4, B5/B6, Render/Neon, production seed, deployment, and public
+acceptance remain open.
+An uncommitted backend-only B4 demo-session candidate adds bodyless
+`POST /api/v1/auth/demo-session`. The operation is registered in the API and
+appears in generated OpenAPI wherever OpenAPI is enabled, but it can issue a
+token only in exact `PORTFOLIO_DEMO_MODE=true + PAYMENT_PROVIDER=demo`.
+Only production with Render's exact built-ins `RENDER=true` and
+`RENDER_SERVICE_TYPE=web`, its matching `*.onrender.com` hostname/origin, and
+the portfolio demo runtime uses one validated IPv4 or IPv6 from Render's
+overwritten `CF-Connecting-IP` header for its dedicated five-per-minute
+process-local limiter. Missing, repeated, or invalid edge identity fails with
+the same secret-free 503 before database or JWT access, without falling back
+to the shared proxy peer. Local and test runtimes retain the direct connection
+peer; `X-Forwarded-For` remains untrusted everywhere and global proxy-header
+trust remains disabled. The route verifies the exact active
+reserved `admin` without provisioning or DML and issues the existing
+short-lived canonical `user_access` JWT. Other runtime pairs return a constant
+404 before limiter, database, or token work. This local route is not a public
+session launch: final Menu and My account UX, controlled provisioning,
+independent review, Browser E2E, commit, push, CI, and deployment remain open.
+The earlier 37-test no-database and 62-test isolated PostgreSQL results predate
+the proxy-bucket remediation; fresh current-byte evidence is recorded in the
+implementation status. Two initial broader non-integration attempts each
+reached 1757 passed before one unrelated temporary-directory setup error; one
+later run with an accessible explicit basetemp completed with 1758 passed and
+native exit 0.
 An uncommitted local implementation candidate now provides a separate,
 operator-gated deployment demo dataset command. It has been exercised only
 against the isolated local integration database; no production reference end,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import math
 import time
 from collections.abc import Callable
@@ -11,6 +12,12 @@ from threading import Lock
 from starlette.requests import Request
 
 UNKNOWN_CLIENT_BUCKET = "unknown-client"
+DEMO_SESSION_CLIENT_IP_MODE_DIRECT = "direct"
+DEMO_SESSION_CLIENT_IP_MODE_RENDER = "render_cf_connecting_ip"
+
+
+class DemoSessionClientIdentityError(Exception):
+    """Report that the trusted demo-session client identity is unavailable."""
 
 
 @dataclass(frozen=True)
@@ -97,6 +104,44 @@ def get_client_bucket_key(request: Request) -> str:
     if request.client is None:
         return UNKNOWN_CLIENT_BUCKET
     return request.client.host
+
+
+def get_demo_session_bucket_key(request: Request) -> str:
+    """Return the client bucket selected by trusted demo-session runtime state.
+
+    Args:
+        request: Current Starlette request and its trusted application state.
+
+    Returns:
+        A direct-peer key for local runtimes or a canonical Render client-IP key.
+
+    Raises:
+        DemoSessionClientIdentityError: If the configured identity source or the
+            required Render edge header is unavailable or invalid.
+    """
+    mode = getattr(request.app.state, "demo_session_client_ip_mode", None)
+    if mode == DEMO_SESSION_CLIENT_IP_MODE_DIRECT:
+        return get_client_bucket_key(request)
+    if mode != DEMO_SESSION_CLIENT_IP_MODE_RENDER:
+        raise DemoSessionClientIdentityError
+
+    values = request.headers.getlist("cf-connecting-ip")
+    if len(values) != 1:
+        raise DemoSessionClientIdentityError
+    value = values[0]
+    if (
+        not value
+        or value != value.strip()
+        or len(value) > 45
+        or "," in value
+        or "%" in value
+    ):
+        raise DemoSessionClientIdentityError
+    try:
+        address = ipaddress.ip_address(value)
+    except ValueError:
+        raise DemoSessionClientIdentityError from None
+    return f"render-client:{address.compressed}"
 
 
 def get_auth_login_rate_limiter(request: Request) -> FixedWindowRateLimiter:

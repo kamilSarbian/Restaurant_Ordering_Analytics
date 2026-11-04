@@ -78,7 +78,10 @@ def _patch_auth_access_as_unexpected(monkeypatch: pytest.MonkeyPatch) -> None:
         "_get_token_service",
         "_get_session_factory",
         "_enforce_rate_limit",
+        "_enforce_demo_session_rate_limit",
         "_enforce_login_rate_limit",
+        "verify_demo_admin",
+        "_issue_token",
         "create_customer",
         "authenticate_user",
     ):
@@ -114,6 +117,7 @@ def test_non_demo_mode_preserves_password_auth_and_me(
     with TestClient(application) as client:
         registered = client.post(REGISTER_PATH, json=_registration_payload())
         logged_in = client.post(LOGIN_PATH, json=_login_payload())
+        demo_session = client.post(DEMO_SESSION_PATH)
         current = client.get(
             ME_PATH,
             headers={
@@ -123,8 +127,34 @@ def test_non_demo_mode_preserves_password_auth_and_me(
 
     assert registered.status_code == 201
     assert logged_in.status_code == 200
+    assert demo_session.status_code == 404
+    assert demo_session.json() == {"detail": "Not Found"}
     assert current.status_code == 200
     assert current.json()["role"] == "admin"
+
+
+def test_normal_runtime_closes_demo_session_before_protected_access(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Return 404 before limiter, database, or JWT access in normal runtime."""
+    _patch_auth_access_as_unexpected(monkeypatch)
+    application = create_app(
+        settings=Settings(
+            _env_file=None,
+            database_url=None,
+            auth_jwt_secret=SYNTHETIC_SECRET,
+            portfolio_demo_mode=False,
+            payment_provider="stripe_test",
+        ),
+        session_factory=_session_factory(_user()),  # type: ignore[arg-type]
+    )
+
+    with TestClient(application) as client:
+        response = client.post(DEMO_SESSION_PATH)
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Not Found"}
+    assert "access_token" not in response.text
 
 
 def test_demo_mode_closes_password_auth_before_protected_access(
@@ -166,9 +196,8 @@ def test_demo_mode_closes_password_auth_before_protected_access(
             ME_PATH,
             headers={"Authorization": f"Bearer {token}"},
         )
-        demo_session = client.post(DEMO_SESSION_PATH, json={})
 
-    for response in (*blocked_password_auth, demo_session):
+    for response in blocked_password_auth:
         assert response.status_code == 404
         assert response.json() == {"detail": "Not Found"}
         assert "access_token" not in response.text
@@ -180,12 +209,12 @@ def test_demo_mode_closes_password_auth_before_protected_access(
     ("portfolio_demo_mode", "payment_provider"),
     [(True, "stripe_test"), (False, "demo"), (None, None)],
 )
-def test_password_auth_fails_closed_for_inconsistent_runtime_state(
+def test_public_auth_routes_fail_closed_for_inconsistent_runtime_state(
     monkeypatch: pytest.MonkeyPatch,
     portfolio_demo_mode: bool | None,
     payment_provider: str | None,
 ) -> None:
-    """Refuse password auth if trusted runtime state ever drifts from Settings."""
+    """Refuse both public auth surfaces if trusted runtime state is inconsistent."""
     _patch_auth_access_as_unexpected(monkeypatch)
     application = create_app(
         settings=Settings(
@@ -207,8 +236,9 @@ def test_password_auth_fails_closed_for_inconsistent_runtime_state(
     with TestClient(application) as client:
         registration = client.post(REGISTER_PATH, json=_registration_payload())
         login = client.post(LOGIN_PATH, json=_login_payload())
+        demo_session = client.post(DEMO_SESSION_PATH)
 
-    for response in (registration, login):
+    for response in (registration, login, demo_session):
         assert response.status_code == 404
         assert response.json() == {"detail": "Not Found"}
         assert "access_token" not in response.text

@@ -676,9 +676,10 @@
   acceptance and documentation reconciliation; B2-1 pure deterministic dataset
   generation; B2-2 atomic local persistence with an opt-in CLI; B2-3 persisted
   analytics/CSV acceptance; B3-1 runtime-origin and Stripe isolation; and
-  B3-2A terminal Checkout response/UI handling; and B3-2B atomic deterministic
-  demo Checkout. These do not establish live infrastructure or public
-  deployment.
+  B3-2A terminal Checkout response/UI handling; B3-2B atomic deterministic demo
+  Checkout; B4-1 password-auth closure; B4-3A1 through B4-3A3 mutation guards;
+  and B4-3B1 through B4-3B5 read and customer-order isolation. These do not
+  establish live infrastructure or public deployment.
 - **B3-2B closeout:** the functional implementation is committed at
   `b7fcd9faa2fade1b042e7f004d60c43afea5a547`; the final dependency-remediation
   and retained-Exports-diagnostics baseline is committed at
@@ -757,11 +758,17 @@ exact current-`main` checks.
   navigation cannot decide Payment state. Stripe test Checkout, signed webhook
   verification, `StripeEvent` persistence, and correlation contracts remain
   isolated and intact.
-- **B4 — constrained demo administrator:** future one-click session using a
-  normal JWT and exact `admin` role, never `super_admin` or a public
-  password; stable seed data read-only, only tightly bounded legal mutations
-  of `portfolio_runtime` data, and public registration/password login
-  disabled in portfolio mode.
+- **B4 — constrained demo administrator:** B4-1 and the bounded B4-3A1 through
+  B4-3A3 and B4-3B1 through B4-3B5 security and isolation slices are
+  implemented and committed. B4-2 provides offline-only demo-administrator
+  provision/verify logic, while its controlled CLI-on-DB acceptance remains
+  open. A separate uncommitted local backend candidate adds bodyless
+  `POST /api/v1/auth/demo-session` using the normal short-lived JWT and exact
+  active reserved `admin`, never `super_admin` or a public password. It is not
+  a released or publicly activated feature. The reserved Neon demo account,
+  public session issuance, final Menu and My account UX, independent review,
+  canonical Browser E2E, commit, push, CI, deployment, and public acceptance
+  remain open.
 - **B5 — recruiter journey/UX:** future; clearly label synthetic data and demo
   payment.
 - **B6 — integrated acceptance:** future; verify security, data boundaries,
@@ -773,8 +780,10 @@ deterministic generator, persistence, and isolated acceptance plus B3's bounded
 demo payment flow are implemented. Succeeded demo Payments may enter existing
 analytics/reports through status and `succeeded_at` without a `StripeEvent`;
 the canonical B2 dataset remains unchanged. Demo administration is not
-implemented. D-060 payment neutrality and D-077 NOK-only Admin Menu remain
-unchanged.
+complete: its bounded committed safeguards and isolation slices are in place,
+while demo-session issuance remains an uncommitted local candidate and no
+reserved Neon demo account or public session has been activated. D-060 payment
+neutrality and D-077 NOK-only Admin Menu remain unchanged.
 
 ### 22-C — First Controlled Online Release
 
@@ -808,9 +817,12 @@ Neither stage claims a live deployment or public URL.
 
 That paragraph records the historical 2026-09-15 reconciliation boundary, not
 the current state. Stage 22 is now in progress through four committed AF1+B1
-slices, committed B2-1 through B2-3, and committed B3-1 through B3-2B, with no
-live deployment. B4 through B6, any further B3 scope, and all public release
-work require separate authorization. Stage 23 remains not started.
+slices, committed B2-1 through B2-3, B3-1 through B3-2B, B4-1, B4-3A1 through
+B4-3A3, and B4-3B1 through B4-3B5, with no live deployment. B4-2 CLI-on-DB,
+the uncommitted local demo-session candidate and its review, Browser E2E,
+commit, push, and CI gates, the reserved Neon demo account, final UX, remaining
+B4 through B6, any further B3 scope, and all public release work require
+separate authorization. Stage 23 remains not started.
 
 The repository and Alembic head are
 `0009_add_portfolio_demo_origin_and_payment_provider`. The latest recorded

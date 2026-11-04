@@ -168,6 +168,8 @@ def _load_production_environment(
     """Load synthetic strings through the same settings boundary as deployment."""
     for name in _production_environment_strings():
         monkeypatch.delenv(name, raising=False)
+    monkeypatch.delenv("RENDER", raising=False)
+    monkeypatch.delenv("RENDER_SERVICE_TYPE", raising=False)
     monkeypatch.delenv("RENDER_EXTERNAL_HOSTNAME", raising=False)
     for name, value in environment.items():
         monkeypatch.setenv(name, value)
@@ -376,6 +378,37 @@ def test_render_hostname_derives_one_exact_trusted_host_from_environment(
 
     assert settings.render_external_hostname == RENDER_EXTERNAL_HOSTNAME
     assert settings.trusted_hosts == (RENDER_EXTERNAL_HOSTNAME,)
+
+
+def test_render_runtime_identity_loads_only_documented_exact_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Parse Render's immutable runtime signals without loose truthiness."""
+    monkeypatch.setenv("RENDER", "true")
+    monkeypatch.setenv("RENDER_SERVICE_TYPE", "web")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.render_runtime == "true"
+    assert settings.render_service_type == "web"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("render_runtime", "TRUE"),
+        ("render_runtime", "false"),
+        ("render_service_type", "WEB"),
+        ("render_service_type", "unknown"),
+    ],
+)
+def test_render_runtime_identity_rejects_noncanonical_values(
+    field: str,
+    value: str,
+) -> None:
+    """Reject ambiguous Render identity signals at the settings boundary."""
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, **{field: value})
 
 
 @pytest.mark.parametrize(
@@ -763,6 +796,8 @@ def test_nonproduction_defaults_remain_backward_compatible() -> None:
         assert settings.portfolio_demo_mode is False
         assert settings.payment_provider == "stripe_test"
         assert settings.trusted_hosts == ()
+        assert settings.render_runtime is None
+        assert settings.render_service_type is None
         assert settings.render_external_hostname is None
         assert settings.trusted_proxy_mode is None
         assert settings.stripe_expected_livemode is None
@@ -833,3 +868,60 @@ def test_create_app_does_not_initialize_stripe_for_demo_provider(
     assert application.state.portfolio_demo_mode is True
     assert application.state.stripe_checkout_client is None
     assert application.state.stripe_webhook_verifier is None
+
+
+def _render_demo_production_settings(
+    overrides: Mapping[str, object] | None = None,
+) -> Settings:
+    """Build validated exact public-Render demo settings for app wiring tests."""
+    values: dict[str, object] = {
+        "portfolio_demo_mode": True,
+        "payment_provider": "demo",
+        "stripe_secret_key": None,
+        "stripe_webhook_secret": None,
+        "stripe_success_url": None,
+        "stripe_cancel_url": None,
+        "stripe_expected_livemode": None,
+        "render_runtime": "true",
+        "render_service_type": "web",
+        "render_external_hostname": "roa-backend.onrender.com",
+        "public_api_origin": "https://roa-backend.onrender.com",
+        "trusted_hosts": (),
+    }
+    if overrides is not None:
+        values.update(overrides)
+    return production_settings(values)
+
+
+def test_create_app_selects_render_edge_identity_from_validated_settings() -> None:
+    """Wire CF client identity only from the exact trusted Render contract."""
+    from app import main as app_main
+    from app.core.rate_limit import DEMO_SESSION_CLIENT_IP_MODE_RENDER
+
+    application = app_main.create_app(settings=_render_demo_production_settings())
+
+    assert (
+        application.state.demo_session_client_ip_mode
+        == DEMO_SESSION_CLIENT_IP_MODE_RENDER
+    )
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"render_runtime": None},
+        {"render_service_type": None},
+        {"render_service_type": "pserv"},
+    ],
+)
+def test_create_app_refuses_render_edge_identity_without_exact_builtins(
+    overrides: Mapping[str, object],
+) -> None:
+    """Keep the Render edge identity unavailable without exact built-ins."""
+    from app import main as app_main
+
+    application = app_main.create_app(
+        settings=_render_demo_production_settings(overrides)
+    )
+
+    assert application.state.demo_session_client_ip_mode is None

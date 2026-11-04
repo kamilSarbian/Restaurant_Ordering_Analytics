@@ -1952,6 +1952,50 @@ while preserving these financial concurrency rules.
   those grants and the actual target must be independently verified before any
   Neon invocation.
 
+## D-089 — Reserved Demo Administrator Session Issuance Boundary
+
+- **Status:** accepted on 2026-11-04 for the bounded local backend candidate.
+  Database acceptance, independent review, Browser E2E, commit, push, CI,
+  deployment, and public activation remain separate evidence and approvals.
+- **Scope:** this decision adds only bodyless
+  `POST /api/v1/auth/demo-session`. It does not add public password login,
+  create or provision a User, change models or migrations, alter the frontend,
+  grant `super_admin`, or change D-083 through D-087.
+- **Trusted runtime:** only exact trusted application state
+  `PORTFOLIO_DEMO_MODE=true + PAYMENT_PROVIDER=demo` permits the operation to
+  issue a token. The route remains registered and appears in generated OpenAPI
+  wherever OpenAPI is enabled. Every other, missing, or inconsistent runtime
+  pair returns a constant 404 before limiter, database, or token work. Request
+  input cannot select the runtime.
+- **Identity boundary:** the existing read-only verifier must find exactly one
+  User matching the reserved UUID, reserved email, disabled-password marker,
+  active state, and ordinary `admin` role. Missing, colliding, inactive,
+  changed, or `super_admin` state yields no token. The endpoint performs no
+  provisioning and no DML.
+- **Token boundary:** success invokes the existing canonical `user_access`
+  service with only the verified reserved UUID. The existing configured short
+  lifetime, issuer, audience, token type, and six-claim shape remain unchanged;
+  role authority continues to come from a fresh database User load on each
+  protected request.
+- **Client identity boundary:** local and test runtimes use the direct
+  connection peer. Only exact portfolio-demo production with Render's built-ins
+  `RENDER=true` and `RENDER_SERVICE_TYPE=web` plus a matching public Render
+  `*.onrender.com` hostname and origin uses Render's overwritten
+  `CF-Connecting-IP`, as documented for public Render web services. Exactly one
+  valid IPv4 or IPv6 is required. Missing, repeated, chained, scoped, or invalid
+  values fail closed before database or JWT access, without falling back to the
+  shared proxy peer. `X-Forwarded-For` is never trusted, and global Uvicorn
+  proxy-header trust remains disabled.
+- **Abuse and failure boundary:** demo-session has a dedicated process-local
+  fixed-window limiter of five attempts per 60 seconds, independent from
+  registration and password login. Denial is 429 with `Retry-After`. Missing
+  trusted Render identity, missing or drifted demo identity, database failure,
+  absent token configuration, and token failure share the existing secret-free 503.
+- **Operational and UX boundary:** this local backend candidate does not make
+  session issuance public. The final safe Menu and My account UX, controlled
+  demo-administrator provisioning, deployment configuration, and public
+  acceptance must be completed before activation.
+
 ## History of Decisions That Required Resolution
 
 ### O-002: Boundary Between Order Creation and Stripe Checkout Session

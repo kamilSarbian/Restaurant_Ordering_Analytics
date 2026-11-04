@@ -1,6 +1,7 @@
 """Unit tests for the app-scoped fixed-window rate limiter."""
 
 from concurrent.futures import ThreadPoolExecutor
+from types import SimpleNamespace
 from uuid import UUID
 
 import pytest
@@ -9,11 +10,15 @@ from starlette.requests import Request
 from app.auth.service import UserTokenService
 from app.core.config import Settings
 from app.core.rate_limit import (
+    DEMO_SESSION_CLIENT_IP_MODE_DIRECT,
+    DEMO_SESSION_CLIENT_IP_MODE_RENDER,
     UNKNOWN_CLIENT_BUCKET,
+    DemoSessionClientIdentityError,
     FixedWindowRateLimiter,
     get_client_bucket_key,
+    get_demo_session_bucket_key,
 )
-from app.main import create_app
+from app.main import _demo_session_client_ip_mode, create_app
 
 
 class FakeClock:
@@ -39,6 +44,7 @@ def _request(
     *,
     forwarded_for: str | None = None,
     forwarding_headers: tuple[tuple[str, str], ...] = (),
+    demo_session_client_ip_mode: str = DEMO_SESSION_CLIENT_IP_MODE_DIRECT,
 ) -> Request:
     headers: list[tuple[bytes, bytes]] = []
     if forwarded_for is not None:
@@ -58,6 +64,11 @@ def _request(
             "headers": headers,
             "client": client,
             "server": ("testserver", 80),
+            "app": SimpleNamespace(
+                state=SimpleNamespace(
+                    demo_session_client_ip_mode=demo_session_client_ip_mode,
+                )
+            ),
         }
     )
 
@@ -162,6 +173,117 @@ def test_rotating_spoofed_addresses_cannot_create_new_limiter_buckets() -> None:
     assert [result.allowed for result in results] == [True, True, False]
 
 
+def test_local_demo_session_bucket_uses_direct_peer_and_ignores_headers() -> None:
+    """Keep local demo-session tests on the direct peer identity boundary."""
+    request = _request(
+        ("local-peer", 1234),
+        forwarding_headers=(
+            ("cf-connecting-ip", "203.0.113.10"),
+            ("x-forwarded-for", "198.51.100.20"),
+        ),
+    )
+    assert get_demo_session_bucket_key(request) == "local-peer"
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("203.0.113.10", "render-client:203.0.113.10"),
+        ("2001:0db8:0000:0000:0000:0000:0000:0001", "render-client:2001:db8::1"),
+    ],
+)
+def test_render_demo_session_bucket_accepts_one_canonical_ip(
+    value: str,
+    expected: str,
+) -> None:
+    """Canonicalize exactly one Render edge client address."""
+    request = _request(
+        ("render-proxy", 1234),
+        forwarding_headers=(
+            ("cf-connecting-ip", value),
+            ("x-forwarded-for", "192.0.2.5"),
+        ),
+        demo_session_client_ip_mode=DEMO_SESSION_CLIENT_IP_MODE_RENDER,
+    )
+    assert get_demo_session_bucket_key(request) == expected
+
+
+@pytest.mark.parametrize(
+    "forwarding_headers",
+    [
+        (),
+        (("cf-connecting-ip", ""),),
+        (("cf-connecting-ip", "203.0.113.10, 198.51.100.20"),),
+        (("cf-connecting-ip", " 203.0.113.10"),),
+        (("cf-connecting-ip", "203.0.113.10:443"),),
+        (("cf-connecting-ip", "fe80::1%eth0"),),
+        (("cf-connecting-ip", "not-an-ip"),),
+        (
+            ("cf-connecting-ip", "203.0.113.10"),
+            ("cf-connecting-ip", "198.51.100.20"),
+        ),
+    ],
+)
+def test_render_demo_session_bucket_rejects_untrusted_or_ambiguous_values(
+    forwarding_headers: tuple[tuple[str, str], ...],
+) -> None:
+    """Fail closed without falling back to the shared Render proxy peer."""
+    request = _request(
+        ("render-proxy", 1234),
+        forwarding_headers=forwarding_headers,
+        demo_session_client_ip_mode=DEMO_SESSION_CLIENT_IP_MODE_RENDER,
+    )
+    with pytest.raises(DemoSessionClientIdentityError):
+        get_demo_session_bucket_key(request)
+
+
+def test_unknown_demo_session_identity_mode_fails_closed() -> None:
+    """Reject missing trusted runtime classification instead of using a peer."""
+    request = _request(
+        ("render-proxy", 1234),
+        demo_session_client_ip_mode="unavailable",
+    )
+    with pytest.raises(DemoSessionClientIdentityError):
+        get_demo_session_bucket_key(request)
+
+
+def test_demo_session_client_mode_requires_exact_public_render_configuration() -> None:
+    """Select the edge header only for the exact trusted public Render runtime."""
+    exact = Settings.model_construct(
+        app_environment="production",
+        portfolio_demo_mode=True,
+        payment_provider="demo",
+        render_runtime="true",
+        render_service_type="web",
+        render_external_hostname="roa-backend.onrender.com",
+        public_api_origin="https://roa-backend.onrender.com",
+        trusted_hosts=("roa-backend.onrender.com",),
+        trusted_proxy_mode="direct",
+    )
+    assert _demo_session_client_ip_mode(exact) == DEMO_SESSION_CLIENT_IP_MODE_RENDER
+
+    for field, value in (
+        ("portfolio_demo_mode", False),
+        ("payment_provider", "stripe_test"),
+        ("render_runtime", None),
+        ("render_service_type", None),
+        ("render_service_type", "pserv"),
+        ("render_external_hostname", None),
+        ("render_external_hostname", "api.example.com"),
+        ("public_api_origin", "https://other.onrender.com"),
+        ("trusted_hosts", ("other.onrender.com",)),
+        ("trusted_proxy_mode", None),
+    ):
+        candidate = exact.model_copy(update={field: value})
+        assert _demo_session_client_ip_mode(candidate) is None
+
+
+def test_demo_session_client_mode_keeps_nonproduction_on_direct_peer() -> None:
+    """Keep local and test runtimes independent from Render-only headers."""
+    settings = Settings.model_construct(app_environment="test")
+    assert _demo_session_client_ip_mode(settings) == DEMO_SESSION_CLIENT_IP_MODE_DIRECT
+
+
 def test_parallel_attempts_are_thread_safe() -> None:
     """Allow exactly the configured number under concurrent calls."""
     limiter = FixedWindowRateLimiter(limit=10)
@@ -264,6 +386,37 @@ def test_create_app_preserves_an_injected_user_login_limiter() -> None:
         user_login_rate_limiter=limiter,
     )
     assert application.state.user_login_rate_limiter is limiter
+
+
+def test_create_app_builds_a_distinct_default_demo_session_limiter() -> None:
+    """Limit demo-session issuance independently at five attempts per minute."""
+    first_app = create_app(settings=Settings(database_url=None))
+    second_app = create_app(settings=Settings(database_url=None))
+    assert (
+        first_app.state.demo_session_client_ip_mode
+        == DEMO_SESSION_CLIENT_IP_MODE_DIRECT
+    )
+    assert (
+        second_app.state.demo_session_client_ip_mode
+        == DEMO_SESSION_CLIENT_IP_MODE_DIRECT
+    )
+    first_limiter = first_app.state.demo_session_rate_limiter
+    second_limiter = second_app.state.demo_session_rate_limiter
+    assert first_limiter.limit == second_limiter.limit == 5
+    assert first_limiter.window_seconds == second_limiter.window_seconds == 60
+    assert first_limiter is not second_limiter
+    assert first_limiter is not first_app.state.user_register_rate_limiter
+    assert first_limiter is not first_app.state.user_login_rate_limiter
+
+
+def test_create_app_preserves_an_injected_demo_session_limiter() -> None:
+    """Store the exact injected demo-session limiter on application state."""
+    limiter = FixedWindowRateLimiter(limit=2, window_seconds=30)
+    application = create_app(
+        settings=Settings(database_url=None),
+        demo_session_rate_limiter=limiter,
+    )
+    assert application.state.demo_session_rate_limiter is limiter
 
 
 def test_user_login_limiter_uses_existing_direct_peer_key_policy() -> None:

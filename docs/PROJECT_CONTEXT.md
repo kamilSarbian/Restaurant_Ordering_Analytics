@@ -65,9 +65,37 @@ one worker, zero retries, and the `list` reporter in normal
 PostgreSQL demo capability-only evidence and from the automatic GitHub Actions
 run; it is not CI. Final independent review is complete, closing only B4-3B5.
 The slice issues no public demo session; the B4-2 CLI-on-DB, final Menu UX,
-public demo-administrator provisioning and public demo-session issuance,
-remaining B4, B5/B6, Render/Neon, production seed, deployment, and public
-acceptance remain open.
+public demo-administrator provisioning and public activation of demo-session
+issuance, remaining B4, B5/B6, Render/Neon, production seed, deployment, and
+public acceptance remain open.
+
+One uncommitted backend-only B4 candidate now implements bodyless
+`POST /api/v1/auth/demo-session`. Trusted application state must be exact
+`true + demo`; every other or missing runtime pair returns a constant 404
+before limiter, database, or token work. The operation remains present in the
+generated OpenAPI wherever OpenAPI is enabled. The allowed path has an
+independent process-local limit of five attempts per 60 seconds. Only exact
+production with Render's built-ins `RENDER=true` and
+`RENDER_SERVICE_TYPE=web`, a matching `*.onrender.com` hostname/origin, and the
+portfolio demo runtime requires one validated IPv4 or IPv6 from the overwritten
+`CF-Connecting-IP` header. A missing, repeated, or invalid value is refused
+before database or JWT access; there is no fallback to the shared proxy peer.
+Local and test runtimes retain the direct connection peer, while
+`X-Forwarded-For` remains untrusted and Uvicorn proxy-header trust remains
+disabled. The route verifies the single exact active reserved `admin`
+read-only and uses the existing canonical `user_access` issuer and configured
+short lifetime. It never provisions a User, accepts a password, or grants
+`super_admin`; missing or drifted identity and database or token-service
+failure share a secret-free 503. The earlier 37 targeted no-database tests and
+62 tests across the complete demo-session and canonical User-auth integration
+files passed with isolated test-database cleanup before the proxy-bucket
+remediation; fresh current-byte evidence is recorded in the implementation
+status. Two broader non-integration attempts each reached 1757 passed before
+the same unrelated pytest temporary-directory setup error. One later run using
+an accessible explicit basetemp completed with 1758 passed and native exit 0.
+Independent review and later release gates remain pending, and this candidate
+does not authorize public issuance or change the final Menu/My account UX
+prerequisite.
 
 ## 3. Users
 
@@ -1056,7 +1084,10 @@ PostgreSQL demo capability-only evidence and from the automatic GitHub Actions
 run, and it is not CI. Final independent review is complete, closing only
 B4-3B5.
 Stage 22 — Production Deployment & Public Acceptance remains in progress and is
-not deployed. The remaining B4 work, B5, and B6 remain open. Stage 23 — Portfolio
+not deployed. A backend-only B4 demo-session endpoint is an uncommitted local
+candidate with targeted no-database and isolated PostgreSQL evidence complete;
+independent review, Browser E2E, commit, push, CI, and public activation remain
+open. The remaining B4 work, B5, and B6 remain open. Stage 23 — Portfolio
 Documentation & Case Study is not started. A
 recruiter-facing URL can be claimed only after Stage 22-D public-demo
 acceptance.

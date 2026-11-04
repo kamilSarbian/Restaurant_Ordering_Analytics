@@ -17,7 +17,11 @@ from app.auth.admin_router import router as admin_users_router
 from app.auth.service import UserTokenService, create_user_token_service
 from app.auth.users_router import router as users_router
 from app.core.config import Settings
-from app.core.rate_limit import FixedWindowRateLimiter
+from app.core.rate_limit import (
+    DEMO_SESSION_CLIENT_IP_MODE_DIRECT,
+    DEMO_SESSION_CLIENT_IP_MODE_RENDER,
+    FixedWindowRateLimiter,
+)
 from app.database.session import create_database_engine, create_session_factory
 from app.menu.admin_router import router as admin_menu_router
 from app.menu.router import router as menu_router
@@ -50,6 +54,28 @@ API_SECURITY_HEADERS = (
     ("X-XSS-Protection", "0"),
 )
 HSTS_HEADER_VALUE = "max-age=31536000; includeSubDomains"
+
+
+def _demo_session_client_ip_mode(settings: Settings) -> str | None:
+    """Select the trusted demo-session client identity source for this runtime."""
+    if settings.app_environment != "production":
+        return DEMO_SESSION_CLIENT_IP_MODE_DIRECT
+
+    hostname = settings.render_external_hostname
+    if (
+        settings.portfolio_demo_mode is True
+        and settings.payment_provider == "demo"
+        and settings.render_runtime == "true"
+        and settings.render_service_type == "web"
+        and hostname is not None
+        and hostname != "onrender.com"
+        and hostname.endswith(".onrender.com")
+        and settings.public_api_origin == f"https://{hostname}"
+        and settings.trusted_hosts == (hostname,)
+        and settings.trusted_proxy_mode == "direct"
+    ):
+        return DEMO_SESSION_CLIENT_IP_MODE_RENDER
+    return None
 
 
 class ApiSecurityHeadersMiddleware:
@@ -92,6 +118,7 @@ def create_app(
     checkout_rate_limiter: FixedWindowRateLimiter | None = None,
     user_register_rate_limiter: FixedWindowRateLimiter | None = None,
     user_login_rate_limiter: FixedWindowRateLimiter | None = None,
+    demo_session_rate_limiter: FixedWindowRateLimiter | None = None,
     user_token_service: UserTokenService | None = None,
     stripe_checkout_client: StripeCheckoutClient | None = None,
     stripe_webhook_verifier: StripeWebhookVerifier | None = None,
@@ -106,6 +133,7 @@ def create_app(
         checkout_rate_limiter: Optional app-scoped checkout limiter override.
         user_register_rate_limiter: Optional canonical registration limiter.
         user_login_rate_limiter: Optional canonical user-login limiter.
+        demo_session_rate_limiter: Optional portfolio demo-session limiter.
         user_token_service: Optional app-scoped canonical user token service.
         stripe_checkout_client: Optional app-scoped Stripe adapter override.
         stripe_webhook_verifier: Optional app-scoped webhook verifier override.
@@ -218,6 +246,11 @@ def create_app(
         if user_login_rate_limiter is not None
         else FixedWindowRateLimiter(limit=5, window_seconds=60)
     )
+    application.state.demo_session_rate_limiter = (
+        demo_session_rate_limiter
+        if demo_session_rate_limiter is not None
+        else FixedWindowRateLimiter(limit=5, window_seconds=60)
+    )
     configured_user_token_service = create_user_token_service(
         resolved_settings.auth_jwt_secret,
         resolved_settings.auth_access_token_expire_minutes,
@@ -255,6 +288,9 @@ def create_app(
     )
     application.state.payment_provider = resolved_settings.payment_provider
     application.state.portfolio_demo_mode = resolved_settings.portfolio_demo_mode
+    application.state.demo_session_client_ip_mode = _demo_session_client_ip_mode(
+        resolved_settings
+    )
     application.state.stripe_success_url = resolved_settings.stripe_success_url
     application.state.stripe_cancel_url = resolved_settings.stripe_cancel_url
     application.state.checkout_now_provider = checkout_now_provider or utc_now

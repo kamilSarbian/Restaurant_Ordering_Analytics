@@ -1723,6 +1723,57 @@ transferable bearer secret rather than proof of a person or tab. No public demo
 session is issued. The existing visible `My account` link and generic 403 state
 are accepted only temporarily pending dedicated UX before public issuance.
 
+### 5.32. Reserved Demo Administrator Session Issuance
+
+The local B4 candidate adds bodyless `POST /api/v1/auth/demo-session` without
+adding a password flow or a second token family. A route boundary reads only
+trusted application state. Exact `PORTFOLIO_DEMO_MODE=true` with
+`PAYMENT_PROVIDER=demo` is required; every other or missing pair returns the
+same 404 before limiter, database, or token-service access. The route remains
+registered and appears in generated OpenAPI wherever OpenAPI is enabled. The
+permitted path first resolves its dedicated app-scoped fixed-window bucket and
+only then accesses the canonical `UserTokenService` or database.
+
+Local and test runtimes use the direct connection peer. Production uses
+`CF-Connecting-IP` only when trusted settings contain Render's exact built-ins
+`RENDER=true` and `RENDER_SERVICE_TYPE=web`, identify exact portfolio-demo
+production on a matching public Render `*.onrender.com` web-service hostname
+and origin, and retain direct proxy mode. That mode requires exactly one
+syntactically valid IPv4 or IPv6; missing, repeated, chained, scoped, or invalid
+values fail with the generic 503 before JWT or database access and never fall
+back to the shared Render proxy peer. This narrow resolver follows Render's
+documented public-web-service contract that Cloudflare overwrites
+`CF-Connecting-IP`. It does not trust `X-Forwarded-For` and does not enable
+Uvicorn's global proxy-header handling.
+
+After those checks, the existing read-only demo-administrator verifier performs
+one candidate lookup by reserved UUID or email. Exactly one row must match the
+reserved UUID, email, disabled-password marker, active state, and ordinary
+`admin` role. Missing, colliding, inactive, changed, or `super_admin` state
+produces no token. The route never provisions or mutates a User. Successful
+verification passes only the reserved UUID to the existing canonical
+`user_access` issuer, retaining its configured short lifetime and six-claim
+shape; protected routes continue to reload the current User and role from the
+database.
+
+Outside-runtime denial is a constant 404. Identity drift, missing identity,
+database failure, absent token configuration, and token issuance failure share
+the existing secret-free 503; missing or invalid trusted Render identity uses
+that same response, and limiter denial remains 429 with `Retry-After`. The
+limiter is process-local and resets on restart, so it is a bounded abuse
+control rather than a distributed quota. This is a local backend candidate,
+not authorization to expose the session publicly. Dedicated Menu and My
+account UX, controlled demo-administrator provisioning, independent review,
+Browser E2E, commit, push, CI, deployment, and public acceptance remain
+separate gates. The earlier bounded evidence comprised 37 passing targeted
+no-database tests and one 62-test isolated PostgreSQL run of the complete
+demo-session and canonical User-auth integration files; those runs predate the
+proxy-bucket remediation. Fresh current-byte evidence is recorded in the
+implementation status. The first two broader non-integration attempts each
+reached 1757 passed but one unrelated test fixture could not create its pytest
+temporary directory. One later run with an accessible explicit basetemp
+completed with 1758 passed and native exit 0.
+
 ## 6. Architecture Diagram
 
 ```mermaid

@@ -1,4 +1,4 @@
-"""Integration tests for canonical registration, login, and current User auth."""
+"""Integration tests for canonical registration, login, demo session, and User auth."""
 
 from __future__ import annotations
 
@@ -34,6 +34,7 @@ pytestmark = pytest.mark.integration
 REGISTER_PATH = "/api/v1/auth/register"
 LOGIN_PATH = "/api/v1/auth/login"
 ME_PATH = "/api/v1/auth/me"
+DEMO_SESSION_PATH = "/api/v1/auth/demo-session"
 LEGACY_LOGIN_PATH = "/api/v1/admin/auth/login"
 LEGACY_ME_PATH = "/api/v1/admin/auth/me"
 ADMIN_ORDERS_PATH = "/api/v1/admin/orders"
@@ -719,7 +720,7 @@ def test_removed_legacy_auth_routes_do_not_consume_canonical_login_limit(
     assert registration.status_code == 201
 
 
-def test_openapi_contains_only_three_canonical_auth_operations(
+def test_openapi_contains_only_four_canonical_auth_operations(
     user_session_factory: sessionmaker[Session],
     user_token_service: UserTokenService,
 ) -> None:
@@ -738,6 +739,7 @@ def test_openapi_contains_only_three_canonical_auth_operations(
     assert canonical_operations == {
         ("POST", REGISTER_PATH),
         ("POST", LOGIN_PATH),
+        ("POST", DEMO_SESSION_PATH),
         ("GET", ME_PATH),
     }
     assert LEGACY_LOGIN_PATH not in document["paths"]
@@ -754,10 +756,23 @@ def test_openapi_contains_only_three_canonical_auth_operations(
     assert application.state.user_register_rate_limiter.window_seconds == 60
     assert application.state.user_login_rate_limiter.limit == 5
     assert application.state.user_login_rate_limiter.window_seconds == 60
+    assert application.state.demo_session_rate_limiter.limit == 5
+    assert application.state.demo_session_rate_limiter.window_seconds == 60
     assert (
         application.state.user_register_rate_limiter
         is not application.state.user_login_rate_limiter
     )
+    assert (
+        application.state.demo_session_rate_limiter
+        is not application.state.user_register_rate_limiter
+    )
+    assert (
+        application.state.demo_session_rate_limiter
+        is not application.state.user_login_rate_limiter
+    )
+    demo_session_operation = document["paths"][DEMO_SESSION_PATH]["post"]
+    assert "requestBody" not in demo_session_operation
+    assert "security" not in demo_session_operation
     assert set(document["paths"]["/api/v1/admin/users"]) == {"get"}
     assert set(document["paths"]["/api/v1/admin/users/{user_id}/role"]) == {"patch"}
     assert document["paths"]["/api/v1/admin/users"]["get"]["security"] == [

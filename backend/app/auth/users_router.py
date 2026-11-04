@@ -1,4 +1,4 @@
-"""Canonical registration, login, and current-user HTTP routes."""
+"""Canonical public authentication and current-user HTTP routes."""
 
 from __future__ import annotations
 
@@ -12,6 +12,11 @@ from fastapi.routing import APIRoute
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.auth.demo_admin import (
+    DemoAdminConflictError,
+    DemoAdminDatabaseError,
+    verify_demo_admin,
+)
 from app.auth.dependencies import get_current_user
 from app.auth.models import User
 from app.auth.service import (
@@ -32,9 +37,11 @@ from app.auth.user_service import (
     create_customer,
 )
 from app.core.rate_limit import (
+    DemoSessionClientIdentityError,
     FixedWindowRateLimiter,
     get_auth_login_rate_limiter,
     get_client_bucket_key,
+    get_demo_session_bucket_key,
 )
 
 _PASSWORD_AUTH_PATHS = frozenset(
@@ -43,6 +50,7 @@ _PASSWORD_AUTH_PATHS = frozenset(
         "/api/v1/auth/login",
     }
 )
+_DEMO_SESSION_PATH = "/api/v1/auth/demo-session"
 
 
 def _public_password_auth_is_closed(request: Request) -> bool:
@@ -52,17 +60,30 @@ def _public_password_auth_is_closed(request: Request) -> bool:
     return portfolio_demo_mode is not False or payment_provider != "stripe_test"
 
 
-class _PublicPasswordAuthBoundaryRoute(APIRoute):
-    """Close password-auth routes before FastAPI reads or validates their bodies."""
+def _public_demo_session_is_closed(request: Request) -> bool:
+    """Return whether trusted runtime state forbids demo-session issuance."""
+    portfolio_demo_mode = getattr(request.app.state, "portfolio_demo_mode", None)
+    payment_provider = getattr(request.app.state, "payment_provider", None)
+    return portfolio_demo_mode is not True or payment_provider != "demo"
+
+
+class _PublicAuthenticationBoundaryRoute(APIRoute):
+    """Close unavailable public auth routes before FastAPI handles their bodies."""
 
     def get_route_handler(
         self,
     ) -> Callable[[Request], Coroutine[Any, Any, Response]]:
         original_route_handler = super().get_route_handler()
         protects_password_auth = self.path in _PASSWORD_AUTH_PATHS
+        protects_demo_session = self.path == _DEMO_SESSION_PATH
 
         async def guarded_route_handler(request: Request) -> Response:
             if protects_password_auth and _public_password_auth_is_closed(request):
+                return JSONResponse(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    content={"detail": "Not Found"},
+                )
+            if protects_demo_session and _public_demo_session_is_closed(request):
                 return JSONResponse(
                     status_code=status.HTTP_404_NOT_FOUND,
                     content={"detail": "Not Found"},
@@ -75,7 +96,7 @@ class _PublicPasswordAuthBoundaryRoute(APIRoute):
 router = APIRouter(
     prefix="/api/v1/auth",
     tags=["auth"],
-    route_class=_PublicPasswordAuthBoundaryRoute,
+    route_class=_PublicAuthenticationBoundaryRoute,
 )
 CurrentUser = Annotated[User, Depends(get_current_user)]
 
@@ -148,6 +169,28 @@ def login_user(payload: UserLoginRequest, request: Request) -> TokenResponse:
     return _issue_token(token_service, user_id)
 
 
+@router.post(
+    "/demo-session",
+    response_model=TokenResponse,
+    summary="Start the portfolio demo administrator session",
+    responses={
+        404: {"description": "Demo session is unavailable"},
+        429: {"description": "Demo-session rate limit exceeded"},
+        503: {"description": "Authentication service unavailable"},
+    },
+)
+def create_demo_session(request: Request) -> TokenResponse:
+    """Issue a canonical token for the verified reserved demo administrator."""
+    _enforce_demo_session_rate_limit(request)
+    token_service = _get_token_service(request)
+    session_factory = _get_session_factory(request)
+    try:
+        demo_admin = verify_demo_admin(session_factory)
+    except (DemoAdminConflictError, DemoAdminDatabaseError):
+        raise _service_unavailable_error() from None
+    return _issue_token(token_service, demo_admin.id)
+
+
 @router.get(
     "/me",
     response_model=CurrentUserResponse,
@@ -190,8 +233,34 @@ def _get_session_factory(request: Request) -> sessionmaker[Session]:
 
 
 def _enforce_rate_limit(request: Request, state_name: str) -> None:
-    limiter: FixedWindowRateLimiter = getattr(request.app.state, state_name)
-    rate_limit = limiter.check(get_client_bucket_key(request))
+    _enforce_rate_limit_for_bucket(
+        request,
+        state_name,
+        get_client_bucket_key(request),
+    )
+
+
+def _enforce_demo_session_rate_limit(request: Request) -> None:
+    try:
+        bucket_key = get_demo_session_bucket_key(request)
+    except DemoSessionClientIdentityError:
+        raise _service_unavailable_error() from None
+    _enforce_rate_limit_for_bucket(
+        request,
+        "demo_session_rate_limiter",
+        bucket_key,
+    )
+
+
+def _enforce_rate_limit_for_bucket(
+    request: Request,
+    state_name: str,
+    bucket_key: str,
+) -> None:
+    limiter = getattr(request.app.state, state_name, None)
+    if not isinstance(limiter, FixedWindowRateLimiter):
+        raise _service_unavailable_error()
+    rate_limit = limiter.check(bucket_key)
     if not rate_limit.allowed:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,

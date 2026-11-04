@@ -81,8 +81,14 @@
   the PostgreSQL demo capability-only evidence and from the automatic GitHub
   Actions run; it is not CI. Final independent review is complete, closing only
   B4-3B5. The B4-2 CLI-on-DB, safe final Menu UX, public demo-administrator
-  provisioning and public demo-session issuance, remaining B4 work, B5, B6,
-  production provisioning, and deployment also remain open. A separate,
+  provisioning and public activation of demo-session issuance, remaining B4
+  work, B5, B6, production provisioning, and deployment also remain open. An
+  uncommitted backend-only B4 demo-session candidate now provides a bodyless
+  endpoint guarded by exact trusted runtime, exact read-only reserved-admin
+  verification, a dedicated limiter, and the existing canonical JWT issuer.
+  Its targeted no-database and isolated PostgreSQL evidence is complete;
+  review, Browser E2E, commit, push, CI, deployment, and public activation
+  remain open. A separate,
   operator-gated deployment dataset seed is now an uncommitted local
   implementation candidate; it has been exercised only against the isolated
   local integration database and has not targeted Neon. This
@@ -187,8 +193,11 @@
   PostgreSQL demo capability-only evidence and from the automatic GitHub Actions
   run; it is not CI. Final independent review is complete, closing only B4-3B5.
   B4-2 CLI-on-DB, safe final Menu UX, public demo-administrator provisioning and
-  public B4 demo-session issuance, remaining B4 work, B5, B6, and any further B3
-  scope remain future work.
+  public activation of B4 demo-session issuance, remaining B4 work, B5, B6,
+  and any further B3 scope remain future work. A backend-only demo-session
+  endpoint is an uncommitted local candidate; its bounded local test evidence
+  is complete, while review, Browser E2E, commit, push, CI, and public
+  activation remain open.
   Stage 23 is **not started**. No Render/Neon provisioning, production
   migration or seed execution, public deployment, or public URL is claimed. A
   guarded deployment seed path exists only as a local candidate; selecting its
@@ -1571,6 +1580,64 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   B4-2 CLI-on-DB, final Menu UX, public demo-administrator provisioning and
   public demo-session issuance, remaining B4, B5/B6, Render/Neon, production
   seed, deployment, and public acceptance remain open.
+
+- **Stage 22 B4 reserved demo session — local backend implementation
+  candidate:** D-089 adds bodyless `POST /api/v1/auth/demo-session`. The route
+  is registered and appears in generated OpenAPI wherever OpenAPI is enabled,
+  but it can issue a token only in exact trusted `true + demo`; any other or
+  missing runtime pair returns a constant 404 before limiter, database, or
+  token access. The permitted path first resolves an independent app-scoped
+  limiter bucket of five requests per 60 seconds. Local and test runtimes use
+  the direct connection peer. Only production with Render's exact built-ins
+  `RENDER=true` and `RENDER_SERVICE_TYPE=web`, a matching public
+  `*.onrender.com` hostname/origin, and the portfolio demo runtime accepts one
+  valid IPv4 or IPv6 from the edge-overwritten `CF-Connecting-IP`; missing,
+  repeated, chained, scoped, or invalid values produce the generic 503 before
+  database or JWT access without falling back to the shared proxy peer.
+  `X-Forwarded-For` remains untrusted and global proxy-header trust remains
+  disabled. Only after this boundary does the route access the canonical token
+  service and existing read-only reserved demo-administrator verifier.
+
+  Verification must find exactly one row matching the reserved UUID, email,
+  disabled-password marker, active state, and ordinary `admin` role. The route
+  cannot provision a User, accepts no password schema, performs no DML, and
+  cannot issue `super_admin`. Success uses the existing canonical `user_access`
+  issuer and configured short lifetime. Missing, conflicting, inactive, or
+  drifted identity, database failure, unavailable token configuration, and
+  token failure all produce the same secret-free 503; rate-limit denial is 429
+  with `Retry-After`.
+
+  Earlier local evidence includes 37 passing targeted no-database tests and
+  one isolated PostgreSQL run of the complete
+  `test_demo_session_api.py` and `test_user_auth_api.py` files: 62 passed,
+  native exit 0, with the guarded fixture creating, migrating, and removing
+  only `restaurant_ordering_analytics_test`. The existing PostgreSQL container
+  was started once and stopped once; it ended `exited` with exit code 0 and its
+  named volume remained mounted to the same container definition. This is not
+  a bitwise volume-content comparison. Those results predate the proxy-bucket
+  remediation. Fresh current-byte evidence now includes 244 passing targeted
+  no-database tests and one complete repeat of both integration files: 69
+  passed, native exit 0, without selection filters or retries. The guarded
+  fixture completed. During remediation verification the same identified local
+  PostgreSQL container was started twice and stopped twice after the relevant
+  complete-file runs; it ended `exited` with exit code 0 and its named volume
+  remained mounted to the same container definition, again without a bitwise
+  content claim. The earlier Ruff, Black, isort, documentation Prettier, and
+  `git diff --check` results must not be treated as rerun on remediated bytes;
+  fresh static-gate results are reported separately for the final diff. One
+  fresh full backend run with `tests/integration` explicitly excluded completed
+  with 1781 passed, native exit 0, on the remediated bytes.
+
+  Two broader backend runs with `tests/integration` excluded each reached 1757
+  passed before the same unrelated setup error in
+  `test_helper_failure_output_never_echoes_secret_like_values`: pytest lacked
+  permission to create its temporary directory, including the explicitly
+  requested workspace basetemp. A later run outside that filesystem restriction
+  used an explicit basetemp and completed with 1758 passed, native exit 0; its
+  temporary directory was then removed. Independent review, one canonical
+  Browser E2E, commit, push, CI, controlled demo-administrator provisioning,
+  final Menu and My account UX, deployment, and public activation remain open.
+  Stage 22 remains in progress, and Stage 23 is not started.
 
 - **Stage 22 deployment demo dataset seed — local implementation candidate:**
   D-088 adds a separate `python -m app.seed.deployment` command without changing
