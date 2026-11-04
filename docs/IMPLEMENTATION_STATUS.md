@@ -88,17 +88,29 @@
   run `41894173298`, attempt 1, completed `Backend`, `Migrations`, `Frontend`,
   and `Browser E2E` with `success` for that exact SHA. The successful
   `Browser E2E` job is the general CI regression suite, not a dedicated browser
-  scenario for the demo-session path. A subsequent uncommitted frontend-only
-  plumbing candidate adds one bodyless transport and one canonical
-  `AuthContext` action. It reuses the existing token parser, timeout, abort and
-  stale-response protection, current-tab session storage, and authoritative
-  `/auth/me` validation without rendering a button or changing a route. Current
-  local evidence is 82 passing targeted tests and one full frontend run with
-  37 files and 1176 tests passing, plus ESLint, Prettier, and production build
-  success. The reserved Neon demo-administrator account, visible frontend
-  entry point, final UX, dedicated browser proof, independent review, commit,
-  push, CI, public activation, deployment, and Render acceptance remain open. A
-  separate, operator-gated deployment dataset seed is now an uncommitted local
+  scenario for the demo-session path. The frontend bodyless transport and
+  canonical `AuthContext` action are committed and pushed on `main` at
+  `ba3b965f1d31088d2b7545627b088f332b7b113b`; automatic GitHub Actions push
+  run `41909577872`, attempt 1, completed `Backend`, `Migrations`, `Frontend`,
+  and `Browser E2E` with `success` for that exact SHA. They reuse the existing
+  token parser, timeout, abort and stale-response protection, current-tab
+  session storage, and authoritative `/auth/me` validation without rendering a
+  button or changing a route. Local evidence is 82 passing targeted tests and
+  one full frontend run with 37 files and 1176 tests passing, plus ESLint,
+  Prettier, and production build success. The provider-unmount cleanup
+  follow-up is committed and pushed on `main` at
+  `af308e6d501591fc7d18b7e5a46452dc643026f4`; automatic GitHub Actions push
+  run `41918068453`, attempt 1, completed the same four required jobs with
+  `success` for that exact SHA. Its local targeted run completed with 39 tests
+  passing. Unmount now aborts the active request and invalidates its generation
+  even without an initial session. A token already saved while `/auth/me` is
+  pending remains available for the existing revalidation behavior, while a
+  late response cannot rewrite it or restore the unmounted session. Both later
+  successful `Browser E2E` jobs are general CI regression evidence, not a
+  dedicated demo-session browser flow. The reserved Neon demo-administrator
+  account, visible frontend entry point, final UX, dedicated browser proof,
+  public activation, deployment, and Render acceptance remain open. A separate,
+  operator-gated deployment dataset seed is now an uncommitted local
   implementation candidate; it has been exercised only against the isolated
   local integration database and has not targeted Neon. This
   file records durable implementation scope and acceptance evidence;
@@ -208,14 +220,20 @@
   `aeea2ae39eec17c17eb4a5b59ce6537e4fa1b071`; automatic push run
   `41894173298`, attempt 1, passed `Backend`, `Migrations`, `Frontend`, and the
   general `Browser E2E` CI regression job. Its bounded backend test evidence and
-  independent review are complete. A later uncommitted frontend-only plumbing
-  candidate now provides the bodyless request and canonical `AuthContext`
-  action with `/auth/me` confirmation, but no visible entry point or route
-  change. Its current local evidence is 82 targeted and 1176 full-suite frontend
-  tests passing, with ESLint, Prettier, and production build also passing. A
-  dedicated demo-session browser flow has not run, and independent review,
-  commit, push, CI, the Neon demo account, visible frontend entry point, final
-  UX, public activation, deployment, and Render acceptance remain open.
+  independent review are complete. The later frontend-only bodyless transport
+  and canonical `AuthContext` action with `/auth/me` confirmation are committed
+  and pushed at `ba3b965f1d31088d2b7545627b088f332b7b113b`; automatic push run
+  `41909577872`, attempt 1, passed all four required jobs for that exact SHA.
+  Local evidence is 82 targeted and 1176 full-suite frontend tests passing,
+  with ESLint, Prettier, and production build also passing. The unmount-cleanup
+  follow-up is committed and pushed at
+  `af308e6d501591fc7d18b7e5a46452dc643026f4`; automatic push run
+  `41918068453`, attempt 1, passed all four required jobs for that exact SHA,
+  after a local targeted run with 39 tests passing. Neither commit adds a
+  visible entry point or route change. Both successful general CI browser jobs
+  remain distinct from a dedicated demo-session browser flow. That
+  dedicated flow, the Neon demo account, visible frontend entry point, final UX,
+  public activation, deployment, and Render acceptance remain open.
   Stage 23 is **not started**. No Render/Neon provisioning, production
   migration or seed execution, public deployment, or public URL is claimed. A
   guarded deployment seed path exists only as a local candidate; selecting its
@@ -1659,12 +1677,12 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   and `Browser E2E` with `success` for that exact SHA. The successful CI
   `Browser E2E` job is the general regression suite and does not constitute a
   dedicated browser test that starts the demo-session path. The reserved Neon
-  demo-administrator account, frontend button and session flow, final Menu and
-  My account UX, dedicated browser proof, deployment, public activation, and
-  Render acceptance remain open. Stage 22 remains in progress, and Stage 23 is
-  not started.
+  demo-administrator account, visible frontend button and final session UX,
+  final Menu and My account UX, dedicated browser proof, deployment, public
+  activation, and Render acceptance remain open. Stage 22 remains in progress,
+  and Stage 23 is not started.
 
-  A later uncommitted frontend-only plumbing candidate adds one bodyless
+  A later frontend-only plumbing slice adds one bodyless
   `POST /api/v1/auth/demo-session` transport and exposes `startDemoSession()`
   through the existing application-wide `AuthContext`. The transport sends no
   credentials or body, performs no automatic retry, preserves safe 404, 429
@@ -1677,13 +1695,27 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   local evidence is 82 passing tests across the two targeted auth files and one
   full frontend run with 37 files and 1176 tests passing, all without retry.
   ESLint completed with only the two pre-existing MenuItemForm fast-refresh
-  warnings; targeted Prettier and the production build passed. Before any
-  visible entry point is added, provider unmount cleanup remains open for the
-  no-initial-session case: logout and superseding requests cancel correctly,
-  but unmount does not yet abort an in-flight demo-session request. Independent
-  review, commit, push, CI, dedicated demo-session Browser E2E, Neon
-  provisioning, visible session entry, final UX, public activation, deployment,
-  and Render acceptance remain open.
+  warnings; targeted Prettier and the production build passed. This slice was
+  committed and pushed on `main` at
+  `ba3b965f1d31088d2b7545627b088f332b7b113b`; automatic GitHub Actions push
+  run `41909577872`, attempt 1, completed `Backend`, `Migrations`, `Frontend`,
+  and `Browser E2E` with `success` for that exact SHA.
+
+  The subsequent provider-unmount cleanup closes the no-initial-session gap:
+  unmount always invalidates the active request generation, aborts its
+  controller, and prevents a late response from writing a new token or restoring
+  the unmounted session even when a transport ignores `AbortSignal`. A token
+  already saved before unmount while `/auth/me` is pending remains in current-tab
+  storage under the existing revalidation behavior; ordinary unmount of a
+  confirmed session also preserves its token. The local targeted AuthContext run
+  completed with 39 tests passing. This follow-up was committed and pushed on
+  `main` at `af308e6d501591fc7d18b7e5a46452dc643026f4`; automatic GitHub Actions
+  push run `41918068453`, attempt 1, completed the same four required jobs with
+  `success` for that exact SHA. The successful `Browser E2E` jobs for both
+  frontend commits are general CI regression evidence, not a dedicated
+  demo-session browser flow. That dedicated proof, reserved Neon
+  demo-administrator account provisioning, visible session entry and final UX,
+  public activation, deployment, and Render acceptance remain open.
 
 - **Stage 22 deployment demo dataset seed — local implementation candidate:**
   D-088 adds a separate `python -m app.seed.deployment` command without changing
