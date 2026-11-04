@@ -762,13 +762,17 @@ exact current-`main` checks.
   B4-3A3 and B4-3B1 through B4-3B5 security and isolation slices are
   implemented and committed. B4-2 provides offline-only demo-administrator
   provision/verify logic, while its controlled CLI-on-DB acceptance remains
-  open. A separate uncommitted local backend candidate adds bodyless
-  `POST /api/v1/auth/demo-session` using the normal short-lived JWT and exact
-  active reserved `admin`, never `super_admin` or a public password. It is not
-  a released or publicly activated feature. The reserved Neon demo account,
-  public session issuance, final Menu and My account UX, independent review,
-  canonical Browser E2E, commit, push, CI, deployment, and public acceptance
-  remain open.
+  open. The backend-only bodyless `POST /api/v1/auth/demo-session` boundary is
+  committed and pushed at `aeea2ae39eec17c17eb4a5b59ce6537e4fa1b071`.
+  Automatic GitHub Actions push run `41894173298`, attempt 1, completed
+  `Backend`, `Migrations`, `Frontend`, and `Browser E2E` with `success` for
+  that exact SHA. It uses the normal short-lived JWT and exact active reserved
+  `admin`, never `super_admin` or a public password. The successful CI
+  `Browser E2E` job is the general regression suite; a dedicated browser
+  scenario for the demo-session path has not run. The endpoint is not publicly
+  activated. The reserved Neon demo account, frontend button and session flow,
+  final Menu and My account UX, dedicated browser proof, deployment, Render
+  acceptance, and public session issuance remain open.
 - **B5 — recruiter journey/UX:** future; clearly label synthetic data and demo
   payment.
 - **B6 — integrated acceptance:** future; verify security, data boundaries,
@@ -781,9 +785,10 @@ demo payment flow are implemented. Succeeded demo Payments may enter existing
 analytics/reports through status and `succeeded_at` without a `StripeEvent`;
 the canonical B2 dataset remains unchanged. Demo administration is not
 complete: its bounded committed safeguards and isolation slices are in place,
-while demo-session issuance remains an uncommitted local candidate and no
-reserved Neon demo account or public session has been activated. D-060 payment
-neutrality and D-077 NOK-only Admin Menu remain unchanged.
+and the demo-session backend boundary is committed and CI green, but no
+reserved Neon demo account, frontend session flow, or public session has been
+activated. D-060 payment neutrality and D-077 NOK-only Admin Menu remain
+unchanged.
 
 ### 22-C — First Controlled Online Release
 
@@ -818,11 +823,12 @@ Neither stage claims a live deployment or public URL.
 That paragraph records the historical 2026-09-15 reconciliation boundary, not
 the current state. Stage 22 is now in progress through four committed AF1+B1
 slices, committed B2-1 through B2-3, B3-1 through B3-2B, B4-1, B4-3A1 through
-B4-3A3, and B4-3B1 through B4-3B5, with no live deployment. B4-2 CLI-on-DB,
-the uncommitted local demo-session candidate and its review, Browser E2E,
-commit, push, and CI gates, the reserved Neon demo account, final UX, remaining
-B4 through B6, any further B3 scope, and all public release work require
-separate authorization. Stage 23 remains not started.
+B4-3A3, B4-3B1 through B4-3B5, and the committed demo-session backend boundary,
+with no live deployment. B4-2 CLI-on-DB, the dedicated demo-session browser
+flow, the reserved Neon demo account, frontend session flow, final UX, remaining
+B4 through B6, any further B3 scope, deployment, Render acceptance, and all
+public release work require separate authorization. Stage 23 remains not
+started.
 
 The repository and Alembic head are
 `0009_add_portfolio_demo_origin_and_payment_provider`. The latest recorded

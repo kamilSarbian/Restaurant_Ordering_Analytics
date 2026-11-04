@@ -69,8 +69,11 @@ public demo-administrator provisioning and public activation of demo-session
 issuance, remaining B4, B5/B6, Render/Neon, production seed, deployment, and
 public acceptance remain open.
 
-One uncommitted backend-only B4 candidate now implements bodyless
-`POST /api/v1/auth/demo-session`. Trusted application state must be exact
+The backend-only B4 demo-session boundary is committed and pushed on `main` at
+`aeea2ae39eec17c17eb4a5b59ce6537e4fa1b071`. Automatic GitHub Actions push
+run `41894173298`, attempt 1, completed `Backend`, `Migrations`, `Frontend`,
+and `Browser E2E` with `success` for that exact SHA. Bodyless
+`POST /api/v1/auth/demo-session` requires exact trusted application state
 `true + demo`; every other or missing runtime pair returns a constant 404
 before limiter, database, or token work. The operation remains present in the
 generated OpenAPI wherever OpenAPI is enabled. The allowed path has an
@@ -93,9 +96,11 @@ remediation; fresh current-byte evidence is recorded in the implementation
 status. Two broader non-integration attempts each reached 1757 passed before
 the same unrelated pytest temporary-directory setup error. One later run using
 an accessible explicit basetemp completed with 1758 passed and native exit 0.
-Independent review and later release gates remain pending, and this candidate
-does not authorize public issuance or change the final Menu/My account UX
-prerequisite.
+Independent review, commit, push, and general CI are complete. The successful
+CI `Browser E2E` job is not a dedicated browser scenario for starting the
+demo-session flow. The reserved Neon demo-administrator account, frontend
+button and session flow, final Menu/My account UX, dedicated browser proof,
+public activation, deployment, and Render acceptance remain open.
 
 ## 3. Users
 
@@ -1084,11 +1089,14 @@ PostgreSQL demo capability-only evidence and from the automatic GitHub Actions
 run, and it is not CI. Final independent review is complete, closing only
 B4-3B5.
 Stage 22 — Production Deployment & Public Acceptance remains in progress and is
-not deployed. A backend-only B4 demo-session endpoint is an uncommitted local
-candidate with targeted no-database and isolated PostgreSQL evidence complete;
-independent review, Browser E2E, commit, push, CI, and public activation remain
-open. The remaining B4 work, B5, and B6 remain open. Stage 23 — Portfolio
-Documentation & Case Study is not started. A
+not deployed. The backend-only B4 demo-session endpoint is committed and pushed
+at `aeea2ae39eec17c17eb4a5b59ce6537e4fa1b071`; automatic GitHub Actions run
+`41894173298`, attempt 1, passed `Backend`, `Migrations`, `Frontend`, and the
+general `Browser E2E` regression job. No dedicated demo-session browser flow
+has been executed. The reserved Neon demo-administrator account, frontend
+button and session flow, final UX, public activation, deployment, and Render
+acceptance remain open. The remaining B4 work, B5, and B6 remain open. Stage 23
+— Portfolio Documentation & Case Study is not started. A
 recruiter-facing URL can be claimed only after Stage 22-D public-demo
 acceptance.
 

@@ -82,13 +82,15 @@
   Actions run; it is not CI. Final independent review is complete, closing only
   B4-3B5. The B4-2 CLI-on-DB, safe final Menu UX, public demo-administrator
   provisioning and public activation of demo-session issuance, remaining B4
-  work, B5, B6, production provisioning, and deployment also remain open. An
-  uncommitted backend-only B4 demo-session candidate now provides a bodyless
-  endpoint guarded by exact trusted runtime, exact read-only reserved-admin
-  verification, a dedicated limiter, and the existing canonical JWT issuer.
-  Its targeted no-database and isolated PostgreSQL evidence is complete;
-  review, Browser E2E, commit, push, CI, deployment, and public activation
-  remain open. A separate,
+  work, B5, B6, production provisioning, and deployment also remain open. The
+  backend-only B4 demo-session boundary is committed and pushed on `main` at
+  `aeea2ae39eec17c17eb4a5b59ce6537e4fa1b071`; automatic GitHub Actions push
+  run `41894173298`, attempt 1, completed `Backend`, `Migrations`, `Frontend`,
+  and `Browser E2E` with `success` for that exact SHA. The successful
+  `Browser E2E` job is the general CI regression suite, not a dedicated browser
+  scenario for the demo-session path. The reserved Neon demo-administrator
+  account, frontend button and session flow, final UX, dedicated browser proof,
+  public activation, deployment, and Render acceptance remain open. A separate,
   operator-gated deployment dataset seed is now an uncommitted local
   implementation candidate; it has been exercised only against the isolated
   local integration database and has not targeted Neon. This
@@ -194,10 +196,14 @@
   run; it is not CI. Final independent review is complete, closing only B4-3B5.
   B4-2 CLI-on-DB, safe final Menu UX, public demo-administrator provisioning and
   public activation of B4 demo-session issuance, remaining B4 work, B5, B6,
-  and any further B3 scope remain future work. A backend-only demo-session
-  endpoint is an uncommitted local candidate; its bounded local test evidence
-  is complete, while review, Browser E2E, commit, push, CI, and public
-  activation remain open.
+  and any further B3 scope remain future work. The backend-only demo-session
+  endpoint is committed and pushed at
+  `aeea2ae39eec17c17eb4a5b59ce6537e4fa1b071`; automatic push run
+  `41894173298`, attempt 1, passed `Backend`, `Migrations`, `Frontend`, and the
+  general `Browser E2E` CI regression job. Its bounded local test evidence and
+  independent review are complete. A dedicated demo-session browser flow has
+  not run, and the Neon demo account, frontend session flow, final UX, public
+  activation, deployment, and Render acceptance remain open.
   Stage 23 is **not started**. No Render/Neon provisioning, production
   migration or seed execution, public deployment, or public URL is claimed. A
   guarded deployment seed path exists only as a local candidate; selecting its
@@ -1581,8 +1587,8 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   public demo-session issuance, remaining B4, B5/B6, Render/Neon, production
   seed, deployment, and public acceptance remain open.
 
-- **Stage 22 B4 reserved demo session — local backend implementation
-  candidate:** D-089 adds bodyless `POST /api/v1/auth/demo-session`. The route
+- **Stage 22 B4 reserved demo session — committed, pushed, and CI green:**
+  D-089 adds bodyless `POST /api/v1/auth/demo-session`. The route
   is registered and appears in generated OpenAPI wherever OpenAPI is enabled,
   but it can issue a token only in exact trusted `true + demo`; any other or
   missing runtime pair returns a constant 404 before limiter, database, or
@@ -1634,10 +1640,17 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   permission to create its temporary directory, including the explicitly
   requested workspace basetemp. A later run outside that filesystem restriction
   used an explicit basetemp and completed with 1758 passed, native exit 0; its
-  temporary directory was then removed. Independent review, one canonical
-  Browser E2E, commit, push, CI, controlled demo-administrator provisioning,
-  final Menu and My account UX, deployment, and public activation remain open.
-  Stage 22 remains in progress, and Stage 23 is not started.
+  temporary directory was then removed. Independent review is complete. The
+  15-path implementation was committed and pushed on `main` at
+  `aeea2ae39eec17c17eb4a5b59ce6537e4fa1b071`; automatic GitHub Actions push
+  run `41894173298`, attempt 1, completed `Backend`, `Migrations`, `Frontend`,
+  and `Browser E2E` with `success` for that exact SHA. The successful CI
+  `Browser E2E` job is the general regression suite and does not constitute a
+  dedicated browser test that starts the demo-session path. The reserved Neon
+  demo-administrator account, frontend button and session flow, final Menu and
+  My account UX, dedicated browser proof, deployment, public activation, and
+  Render acceptance remain open. Stage 22 remains in progress, and Stage 23 is
+  not started.
 
 - **Stage 22 deployment demo dataset seed — local implementation candidate:**
   D-088 adds a separate `python -m app.seed.deployment` command without changing

@@ -73,10 +73,13 @@ complete, closing only B4-3B5. The B4-2 CLI-on-DB, final Menu UX, public
 demo-administrator provisioning, public activation of demo-session issuance,
 remaining B4, B5/B6, Render/Neon, production seed, deployment, and public
 acceptance remain open.
-An uncommitted backend-only B4 demo-session candidate adds bodyless
-`POST /api/v1/auth/demo-session`. The operation is registered in the API and
-appears in generated OpenAPI wherever OpenAPI is enabled, but it can issue a
-token only in exact `PORTFOLIO_DEMO_MODE=true + PAYMENT_PROVIDER=demo`.
+The backend-only B4 demo-session boundary is committed and pushed on `main` at
+`aeea2ae39eec17c17eb4a5b59ce6537e4fa1b071`. Automatic GitHub Actions push
+run `41894173298`, attempt 1, completed `Backend`, `Migrations`, `Frontend`,
+and `Browser E2E` with `success` for that exact SHA. Bodyless
+`POST /api/v1/auth/demo-session` is registered in the API and appears in
+generated OpenAPI wherever OpenAPI is enabled, but it can issue a token only in
+exact `PORTFOLIO_DEMO_MODE=true + PAYMENT_PROVIDER=demo`.
 Only production with Render's exact built-ins `RENDER=true` and
 `RENDER_SERVICE_TYPE=web`, its matching `*.onrender.com` hostname/origin, and
 the portfolio demo runtime uses one validated IPv4 or IPv6 from Render's
@@ -88,9 +91,12 @@ peer; `X-Forwarded-For` remains untrusted everywhere and global proxy-header
 trust remains disabled. The route verifies the exact active
 reserved `admin` without provisioning or DML and issues the existing
 short-lived canonical `user_access` JWT. Other runtime pairs return a constant
-404 before limiter, database, or token work. This local route is not a public
-session launch: final Menu and My account UX, controlled provisioning,
-independent review, Browser E2E, commit, push, CI, and deployment remain open.
+404 before limiter, database, or token work. The successful CI `Browser E2E`
+job is the general regression suite, not a dedicated browser scenario that
+starts this demo-session flow. This committed backend route is not a public
+session launch: the reserved demo-administrator account in Neon, the frontend
+button and session flow, final Menu and My account UX, dedicated browser proof,
+public activation, deployment, and Render acceptance remain open.
 The earlier 37-test no-database and 62-test isolated PostgreSQL results predate
 the proxy-bucket remediation; fresh current-byte evidence is recorded in the
 implementation status. Two initial broader non-integration attempts each
