@@ -243,14 +243,17 @@ export function AuthProvider({ children }: { children?: ReactNode }) {
   }, [beginRequest, validateToken]);
 
   useEffect(() => {
-    if (initialSession.token === null) {
-      return undefined;
-    }
-    const validationStartId = window.setTimeout(() => {
-      void validateCurrentSession();
-    }, 0);
+    const validationStartId =
+      initialSession.token === null
+        ? null
+        : window.setTimeout(() => {
+            void validateCurrentSession();
+          }, 0);
+
     return () => {
-      window.clearTimeout(validationStartId);
+      if (validationStartId !== null) {
+        window.clearTimeout(validationStartId);
+      }
       generationRef.current += 1;
       activeControllerRef.current?.abort();
       activeControllerRef.current = null;

@@ -445,6 +445,88 @@ describe('AuthProvider demo-session flow', () => {
     expect(auth().user?.email).toBe(secondUser.email);
     expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toContain(SECOND_TOKEN);
   });
+
+  it('invalidates a demo-session response that arrives after unmount', async () => {
+    let resolveTokenResponse!: (response: Response) => void;
+    const tokenResponsePromise = new Promise<Response>((resolve) => {
+      resolveTokenResponse = resolve;
+    });
+    const stub = installFetchStub({ responsePromise: tokenResponsePromise });
+    const view = renderAuth();
+    let outcome!: Promise<AuthActionOutcome>;
+
+    act(() => {
+      outcome = auth().startDemoSession();
+    });
+    await waitFor(() => expect(stub.calls).toHaveLength(1));
+
+    view.unmount();
+    expect(stub.calls[0]?.signal?.aborted).toBe(true);
+
+    await act(async () => {
+      resolveTokenResponse(
+        new Response(JSON.stringify(tokenResponse()), {
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+      expect(await outcome).toEqual({ kind: 'aborted' });
+    });
+
+    expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toBeNull();
+  });
+
+  it('prevents a late me response from rewriting the demo token after unmount', async () => {
+    let resolveCurrentUser!: (response: Response) => void;
+    const currentUserResponse = new Promise<Response>((resolve) => {
+      resolveCurrentUser = resolve;
+    });
+    const storageWrite = vi.spyOn(Storage.prototype, 'setItem');
+    const stub = installFetchStub(
+      { json: tokenResponse() },
+      { responsePromise: currentUserResponse },
+    );
+    const view = renderAuth();
+    let outcome!: Promise<AuthActionOutcome>;
+
+    await act(async () => {
+      outcome = auth().startDemoSession();
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(stub.calls).toHaveLength(2));
+    expect(auth().phase).toBe('checking-session');
+    const storedTokenBeforeUnmount = sessionStorage.getItem(AUTH_STORAGE_KEY);
+    const writesBeforeUnmount = storageWrite.mock.calls.length;
+
+    view.unmount();
+    expect(stub.calls[1]?.signal?.aborted).toBe(true);
+
+    await act(async () => {
+      resolveCurrentUser(
+        new Response(JSON.stringify(USER), {
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+      expect(await outcome).toEqual({ kind: 'aborted' });
+    });
+
+    expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toBe(storedTokenBeforeUnmount);
+    expect(storageWrite).toHaveBeenCalledTimes(writesBeforeUnmount);
+  });
+
+  it('preserves a confirmed demo-session token after a normal unmount', async () => {
+    installFetchStub({ json: tokenResponse() }, { json: USER });
+    const view = renderAuth();
+
+    await act(async () => {
+      expect(await auth().startDemoSession()).toEqual({ kind: 'authenticated' });
+    });
+    const storedToken = sessionStorage.getItem(AUTH_STORAGE_KEY);
+    expect(storedToken).toContain(TOKEN);
+
+    view.unmount();
+
+    expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toBe(storedToken);
+  });
 });
 
 describe('AuthProvider session safety', () => {
