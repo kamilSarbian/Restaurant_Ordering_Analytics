@@ -8,7 +8,7 @@ import styles from './AdminShell.module.css';
 
 /** Render the protected administrator navigation and active workspace route. */
 export default function AdminShell() {
-  const { logout, user } = useAuth();
+  const { isDemoSession, logout, user } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const mainRef = useRef<HTMLElement>(null);
@@ -46,6 +46,11 @@ export default function AdminShell() {
             <span className={styles.brandText}>Nordic Hearth</span>
           </Link>
           <div className={styles.identity}>
+            {isDemoSession ? (
+              <span className={styles.demoBadge}>
+                Portfolio demo · shared synthetic data
+              </span>
+            ) : null}
             {user !== null ? <span className={styles.email}>{user.email}</span> : null}
             <Button
               className={styles.logoutButton}

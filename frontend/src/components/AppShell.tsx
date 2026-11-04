@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 
+import { isDemoSessionEntryEnabled } from '../config/demoSession';
 import { useAuth } from '../features/auth/AuthContext';
 
 import BrandMark from './branding/BrandMark';
@@ -19,7 +20,7 @@ function shouldRestoreAsyncFocus(): boolean {
 
 /** Render shared customer navigation and the active customer route. */
 export default function AppShell() {
-  const { logout, phase, user } = useAuth();
+  const { isDemoSession, logout, phase, user } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const mainRef = useRef<HTMLElement>(null);
@@ -29,6 +30,7 @@ export default function AppShell() {
   const previousPathnameRef = useRef(location.pathname);
   const sessionRetryPendingRef = useRef(false);
   const canOpenAdmin = user?.role === 'admin' || user?.role === 'super_admin';
+  const demoSessionEntryEnabled = isDemoSessionEntryEnabled();
   const sessionFeedbackPath =
     location.pathname.length > 1
       ? location.pathname.replace(/\/+$/u, '')
@@ -112,6 +114,14 @@ export default function AppShell() {
                   <NavLink className={styles.navigationLink} to="/login">
                     Log in
                   </NavLink>
+                  {demoSessionEntryEnabled ? (
+                    <NavLink
+                      className={styles.navigationLink}
+                      to="/login?next=%2Fadmin"
+                    >
+                      Try admin demo
+                    </NavLink>
+                  ) : null}
                   <NavLink className={styles.navigationLink} to="/register">
                     Create account
                   </NavLink>
@@ -119,6 +129,11 @@ export default function AppShell() {
               )}
               {phase === 'authenticated' && user !== null && (
                 <>
+                  {isDemoSession ? (
+                    <span className={styles.sessionStatus}>
+                      Demo session · shared synthetic data
+                    </span>
+                  ) : null}
                   <NavLink className={styles.navigationLink} to="/account">
                     My account
                   </NavLink>

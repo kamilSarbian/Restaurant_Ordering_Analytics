@@ -8073,6 +8073,7 @@ async function assertAuthKeyboardContracts(page: Page): Promise<void> {
   const password = page.getByLabel('Password', { exact: true });
   const passwordToggle = page.locator('button[aria-controls=login-password]');
   const submit = page.getByRole('button', { name: 'Sign in', exact: true });
+  const demo = page.getByRole('button', { name: 'Try admin demo', exact: true });
   const register = page.getByRole('link', {
     exact: true,
     name: 'Create an account',
@@ -8090,11 +8091,15 @@ async function assertAuthKeyboardContracts(page: Page): Promise<void> {
   await page.keyboard.press('Tab');
   await assertVisibleKeyboardFocus(submit);
   await page.keyboard.press('Tab');
+  await assertVisibleKeyboardFocus(demo);
+  await page.keyboard.press('Tab');
   await assertVisibleKeyboardFocus(register);
   await page.keyboard.press('Tab');
   await assertVisibleKeyboardFocus(back);
   await page.keyboard.press('Shift+Tab');
   await assertVisibleKeyboardFocus(register);
+  await page.keyboard.press('Shift+Tab');
+  await assertVisibleKeyboardFocus(demo);
   await page.keyboard.press('Shift+Tab');
   await assertVisibleKeyboardFocus(submit);
 

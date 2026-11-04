@@ -79,6 +79,8 @@ def _runtime_environment() -> dict[str, str]:
         "E2E_POSTGRES_PASSWORD": POSTGRES_PASSWORD,
         "E2E_AUTH_JWT_SECRET": AUTH_JWT_SECRET,
         "E2E_STRIPE_WEBHOOK_SECRET": WEBHOOK_SECRET,
+        "PORTFOLIO_DEMO_MODE": "false",
+        "PAYMENT_PROVIDER": "stripe_test",
         "DATABASE_URL": _database_url(),
     }
 
@@ -234,6 +236,8 @@ def test_runtime_contract_accepts_exact_isolated_environment_without_admin() -> 
     assert contract.project_name == PROJECT_NAME
     assert contract.frontend_port == FRONTEND_PORT
     assert contract.public_origin == PUBLIC_ORIGIN
+    assert contract.portfolio_demo_mode is False
+    assert contract.payment_provider == "stripe_test"
     rendered_contract = repr(contract)
     assert POSTGRES_PASSWORD not in rendered_contract
     assert AUTH_JWT_SECRET not in rendered_contract
@@ -285,6 +289,42 @@ def test_runtime_contract_rejects_missing_values_without_leakage() -> None:
     with pytest.raises(
         harness.E2EHarnessSafetyError,
         match="^E2E_ENVIRONMENT_INVALID$",
+    ):
+        harness.load_e2e_runtime_contract(environment)
+
+
+def test_runtime_contract_accepts_only_the_exact_demo_runtime_pair() -> None:
+    environment = _runtime_environment()
+    environment["PORTFOLIO_DEMO_MODE"] = "true"
+    environment["PAYMENT_PROVIDER"] = "demo"
+
+    contract = harness.load_e2e_runtime_contract(environment)
+
+    assert contract.portfolio_demo_mode is True
+    assert contract.payment_provider == "demo"
+
+
+@pytest.mark.parametrize(
+    ("portfolio_demo_mode", "payment_provider"),
+    [
+        ("true", "stripe_test"),
+        ("false", "demo"),
+        ("TRUE", "demo"),
+        ("0", "stripe_test"),
+        ("false", "stripe-test"),
+    ],
+)
+def test_runtime_contract_rejects_inconsistent_or_noncanonical_runtime_pairs(
+    portfolio_demo_mode: str,
+    payment_provider: str,
+) -> None:
+    environment = _runtime_environment()
+    environment["PORTFOLIO_DEMO_MODE"] = portfolio_demo_mode
+    environment["PAYMENT_PROVIDER"] = payment_provider
+
+    with pytest.raises(
+        harness.E2EHarnessSafetyError,
+        match="^E2E_RUNTIME_POLICY_INVALID$",
     ):
         harness.load_e2e_runtime_contract(environment)
 
@@ -379,6 +419,8 @@ def test_create_e2e_app_injects_fake_stripe_without_database_or_network(
         app.state.stripe_checkout_client._registry
         is app.state.e2e_fake_checkout_registry
     )
+    assert app.state.portfolio_demo_mode is False
+    assert app.state.payment_provider == "stripe_test"
     assert (
         app.state.stripe_webhook_verifier._registry
         is app.state.e2e_fake_checkout_registry
@@ -934,6 +976,7 @@ def test_setup_e2e_data_reuses_seed_and_admin_boundaries_and_disposes_engine(
     session_factory = object()
     seed = Mock(return_value=SeedResult(5, 15))
     ensure_admin = Mock()
+    ensure_demo_admin = Mock()
     monkeypatch.setattr(harness, "load_e2e_setup_contract", load_contract)
     monkeypatch.setattr(harness, "create_database_engine", Mock(return_value=engine))
     monkeypatch.setattr(
@@ -943,13 +986,15 @@ def test_setup_e2e_data_reuses_seed_and_admin_boundaries_and_disposes_engine(
     )
     monkeypatch.setattr(harness, "seed_menu_data", seed)
     monkeypatch.setattr(harness, "_ensure_synthetic_admin", ensure_admin)
+    monkeypatch.setattr(harness, "provision_demo_admin", ensure_demo_admin)
 
     result = harness.setup_e2e_data()
 
-    assert result == harness.E2ESetupResult(5, 15, True)
+    assert result == harness.E2ESetupResult(5, 15, True, True)
     load_contract.assert_called_once_with()
     seed.assert_called_once_with(session_factory)
     ensure_admin.assert_called_once_with(session_factory, contract)
+    ensure_demo_admin.assert_called_once_with(session_factory)
     engine.dispose.assert_called_once_with()
 
 
@@ -984,6 +1029,43 @@ def test_setup_e2e_data_sanitizes_failures_and_disposes_engine(
     engine.dispose.assert_called_once_with()
 
 
+def test_setup_e2e_data_sanitizes_demo_admin_failures_and_disposes_engine(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    contract = _setup_contract()
+    engine = SimpleNamespace(dispose=Mock())
+    unsafe_detail = f"demo admin failure at {_database_url()} using {ADMIN_PASSWORD}"
+    monkeypatch.setattr(
+        harness,
+        "load_e2e_setup_contract",
+        Mock(return_value=contract),
+    )
+    monkeypatch.setattr(harness, "create_database_engine", Mock(return_value=engine))
+    monkeypatch.setattr(harness, "create_session_factory", Mock(return_value=object()))
+    monkeypatch.setattr(
+        harness,
+        "seed_menu_data",
+        Mock(return_value=SeedResult(5, 15)),
+    )
+    monkeypatch.setattr(harness, "_ensure_synthetic_admin", Mock())
+    monkeypatch.setattr(
+        harness,
+        "provision_demo_admin",
+        Mock(side_effect=harness.DemoAdminError(unsafe_detail)),
+    )
+
+    with pytest.raises(
+        harness.E2EHarnessSetupError,
+        match="^E2E_SETUP_FAILED$",
+    ) as error:
+        harness.setup_e2e_data()
+
+    assert POSTGRES_PASSWORD not in str(error.value)
+    assert ADMIN_PASSWORD not in str(error.value)
+    assert "://" not in str(error.value)
+    engine.dispose.assert_called_once_with()
+
+
 def test_setup_e2e_data_sanitizes_cleanup_failures(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1003,6 +1085,7 @@ def test_setup_e2e_data_sanitizes_cleanup_failures(
         Mock(return_value=SeedResult(5, 15)),
     )
     monkeypatch.setattr(harness, "_ensure_synthetic_admin", Mock())
+    monkeypatch.setattr(harness, "provision_demo_admin", Mock())
 
     with pytest.raises(
         harness.E2EHarnessSetupError,
@@ -1161,13 +1244,16 @@ def test_setup_cli_reports_only_safe_counts(
     monkeypatch.setattr(
         harness,
         "setup_e2e_data",
-        Mock(return_value=harness.E2ESetupResult(5, 15, True)),
+        Mock(return_value=harness.E2ESetupResult(5, 15, True, True)),
     )
 
     assert harness.main(["setup"]) == 0
 
     captured = capsys.readouterr()
-    assert captured.out == "E2E setup complete: 5 categories and 15 menu items ready.\n"
+    assert captured.out == (
+        "E2E setup complete: 5 categories and 15 menu items ready; "
+        "reserved demo administrator ready.\n"
+    )
     assert captured.err == ""
     assert POSTGRES_PASSWORD not in captured.out
     assert ADMIN_PASSWORD not in captured.out

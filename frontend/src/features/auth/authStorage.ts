@@ -1,4 +1,5 @@
 export const AUTH_STORAGE_KEY = 'restaurant-ordering:auth:v1';
+export const DEMO_SESSION_STORAGE_KEY = 'restaurant-ordering:demo-session:v1';
 export const LEGACY_AUTH_STORAGE_KEY = 'restaurant-ordering:admin-auth:v1';
 export const AUTH_STORAGE_VERSION = 1;
 
@@ -8,6 +9,7 @@ interface StoredAuthToken {
 }
 
 let authMemoryToken: string | null | undefined;
+let demoSessionMemory: boolean | undefined;
 let legacyMemoryToken: string | null | undefined;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -44,6 +46,23 @@ function parseStoredToken(serialized: string): string | null {
       return null;
     }
     return null;
+  }
+}
+
+function parseDemoSessionMarker(serialized: string): boolean {
+  try {
+    const value: unknown = JSON.parse(serialized);
+    return (
+      isRecord(value) &&
+      hasExactKeys(value, ['sessionKind', 'version']) &&
+      value.sessionKind === 'demo' &&
+      value.version === AUTH_STORAGE_VERSION
+    );
+  } catch (error: unknown) {
+    if (error instanceof SyntaxError) {
+      return false;
+    }
+    return false;
   }
 }
 
@@ -120,6 +139,60 @@ export function clearAuthToken(storage?: Storage): boolean {
   return removeStorageKey(AUTH_STORAGE_KEY, storage);
 }
 
+/** Load the presentation-only demo-session marker from current-tab storage. */
+export function loadDemoSessionMarker(storage?: Storage): boolean {
+  if (demoSessionMemory !== undefined) {
+    return demoSessionMemory;
+  }
+
+  let serialized: string | null;
+  try {
+    serialized = resolveSessionStorage(storage).getItem(DEMO_SESSION_STORAGE_KEY);
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      demoSessionMemory = false;
+      return false;
+    }
+    demoSessionMemory = false;
+    return false;
+  }
+
+  if (serialized === null) {
+    demoSessionMemory = false;
+    return false;
+  }
+  if (!parseDemoSessionMarker(serialized)) {
+    demoSessionMemory = false;
+    removeStorageKey(DEMO_SESSION_STORAGE_KEY, storage);
+    return false;
+  }
+  demoSessionMemory = true;
+  return true;
+}
+
+/** Persist a presentation-only demo-session marker in current-tab storage. */
+export function saveDemoSessionMarker(storage?: Storage): boolean {
+  demoSessionMemory = true;
+  try {
+    resolveSessionStorage(storage).setItem(
+      DEMO_SESSION_STORAGE_KEY,
+      JSON.stringify({ sessionKind: 'demo', version: AUTH_STORAGE_VERSION }),
+    );
+    return true;
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      return true;
+    }
+    return true;
+  }
+}
+
+/** Clear the presentation-only demo-session marker without touching other state. */
+export function clearDemoSessionMarker(storage?: Storage): boolean {
+  demoSessionMemory = false;
+  return removeStorageKey(DEMO_SESSION_STORAGE_KEY, storage);
+}
+
 /** Load a strictly shaped legacy admin token as a migration candidate only. */
 export function loadLegacyAuthToken(storage?: Storage): string | null {
   if (legacyMemoryToken !== undefined) {
@@ -161,5 +234,6 @@ export function clearLegacyAuthToken(storage?: Storage): boolean {
 /** Reset module-only fallback state to isolate authentication storage tests. */
 export function resetAuthMemoryForTests(): void {
   authMemoryToken = undefined;
+  demoSessionMemory = undefined;
   legacyMemoryToken = undefined;
 }

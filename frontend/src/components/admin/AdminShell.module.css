@@ -89,6 +89,21 @@
     font-size: var(--font-size-label);
 }
 
+.demoBadge {
+    display: inline-flex;
+    min-height: 2rem;
+    align-items: center;
+    padding: var(--space-1) var(--space-2);
+    border: var(--border-width-hairline) solid var(--color-sage-support);
+    border-radius: var(--radius-control);
+    background: transparent;
+    color: var(--color-surface-muted);
+    font-size: var(--font-size-label);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-heading);
+    text-align: center;
+}
+
 .logoutButton {
     flex: none;
 }

@@ -222,6 +222,8 @@ cleanup() {
     E2E_PROMOTEE_EMAIL \
     E2E_PROMOTEE_PASSWORD \
     E2E_STRIPE_WEBHOOK_SECRET \
+    PAYMENT_PROVIDER \
+    PORTFOLIO_DEMO_MODE \
     POSTGRES_PASSWORD \
     STRIPE_WEBHOOK_SECRET
 
@@ -346,6 +348,8 @@ export E2E_CUSTOMER_A_PASSWORD
 export E2E_CUSTOMER_B_EMAIL
 export E2E_CUSTOMER_B_PASSWORD
 export E2E_BASE_URL="http://127.0.0.1:$FRONTEND_PORT"
+export PORTFOLIO_DEMO_MODE="false"
+export PAYMENT_PROVIDER="stripe_test"
 export COMPOSE_DISABLE_ENV_FILE="1"
 unset COMPOSE_ENV_FILES COMPOSE_FILE COMPOSE_PROFILES COMPOSE_PROJECT_NAME
 unset DATABASE_URL TEST_DATABASE_URL
@@ -371,6 +375,8 @@ unset DATABASE_URL TEST_DATABASE_URL
   printf 'E2E_STRIPE_WEBHOOK_SECRET=%s\n' "$E2E_STRIPE_WEBHOOK_SECRET"
   printf 'E2E_ADMIN_EMAIL=%s\n' "$E2E_ADMIN_EMAIL"
   printf 'E2E_ADMIN_PASSWORD=%s\n' "$E2E_ADMIN_PASSWORD"
+  printf 'PORTFOLIO_DEMO_MODE=%s\n' "$PORTFOLIO_DEMO_MODE"
+  printf 'PAYMENT_PROVIDER=%s\n' "$PAYMENT_PROVIDER"
 } >"$ENV_FILE"
 chmod 600 "$ENV_FILE"
 
@@ -440,6 +446,8 @@ try {
   assert(env.E2E_PROJECT_NAME === projectName);
   assert(env.E2E_FRONTEND_PORT === frontendPort);
   assert(env.E2E_PUBLIC_ORIGIN === `http://127.0.0.1:${frontendPort}`);
+  assert(env.PORTFOLIO_DEMO_MODE === 'false');
+  assert(env.PAYMENT_PROVIDER === 'stripe_test');
 
   const networkKeys = (service) => Object.keys(service.networks ?? {}).sort();
   assert(JSON.stringify(networkKeys(services.postgres)) === JSON.stringify(['data']));
@@ -460,6 +468,11 @@ try {
   assert(services.migrate.image === `roa-stage18-backend:${runId}`);
   assert(services.frontend.image === `roa-stage18-frontend:${runId}`);
   assert(services.backend.environment.STRIPE_SECRET_KEY === '');
+  assert(services.backend.environment.PORTFOLIO_DEMO_MODE === 'false');
+  assert(services.backend.environment.PAYMENT_PROVIDER === 'stripe_test');
+  assert(services.migrate.environment.PORTFOLIO_DEMO_MODE === 'false');
+  assert(services.migrate.environment.PAYMENT_PROVIDER === 'stripe_test');
+  assert(services.frontend.build.args.VITE_ENABLE_DEMO_SESSION === 'true');
   assert(!Object.hasOwn(services.backend.environment, 'E2E_ADMIN_EMAIL'));
   assert(!Object.hasOwn(services.backend.environment, 'E2E_ADMIN_PASSWORD'));
   assert(services.migrate.environment.E2E_ADMIN_EMAIL === env.E2E_ADMIN_EMAIL);
@@ -591,6 +604,15 @@ for container in "$migrate_id" "$backend_id"; do
 done
 retained_volume_is_exact || fail "E2E_DATABASE_VOLUME_INVALID"
 
+if ! backend_runtime_environment="$(
+  inspect_value "$backend_id" '{{range .Config.Env}}{{println .}}{{end}}' |
+    grep -E '^(PAYMENT_PROVIDER|PORTFOLIO_DEMO_MODE)=' |
+    sort
+)"; then
+  fail "E2E_BACKEND_RUNTIME_INVALID"
+fi
+[[ "$backend_runtime_environment" == $'PAYMENT_PROVIDER=stripe_test\nPORTFOLIO_DEMO_MODE=false' ]] || fail "E2E_BACKEND_RUNTIME_INVALID"
+
 curl --fail --silent --show-error --connect-timeout 5 --max-time 10 --output /dev/null "$E2E_BASE_URL/healthz" || fail "E2E_FRONTEND_HEALTH_FAILED"
 curl --fail --silent --show-error --connect-timeout 5 --max-time 10 --output /dev/null "$E2E_BASE_URL/ready" || fail "E2E_BACKEND_READY_FAILED"
 legacy_login_status="$(curl --silent --show-error --connect-timeout 5 --max-time 10 --output /dev/null --write-out '%{http_code}' --request POST "$E2E_BASE_URL/api/v1/admin/auth/login")"
@@ -610,6 +632,76 @@ printf '%s\n' 'E2E stack health and runtime boundaries validated.'
     --retries=0
 )
 
+audit_logs || fail "E2E_LOG_AUDIT_FAILED"
+LOGS_AUDITED=0
+
+normal_backend_id="$backend_id"
+backend_recreate_count=0
+export PORTFOLIO_DEMO_MODE="true"
+export PAYMENT_PROVIDER="demo"
+if ! "${COMPOSE[@]}" up --detach --no-deps --force-recreate backend >"$COMMAND_LOG_FILE" 2>&1; then
+  fail "E2E_DEMO_BACKEND_RECREATE_FAILED"
+fi
+((backend_recreate_count += 1))
+[[ "$backend_recreate_count" == "1" ]] || fail "E2E_DEMO_BACKEND_RECREATE_INVALID"
+
+deadline=$((SECONDS + 180))
+demo_backend_id=""
+while ((SECONDS < deadline)); do
+  demo_backend_id="$(container_id backend)"
+  if [[ -n "$demo_backend_id" && "$demo_backend_id" != "$normal_backend_id" ]] &&
+    [[ "$(inspect_value "$demo_backend_id" '{{.State.Health.Status}}')" == "healthy" ]]; then
+    break
+  fi
+  sleep 2
+done
+
+[[ -n "$demo_backend_id" && "$demo_backend_id" != "$normal_backend_id" ]] || fail "E2E_DEMO_BACKEND_RECREATE_INVALID"
+[[ "$(inspect_value "$demo_backend_id" '{{.State.Health.Status}}')" == "healthy" ]] || fail "E2E_DEMO_BACKEND_HEALTH_FAILED"
+if docker inspect "$normal_backend_id" >/dev/null 2>&1; then
+  fail "E2E_DEMO_BACKEND_RECREATE_INVALID"
+fi
+backend_id="$demo_backend_id"
+
+container_count="$(docker ps --all --quiet --filter "label=com.docker.compose.project=$PROJECT_NAME" | grep -c . || true)"
+[[ "$container_count" == "4" ]] || fail "E2E_CONTAINER_SET_INVALID"
+[[ "$(inspect_value "$backend_id" '{{.RestartCount}}')" == "0" ]] || fail "E2E_CONTAINER_RESTARTED"
+[[ "$(inspect_value "$backend_id" '{{.HostConfig.Privileged}}')" == "false" ]] || fail "E2E_CONTAINER_PRIVILEGED"
+[[ "$(inspect_value "$backend_id" '{{.HostConfig.RestartPolicy.Name}}')" == "no" ]] || fail "E2E_RESTART_POLICY_INVALID"
+assert_hardened_service "$backend_id" "10001:10001"
+[[ -z "$(docker port "$backend_id" 2>/dev/null)" ]] || fail "E2E_PRIVATE_PORT_PUBLISHED"
+[[ "$(network_names "$backend_id")" == $PROJECT_NAME-app$'\n'$PROJECT_NAME-data ]] || fail "E2E_NETWORK_MEMBERSHIP_INVALID"
+harness_mount="$(inspect_value "$backend_id" '{{range .Mounts}}{{if eq .Destination "/opt/restaurant/backend/e2e_harness.py"}}{{.RW}}|{{.Type}}{{end}}{{end}}')"
+[[ "$harness_mount" == "false|bind" ]] || fail "E2E_HARNESS_MOUNT_INVALID"
+
+if ! backend_runtime_environment="$(
+  inspect_value "$backend_id" '{{range .Config.Env}}{{println .}}{{end}}' |
+    grep -E '^(PAYMENT_PROVIDER|PORTFOLIO_DEMO_MODE)=' |
+    sort
+)"; then
+  fail "E2E_DEMO_BACKEND_RUNTIME_INVALID"
+fi
+[[ "$backend_runtime_environment" == $'PAYMENT_PROVIDER=demo\nPORTFOLIO_DEMO_MODE=true' ]] || fail "E2E_DEMO_BACKEND_RUNTIME_INVALID"
+
+deadline=$((SECONDS + 30))
+while ((SECONDS < deadline)); do
+  if curl --fail --silent --show-error --connect-timeout 2 --max-time 5 --output /dev/null "$E2E_BASE_URL/ready"; then
+    break
+  fi
+  sleep 2
+done
+curl --fail --silent --show-error --connect-timeout 5 --max-time 10 --output /dev/null "$E2E_BASE_URL/ready" || fail "E2E_DEMO_BACKEND_HEALTH_FAILED"
+
+printf '%s\n' 'E2E demo runtime recreation and health boundaries validated.'
+
+(
+  cd -- "$REPOSITORY_ROOT/frontend"
+  npx playwright test \
+    e2e/demo-session.e2e.ts \
+    --workers=1 \
+    --retries=0
+)
+
 if ! "${COMPOSE[@]}" exec -T backend python -m alembic current --check-heads >"$COMMAND_LOG_FILE" 2>&1; then
   fail "E2E_ALEMBIC_HEAD_INVALID"
 fi
@@ -620,9 +712,9 @@ SELECT CASE WHEN
     current_database() = 'restaurant_ordering_analytics_e2e'
     AND current_user = 'e2e_app'
     AND (SELECT count(*) FROM alembic_version WHERE version_num = '0009_add_portfolio_demo_origin_and_payment_provider') = 1
-    AND (SELECT count(*) FROM users) = 4
+    AND (SELECT count(*) FROM users) = 5
     AND (SELECT count(*) FROM users WHERE role = 'customer') = 2
-    AND (SELECT count(*) FROM users WHERE role = 'admin') = 1
+    AND (SELECT count(*) FROM users WHERE role = 'admin') = 2
     AND (SELECT count(*) FROM users WHERE role = 'super_admin') = 1
     AND (SELECT count(*) FROM categories) = 5
     AND (SELECT count(*) FROM menu_items) = 15

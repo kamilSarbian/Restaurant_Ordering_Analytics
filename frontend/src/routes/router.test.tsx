@@ -11,6 +11,7 @@ import AsyncNotice from '../components/AsyncNotice';
 import {
   AUTH_STORAGE_KEY,
   resetAuthMemoryForTests,
+  saveDemoSessionMarker,
 } from '../features/auth/authStorage';
 import { CART_STORAGE_KEY } from '../features/cart/cartStorage';
 import {
@@ -128,6 +129,7 @@ describe('customer frontend routing foundation', () => {
     localStorage.clear();
     resetAuthMemoryForTests();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it('renders the public landing page at the application root', () => {
@@ -304,6 +306,9 @@ describe('customer frontend routing foundation', () => {
       within(navigation).getByRole('link', { name: 'Create account' }),
     ).toHaveAttribute('href', '/register');
     expect(
+      within(navigation).queryByRole('link', { name: 'Try admin demo' }),
+    ).not.toBeInTheDocument();
+    expect(
       within(navigation).queryByRole('link', { name: 'My account' }),
     ).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Log out' })).not.toBeInTheDocument();
@@ -319,6 +324,36 @@ describe('customer frontend routing foundation', () => {
       await screen.findByRole('heading', { level: 1, name: 'Our menu' }),
     ).toBeVisible();
     expect(screen.getByRole('main')).toHaveFocus();
+  });
+
+  it('reveals one public demo entry only when the exact build flag is enabled', async () => {
+    vi.stubEnv('VITE_ENABLE_DEMO_SESSION', 'true');
+    const user = userEvent.setup();
+    renderRoute('/');
+    const navigation = screen.getByRole('navigation', { name: 'Customer navigation' });
+    const demoLink = within(navigation).getByRole('link', { name: 'Try admin demo' });
+
+    expect(demoLink).toHaveAttribute('href', '/login?next=%2Fadmin');
+    await user.click(demoLink);
+
+    expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Try admin demo' })).toBeVisible();
+  });
+
+  it('labels a confirmed demo session throughout the public customer shell', async () => {
+    storeAuthToken();
+    saveDemoSessionMarker();
+    installFetchStub({ json: currentUser('admin') });
+
+    renderRoute('/missing-page');
+
+    const navigation = await screen.findByRole('navigation', {
+      name: 'Customer navigation',
+    });
+    expect(
+      await within(navigation).findByText('Demo session · shared synthetic data'),
+    ).toBeVisible();
+    expect(within(navigation).getByRole('link', { name: 'Admin' })).toBeVisible();
   });
 
   it.each(['/missing-page', '/accounting', '/orders/example/unknown'])(

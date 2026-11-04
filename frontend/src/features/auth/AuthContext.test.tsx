@@ -6,9 +6,11 @@ import type { AuthUser } from './authApi';
 import { AuthProvider, type AuthActionOutcome, useAuth } from './AuthContext';
 import {
   AUTH_STORAGE_KEY,
+  DEMO_SESSION_STORAGE_KEY,
   LEGACY_AUTH_STORAGE_KEY,
   resetAuthMemoryForTests,
   saveAuthToken,
+  saveDemoSessionMarker,
 } from './authStorage';
 
 const TOKEN = 'synthetic.canonical.token';
@@ -183,6 +185,7 @@ describe('AuthProvider bootstrap', () => {
 
 describe('AuthProvider credential flows', () => {
   it('logs in through canonical token issuance followed by me', async () => {
+    saveDemoSessionMarker();
     const stub = installFetchStub({ json: tokenResponse() }, { json: USER });
     renderAuth();
     let outcome: AuthActionOutcome | undefined;
@@ -191,6 +194,8 @@ describe('AuthProvider credential flows', () => {
     });
     expect(outcome).toEqual({ kind: 'authenticated' });
     expect(auth().phase).toBe('authenticated');
+    expect(auth().isDemoSession).toBe(false);
+    expect(sessionStorage.getItem(DEMO_SESSION_STORAGE_KEY)).toBeNull();
     expect(stub.calls.map((call) => call.url)).toEqual([
       '/api/v1/auth/login',
       '/api/v1/auth/me',
@@ -309,6 +314,7 @@ describe('AuthProvider demo-session flow', () => {
     await waitFor(() => expect(stub.calls).toHaveLength(2));
 
     expect(auth().phase).toBe('checking-session');
+    expect(auth().isDemoSession).toBe(true);
     expect(auth().user).toBeNull();
     expect(auth().getAuthenticatedSession()).toBeNull();
     expect(stub.calls[0]).toMatchObject({
@@ -329,9 +335,11 @@ describe('AuthProvider demo-session flow', () => {
     });
 
     expect(auth().phase).toBe('authenticated');
+    expect(auth().isDemoSession).toBe(true);
     expect(auth().user).toMatchObject({ id: USER_ID, role: 'admin' });
     expect(auth().getAuthenticatedSession()?.accessToken).toBe(TOKEN);
     expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toContain(TOKEN);
+    expect(sessionStorage.getItem(DEMO_SESSION_STORAGE_KEY)).toContain('demo');
     expect(localStorageWrite).not.toHaveBeenCalled();
   });
 
@@ -357,6 +365,7 @@ describe('AuthProvider demo-session flow', () => {
       expect(auth().user).toBeNull();
       expect(auth().getAuthenticatedSession()).toBeNull();
       expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toBeNull();
+      expect(sessionStorage.getItem(DEMO_SESSION_STORAGE_KEY)).toBeNull();
     },
   );
 
@@ -380,6 +389,7 @@ describe('AuthProvider demo-session flow', () => {
 
       expect(stub.calls).toHaveLength(1);
       expect(auth().phase).toBe('unauthenticated');
+      expect(auth().isDemoSession).toBe(false);
       expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toBeNull();
     },
   );
@@ -400,6 +410,7 @@ describe('AuthProvider demo-session flow', () => {
     });
     expect(auth().phase).toBe('unauthenticated');
     expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toBeNull();
+    expect(sessionStorage.getItem(DEMO_SESSION_STORAGE_KEY)).toBeNull();
   });
 
   it('prevents an older demo validation from overwriting a newer session', async () => {
@@ -532,6 +543,7 @@ describe('AuthProvider demo-session flow', () => {
 describe('AuthProvider session safety', () => {
   it('logout clears both auth stores but preserves unrelated browser state', async () => {
     saveAuthToken(TOKEN);
+    saveDemoSessionMarker();
     store(LEGACY_AUTH_STORAGE_KEY, SECOND_TOKEN);
     sessionStorage.setItem('restaurant-ordering:cart:v1', 'synthetic-cart');
     installFetchStub({ json: USER });
@@ -541,6 +553,7 @@ describe('AuthProvider session safety', () => {
     expect(auth().phase).toBe('unauthenticated');
     expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toBeNull();
     expect(sessionStorage.getItem(LEGACY_AUTH_STORAGE_KEY)).toBeNull();
+    expect(sessionStorage.getItem(DEMO_SESSION_STORAGE_KEY)).toBeNull();
     expect(sessionStorage.getItem('restaurant-ordering:cart:v1')).toBe(
       'synthetic-cart',
     );

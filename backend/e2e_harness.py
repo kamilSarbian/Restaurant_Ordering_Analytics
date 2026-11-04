@@ -34,6 +34,7 @@ from app.auth.bootstrap import (
     AdminBootstrapInputError,
     create_admin,
 )
+from app.auth.demo_admin import DemoAdminError, provision_demo_admin
 from app.auth.models import User
 from app.auth.passwords import verify_password
 from app.auth.roles import UserRole
@@ -208,6 +209,8 @@ class E2ERuntimeContract:
     project_name: str
     frontend_port: int
     public_origin: str
+    portfolio_demo_mode: bool
+    payment_provider: str
     database_url: URL = field(repr=False)
     auth_jwt_secret: SecretStr = field(repr=False)
     stripe_webhook_secret: SecretStr = field(repr=False)
@@ -229,6 +232,7 @@ class E2ESetupResult:
     categories_processed: int
     menu_items_processed: int
     administrator_ready: bool
+    demo_administrator_ready: bool
 
 
 class _E2EFakeCheckoutNotFoundError(E2EHarnessError):
@@ -565,6 +569,18 @@ def load_e2e_runtime_contract(
     if public_origin != f"http://127.0.0.1:{frontend_port}":
         raise E2EHarnessSafetyError("E2E_PUBLIC_ORIGIN_INVALID")
 
+    portfolio_demo_mode_text = _required_environment_value(
+        source,
+        "PORTFOLIO_DEMO_MODE",
+    )
+    payment_provider = _required_environment_value(source, "PAYMENT_PROVIDER")
+    if portfolio_demo_mode_text == "false" and payment_provider == "stripe_test":
+        portfolio_demo_mode = False
+    elif portfolio_demo_mode_text == "true" and payment_provider == "demo":
+        portfolio_demo_mode = True
+    else:
+        raise E2EHarnessSafetyError("E2E_RUNTIME_POLICY_INVALID")
+
     postgres_password = _required_secret(source, "E2E_POSTGRES_PASSWORD")
     database_url = validate_e2e_database_url(
         _required_environment_value(source, "DATABASE_URL"),
@@ -585,6 +601,8 @@ def load_e2e_runtime_contract(
         project_name=project_name,
         frontend_port=frontend_port,
         public_origin=public_origin,
+        portfolio_demo_mode=portfolio_demo_mode,
+        payment_provider=payment_provider,
         database_url=database_url,
         auth_jwt_secret=auth_jwt_secret,
         stripe_webhook_secret=stripe_webhook_secret,
@@ -641,6 +659,8 @@ def create_e2e_app(
         _env_file=None,
         app_environment="e2e",
         app_debug=False,
+        portfolio_demo_mode=contract.portfolio_demo_mode,
+        payment_provider=contract.payment_provider,
         database_url=contract.database_url.render_as_string(hide_password=False),
         stripe_secret_key=None,
         stripe_webhook_secret=None,
@@ -819,13 +839,13 @@ def _complete_fake_checkout(
 
 
 def setup_e2e_data() -> E2ESetupResult:
-    """Seed menu data and ensure the exact synthetic super-administrator.
+    """Seed menu data and ensure both exact E2E administrator identities.
 
     Returns:
         A safe setup summary without identities or connection details.
 
     Raises:
-        E2EHarnessSetupError: If seeding or administrator setup cannot converge.
+        E2EHarnessSetupError: If seeding or either administrator cannot converge.
     """
     resolved_contract = load_e2e_setup_contract()
     engine: Engine | None = None
@@ -836,8 +856,10 @@ def setup_e2e_data() -> E2ESetupResult:
         session_factory = create_session_factory(engine)
         seed_result = seed_menu_data(session_factory)
         _ensure_synthetic_admin(session_factory, resolved_contract)
+        provision_demo_admin(session_factory)
     except (
         AdminBootstrapInputError,
+        DemoAdminError,
         OSError,
         SeedConflictError,
         SQLAlchemyError,
@@ -854,6 +876,7 @@ def setup_e2e_data() -> E2ESetupResult:
         categories_processed=seed_result.categories_processed,
         menu_items_processed=seed_result.menu_items_processed,
         administrator_ready=True,
+        demo_administrator_ready=True,
     )
 
 
@@ -891,7 +914,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(
         "E2E setup complete: "
         f"{result.categories_processed} categories and "
-        f"{result.menu_items_processed} menu items ready."
+        f"{result.menu_items_processed} menu items ready; "
+        "reserved demo administrator ready."
     )
     return 0
 

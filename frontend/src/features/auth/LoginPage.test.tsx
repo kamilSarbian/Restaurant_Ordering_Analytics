@@ -4,7 +4,7 @@ import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { afterEach, vi } from 'vitest';
 
 import { installFetchStub } from '../../test/fetchStub';
-import { AuthProvider } from './AuthContext';
+import { AuthProvider, useAuth } from './AuthContext';
 import LoginPage from './LoginPage';
 import {
   AUTH_STORAGE_KEY,
@@ -29,13 +29,30 @@ function currentUser(role: 'admin' | 'customer' | 'super_admin' = 'customer') {
   };
 }
 
-function renderLogin(initialEntry = '/login') {
+function DemoCancellationControl() {
+  const { logout } = useAuth();
+  return (
+    <button type="button" onClick={logout}>
+      Cancel demo request
+    </button>
+  );
+}
+
+function renderLogin(initialEntry = '/login', withCancellationControl = false) {
   const router = createMemoryRouter(
     [
       {
         element: <AuthProvider />,
         children: [
-          { path: '/login', element: <LoginPage /> },
+          {
+            path: '/login',
+            element: (
+              <>
+                <LoginPage />
+                {withCancellationControl ? <DemoCancellationControl /> : null}
+              </>
+            ),
+          },
           { path: '/register', element: <h1>Registration destination</h1> },
           { path: '/', element: <h1>Customer home</h1> },
           { path: '/account', element: <h1>Account destination</h1> },
@@ -89,6 +106,7 @@ afterEach(() => {
   resetAuthMemoryForTests();
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe('shared login page', () => {
@@ -109,11 +127,144 @@ describe('shared login page', () => {
       'current-password',
     );
     expect(screen.queryByRole('combobox', { name: /role/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Try admin demo' }),
+    ).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Create an account' })).toHaveAttribute(
       'href',
       '/register',
     );
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('starts the enabled admin demo without credentials and navigates only after me', async () => {
+    vi.stubEnv('VITE_ENABLE_DEMO_SESSION', 'true');
+    const currentUserResponse = deferredResponse();
+    const stub = installFetchStub(
+      { json: TOKEN_RESPONSE },
+      { responsePromise: currentUserResponse.promise },
+    );
+    const user = userEvent.setup();
+    const { router } = renderLogin();
+
+    await user.click(await screen.findByRole('button', { name: 'Try admin demo' }));
+
+    expect(
+      await screen.findByRole('heading', { name: 'Checking your session' }),
+    ).toBeVisible();
+    expect(screen.queryByText('Administrator destination')).not.toBeInTheDocument();
+    expect(stub.calls).toHaveLength(2);
+    expect(stub.calls[0]).toMatchObject({
+      body: null,
+      method: 'POST',
+      url: '/api/v1/auth/demo-session',
+    });
+    expect(stub.calls[0]?.headers.has('Authorization')).toBe(false);
+
+    await act(async () => {
+      currentUserResponse.resolve(
+        new Response(JSON.stringify(currentUser('admin')), {
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+    });
+
+    expect(
+      await screen.findByRole('heading', { name: 'Administrator destination' }),
+    ).toBeVisible();
+    expect(router.state.location.pathname).toBe('/admin');
+  });
+
+  it('prevents a double click from starting two admin demo requests', async () => {
+    vi.stubEnv('VITE_ENABLE_DEMO_SESSION', 'true');
+    const stub = installFetchStub({ waitForAbort: true });
+    renderLogin();
+    const button = await screen.findByRole('button', { name: 'Try admin demo' });
+
+    fireEvent.click(button);
+    fireEvent.click(button);
+
+    expect(stub.calls).toHaveLength(1);
+    expect(
+      await screen.findByRole('button', { name: 'Starting admin demo' }),
+    ).toBeDisabled();
+  });
+
+  it.each([
+    [404, undefined, 'The admin demo is temporarily unavailable.'],
+    [503, undefined, 'The admin demo is temporarily unavailable.'],
+    [429, '17', 'Too many demo requests. Try again later.'],
+  ] as const)(
+    'shows a safe admin demo message for HTTP %i',
+    async (status, retryAfter, message) => {
+      vi.stubEnv('VITE_ENABLE_DEMO_SESSION', 'true');
+      const user = userEvent.setup();
+      installFetchStub({
+        headers: retryAfter === undefined ? undefined : { 'Retry-After': retryAfter },
+        status,
+      });
+      renderLogin();
+
+      await user.click(await screen.findByRole('button', { name: 'Try admin demo' }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(message);
+      if (status === 429) {
+        expect(
+          screen.getByRole('button', { name: 'Try admin demo in 17 seconds' }),
+        ).toBeDisabled();
+      }
+    },
+  );
+
+  it('shows a safe network failure and leaves normal sign-in available', async () => {
+    vi.stubEnv('VITE_ENABLE_DEMO_SESSION', 'true');
+    const user = userEvent.setup();
+    installFetchStub({ error: new TypeError('synthetic private network detail') });
+    renderLogin();
+
+    await user.click(await screen.findByRole('button', { name: 'Try admin demo' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Could not start the admin demo. Check your connection.',
+    );
+    expect(screen.getByRole('button', { name: 'Sign in' })).toBeEnabled();
+    expect(screen.queryByText(/synthetic private/i)).not.toBeInTheDocument();
+  });
+
+  it('shows a safe timeout when the demo-session request exceeds its bound', async () => {
+    vi.stubEnv('VITE_ENABLE_DEMO_SESSION', 'true');
+    installFetchStub({ waitForAbort: true });
+    renderLogin();
+    await screen.findByRole('button', { name: 'Try admin demo' });
+
+    vi.useFakeTimers();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Try admin demo' }));
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'The admin demo timed out. Try again.',
+    );
+    expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toBeNull();
+  });
+
+  it('shows a safe cancellation without retaining a demo session', async () => {
+    vi.stubEnv('VITE_ENABLE_DEMO_SESSION', 'true');
+    const stub = installFetchStub({ waitForAbort: true });
+    const user = userEvent.setup();
+    renderLogin('/login', true);
+
+    await user.click(await screen.findByRole('button', { name: 'Try admin demo' }));
+    expect(stub.calls).toHaveLength(1);
+    await user.click(screen.getByRole('button', { name: 'Cancel demo request' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'The admin demo request was cancelled.',
+    );
+    expect(stub.calls[0]?.signal?.aborted).toBe(true);
+    expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toBeNull();
   });
 
   it('carries a safe encoded continuation to registration without submitting', async () => {

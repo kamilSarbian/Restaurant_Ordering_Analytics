@@ -107,9 +107,30 @@
   pending remains available for the existing revalidation behavior, while a
   late response cannot rewrite it or restore the unmounted session. Both later
   successful `Browser E2E` jobs are general CI regression evidence, not a
-  dedicated demo-session browser flow. The reserved Neon demo-administrator
-  account, visible frontend entry point, final UX, dedicated browser proof,
-  public activation, deployment, and Render acceptance remain open. A separate,
+  dedicated demo-session browser flow. A later local, uncommitted visible-UX
+  candidate is gated by exact `VITE_ENABLE_DEMO_SESSION=true`; absent any exact
+  opt-in, the flag is disabled, including in the normal public build. When
+  enabled, public navigation exposes `Try admin demo`, LoginPage invokes the
+  existing action, and the client waits for canonical `/api/v1/auth/me` before
+  entering the administrator area. A visible `Portfolio demo · shared
+synthetic data` badge uses a presentation-only current-tab `sessionStorage`
+  marker that grants no authorization; the backend remains authoritative.
+  Current local evidence is 143/143 final targeted frontend tests across three
+  files, 1202/1202 full frontend tests, passing typecheck, ESLint, Prettier, and
+  build checks, plus 71/71 backend harness tests and passing quality checks. The
+  earlier combined 215/215 targeted result predates two later tests. A first
+  full harness on prior bytes ended the normal phase at 31 passed and 1 failed
+  on the focus contract changed by the new demo button, did not start its demo
+  phase, and cleaned up to zero project containers and networks. After the
+  test-contract correction, a fresh full harness on current bytes passed the
+  normal phase 32/32 in 5.1 minutes and the dedicated real-backend demo-session
+  phase 1/1 in 2.4 seconds, both with one worker and zero retries. Database and
+  log audits passed, cleanup again left zero project containers and networks,
+  and the protected volume retained its identity, metadata, and mounts without
+  a bitwise-content claim. The dedicated local E2E gate and final independent
+  review are complete. Commit, push, and new CI for this candidate, reserved
+  Neon demo-administrator account provisioning, public flag activation, final
+  Menu and My account UX, deployment, and Render acceptance remain open. A separate,
   operator-gated deployment dataset seed is now an uncommitted local
   implementation candidate; it has been exercised only against the isolated
   local integration database and has not targeted Neon. This
@@ -231,9 +252,24 @@
   `41918068453`, attempt 1, passed all four required jobs for that exact SHA,
   after a local targeted run with 39 tests passing. Neither commit adds a
   visible entry point or route change. Both successful general CI browser jobs
-  remain distinct from a dedicated demo-session browser flow. That
-  dedicated flow, the Neon demo account, visible frontend entry point, final UX,
-  public activation, deployment, and Render acceptance remain open.
+  remain distinct from a dedicated demo-session browser flow. A later local,
+  uncommitted visible-UX candidate is available only with exact
+  `VITE_ENABLE_DEMO_SESSION=true`, which defaults to disabled in the public
+  build. It adds the public `Try admin demo` link and LoginPage action, waits
+  for authoritative `/api/v1/auth/me` confirmation before administrator
+  navigation, and presents a `Portfolio demo · shared synthetic data` badge
+  from a presentation-only current-tab `sessionStorage` marker. The marker is
+  not authorization, and the backend remains the authority. Its dedicated
+  isolated real-backend Browser E2E is complete locally: after one prior-byte
+  harness exposed a focus-contract mismatch at 31 passed and 1 failed before
+  the demo phase, a fresh current-byte harness passed the normal phase 32/32
+  and the demo-session phase 1/1 with one worker, zero retries, passing database
+  and log audits, and zero remaining project containers or networks. The
+  protected volume retained its identity, metadata, and mounts without a
+  bitwise-content claim. The final independent review is complete. Reserved Neon
+  demo-administrator account provisioning, commit, push, new CI, public flag
+  activation, final Menu and My account UX, deployment, and Render acceptance
+  remain open.
   Stage 23 is **not started**. No Render/Neon provisioning, production
   migration or seed execution, public deployment, or public URL is claimed. A
   guarded deployment seed path exists only as a local candidate; selecting its
@@ -1713,9 +1749,40 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   push run `41918068453`, attempt 1, completed the same four required jobs with
   `success` for that exact SHA. The successful `Browser E2E` jobs for both
   frontend commits are general CI regression evidence, not a dedicated
-  demo-session browser flow. That dedicated proof, reserved Neon
-  demo-administrator account provisioning, visible session entry and final UX,
-  public activation, deployment, and Render acceptance remain open.
+  demo-session browser flow.
+
+  A later local, uncommitted visible-UX candidate adds a public `Try admin
+demo` link and the matching LoginPage action, gated only by the exact frontend
+  build value `VITE_ENABLE_DEMO_SESSION=true`. The flag defaults to disabled,
+  including in the normal public build, and controls presentation rather than
+  authorization. The existing backend remains authoritative, while the client
+  waits for canonical `/api/v1/auth/me` confirmation before administrator
+  navigation. A visible `Portfolio demo · shared synthetic data` badge is
+  driven by a presentation-only current-tab `sessionStorage` marker; this
+  marker cannot grant access.
+
+  Current local frontend evidence comprises 143 passing targeted tests across
+  the final three targeted files and one full frontend run with 1202 passing
+  tests, together with passing typecheck, ESLint, Prettier, and production build
+  checks. The earlier combined targeted run completed with 215 passing tests
+  before two later tests were added and remains separate evidence. Backend
+  harness evidence comprises 71 passing tests and passing quality checks.
+
+  Browser evidence preserves two distinct runs. The first full harness used
+  prior bytes: its normal phase completed with 31 passed and 1 failed at the
+  focus contract changed by the new demo button, so the dedicated demo phase
+  did not run. Its safe cleanup left zero project containers and zero project
+  networks. After correcting that test contract, a fresh full harness on the
+  current bytes completed the normal phase with 32 of 32 passing in 5.1 minutes
+  and the dedicated real-backend demo-session phase with 1 of 1 passing in 2.4
+  seconds. Both phases used one worker and zero retries. Database and log audits
+  passed, and cleanup again left zero project containers and zero project
+  networks. The protected `restaurant_ordering_analytics_postgres_data` volume
+  retained its identity, metadata, and mounts; its contents were not compared
+  bitwise. The dedicated local real-backend E2E and final independent review
+  are complete. Reserved Neon demo-administrator account provisioning, commit,
+  push, new CI, public flag activation, final Menu and My account UX,
+  deployment, and Render acceptance remain open.
 
 - **Stage 22 deployment demo dataset seed — local implementation candidate:**
   D-088 adds a separate `python -m app.seed.deployment` command without changing

@@ -93,10 +93,37 @@ reserved `admin` without provisioning or DML and issues the existing
 short-lived canonical `user_access` JWT. Other runtime pairs return a constant
 404 before limiter, database, or token work. The successful CI `Browser E2E`
 job is the general regression suite, not a dedicated browser scenario that
-starts this demo-session flow. This committed backend route is not a public
-session launch: the reserved demo-administrator account in Neon, the frontend
-button and session flow, final Menu and My account UX, dedicated browser proof,
-public activation, deployment, and Render acceptance remain open.
+starts this demo-session flow. A later local, uncommitted visible-UX candidate
+is exposed only when the frontend receives the exact build flag
+`VITE_ENABLE_DEMO_SESSION=true`; the flag defaults to disabled, including in
+the normal public build. When explicitly enabled, public navigation exposes a
+`Try admin demo` link and LoginPage offers the matching credential-free action.
+The flag controls presentation only: the backend remains the authority, and
+the client waits for canonical `/api/v1/auth/me` validation before navigating
+to the administrator area. A visible `Portfolio demo · shared synthetic data`
+badge is backed by a presentation-only current-tab `sessionStorage` marker;
+the marker grants no authorization. Current local frontend evidence comprises
+143 passing targeted tests across the final three targeted files and one full
+run with 1202 passing tests, plus passing typecheck, ESLint, Prettier, and
+production build checks. The earlier combined targeted result of 215 passing
+tests predates two later tests and remains separate. Backend harness evidence is
+71 passing tests with its quality checks passing.
+
+The dedicated isolated real-backend Browser E2E is now complete. A first full
+harness run on prior bytes completed the normal phase with 31 passed and 1
+failed at the focus contract changed by the new demo button; its demo phase did
+not run. Cleanup safely left zero project containers and zero project networks.
+After the test-contract correction, a fresh full harness on the current bytes
+completed the normal phase with 32 of 32 passing in 5.1 minutes and the
+dedicated real-backend demo-session phase with 1 of 1 passing in 2.4 seconds.
+Both phases used one worker and zero retries; database and log audits passed,
+and cleanup again left zero project containers and zero project networks. The
+protected development volume retained the same identity, metadata, and mounts;
+its contents were not compared bitwise. The final independent review is
+complete. This remains not a public session launch: commit, push, and new CI for
+this candidate, reserved Neon demo-administrator account provisioning, public
+flag activation, final Menu and My account UX, deployment, and Render acceptance
+remain open.
 The earlier 37-test no-database and 62-test isolated PostgreSQL results predate
 the proxy-bucket remediation; fresh current-byte evidence is recorded in the
 implementation status. Two initial broader non-integration attempts each

@@ -11,7 +11,9 @@ import { AuthProvider } from '../features/auth/AuthContext';
 import LoginPage from '../features/auth/LoginPage';
 import {
   AUTH_STORAGE_KEY,
+  DEMO_SESSION_STORAGE_KEY,
   resetAuthMemoryForTests,
+  saveDemoSessionMarker,
 } from '../features/auth/authStorage';
 import { installFetchStub } from '../test/fetchStub';
 import { adminRoutes } from './adminRoutes';
@@ -196,6 +198,9 @@ describe('administrator authentication routes and guard', () => {
       ).not.toBeInTheDocument();
       expect(screen.getByText('admin@example.test')).toBeVisible();
       expect(
+        screen.queryByText('Portfolio demo · shared synthetic data'),
+      ).not.toBeInTheDocument();
+      expect(
         screen.getByRole('navigation', { name: 'Administrator navigation' }),
       ).toBeInTheDocument();
       const brand = screen.getByRole('link', {
@@ -250,6 +255,24 @@ describe('administrator authentication routes and guard', () => {
       });
     },
   );
+
+  it('labels a confirmed demo administrator session and clears the marker on logout', async () => {
+    storeToken();
+    saveDemoSessionMarker();
+    installFetchStub({ json: ME_RESPONSE }, { json: EMPTY_ORDERS_RESPONSE });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const { router } = renderAdminRoute('/admin');
+
+    expect(
+      await screen.findByText('Portfolio demo · shared synthetic data'),
+    ).toBeVisible();
+    expect(sessionStorage.getItem(DEMO_SESSION_STORAGE_KEY)).toContain('demo');
+
+    await user.click(screen.getByRole('button', { name: 'Log out' }));
+
+    expect(router.state.location.pathname).toBe('/');
+    expect(sessionStorage.getItem(DEMO_SESSION_STORAGE_KEY)).toBeNull();
+  });
 
   it('routes an authenticated customer away from administrator content', async () => {
     storeToken();

@@ -20,10 +20,13 @@ import {
 } from './authApi';
 import {
   clearAuthToken,
+  clearDemoSessionMarker,
   clearLegacyAuthToken,
   loadAuthToken,
+  loadDemoSessionMarker,
   loadLegacyAuthToken,
   saveAuthToken,
+  saveDemoSessionMarker,
 } from './authStorage';
 
 export type AuthPhase =
@@ -47,6 +50,7 @@ type ValidationResult = 'aborted' | 'authenticated' | 'temporary' | 'unauthentic
 
 interface AuthState {
   accessToken: string | null;
+  isDemoSession: boolean;
   phase: AuthPhase;
   user: AuthUser | null;
 }
@@ -68,6 +72,7 @@ export interface AuthenticatedSession {
 }
 
 interface InitialSession {
+  isDemoSession: boolean;
   source: TokenSource | null;
   token: string | null;
 }
@@ -77,12 +82,17 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 function loadInitialSession(): InitialSession {
   const canonicalToken = loadAuthToken();
   if (canonicalToken !== null) {
-    return { source: 'canonical', token: canonicalToken };
+    return {
+      isDemoSession: loadDemoSessionMarker(),
+      source: 'canonical',
+      token: canonicalToken,
+    };
   }
+  clearDemoSessionMarker();
   const legacyToken = loadLegacyAuthToken();
   return legacyToken === null
-    ? { source: null, token: null }
-    : { source: 'legacy', token: legacyToken };
+    ? { isDemoSession: false, source: null, token: null }
+    : { isDemoSession: false, source: 'legacy', token: legacyToken };
 }
 
 function classifyCredentialError(error: unknown): AuthActionOutcome {
@@ -138,11 +148,13 @@ export function AuthProvider({ children }: { children?: ReactNode }) {
   const [initialSession] = useState(loadInitialSession);
   const [state, setState] = useState<AuthState>(() => ({
     accessToken: initialSession.token,
+    isDemoSession: initialSession.isDemoSession,
     phase: initialSession.token === null ? 'unauthenticated' : 'checking-session',
     user: null,
   }));
   const tokenRef = useRef(initialSession.token);
   const sourceRef = useRef(initialSession.source);
+  const demoSessionRef = useRef(initialSession.isDemoSession);
   const activeControllerRef = useRef<AbortController | null>(null);
   const generationRef = useRef(0);
   const sessionGenerationRef = useRef(initialSession.token === null ? 0 : 1);
@@ -167,9 +179,16 @@ export function AuthProvider({ children }: { children?: ReactNode }) {
     activeControllerRef.current = null;
     tokenRef.current = null;
     sourceRef.current = null;
+    demoSessionRef.current = false;
     clearAuthToken();
+    clearDemoSessionMarker();
     clearLegacyAuthToken();
-    setState({ accessToken: null, phase: 'unauthenticated', user: null });
+    setState({
+      accessToken: null,
+      isDemoSession: false,
+      phase: 'unauthenticated',
+      user: null,
+    });
   }, []);
 
   const validateToken = useCallback(
@@ -188,8 +207,18 @@ export function AuthProvider({ children }: { children?: ReactNode }) {
         tokenRef.current = accessToken;
         sourceRef.current = 'canonical';
         saveAuthToken(accessToken);
+        if (demoSessionRef.current) {
+          saveDemoSessionMarker();
+        } else {
+          clearDemoSessionMarker();
+        }
         clearLegacyAuthToken();
-        setState({ accessToken, phase: 'authenticated', user });
+        setState({
+          accessToken,
+          isDemoSession: demoSessionRef.current,
+          phase: 'authenticated',
+          user,
+        });
         return { result: 'authenticated', user };
       } catch (error: unknown) {
         if (!requestIsCurrent(generation)) {
@@ -206,19 +235,28 @@ export function AuthProvider({ children }: { children?: ReactNode }) {
         ) {
           tokenRef.current = null;
           sourceRef.current = null;
+          demoSessionRef.current = false;
           if (source === 'canonical') {
             clearAuthToken();
+            clearDemoSessionMarker();
             clearLegacyAuthToken();
           } else {
+            clearDemoSessionMarker();
             clearLegacyAuthToken();
           }
-          setState({ accessToken: null, phase: 'unauthenticated', user: null });
+          setState({
+            accessToken: null,
+            isDemoSession: false,
+            phase: 'unauthenticated',
+            user: null,
+          });
           return { result: 'unauthenticated', user: null };
         }
         tokenRef.current = accessToken;
         sourceRef.current = source;
         setState({
           accessToken,
+          isDemoSession: demoSessionRef.current,
           phase: 'temporarily-unavailable',
           user: null,
         });
@@ -235,7 +273,12 @@ export function AuthProvider({ children }: { children?: ReactNode }) {
     const accessToken = tokenRef.current;
     const source = sourceRef.current;
     if (accessToken === null || source === null) {
-      setState({ accessToken: null, phase: 'unauthenticated', user: null });
+      setState({
+        accessToken: null,
+        isDemoSession: false,
+        phase: 'unauthenticated',
+        user: null,
+      });
       return { result: 'unauthenticated', user: null };
     }
     const { controller, generation } = beginRequest();
@@ -264,6 +307,7 @@ export function AuthProvider({ children }: { children?: ReactNode }) {
     async (
       requestToken: (signal: AbortSignal) => Promise<{ accessToken: string }>,
       classifyError: (error: unknown) => AuthActionOutcome = classifyCredentialError,
+      isDemoSession = false,
     ): Promise<AuthActionOutcome> => {
       const { controller, generation } = beginRequest();
       try {
@@ -273,10 +317,17 @@ export function AuthProvider({ children }: { children?: ReactNode }) {
         }
         tokenRef.current = tokenResponse.accessToken;
         sourceRef.current = 'canonical';
+        demoSessionRef.current = isDemoSession;
         sessionGenerationRef.current += 1;
         saveAuthToken(tokenResponse.accessToken);
+        if (isDemoSession) {
+          saveDemoSessionMarker();
+        } else {
+          clearDemoSessionMarker();
+        }
         setState({
           accessToken: tokenResponse.accessToken,
+          isDemoSession,
           phase: 'checking-session',
           user: null,
         });
@@ -320,17 +371,23 @@ export function AuthProvider({ children }: { children?: ReactNode }) {
   );
 
   const startDemoSession = useCallback(
-    () => establishCredentials(requestDemoSession, classifyDemoSessionError),
+    () => establishCredentials(requestDemoSession, classifyDemoSessionError, true),
     [establishCredentials],
   );
 
   const retrySession = useCallback(async () => {
     if (tokenRef.current === null || sourceRef.current === null) {
-      setState({ accessToken: null, phase: 'unauthenticated', user: null });
+      setState({
+        accessToken: null,
+        isDemoSession: false,
+        phase: 'unauthenticated',
+        user: null,
+      });
       return;
     }
     setState({
       accessToken: tokenRef.current,
+      isDemoSession: demoSessionRef.current,
       phase: 'checking-session',
       user: null,
     });

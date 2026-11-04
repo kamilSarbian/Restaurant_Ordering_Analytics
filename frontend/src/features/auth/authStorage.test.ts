@@ -3,13 +3,17 @@ import { afterEach, vi } from 'vitest';
 import {
   AUTH_STORAGE_KEY,
   AUTH_STORAGE_VERSION,
+  DEMO_SESSION_STORAGE_KEY,
   LEGACY_AUTH_STORAGE_KEY,
   clearAuthToken,
+  clearDemoSessionMarker,
   clearLegacyAuthToken,
   loadAuthToken,
+  loadDemoSessionMarker,
   loadLegacyAuthToken,
   resetAuthMemoryForTests,
   saveAuthToken,
+  saveDemoSessionMarker,
 } from './authStorage';
 
 const SYNTHETIC_TOKEN = 'synthetic-canonical-token';
@@ -83,6 +87,40 @@ describe('canonical authentication storage', () => {
     expect(clearAuthToken()).toBe(true);
     expect(loadAuthToken()).toBeNull();
     expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toBeNull();
+    expect(sessionStorage.getItem('restaurant-ordering:cart:v1')).toBe('preserved');
+  });
+
+  it('stores the demo presentation marker only in current-tab storage', () => {
+    expect(loadDemoSessionMarker()).toBe(false);
+    expect(saveDemoSessionMarker()).toBe(true);
+
+    expect(loadDemoSessionMarker()).toBe(true);
+    expect(JSON.parse(sessionStorage.getItem(DEMO_SESSION_STORAGE_KEY) ?? '')).toEqual({
+      sessionKind: 'demo',
+      version: AUTH_STORAGE_VERSION,
+    });
+  });
+
+  it.each([
+    '{broken',
+    JSON.stringify({ sessionKind: 'demo', version: 2 }),
+    JSON.stringify({ sessionKind: 'customer', version: 1 }),
+    JSON.stringify({ sessionKind: 'demo', extra: true, version: 1 }),
+  ])('rejects malformed demo presentation marker %s', (serialized) => {
+    sessionStorage.setItem(DEMO_SESSION_STORAGE_KEY, serialized);
+
+    expect(loadDemoSessionMarker()).toBe(false);
+    expect(sessionStorage.getItem(DEMO_SESSION_STORAGE_KEY)).toBeNull();
+  });
+
+  it('clears only the demo marker while preserving auth and cart state', () => {
+    saveAuthToken(SYNTHETIC_TOKEN);
+    saveDemoSessionMarker();
+    sessionStorage.setItem('restaurant-ordering:cart:v1', 'preserved');
+
+    expect(clearDemoSessionMarker()).toBe(true);
+    expect(loadDemoSessionMarker()).toBe(false);
+    expect(loadAuthToken()).toBe(SYNTHETIC_TOKEN);
     expect(sessionStorage.getItem('restaurant-ordering:cart:v1')).toBe('preserved');
   });
 
@@ -209,6 +247,9 @@ describe('canonical authentication storage', () => {
     saveAuthToken(SYNTHETIC_TOKEN);
     loadAuthToken();
     clearAuthToken();
+    saveDemoSessionMarker();
+    loadDemoSessionMarker();
+    clearDemoSessionMarker();
     loadLegacyAuthToken();
     clearLegacyAuthToken();
 

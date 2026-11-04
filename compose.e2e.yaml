@@ -33,6 +33,8 @@ services:
       E2E_RUN_ID: ${E2E_RUN_ID:?E2E_RUN_ID is required}
       E2E_ADMIN_EMAIL: ${E2E_ADMIN_EMAIL:?E2E_ADMIN_EMAIL is required}
       E2E_ADMIN_PASSWORD: ${E2E_ADMIN_PASSWORD:?E2E_ADMIN_PASSWORD is required}
+      PORTFOLIO_DEMO_MODE: ${PORTFOLIO_DEMO_MODE:?PORTFOLIO_DEMO_MODE is required}
+      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:?PAYMENT_PROVIDER is required}
     volumes:
       - type: bind
         source: ./backend/e2e_harness.py
@@ -73,6 +75,8 @@ services:
       E2E_AUTH_JWT_SECRET: ${E2E_AUTH_JWT_SECRET:?E2E_AUTH_JWT_SECRET is required}
       E2E_STRIPE_WEBHOOK_SECRET: ${E2E_STRIPE_WEBHOOK_SECRET:?E2E_STRIPE_WEBHOOK_SECRET is required}
       E2E_RUN_ID: ${E2E_RUN_ID:?E2E_RUN_ID is required}
+      PORTFOLIO_DEMO_MODE: ${PORTFOLIO_DEMO_MODE:?PORTFOLIO_DEMO_MODE is required}
+      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:?PAYMENT_PROVIDER is required}
     volumes:
       - type: bind
         source: ./backend/e2e_harness.py
@@ -88,6 +92,7 @@ services:
     build:
       args:
         VITE_BUILD_MODE: e2e
+        VITE_ENABLE_DEMO_SESSION: "true"
     image: roa-stage18-frontend:${E2E_RUN_ID:?E2E_RUN_ID is required}
     ports: !override
       - "127.0.0.1:${E2E_FRONTEND_PORT:?E2E_FRONTEND_PORT is required}:8080"
