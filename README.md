@@ -93,8 +93,8 @@ reserved `admin` without provisioning or DML and issues the existing
 short-lived canonical `user_access` JWT. Other runtime pairs return a constant
 404 before limiter, database, or token work. The successful CI `Browser E2E`
 job is the general regression suite, not a dedicated browser scenario that
-starts this demo-session flow. A later local, uncommitted visible-UX candidate
-is exposed only when the frontend receives the exact build flag
+starts this demo-session flow. The later visible-UX implementation is exposed
+only when the frontend receives the exact build flag
 `VITE_ENABLE_DEMO_SESSION=true`; the flag defaults to disabled, including in
 the normal public build. When explicitly enabled, public navigation exposes a
 `Try admin demo` link and LoginPage offers the matching credential-free action.
@@ -106,8 +106,9 @@ the marker grants no authorization. Current local frontend evidence comprises
 143 passing targeted tests across the final three targeted files and one full
 run with 1202 passing tests, plus passing typecheck, ESLint, Prettier, and
 production build checks. The earlier combined targeted result of 215 passing
-tests predates two later tests and remains separate. Backend harness evidence is
-71 passing tests with its quality checks passing.
+tests predates two later tests and remains separate; the final targeted
+current-byte check passed 1 of 1. Backend harness evidence is 71 passing tests
+with its quality checks passing.
 
 The dedicated isolated real-backend Browser E2E is now complete. A first full
 harness run on prior bytes completed the normal phase with 31 passed and 1
@@ -120,10 +121,18 @@ Both phases used one worker and zero retries; database and log audits passed,
 and cleanup again left zero project containers and zero project networks. The
 protected development volume retained the same identity, metadata, and mounts;
 its contents were not compared bitwise. The final independent review is
-complete. This remains not a public session launch: commit, push, and new CI for
-this candidate, reserved Neon demo-administrator account provisioning, public
-flag activation, final Menu and My account UX, deployment, and Render acceptance
-remain open.
+complete. The implementation was committed and pushed at
+`d3521d710b3818d41ff9c3e241a169d53adc2642` as
+`feat: add flag-gated admin demo flow`. Automatic push run `41932477563`,
+attempt 1, passed `Backend`, `Migrations`, and `Frontend`, while `Browser E2E`
+failed on public-navigation overflow at `/` in the 320-pixel viewport. The
+focused wrapping correction was committed and pushed at
+`91c276449b116240e9799328ac207801f6953e36` as
+`fix: allow public navigation to wrap`; automatic push run `41934933203`,
+attempt 1, completed all four required jobs with `success` for that exact SHA.
+This remains not a public session launch: reserved Neon demo-administrator
+account provisioning, public flag activation, final Menu and My account UX,
+deployment, and Render acceptance remain open.
 The earlier 37-test no-database and 62-test isolated PostgreSQL results predate
 the proxy-bucket remediation; fresh current-byte evidence is recorded in the
 implementation status. Two initial broader non-integration attempts each

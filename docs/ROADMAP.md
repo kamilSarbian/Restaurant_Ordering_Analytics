@@ -768,8 +768,8 @@ exact current-`main` checks.
   `Backend`, `Migrations`, `Frontend`, and `Browser E2E` with `success` for
   that exact SHA. It uses the normal short-lived JWT and exact active reserved
   `admin`, never `super_admin` or a public password. The successful CI
-  `Browser E2E` job is the general regression suite. A later local,
-  uncommitted visible-UX candidate is gated by the exact frontend build value
+  `Browser E2E` job is the general regression suite. The later visible-UX
+  implementation is gated by the exact frontend build value
   `VITE_ENABLE_DEMO_SESSION=true`; the flag defaults to disabled, including in
   the normal public build. When enabled, public navigation exposes `Try admin
 demo`, and LoginPage invokes the existing credential-free action. The backend
@@ -790,11 +790,18 @@ data` badge without granting authorization. The dedicated isolated
   final targeted frontend tests, 1202/1202 full frontend tests, passing
   typecheck, ESLint, Prettier, and build checks, plus 71/71 backend harness
   tests and passing quality checks. The earlier combined 215/215 targeted
-  frontend result predates two later tests. The final independent review is
-  complete. The endpoint is not publicly activated. Commit, push, and new CI
-  for this candidate, reserved Neon demo-administrator account provisioning,
-  public flag activation, final Menu and My account UX, deployment, Render
-  acceptance, and public session issuance remain open.
+  frontend result predates two later tests; the final targeted current-byte
+  check passed 1/1. The final independent review is complete. The implementation
+  was committed and pushed at `d3521d710b3818d41ff9c3e241a169d53adc2642`
+  as `feat: add flag-gated admin demo flow`. Push run `41932477563`, attempt 1,
+  passed `Backend`, `Migrations`, and `Frontend`, while `Browser E2E` failed on
+  public-navigation overflow at `/` in the 320-pixel viewport. The wrapping fix
+  was committed and pushed at `91c276449b116240e9799328ac207801f6953e36`
+  as `fix: allow public navigation to wrap`; push run `41934933203`, attempt 1,
+  completed all four required jobs with `success` for that exact SHA. The
+  endpoint is not publicly activated. Reserved Neon demo-administrator account
+  provisioning, public flag activation, final Menu and My account UX,
+  deployment, Render acceptance, and public session issuance remain open.
 - **B5 — recruiter journey/UX:** future; clearly label synthetic data and demo
   payment.
 - **B6 — integrated acceptance:** future; verify security, data boundaries,
@@ -808,9 +815,9 @@ analytics/reports through status and `succeeded_at` without a `StripeEvent`;
 the canonical B2 dataset remains unchanged. Demo administration is not
 complete: its bounded committed safeguards and isolation slices are in place,
 and the demo-session backend boundary and frontend transport are committed and
-CI green. A flag-disabled-by-default visible frontend flow is only a local,
-uncommitted candidate; its dedicated real-backend browser proof is complete
-locally. Its commit, push, and new CI remain pending. No reserved Neon
+CI green. The visible frontend flow remains disabled by default and is
+flag-gated; its dedicated real-backend browser proof, final review, commit,
+push, and follow-up CI are complete. No reserved Neon
 demo-administrator account or public session has been activated. D-060 payment
 neutrality and D-077 NOK-only Admin Menu remain unchanged.
 
@@ -849,13 +856,13 @@ the current state. Stage 22 is now in progress through four committed AF1+B1
 slices, committed B2-1 through B2-3, B3-1 through B3-2B, B4-1, B4-3A1 through
 B4-3A3, B4-3B1 through B4-3B5, and the committed demo-session backend boundary
 and frontend transport, with no live deployment. The visible frontend flow is
-an uncommitted local candidate behind the exact disabled-by-default
-`VITE_ENABLE_DEMO_SESSION=true` flag. Its dedicated local real-backend browser
-flow and final independent review are complete, while commit, push, and new
-CI remain pending. B4-2 CLI-on-DB, reserved Neon demo-administrator account
-provisioning, public flag activation, final UX, remaining B4 through B6, any
-further B3 scope, deployment, Render acceptance, and all public release work
-require separate authorization. Stage 23 remains not started.
+committed behind the exact disabled-by-default `VITE_ENABLE_DEMO_SESSION=true`
+flag. Its dedicated local real-backend browser flow, final independent review,
+commit, push, and follow-up CI are complete. B4-2 CLI-on-DB, reserved Neon
+demo-administrator account provisioning, public flag activation, final UX,
+remaining B4 through B6, any further B3 scope, deployment, Render acceptance,
+and all public release work require separate authorization. Stage 23 remains
+not started.
 
 The repository and Alembic head are
 `0009_add_portfolio_demo_origin_and_payment_provider`. The latest recorded
