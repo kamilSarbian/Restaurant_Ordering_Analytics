@@ -1809,6 +1809,12 @@ does not depend on dataset consistency so that the account-scoped rollback
 remains available. Stable output exposes neither URL, credentials, raw SQL
 parameters, nor raw exceptions.
 
+Neon's managed `cloud_admin` role is an exact provider-specific exception in
+the effective `SET ROLE roa_owner` inventory. The only accepted effective set
+is `{cloud_admin, roa_migrator}`; direct owner membership with `SET OPTION`
+remains exactly `roa_migrator`, `roa_runtime` must not gain the capability,
+and any additional application role remains a target-contract failure.
+
 `verify-state` opens a read-only transaction and performs no provisioning.
 `provision` requires an explicit confirmation, inserts only the exact reserved
 ordinary active `admin` with the disabled-password marker when it is absent,

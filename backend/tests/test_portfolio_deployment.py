@@ -384,7 +384,10 @@ class _RoleConnection:
         roles: tuple[tuple[object, ...], ...] | None = None,
         memberships: tuple[tuple[object, ...], ...] | None = None,
         capabilities: tuple[object, ...] = (True, False),
-        effective_members: tuple[str, ...] = (operator.PORTFOLIO_MIGRATOR_ROLE,),
+        effective_members: tuple[str, ...] = (
+            operator.NEON_MANAGED_ADMIN_ROLE,
+            operator.PORTFOLIO_MIGRATOR_ROLE,
+        ),
     ) -> None:
         self.statements: list[str] = []
         self.roles = roles or (
@@ -411,7 +414,7 @@ class _RoleConnection:
 
 
 def test_role_contract_accepts_exact_login_and_set_role_boundary() -> None:
-    """Accept LOGIN NOINHERIT app roles and only the migrator owner grant."""
+    """Accept app roles plus the exact Neon-managed effective capability."""
     connection = _RoleConnection()
 
     operator._require_role_contract(connection)  # type: ignore[arg-type]
@@ -438,20 +441,33 @@ def test_role_contract_accepts_exact_login_and_set_role_boundary() -> None:
                 (operator.PORTFOLIO_RUNTIME_ROLE, True),
             )
         ),
-        _RoleConnection(capabilities=(True, True)),
         _RoleConnection(
-            effective_members=(operator.PORTFOLIO_MIGRATOR_ROLE, "indirect_role")
+            memberships=(
+                (operator.NEON_MANAGED_ADMIN_ROLE, True),
+                (operator.PORTFOLIO_MIGRATOR_ROLE, True),
+            )
+        ),
+        _RoleConnection(capabilities=(True, True)),
+        _RoleConnection(effective_members=(operator.PORTFOLIO_MIGRATOR_ROLE,)),
+        _RoleConnection(
+            effective_members=(
+                operator.NEON_MANAGED_ADMIN_ROLE,
+                "unexpected_app_role",
+                operator.PORTFOLIO_MIGRATOR_ROLE,
+            )
         ),
     ],
     ids=[
         "inherit-drift",
         "extra-owner-member",
+        "managed-role-direct-set-membership",
         "runtime-can-set-owner",
-        "third-role-can-set-owner",
+        "managed-role-missing",
+        "unexpected-app-role-can-set-owner",
     ],
 )
 def test_role_contract_rejects_privilege_drift(connection: _RoleConnection) -> None:
-    """Stop on login, inheritance, membership, or effective SET ROLE drift."""
+    """Stop on login, inheritance, SET-capable membership, or SET ROLE drift."""
     with pytest.raises(operator.PortfolioDeploymentTargetError):
         operator._require_role_contract(connection)  # type: ignore[arg-type]
 

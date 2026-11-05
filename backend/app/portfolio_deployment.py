@@ -54,6 +54,7 @@ from app.seed.safety import (
 )
 
 PORTFOLIO_DATABASE_NAME = "roa_portfolio"
+NEON_MANAGED_ADMIN_ROLE = "cloud_admin"
 PORTFOLIO_MIGRATOR_ROLE = "roa_migrator"
 PORTFOLIO_OWNER_ROLE = "roa_owner"
 PORTFOLIO_RUNTIME_ROLE = PRODUCTION_RUNTIME_DATABASE_ROLE
@@ -593,7 +594,8 @@ def _require_role_contract(connection: Connection) -> None:
         or normalized_memberships != ((PORTFOLIO_MIGRATOR_ROLE, True),)
         or capabilities is None
         or tuple(capabilities) != (True, False)
-        or tuple(effective_members or ()) != (PORTFOLIO_MIGRATOR_ROLE,)
+        or tuple(effective_members or ())
+        != (NEON_MANAGED_ADMIN_ROLE, PORTFOLIO_MIGRATOR_ROLE)
     ):
         raise PortfolioDeploymentTargetError()
 
@@ -625,6 +627,7 @@ if __name__ == "__main__":
 
 __all__ = [
     "DEACTIVATE_CONFIRMATION",
+    "NEON_MANAGED_ADMIN_ROLE",
     "PORTFOLIO_DATABASE_NAME",
     "PORTFOLIO_MIGRATOR_ROLE",
     "PORTFOLIO_OWNER_ROLE",

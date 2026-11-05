@@ -2019,6 +2019,11 @@ while preserving these financial concurrency rules.
   additionally bind the canonical portfolio-plan hash and counts; deactivation
   intentionally remains independent of dataset drift. Output must not expose
   URLs, credentials, SQL parameters, or raw exceptions.
+- **Managed-role boundary:** Neon contributes the provider-managed
+  `cloud_admin` effective `SET ROLE roa_owner` capability. Accept exactly the
+  effective set `{cloud_admin, roa_migrator}` while requiring direct owner
+  membership with `SET OPTION` to remain exactly `roa_migrator`; reject the
+  capability for `roa_runtime` or any additional application role.
 - **Lifecycle:** `verify-state` is read-only. `provision` requires an explicit
   confirmation, creates only the exact ordinary active reserved `admin` with
   the disabled-password marker when absent, treats an exact rerun as a no-op,

@@ -164,6 +164,11 @@ hard stop for provisioning. Separately confirmed deactivation is the
 account-specific rollback for already-issued demo tokens after exact target,
 release, role, schema, and reserved-identity checks. This candidate is not yet
 committed, deployed, or evidence of the current Neon or Render state.
+The role contract permits the exact Neon-managed `cloud_admin` effective
+`SET ROLE roa_owner` capability alongside `roa_migrator`, while direct owner
+membership with `SET OPTION` remains exclusive to `roa_migrator`; any
+additional application role with that capability is a hard stop, and
+`roa_runtime` must not have it.
 Stage 23 — Portfolio Documentation & Case Study is **not started**.
 
 The FastAPI backend provides public menu and quote APIs, runtime-scoped

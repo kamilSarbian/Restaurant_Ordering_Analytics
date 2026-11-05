@@ -1875,6 +1875,15 @@ demo` link and the matching LoginPage action, gated only by the exact frontend
   issuance alone stops new tokens and does not revoke existing ones; shared JWT
   key rotation would invalidate unrelated sessions too. This candidate is not
   committed, deployed, or evidence of live provider state.
+  A subsequent one-shot read-only target diagnostic passed the exact session
+  identity, database, transaction-read-only, and public-search-path gates. It
+  isolated the remaining target rejection to Neon's provider-managed
+  `cloud_admin` appearing beside `roa_migrator` in the effective
+  `SET ROLE roa_owner` inventory. The narrow follow-up accepts exactly that
+  managed pair while retaining direct membership with `SET OPTION`
+  exclusively for `roa_migrator`, rejecting `roa_runtime` and every
+  additional application role. Full state verification on the follow-up
+  commit remains open.
 
 - **Stage 22-B0 demo design:** its B3 payment design is now implemented through
   B3-2B. B4 session issuance is implemented but not independently verified as
