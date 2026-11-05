@@ -5,108 +5,112 @@
 previews:
   generation: "off"
 
-services:
-  - type: web
-    name: roa-portfolio-backend
-    runtime: docker
-    repo: https://github.com/kamilSarbian/Restaurant_Ordering_Analytics
-    branch: main
-    region: frankfurt
-    plan: free
-    dockerfilePath: ./backend/Dockerfile
-    dockerContext: ./backend
-    autoDeployTrigger: "off"
-    healthCheckPath: /health
-    envVars:
-      - key: APP_ENVIRONMENT
-        value: production
-      - key: APP_DEBUG
-        value: "false"
-      - key: PORTFOLIO_DEMO_MODE
-        value: "true"
-      - key: DEMO_SESSION_ISSUANCE_ENABLED
-        value: "false"
-      - key: PAYMENT_PROVIDER
-        value: demo
-      - key: TRUSTED_PROXY_MODE
-        value: direct
-      - key: AUTH_ACCESS_TOKEN_EXPIRE_MINUTES
-        value: "30"
-      - key: EXPECTED_ALEMBIC_HEAD
-        value: 0009_add_portfolio_demo_origin_and_payment_provider
-      - key: LOG_LEVEL
-        value: INFO
-      - key: DATABASE_URL
-        sync: false
-      - key: AUTH_JWT_SECRET
-        generateValue: true
-      - key: PUBLIC_APP_ORIGIN
-        fromService:
-          type: web
-          name: roa-portfolio-frontend
-          envVarKey: RENDER_EXTERNAL_URL
-      - key: PUBLIC_API_ORIGIN
-        fromService:
-          type: web
-          name: roa-portfolio-backend
-          envVarKey: RENDER_EXTERNAL_URL
-      - key: RELEASE_SHA
-        fromService:
-          type: web
-          name: roa-portfolio-backend
-          envVarKey: RENDER_GIT_COMMIT
+projects:
+  - name: My project
+    environments:
+      - name: Production
+        services:
+          - type: web
+            name: roa-portfolio-backend
+            runtime: docker
+            repo: https://github.com/kamilSarbian/Restaurant_Ordering_Analytics
+            branch: main
+            region: frankfurt
+            plan: free
+            dockerfilePath: ./backend/Dockerfile
+            dockerContext: ./backend
+            autoDeployTrigger: "off"
+            healthCheckPath: /health
+            envVars:
+              - key: APP_ENVIRONMENT
+                value: production
+              - key: APP_DEBUG
+                value: "false"
+              - key: PORTFOLIO_DEMO_MODE
+                value: "true"
+              - key: DEMO_SESSION_ISSUANCE_ENABLED
+                value: "false"
+              - key: PAYMENT_PROVIDER
+                value: demo
+              - key: TRUSTED_PROXY_MODE
+                value: direct
+              - key: AUTH_ACCESS_TOKEN_EXPIRE_MINUTES
+                value: "30"
+              - key: EXPECTED_ALEMBIC_HEAD
+                value: 0009_add_portfolio_demo_origin_and_payment_provider
+              - key: LOG_LEVEL
+                value: INFO
+              - key: DATABASE_URL
+                sync: false
+              - key: AUTH_JWT_SECRET
+                generateValue: true
+              - key: PUBLIC_APP_ORIGIN
+                fromService:
+                  type: web
+                  name: roa-portfolio-frontend
+                  envVarKey: RENDER_EXTERNAL_URL
+              - key: PUBLIC_API_ORIGIN
+                fromService:
+                  type: web
+                  name: roa-portfolio-backend
+                  envVarKey: RENDER_EXTERNAL_URL
+              - key: RELEASE_SHA
+                fromService:
+                  type: web
+                  name: roa-portfolio-backend
+                  envVarKey: RENDER_GIT_COMMIT
 
-  - type: web
-    name: roa-portfolio-frontend
-    runtime: static
-    repo: https://github.com/kamilSarbian/Restaurant_Ordering_Analytics
-    branch: main
-    rootDir: frontend
-    buildCommand: npm ci --ignore-scripts --no-audit --no-fund && npm run build
-    staticPublishPath: ./dist
-    autoDeployTrigger: "off"
-    envVars:
-      - key: VITE_API_BASE_URL
-        fromService:
-          type: web
-          name: roa-portfolio-backend
-          envVarKey: RENDER_EXTERNAL_URL
-      - key: VITE_API_TIMEOUT_MS
-        value: "90000"
-      - key: VITE_ENABLE_DEMO_SESSION
-        value: "false"
-    routes:
-      - type: rewrite
-        source: /*
-        destination: /index.html
-    headers:
-      - path: /index.html
-        name: Cache-Control
-        value: no-store
-      - path: /assets/*
-        name: Cache-Control
-        value: public, max-age=31536000, immutable
-      - path: /*
-        name: X-Frame-Options
-        value: DENY
-      - path: /*
-        name: Cross-Origin-Opener-Policy
-        value: same-origin
-      - path: /*
-        name: Cross-Origin-Resource-Policy
-        value: same-origin
-      - path: /*
-        name: Permissions-Policy
-        value: camera=(), geolocation=(), microphone=(), payment=(), usb=()
-      - path: /*
-        name: Referrer-Policy
-        value: no-referrer
-      - path: /*
-        name: X-Content-Type-Options
-        value: nosniff
-      - path: /*
-        name: X-Permitted-Cross-Domain-Policies
-        value: none
-      - path: /*
-        name: X-XSS-Protection
-        value: "0"
+          - type: web
+            name: roa-portfolio-frontend
+            runtime: static
+            repo: https://github.com/kamilSarbian/Restaurant_Ordering_Analytics
+            branch: main
+            rootDir: frontend
+            buildCommand: npm ci --ignore-scripts --no-audit --no-fund && npm run build
+            staticPublishPath: ./dist
+            autoDeployTrigger: "off"
+            envVars:
+              - key: VITE_API_BASE_URL
+                fromService:
+                  type: web
+                  name: roa-portfolio-backend
+                  envVarKey: RENDER_EXTERNAL_URL
+              - key: VITE_API_TIMEOUT_MS
+                value: "90000"
+              - key: VITE_ENABLE_DEMO_SESSION
+                value: "false"
+            routes:
+              - type: rewrite
+                source: /*
+                destination: /index.html
+            headers:
+              - path: /index.html
+                name: Cache-Control
+                value: no-store
+              - path: /assets/*
+                name: Cache-Control
+                value: public, max-age=31536000, immutable
+              - path: /*
+                name: X-Frame-Options
+                value: DENY
+              - path: /*
+                name: Cross-Origin-Opener-Policy
+                value: same-origin
+              - path: /*
+                name: Cross-Origin-Resource-Policy
+                value: same-origin
+              - path: /*
+                name: Permissions-Policy
+                value: camera=(), geolocation=(), microphone=(), payment=(), usb=()
+              - path: /*
+                name: Referrer-Policy
+                value: no-referrer
+              - path: /*
+                name: X-Content-Type-Options
+                value: nosniff
+              - path: /*
+                name: X-Permitted-Cross-Domain-Policies
+                value: none
+              - path: /*
+                name: X-XSS-Protection
+                value: "0"

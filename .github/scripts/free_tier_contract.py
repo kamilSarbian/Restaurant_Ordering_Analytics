@@ -17,6 +17,8 @@ EXPECTED_GITHUB_REPOSITORY = "kamilSarbian/Restaurant_Ordering_Analytics"
 EXPECTED_REPOSITORY_URL = (
     "https://github.com/kamilSarbian/Restaurant_Ordering_Analytics"
 )
+EXPECTED_RENDER_PROJECT = "My project"
+EXPECTED_RENDER_ENVIRONMENT = "Production"
 EXPECTED_ALEMBIC_HEAD = "0009_add_portfolio_demo_origin_and_payment_provider"
 EXPECTED_CONFIRMATION = "MIGRATE_NEON_PRODUCTION"
 REQUIRED_CHECK_NAMES = ("Backend", "Migrations", "Frontend", "Browser E2E")
@@ -190,11 +192,25 @@ def main() -> int:
 
 
 def _validate_render_blueprint(config: Mapping[str, object]) -> None:
-    if set(config) != {"previews", "services"} or _mapping(config.get("previews")) != {
+    if set(config) != {"previews", "projects"} or _mapping(config.get("previews")) != {
         "generation": "off"
     }:
         raise FreeTierContractError
-    services = [_mapping(service) for service in _list(config.get("services"))]
+    projects = [_mapping(project) for project in _list(config.get("projects"))]
+    if len(projects) != 1 or set(projects[0]) != {"name", "environments"}:
+        raise FreeTierContractError
+    project = projects[0]
+    if project.get("name") != EXPECTED_RENDER_PROJECT:
+        raise FreeTierContractError
+    environments = [
+        _mapping(environment) for environment in _list(project.get("environments"))
+    ]
+    if len(environments) != 1 or set(environments[0]) != {"name", "services"}:
+        raise FreeTierContractError
+    environment = environments[0]
+    if environment.get("name") != EXPECTED_RENDER_ENVIRONMENT:
+        raise FreeTierContractError
+    services = [_mapping(service) for service in _list(environment.get("services"))]
     if len(services) != 2:
         raise FreeTierContractError
 

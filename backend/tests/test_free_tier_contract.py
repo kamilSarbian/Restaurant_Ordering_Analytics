@@ -61,7 +61,16 @@ def _list(value: object) -> list[Any]:
 
 
 def _services(config: Mapping[str, object]) -> list[dict[str, Any]]:
-    return [_mapping(service) for service in _list(config["services"])]
+    return [
+        _mapping(service) for service in _list(_render_environment(config)["services"])
+    ]
+
+
+def _render_environment(config: Mapping[str, object]) -> dict[str, Any]:
+    projects = _list(config["projects"])
+    project = _mapping(projects[0])
+    environments = _list(project["environments"])
+    return _mapping(environments[0])
 
 
 def _service(config: Mapping[str, object], runtime: str) -> dict[str, Any]:
@@ -136,9 +145,9 @@ def test_blueprint_rejects_paid_or_non_free_tier_boundaries(mutation: str) -> No
     backend = _service(config, "docker")
     frontend = _service(config, "static")
     if mutation == "database":
-        config["databases"] = [{"name": "paid-database"}]
+        _render_environment(config)["databases"] = [{"name": "paid-database"}]
     elif mutation == "extra_service":
-        _list(config["services"]).append(copy.deepcopy(backend))
+        _list(_render_environment(config)["services"]).append(copy.deepcopy(backend))
     elif mutation == "cron":
         backend["type"] = "cron"
     elif mutation == "private_service":
@@ -161,6 +170,55 @@ def test_blueprint_rejects_paid_or_non_free_tier_boundaries(mutation: str) -> No
         frontend["preDeployCommand"] = "python -m alembic upgrade head"
     elif mutation == "static_docker":
         frontend["runtime"] = "docker"
+    else:
+        raise AssertionError(f"Unhandled mutation: {mutation}")
+
+    with pytest.raises(free_tier_contract.FreeTierContractError):
+        free_tier_contract.validate_repository_contract(
+            config,
+            _migration_workflow(),
+            _ci_workflow(),
+        )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "root_services",
+        "wrong_project",
+        "missing_project",
+        "extra_project",
+        "wrong_environment",
+        "missing_environment",
+        "extra_environment",
+        "ungrouped_services",
+    ],
+)
+def test_blueprint_rejects_project_environment_boundary_drift(
+    mutation: str,
+) -> None:
+    """Reject resources outside the exact Render project environment."""
+    config = _render_config()
+    projects = _list(config["projects"])
+    project = _mapping(projects[0])
+    environments = _list(project["environments"])
+    environment = _mapping(environments[0])
+    if mutation == "root_services":
+        config["services"] = copy.deepcopy(environment["services"])
+    elif mutation == "wrong_project":
+        project["name"] = "Other project"
+    elif mutation == "missing_project":
+        projects.clear()
+    elif mutation == "extra_project":
+        projects.append(copy.deepcopy(project))
+    elif mutation == "wrong_environment":
+        environment["name"] = "Staging"
+    elif mutation == "missing_environment":
+        environments.clear()
+    elif mutation == "extra_environment":
+        environments.append(copy.deepcopy(environment))
+    elif mutation == "ungrouped_services":
+        config["ungrouped"] = {"services": copy.deepcopy(environment["services"])}
     else:
         raise AssertionError(f"Unhandled mutation: {mutation}")
 
