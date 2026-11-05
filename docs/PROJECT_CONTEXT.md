@@ -97,10 +97,25 @@ status. Two broader non-integration attempts each reached 1757 passed before
 the same unrelated pytest temporary-directory setup error. One later run using
 an accessible explicit basetemp completed with 1758 passed and native exit 0.
 Independent review, commit, push, and general CI are complete. The successful
-CI `Browser E2E` job is not a dedicated browser scenario for starting the
-demo-session flow. The reserved Neon demo-administrator account, frontend
-button and session flow, final Menu/My account UX, dedicated browser proof,
-public activation, deployment, and Render acceptance remain open.
+CI `Browser E2E` job at that backend boundary was not yet a dedicated browser
+scenario for starting the demo-session flow. The later visible frontend flow
+and dedicated local real-backend scenario are committed; their documentation
+closeout is `b6224845d4007111d63a6485bd786265907f7151`, and automatic push run
+`41936981074`, attempt 1, completed `Backend`, `Migrations`, `Frontend`, and
+`Browser E2E` with `success` for that exact SHA. The current reserved Neon
+demo-administrator state, public flag activation, final Menu/My account UX,
+deployment, and Render acceptance still require independent live verification
+or execution as applicable.
+
+The deployment dataset command is committed at
+`70df05f36bf4075bdb6ad212306bb0bdcb113dc4`; its live target and execution state
+are not established by repository history. An uncommitted staged-activation
+safety candidate now adds the strict, default-false
+`DEMO_SESSION_ISSUANCE_ENABLED` backend gate, pins both backend issuance and
+frontend visibility to false in the Blueprint, and adds a hidden-input operator
+boundary for read-only state verification, exact no-op provisioning, drift
+refusal, and account-specific deactivation. It is not evidence of current Neon
+or Render state and does not activate a public session.
 
 ## 3. Users
 
@@ -811,8 +826,10 @@ exact-origin CORS; the backend uses a pooled runtime URL. Manual GitHub Actions
 `workflow_dispatch` migration uses a separate direct Neon URL, successful
 required checks, and a final current-`main` SHA check. Named GitHub
 Environment/secret references in the workflow do not prove those operator
-controls have been configured. No Render or Neon provisioning, production
-migration or seed, or public release has occurred.
+controls have been configured. The repository alone does not prove the current
+Render or Neon resources, production migration, seed, or release state. Those
+facts require independent provider and database verification before another
+write or public claim.
 
 AF1+B1-4 is committed at
 `bdc171db16573cc5fb59e9b404eff3adde7c0bb7`. B2-1 is committed at
@@ -1088,14 +1105,19 @@ and native exit code 0 in normal `false + stripe_test`; it is separate from the
 PostgreSQL demo capability-only evidence and from the automatic GitHub Actions
 run, and it is not CI. Final independent review is complete, closing only
 B4-3B5.
-Stage 22 — Production Deployment & Public Acceptance remains in progress and is
-not deployed. The backend-only B4 demo-session endpoint is committed and pushed
+Stage 22 — Production Deployment & Public Acceptance remains in progress and
+has not yet passed repository-recorded Stage 22-D public acceptance. The
+backend-only B4 demo-session endpoint is committed and pushed
 at `aeea2ae39eec17c17eb4a5b59ce6537e4fa1b071`; automatic GitHub Actions run
 `41894173298`, attempt 1, passed `Backend`, `Migrations`, `Frontend`, and the
-general `Browser E2E` regression job. No dedicated demo-session browser flow
-has been executed. The reserved Neon demo-administrator account, frontend
-button and session flow, final UX, public activation, deployment, and Render
-acceptance remain open. The remaining B4 work, B5, and B6 remain open. Stage 23
+general `Browser E2E` regression job. A later visible frontend flow and
+dedicated local real-backend browser scenario were committed; their
+documentation closeout is `b6224845d4007111d63a6485bd786265907f7151`, and
+automatic push run `41936981074`, attempt 1, passed all four required jobs. The
+current reserved Neon demo-administrator state, public activation, final UX,
+deployment, and Render acceptance still require independent live verification
+or execution as applicable. The remaining B4 work, B5, and B6 remain open.
+Stage 23
 — Portfolio Documentation & Case Study is not started. A
 recruiter-facing URL can be claimed only after Stage 22-D public-demo
 acceptance.

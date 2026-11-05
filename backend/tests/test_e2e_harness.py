@@ -80,6 +80,7 @@ def _runtime_environment() -> dict[str, str]:
         "E2E_AUTH_JWT_SECRET": AUTH_JWT_SECRET,
         "E2E_STRIPE_WEBHOOK_SECRET": WEBHOOK_SECRET,
         "PORTFOLIO_DEMO_MODE": "false",
+        "DEMO_SESSION_ISSUANCE_ENABLED": "false",
         "PAYMENT_PROVIDER": "stripe_test",
         "DATABASE_URL": _database_url(),
     }
@@ -237,6 +238,7 @@ def test_runtime_contract_accepts_exact_isolated_environment_without_admin() -> 
     assert contract.frontend_port == FRONTEND_PORT
     assert contract.public_origin == PUBLIC_ORIGIN
     assert contract.portfolio_demo_mode is False
+    assert contract.demo_session_issuance_enabled is False
     assert contract.payment_provider == "stripe_test"
     rendered_contract = repr(contract)
     assert POSTGRES_PASSWORD not in rendered_contract
@@ -296,30 +298,37 @@ def test_runtime_contract_rejects_missing_values_without_leakage() -> None:
 def test_runtime_contract_accepts_only_the_exact_demo_runtime_pair() -> None:
     environment = _runtime_environment()
     environment["PORTFOLIO_DEMO_MODE"] = "true"
+    environment["DEMO_SESSION_ISSUANCE_ENABLED"] = "true"
     environment["PAYMENT_PROVIDER"] = "demo"
 
     contract = harness.load_e2e_runtime_contract(environment)
 
     assert contract.portfolio_demo_mode is True
+    assert contract.demo_session_issuance_enabled is True
     assert contract.payment_provider == "demo"
 
 
 @pytest.mark.parametrize(
-    ("portfolio_demo_mode", "payment_provider"),
+    ("portfolio_demo_mode", "issuance_enabled", "payment_provider"),
     [
-        ("true", "stripe_test"),
-        ("false", "demo"),
-        ("TRUE", "demo"),
-        ("0", "stripe_test"),
-        ("false", "stripe-test"),
+        ("true", "true", "stripe_test"),
+        ("false", "false", "demo"),
+        ("true", "false", "demo"),
+        ("false", "true", "stripe_test"),
+        ("TRUE", "true", "demo"),
+        ("0", "false", "stripe_test"),
+        ("false", "FALSE", "stripe_test"),
+        ("false", "false", "stripe-test"),
     ],
 )
 def test_runtime_contract_rejects_inconsistent_or_noncanonical_runtime_pairs(
     portfolio_demo_mode: str,
+    issuance_enabled: str,
     payment_provider: str,
 ) -> None:
     environment = _runtime_environment()
     environment["PORTFOLIO_DEMO_MODE"] = portfolio_demo_mode
+    environment["DEMO_SESSION_ISSUANCE_ENABLED"] = issuance_enabled
     environment["PAYMENT_PROVIDER"] = payment_provider
 
     with pytest.raises(
@@ -420,6 +429,7 @@ def test_create_e2e_app_injects_fake_stripe_without_database_or_network(
         is app.state.e2e_fake_checkout_registry
     )
     assert app.state.portfolio_demo_mode is False
+    assert app.state.demo_session_issuance_enabled is False
     assert app.state.payment_provider == "stripe_test"
     assert (
         app.state.stripe_webhook_verifier._registry

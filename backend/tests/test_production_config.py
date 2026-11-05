@@ -65,6 +65,7 @@ def test_complete_production_contract_is_accepted_and_normalized() -> None:
 
     assert settings.app_environment == "production"
     assert settings.app_debug is False
+    assert settings.demo_session_issuance_enabled is False
     assert settings.trusted_hosts == ("api.restaurant.example",)
     assert settings.trusted_proxy_mode == "direct"
     assert settings.stripe_expected_livemode is False
@@ -94,6 +95,7 @@ def test_complete_production_contract_loads_from_environment_strings(
         "APP_ENVIRONMENT": "production",
         "APP_DEBUG": "false",
         "PORTFOLIO_DEMO_MODE": "false",
+        "DEMO_SESSION_ISSUANCE_ENABLED": "false",
         "PAYMENT_PROVIDER": "stripe_test",
         "DATABASE_URL": (
             f"postgresql://roa_runtime:synthetic@{NEON_RUNTIME_HOST}/restaurant"
@@ -123,6 +125,7 @@ def test_complete_production_contract_loads_from_environment_strings(
     settings = Settings(_env_file=None)
 
     assert settings.app_environment == "production"
+    assert settings.demo_session_issuance_enabled is False
     assert settings.trusted_hosts == ("api.restaurant.example",)
     assert settings.trusted_proxy_mode == "direct"
     assert settings.stripe_expected_livemode is False
@@ -137,6 +140,7 @@ def _production_environment_strings() -> dict[str, str]:
         "APP_ENVIRONMENT": "production",
         "APP_DEBUG": "false",
         "PORTFOLIO_DEMO_MODE": "false",
+        "DEMO_SESSION_ISSUANCE_ENABLED": "false",
         "PAYMENT_PROVIDER": "stripe_test",
         "DATABASE_URL": (
             f"postgresql://roa_runtime:synthetic@{NEON_RUNTIME_HOST}/restaurant"
@@ -177,17 +181,23 @@ def _load_production_environment(
 
 
 @pytest.mark.parametrize(
-    ("demo_mode", "payment_provider"),
-    [("false", "stripe_test"), ("true", "demo")],
+    ("demo_mode", "issuance_enabled", "payment_provider"),
+    [
+        ("false", "false", "stripe_test"),
+        ("true", "false", "demo"),
+        ("true", "true", "demo"),
+    ],
 )
 def test_demo_mode_and_provider_parse_from_environment_strings(
     monkeypatch: pytest.MonkeyPatch,
     demo_mode: str,
+    issuance_enabled: str,
     payment_provider: str,
 ) -> None:
     """Parse the two explicit provider modes without implicit enablement."""
     environment = _production_environment_strings()
     environment["PORTFOLIO_DEMO_MODE"] = demo_mode
+    environment["DEMO_SESSION_ISSUANCE_ENABLED"] = issuance_enabled
     environment["PAYMENT_PROVIDER"] = payment_provider
     if payment_provider == "demo":
         for name in (
@@ -202,6 +212,7 @@ def test_demo_mode_and_provider_parse_from_environment_strings(
     settings = _load_production_environment(monkeypatch, environment)
 
     assert settings.portfolio_demo_mode is (demo_mode == "true")
+    assert settings.demo_session_issuance_enabled is (issuance_enabled == "true")
     assert settings.payment_provider == payment_provider
     if payment_provider == "demo":
         assert settings.stripe_secret_key is None
@@ -222,6 +233,28 @@ def test_invalid_demo_boolean_environment_string_is_rejected(
 
     with pytest.raises(ValidationError):
         _load_production_environment(monkeypatch, environment)
+
+
+@pytest.mark.parametrize(
+    "invalid_value",
+    ["sometimes", "1", "yes", "on", "TRUE", "False", " true", "false "],
+)
+def test_invalid_demo_session_issuance_environment_string_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+    invalid_value: str,
+) -> None:
+    """Reject noncanonical issuance values before application wiring."""
+    environment = _production_environment_strings()
+    environment["DEMO_SESSION_ISSUANCE_ENABLED"] = invalid_value
+
+    with pytest.raises(ValidationError):
+        _load_production_environment(monkeypatch, environment)
+
+
+def test_demo_session_issuance_requires_exact_demo_runtime_pair() -> None:
+    """Reject issuance enablement in the normal Stripe-test runtime."""
+    with pytest.raises(ValidationError, match="portfolio demo runtime"):
+        production_settings({"demo_session_issuance_enabled": True})
 
 
 def test_invalid_payment_provider_environment_string_is_rejected(
@@ -794,6 +827,7 @@ def test_nonproduction_defaults_remain_backward_compatible() -> None:
         assert settings.public_app_origin is None
         assert settings.public_api_origin is None
         assert settings.portfolio_demo_mode is False
+        assert settings.demo_session_issuance_enabled is False
         assert settings.payment_provider == "stripe_test"
         assert settings.trusted_hosts == ()
         assert settings.render_runtime is None
@@ -866,6 +900,7 @@ def test_create_app_does_not_initialize_stripe_for_demo_provider(
 
     assert application.state.payment_provider == "demo"
     assert application.state.portfolio_demo_mode is True
+    assert application.state.demo_session_issuance_enabled is False
     assert application.state.stripe_checkout_client is None
     assert application.state.stripe_webhook_verifier is None
 
@@ -876,6 +911,7 @@ def _render_demo_production_settings(
     """Build validated exact public-Render demo settings for app wiring tests."""
     values: dict[str, object] = {
         "portfolio_demo_mode": True,
+        "demo_session_issuance_enabled": True,
         "payment_provider": "demo",
         "stripe_secret_key": None,
         "stripe_webhook_secret": None,
@@ -922,6 +958,19 @@ def test_create_app_refuses_render_edge_identity_without_exact_builtins(
 
     application = app_main.create_app(
         settings=_render_demo_production_settings(overrides)
+    )
+
+    assert application.state.demo_session_client_ip_mode is None
+
+
+def test_create_app_refuses_render_edge_identity_while_issuance_is_disabled() -> None:
+    """Do not trust the public edge until demo-session issuance is enabled."""
+    from app import main as app_main
+
+    application = app_main.create_app(
+        settings=_render_demo_production_settings(
+            {"demo_session_issuance_enabled": False}
+        )
     )
 
     assert application.state.demo_session_client_ip_mode is None

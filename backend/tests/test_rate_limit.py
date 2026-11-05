@@ -252,6 +252,7 @@ def test_demo_session_client_mode_requires_exact_public_render_configuration() -
     exact = Settings.model_construct(
         app_environment="production",
         portfolio_demo_mode=True,
+        demo_session_issuance_enabled=True,
         payment_provider="demo",
         render_runtime="true",
         render_service_type="web",
@@ -263,6 +264,7 @@ def test_demo_session_client_mode_requires_exact_public_render_configuration() -
     assert _demo_session_client_ip_mode(exact) == DEMO_SESSION_CLIENT_IP_MODE_RENDER
 
     for field, value in (
+        ("demo_session_issuance_enabled", False),
         ("portfolio_demo_mode", False),
         ("payment_provider", "stripe_test"),
         ("render_runtime", None),
@@ -280,7 +282,12 @@ def test_demo_session_client_mode_requires_exact_public_render_configuration() -
 
 def test_demo_session_client_mode_keeps_nonproduction_on_direct_peer() -> None:
     """Keep local and test runtimes independent from Render-only headers."""
-    settings = Settings.model_construct(app_environment="test")
+    settings = Settings.model_construct(
+        app_environment="test",
+        portfolio_demo_mode=True,
+        demo_session_issuance_enabled=True,
+        payment_provider="demo",
+    )
     assert _demo_session_client_ip_mode(settings) == DEMO_SESSION_CLIENT_IP_MODE_DIRECT
 
 
@@ -392,14 +399,8 @@ def test_create_app_builds_a_distinct_default_demo_session_limiter() -> None:
     """Limit demo-session issuance independently at five attempts per minute."""
     first_app = create_app(settings=Settings(database_url=None))
     second_app = create_app(settings=Settings(database_url=None))
-    assert (
-        first_app.state.demo_session_client_ip_mode
-        == DEMO_SESSION_CLIENT_IP_MODE_DIRECT
-    )
-    assert (
-        second_app.state.demo_session_client_ip_mode
-        == DEMO_SESSION_CLIENT_IP_MODE_DIRECT
-    )
+    assert first_app.state.demo_session_client_ip_mode is None
+    assert second_app.state.demo_session_client_ip_mode is None
     first_limiter = first_app.state.demo_session_rate_limiter
     second_limiter = second_app.state.demo_session_rate_limiter
     assert first_limiter.limit == second_limiter.limit == 5

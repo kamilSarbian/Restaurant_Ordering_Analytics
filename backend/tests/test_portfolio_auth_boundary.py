@@ -157,6 +157,37 @@ def test_normal_runtime_closes_demo_session_before_protected_access(
     assert "access_token" not in response.text
 
 
+@pytest.mark.parametrize("issuance_state", [False, None, "true"])
+def test_noncanonical_issuance_state_closes_demo_session_before_protected_access(
+    monkeypatch: pytest.MonkeyPatch,
+    issuance_state: object,
+) -> None:
+    """Require the exact trusted boolean before any protected session work."""
+    _patch_auth_access_as_unexpected(monkeypatch)
+    application = create_app(
+        settings=Settings(
+            _env_file=None,
+            database_url=None,
+            auth_jwt_secret=SYNTHETIC_SECRET,
+            portfolio_demo_mode=True,
+            demo_session_issuance_enabled=False,
+            payment_provider="demo",
+        ),
+        session_factory=_session_factory(_user()),  # type: ignore[arg-type]
+    )
+    if issuance_state is None:
+        del application.state.demo_session_issuance_enabled
+    else:
+        application.state.demo_session_issuance_enabled = issuance_state
+
+    with TestClient(application) as client:
+        response = client.post(DEMO_SESSION_PATH)
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Not Found"}
+    assert "access_token" not in response.text
+
+
 def test_demo_mode_closes_password_auth_before_protected_access(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

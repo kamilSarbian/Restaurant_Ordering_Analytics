@@ -135,12 +135,21 @@ synthetic data` badge uses a presentation-only current-tab `sessionStorage`
   on public-navigation overflow at `/` in the 320-pixel viewport. The wrapping
   fix was committed and pushed at `91c276449b116240e9799328ac207801f6953e36`;
   push run `41934933203`, attempt 1, completed all four required jobs with
-  `success` for that exact SHA. Reserved Neon demo-administrator account
-  provisioning, public flag activation, final Menu and My account UX,
-  deployment, and Render acceptance remain open. A separate,
-  operator-gated deployment dataset seed is now an uncommitted local
-  implementation candidate; it has been exercised only against the isolated
-  local integration database and has not targeted Neon. This
+  `success` for that exact SHA. The documentation closeout is committed at
+  `b6224845d4007111d63a6485bd786265907f7151`; automatic push run `41936981074`,
+  attempt 1, completed `Backend`, `Migrations`, `Frontend`, and `Browser E2E`
+  with `success` for that exact SHA. The current reserved Neon account, public
+  flags, final Menu/My account UX, deployment, and Render acceptance require
+  independent live verification or execution as applicable. The guarded
+  deployment dataset seed implementation is committed at
+  `70df05f36bf4075bdb6ad212306bb0bdcb113dc4`; its repository acceptance used the
+  isolated local integration database, while its exact live target and
+  execution state require independent verification. An uncommitted
+  staged-activation safety candidate adds a strict default-false backend
+  issuance gate, default-false Blueprint flags, and a hidden-input portfolio
+  state/account operator with read-only verification, no-op exact provisioning,
+  drift refusal, and account-specific deactivation. It neither proves live
+  state nor authorizes public activation. This
   file records durable implementation scope and acceptance evidence;
   repository history, independent-review records, and CI are authoritative for
   transient commit and run status.
@@ -279,14 +288,17 @@ synthetic data` badge uses a presentation-only current-tab `sessionStorage`
   failed on `/` overflow at 320 pixels. The wrapping fix commit
   `91c276449b116240e9799328ac207801f6953e36` then passed `Backend`,
   `Migrations`, `Frontend`, and `Browser E2E` in push run `41934933203`, attempt
-  1, for that exact SHA. Reserved Neon demo-administrator account provisioning,
-  public flag activation, final Menu and My account UX, deployment, and Render
-  acceptance remain open.
-  Stage 23 is **not started**. No Render/Neon provisioning, production
-  migration or seed execution, public deployment, or public URL is claimed. A
-  guarded deployment seed path exists only as a local candidate; selecting its
-  reference end and target, provisioning and proving `roa_runtime` privileges,
-  migrating Neon, and authorizing an exact invocation remain open.
+  1, for that exact SHA. The documentation closeout commit
+  `b6224845d4007111d63a6485bd786265907f7151` then passed all four required jobs
+  in automatic run `41936981074`, attempt 1. The current reserved Neon account,
+  public flags, final Menu/My account UX, deployment, and Render acceptance
+  require independent live verification or execution as applicable.
+  Stage 23 is **not started**. Repository history does not prove the current
+  Render/Neon resource, migration, seed, public deployment, or public URL state.
+  The guarded deployment seed path is committed at
+  `70df05f36bf4075bdb6ad212306bb0bdcb113dc4`, but its reference end, target,
+  `roa_runtime` privileges, migration, and exact invocation state must be
+  independently verified before another write.
 - **Backend:** FastAPI, database foundation, menu models, local seed data,
   public menu, transient quoting, persistent order creation, and secure public
   order status, provider-selected Stripe-test or atomic demo Checkout, verified
@@ -1802,11 +1814,15 @@ demo` link and the matching LoginPage action, gated only by the exact frontend
   at `91c276449b116240e9799328ac207801f6953e36` with title
   `fix: allow public navigation to wrap`. Automatic push run `41934933203`,
   attempt 1, completed `Backend`, `Migrations`, `Frontend`, and `Browser E2E`
-  with `success` for that exact SHA. Reserved Neon demo-administrator account
-  provisioning, public flag activation, final Menu and My account UX,
-  deployment, and Render acceptance remain open.
+  with `success` for that exact SHA. The documentation closeout is committed at
+  `b6224845d4007111d63a6485bd786265907f7151`; automatic push run `41936981074`,
+  attempt 1, completed the same four jobs with `success` for that exact SHA. The
+  current reserved Neon account, public flags, final Menu/My account UX,
+  deployment, and Render acceptance require independent live verification or
+  execution as applicable.
 
-- **Stage 22 deployment demo dataset seed — local implementation candidate:**
+- **Stage 22 deployment demo dataset seed — committed repository boundary; live
+  execution unverified:**
   D-088 adds a separate `python -m app.seed.deployment` command without changing
   the local-only `app.seed`. The command requires the exact operator
   confirmation, aware reference end, canonical plan SHA-256, full release SHA,
@@ -1835,24 +1851,43 @@ demo` link and the matching LoginPage action, gated only by the exact frontend
   was preserved. This is not evidence that volume contents were compared
   bit-for-bit.
 
-  No production reference end, Neon/Render resource, credential, migration,
-  seed execution, or public URL is selected or claimed. The repository does not
-  yet provision or prove the least-privilege DML grants needed by
-  `roa_runtime`; that is an explicit deployment blocker. Independent review,
-  commit, push, CI, and every remaining Stage 22 gate remain open.
+  The implementation is committed at
+  `70df05f36bf4075bdb6ad212306bb0bdcb113dc4`. Repository history does not
+  independently establish the current production reference end, Neon/Render
+  resource, credential, migration, exact seed execution, or public URL state.
+  It also does not prove current least-privilege DML grants for `roa_runtime`.
+  Read-only target verification is required before any invocation or rerun.
+
+- **Stage 22 staged activation and reserved-account lifecycle — uncommitted
+  local safety candidate:** D-090 adds strict
+  `DEMO_SESSION_ISSUANCE_ENABLED`, defaulting to false and required in addition
+  to exact `true + demo`. `render.yaml` pins this backend gate and frontend
+  `VITE_ENABLE_DEMO_SESSION` to false. A hidden-input operator command binds the
+  exact local release, independently copied pooler host, `roa_portfolio`,
+  `roa_runtime`, the `roa_migrator`/`roa_owner` role contract, `public` search
+  path, schema 0009, and reserved account. `verify-state` is read-only and,
+  together with provisioning, also binds the canonical plan hash and counts.
+  Confirmed provision creates only the exact ordinary active reserved admin
+  when absent, an exact rerun is a no-op, and drift is a STOP. Confirmed
+  deactivation intentionally remains independent of dataset drift and is the
+  scoped rollback for existing demo JWTs because protected requests reload
+  current User state. Disabling
+  issuance alone stops new tokens and does not revoke existing ones; shared JWT
+  key rotation would invalidate unrelated sessions too. This candidate is not
+  committed, deployed, or evidence of live provider state.
 
 - **Stage 22-B0 demo design:** its B3 payment design is now implemented through
-  B3-2B. B4 public session issuance and remaining bounded authorization guards,
-  any
+  B3-2B. B4 session issuance is implemented but not independently verified as
+  publicly active. Remaining bounded authorization guards, any
   remaining B3 scope, B5 recruiter UX, and B6 integrated acceptance remain
-  future work. A production
-  reference end, Neon seed, reset/prune policy, and runtime cap have not been
-  selected or authorized.
-- **Stage 22-A/C/D:** actual Render/Neon provisioning, live GitHub
-  Environment/secret controls, direct-URL production migration, first
-  controlled release, and public acceptance remain future separately
-  authorized work. A recruiter/portfolio URL may be advertised only after
-  Stage 22-D passes.
+  future work. The current production reference end and Neon seed state remain
+  unverified; reset/prune policy and the runtime cap also remain open.
+- **Stage 22-A/C/D:** exact Render/Neon resources, live GitHub
+  Environment/secret controls, direct-URL production migration, seed, reserved
+  account, flags, and deployment state require current independent verification.
+  Only verified missing writes, the first accepted controlled release, and
+  public acceptance remain separately authorized work. A recruiter/portfolio
+  URL may be advertised only after Stage 22-D passes.
 - **Stage 23 — Portfolio Documentation & Case Study:** not started. Final
   recruiter-facing README/case study, screenshots, architecture presentation,
   and CV-facing material remain future work.

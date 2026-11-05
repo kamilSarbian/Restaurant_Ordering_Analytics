@@ -222,6 +222,7 @@ cleanup() {
     E2E_PROMOTEE_EMAIL \
     E2E_PROMOTEE_PASSWORD \
     E2E_STRIPE_WEBHOOK_SECRET \
+    DEMO_SESSION_ISSUANCE_ENABLED \
     PAYMENT_PROVIDER \
     PORTFOLIO_DEMO_MODE \
     POSTGRES_PASSWORD \
@@ -349,6 +350,7 @@ export E2E_CUSTOMER_B_EMAIL
 export E2E_CUSTOMER_B_PASSWORD
 export E2E_BASE_URL="http://127.0.0.1:$FRONTEND_PORT"
 export PORTFOLIO_DEMO_MODE="false"
+export DEMO_SESSION_ISSUANCE_ENABLED="false"
 export PAYMENT_PROVIDER="stripe_test"
 export COMPOSE_DISABLE_ENV_FILE="1"
 unset COMPOSE_ENV_FILES COMPOSE_FILE COMPOSE_PROFILES COMPOSE_PROJECT_NAME
@@ -376,6 +378,7 @@ unset DATABASE_URL TEST_DATABASE_URL
   printf 'E2E_ADMIN_EMAIL=%s\n' "$E2E_ADMIN_EMAIL"
   printf 'E2E_ADMIN_PASSWORD=%s\n' "$E2E_ADMIN_PASSWORD"
   printf 'PORTFOLIO_DEMO_MODE=%s\n' "$PORTFOLIO_DEMO_MODE"
+  printf 'DEMO_SESSION_ISSUANCE_ENABLED=%s\n' "$DEMO_SESSION_ISSUANCE_ENABLED"
   printf 'PAYMENT_PROVIDER=%s\n' "$PAYMENT_PROVIDER"
 } >"$ENV_FILE"
 chmod 600 "$ENV_FILE"
@@ -447,6 +450,7 @@ try {
   assert(env.E2E_FRONTEND_PORT === frontendPort);
   assert(env.E2E_PUBLIC_ORIGIN === `http://127.0.0.1:${frontendPort}`);
   assert(env.PORTFOLIO_DEMO_MODE === 'false');
+  assert(env.DEMO_SESSION_ISSUANCE_ENABLED === 'false');
   assert(env.PAYMENT_PROVIDER === 'stripe_test');
 
   const networkKeys = (service) => Object.keys(service.networks ?? {}).sort();
@@ -469,8 +473,10 @@ try {
   assert(services.frontend.image === `roa-stage18-frontend:${runId}`);
   assert(services.backend.environment.STRIPE_SECRET_KEY === '');
   assert(services.backend.environment.PORTFOLIO_DEMO_MODE === 'false');
+  assert(services.backend.environment.DEMO_SESSION_ISSUANCE_ENABLED === 'false');
   assert(services.backend.environment.PAYMENT_PROVIDER === 'stripe_test');
   assert(services.migrate.environment.PORTFOLIO_DEMO_MODE === 'false');
+  assert(services.migrate.environment.DEMO_SESSION_ISSUANCE_ENABLED === 'false');
   assert(services.migrate.environment.PAYMENT_PROVIDER === 'stripe_test');
   assert(services.frontend.build.args.VITE_ENABLE_DEMO_SESSION === 'true');
   assert(!Object.hasOwn(services.backend.environment, 'E2E_ADMIN_EMAIL'));
@@ -606,12 +612,12 @@ retained_volume_is_exact || fail "E2E_DATABASE_VOLUME_INVALID"
 
 if ! backend_runtime_environment="$(
   inspect_value "$backend_id" '{{range .Config.Env}}{{println .}}{{end}}' |
-    grep -E '^(PAYMENT_PROVIDER|PORTFOLIO_DEMO_MODE)=' |
+    grep -E '^(DEMO_SESSION_ISSUANCE_ENABLED|PAYMENT_PROVIDER|PORTFOLIO_DEMO_MODE)=' |
     sort
 )"; then
   fail "E2E_BACKEND_RUNTIME_INVALID"
 fi
-[[ "$backend_runtime_environment" == $'PAYMENT_PROVIDER=stripe_test\nPORTFOLIO_DEMO_MODE=false' ]] || fail "E2E_BACKEND_RUNTIME_INVALID"
+[[ "$backend_runtime_environment" == $'DEMO_SESSION_ISSUANCE_ENABLED=false\nPAYMENT_PROVIDER=stripe_test\nPORTFOLIO_DEMO_MODE=false' ]] || fail "E2E_BACKEND_RUNTIME_INVALID"
 
 curl --fail --silent --show-error --connect-timeout 5 --max-time 10 --output /dev/null "$E2E_BASE_URL/healthz" || fail "E2E_FRONTEND_HEALTH_FAILED"
 curl --fail --silent --show-error --connect-timeout 5 --max-time 10 --output /dev/null "$E2E_BASE_URL/ready" || fail "E2E_BACKEND_READY_FAILED"
@@ -638,6 +644,7 @@ LOGS_AUDITED=0
 normal_backend_id="$backend_id"
 backend_recreate_count=0
 export PORTFOLIO_DEMO_MODE="true"
+export DEMO_SESSION_ISSUANCE_ENABLED="true"
 export PAYMENT_PROVIDER="demo"
 if ! "${COMPOSE[@]}" up --detach --no-deps --force-recreate backend >"$COMMAND_LOG_FILE" 2>&1; then
   fail "E2E_DEMO_BACKEND_RECREATE_FAILED"
@@ -676,12 +683,12 @@ harness_mount="$(inspect_value "$backend_id" '{{range .Mounts}}{{if eq .Destinat
 
 if ! backend_runtime_environment="$(
   inspect_value "$backend_id" '{{range .Config.Env}}{{println .}}{{end}}' |
-    grep -E '^(PAYMENT_PROVIDER|PORTFOLIO_DEMO_MODE)=' |
+    grep -E '^(DEMO_SESSION_ISSUANCE_ENABLED|PAYMENT_PROVIDER|PORTFOLIO_DEMO_MODE)=' |
     sort
 )"; then
   fail "E2E_DEMO_BACKEND_RUNTIME_INVALID"
 fi
-[[ "$backend_runtime_environment" == $'PAYMENT_PROVIDER=demo\nPORTFOLIO_DEMO_MODE=true' ]] || fail "E2E_DEMO_BACKEND_RUNTIME_INVALID"
+[[ "$backend_runtime_environment" == $'DEMO_SESSION_ISSUANCE_ENABLED=true\nPAYMENT_PROVIDER=demo\nPORTFOLIO_DEMO_MODE=true' ]] || fail "E2E_DEMO_BACKEND_RUNTIME_INVALID"
 
 deadline=$((SECONDS + 30))
 while ((SECONDS < deadline)); do

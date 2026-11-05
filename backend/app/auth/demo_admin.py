@@ -25,7 +25,16 @@ DEMO_ADMIN_EMAIL = "demo-admin@example.com"
 DEMO_ADMIN_DISABLED_PASSWORD_HASH = "!portfolio-demo-admin-login-disabled-v1"
 DEMO_ADMIN_PROVISION_LOCK_KEY = 593_216_404_004
 
-DemoAdminStatus = Literal["provisioned", "already_exact", "verified"]
+DemoAdminStatus = Literal[
+    "provisioned",
+    "already_exact",
+    "verified",
+    "missing",
+    "active",
+    "inactive",
+    "deactivated",
+    "already_inactive",
+]
 
 
 class DemoAdminError(Exception):
@@ -55,12 +64,128 @@ class DemoAdminResult:
 
 def is_demo_admin_identity(user: User) -> bool:
     """Return whether a user exactly matches the reserved demo identity."""
+    return _is_reserved_demo_admin(user, expected_active=True)
+
+
+def inspect_demo_admin(
+    session_factory: sessionmaker[Session],
+) -> DemoAdminResult:
+    """Inspect the reserved identity without performing any DML.
+
+    Args:
+        session_factory: Factory bound to an explicitly approved database.
+
+    Returns:
+        The exact reserved identity state: missing, active, or inactive.
+
+    Raises:
+        DemoAdminConflictError: If reserved identity data is colliding or drifted.
+        DemoAdminDatabaseError: If the read-only database operation fails.
+    """
+    result: DemoAdminResult | None = None
+    sanitized_error: DemoAdminError | None = None
+
+    try:
+        with session_factory() as session:
+            candidates = _load_candidates(session, lock_rows=False)
+            if not candidates:
+                result = _result("missing")
+            elif len(candidates) != 1:
+                raise DemoAdminConflictError(
+                    "Demo administrator identity conflicts with existing data."
+                )
+            elif _is_reserved_demo_admin(candidates[0], expected_active=True):
+                result = _result("active")
+            elif _is_reserved_demo_admin(candidates[0], expected_active=False):
+                result = _result("inactive")
+            else:
+                raise DemoAdminConflictError(
+                    "Demo administrator identity conflicts with existing data."
+                )
+    except DemoAdminError:
+        raise
+    except SQLAlchemyError:
+        sanitized_error = DemoAdminDatabaseError(
+            "The demo administrator database operation did not complete."
+        )
+
+    if sanitized_error is not None:
+        raise sanitized_error
+    if result is None:  # pragma: no cover - defensive invariant
+        raise DemoAdminDatabaseError(
+            "The demo administrator database operation did not complete."
+        )
+    return result
+
+
+def deactivate_demo_admin(
+    session_factory: sessionmaker[Session],
+) -> DemoAdminResult:
+    """Deactivate the exact reserved identity or report an exact no-op.
+
+    Args:
+        session_factory: Factory bound to an explicitly approved database.
+
+    Returns:
+        The reserved identity and whether it changed or was already inactive.
+
+    Raises:
+        DemoAdminConflictError: If the identity is missing, colliding, or drifted.
+        DemoAdminDatabaseError: If the database operation does not complete.
+    """
+    result: DemoAdminResult | None = None
+    sanitized_error: DemoAdminError | None = None
+
+    try:
+        with session_factory.begin() as session:
+            session.execute(
+                text("SELECT pg_advisory_xact_lock(:lock_key)"),
+                {"lock_key": DEMO_ADMIN_PROVISION_LOCK_KEY},
+            )
+            candidates = _load_candidates(session, lock_rows=True)
+            if len(candidates) != 1:
+                raise DemoAdminConflictError(
+                    "Demo administrator identity is missing or conflicts with existing data."
+                )
+            user = candidates[0]
+            if _is_reserved_demo_admin(user, expected_active=True):
+                user.is_active = False
+                session.flush()
+                result = _result("deactivated")
+            elif _is_reserved_demo_admin(user, expected_active=False):
+                result = _result("already_inactive")
+            else:
+                raise DemoAdminConflictError(
+                    "Demo administrator identity conflicts with existing data."
+                )
+    except DemoAdminError:
+        raise
+    except IntegrityError:
+        sanitized_error = DemoAdminConflictError(
+            "Demo administrator identity conflicts with existing data."
+        )
+    except SQLAlchemyError:
+        sanitized_error = DemoAdminDatabaseError(
+            "The demo administrator database operation did not complete."
+        )
+
+    if sanitized_error is not None:
+        raise sanitized_error
+    if result is None:  # pragma: no cover - defensive invariant
+        raise DemoAdminDatabaseError(
+            "The demo administrator database operation did not complete."
+        )
+    return result
+
+
+def _is_reserved_demo_admin(user: User, *, expected_active: bool) -> bool:
+    """Match every protected field, including the requested active state."""
     return (
         user.id == DEMO_ADMIN_ID
         and user.email == DEMO_ADMIN_EMAIL
         and user.password_hash == DEMO_ADMIN_DISABLED_PASSWORD_HASH
         and user.role == UserRole.ADMIN
-        and user.is_active is True
+        and user.is_active is expected_active
     )
 
 
@@ -311,6 +436,8 @@ __all__ = [
     "DemoAdminDatabaseError",
     "DemoAdminResult",
     "DemoAdminSafetyError",
+    "deactivate_demo_admin",
+    "inspect_demo_admin",
     "is_demo_admin_identity",
     "main",
     "provision_demo_admin",

@@ -210,6 +210,7 @@ class E2ERuntimeContract:
     frontend_port: int
     public_origin: str
     portfolio_demo_mode: bool
+    demo_session_issuance_enabled: bool
     payment_provider: str
     database_url: URL = field(repr=False)
     auth_jwt_secret: SecretStr = field(repr=False)
@@ -573,11 +574,25 @@ def load_e2e_runtime_contract(
         source,
         "PORTFOLIO_DEMO_MODE",
     )
+    demo_session_issuance_enabled_text = _required_environment_value(
+        source,
+        "DEMO_SESSION_ISSUANCE_ENABLED",
+    )
     payment_provider = _required_environment_value(source, "PAYMENT_PROVIDER")
-    if portfolio_demo_mode_text == "false" and payment_provider == "stripe_test":
+    if (
+        portfolio_demo_mode_text == "false"
+        and demo_session_issuance_enabled_text == "false"
+        and payment_provider == "stripe_test"
+    ):
         portfolio_demo_mode = False
-    elif portfolio_demo_mode_text == "true" and payment_provider == "demo":
+        demo_session_issuance_enabled = False
+    elif (
+        portfolio_demo_mode_text == "true"
+        and demo_session_issuance_enabled_text == "true"
+        and payment_provider == "demo"
+    ):
         portfolio_demo_mode = True
+        demo_session_issuance_enabled = True
     else:
         raise E2EHarnessSafetyError("E2E_RUNTIME_POLICY_INVALID")
 
@@ -602,6 +617,7 @@ def load_e2e_runtime_contract(
         frontend_port=frontend_port,
         public_origin=public_origin,
         portfolio_demo_mode=portfolio_demo_mode,
+        demo_session_issuance_enabled=demo_session_issuance_enabled,
         payment_provider=payment_provider,
         database_url=database_url,
         auth_jwt_secret=auth_jwt_secret,
@@ -660,6 +676,7 @@ def create_e2e_app(
         app_environment="e2e",
         app_debug=False,
         portfolio_demo_mode=contract.portfolio_demo_mode,
+        demo_session_issuance_enabled=contract.demo_session_issuance_enabled,
         payment_provider=contract.payment_provider,
         database_url=contract.database_url.render_as_string(hide_password=False),
         stripe_secret_key=None,

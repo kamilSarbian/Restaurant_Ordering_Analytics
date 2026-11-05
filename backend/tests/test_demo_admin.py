@@ -28,6 +28,8 @@ from app.auth.demo_admin import (
     DemoAdminConflictError,
     DemoAdminDatabaseError,
     DemoAdminResult,
+    deactivate_demo_admin,
+    inspect_demo_admin,
     is_demo_admin_identity,
     provision_demo_admin,
     validate_local_demo_admin_database_url,
@@ -309,6 +311,103 @@ def test_verify_is_select_only_for_exact_identity() -> None:
 
     assert result.status == "verified"
     assert calls == ["open", "select", "close"]
+    assert session.added == []
+
+
+@pytest.mark.parametrize(
+    ("rows", "expected_status"),
+    [
+        ([], "missing"),
+        ([_user()], "active"),
+        ([_user(is_active=False)], "inactive"),
+    ],
+    ids=["missing", "active", "inactive"],
+)
+def test_inspect_reports_exact_state_without_dml(
+    rows: list[User], expected_status: str
+) -> None:
+    """Distinguish missing, active, and inactive exact state using only SELECT."""
+    calls: list[str] = []
+    session = _FakeSession(rows, calls)
+
+    result = inspect_demo_admin(_FakeFactory(session, calls))  # type: ignore[arg-type]
+
+    assert result.status == expected_status
+    assert calls == ["open", "select", "close"]
+    assert session.added == []
+
+
+@pytest.mark.parametrize(
+    "rows",
+    [
+        [_user(role=UserRole.CUSTOMER)],
+        [_user(password_hash="drifted")],
+        [_user(), _user(id=uuid4())],
+    ],
+    ids=["role-drift", "password-drift", "collision"],
+)
+def test_inspect_rejects_drift_without_dml(rows: list[User]) -> None:
+    """Reject every reserved identity collision without attempting a repair."""
+    calls: list[str] = []
+    session = _FakeSession(rows, calls)
+
+    with pytest.raises(DemoAdminConflictError):
+        inspect_demo_admin(_FakeFactory(session, calls))  # type: ignore[arg-type]
+
+    assert calls == ["open", "select", "close"]
+    assert session.added == []
+
+
+def test_deactivate_changes_only_the_exact_active_identity() -> None:
+    """Deactivate the exact reserved row while holding its advisory lock."""
+    calls: list[str] = []
+    user = _user()
+    session = _FakeSession([user], calls)
+
+    result = deactivate_demo_admin(  # type: ignore[arg-type]
+        _FakeFactory(session, calls)
+    )
+
+    assert result.status == "deactivated"
+    assert user.is_active is False
+    assert calls == [
+        "begin",
+        "advisory-lock",
+        "select-for-update",
+        "flush",
+        "commit",
+    ]
+    assert session.added == []
+
+
+def test_exact_deactivate_rerun_is_zero_dml_no_op() -> None:
+    """Return an exact inactive no-op without flushing or repairing the row."""
+    calls: list[str] = []
+    session = _FakeSession([_user(is_active=False)], calls)
+
+    result = deactivate_demo_admin(  # type: ignore[arg-type]
+        _FakeFactory(session, calls)
+    )
+
+    assert result.status == "already_inactive"
+    assert calls == ["begin", "advisory-lock", "select-for-update", "commit"]
+    assert session.added == []
+
+
+@pytest.mark.parametrize(
+    "rows",
+    [[], [_user(role=UserRole.SUPER_ADMIN)], [_user(email="drift@example.com")]],
+    ids=["missing", "super-admin", "identity-drift"],
+)
+def test_deactivate_rejects_missing_or_drifted_state(rows: list[User]) -> None:
+    """Fail closed without update when rollback identity is not exact."""
+    calls: list[str] = []
+    session = _FakeSession(rows, calls)
+
+    with pytest.raises(DemoAdminConflictError):
+        deactivate_demo_admin(_FakeFactory(session, calls))  # type: ignore[arg-type]
+
+    assert calls == ["begin", "advisory-lock", "select-for-update", "rollback"]
     assert session.added == []
 
 

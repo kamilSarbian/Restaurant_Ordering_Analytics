@@ -1539,9 +1539,12 @@ Stage 22-D; this does not authorize a wildcard policy.
 
 The eventual demo Render configuration specifies
 `PORTFOLIO_DEMO_MODE=true` and `PAYMENT_PROVIDER=demo`, without a Stripe
-secret in that environment. The demo flow is implemented in the repository;
-the configuration remains a target and is not evidence of a deployed runtime.
-The Static Site sets
+secret in that environment. The staged-activation candidate additionally pins
+backend `DEMO_SESSION_ISSUANCE_ENABLED=false` and frontend
+`VITE_ENABLE_DEMO_SESSION=false`; enabling either later requires a separate,
+deliberate provider change after its prerequisites pass. The demo flow is
+implemented in the repository, but configuration text is not evidence of a
+deployed runtime. The Static Site sets
 `VITE_API_TIMEOUT_MS=90000` as a bounded 90-second Free-tier cold-start
 allowance; the ordinary API client default remains 10 seconds.
 
@@ -1555,10 +1558,11 @@ remote-main comparison inside the migration step immediately before the
 runner. Only that step receives the migration secret. The runner validates
 the `roa_migrator` login and `roa_owner` owner roles and verifies exact
 Alembic head 0009. The named `production-neon` Environment is a repository
-reference, not proof that live
-GitHub protection rules or the secret have been configured. No migration
-workflow has been dispatched, no cloud resources have been provisioned, and no
-public deployment exists.
+reference, not proof that live GitHub protection rules or the secret have been
+configured. Repository state alone does not establish the current provider
+resources, migration, seed, or deployment state; those facts require
+independent provider and database verification before another write or public
+claim.
 
 The deployment dataset seed is a third, separately authorized boundary rather
 than part of runtime startup or migration:
@@ -1582,10 +1586,12 @@ exact revision 0009 before DML, inserts the canonical menu and portfolio rows in
 one transaction, treats an exact rerun as zero-DML, and rejects partial, drifted,
 or colliding state without repair. The command emits only stable messages and
 aggregate counts. It does not migrate, reset, prune, or run automatically.
-Repository configuration does not yet provision or prove the least-privilege
-DML grants required by `roa_runtime`; that operational check, the reference end,
-credentials, live resources, migration, and actual Neon seed remain separate
-STOP conditions before deployment use.
+The deployment seed implementation is committed at
+`70df05f36bf4075bdb6ad212306bb0bdcb113dc4`. Repository configuration still does
+not prove the current least-privilege DML grants for `roa_runtime`, reference
+end, credentials, live resources, migration, or exact Neon seed state. These
+remain independent read-only verification inputs before any invocation or
+rerun.
 
 The schema represents demo provenance and provider-neutral payment state. The
 one public Checkout route dispatches from trusted application state:
@@ -1692,8 +1698,10 @@ analytics and reports through
 provider-neutral `Payment.status` and `Payment.succeeded_at` qualification,
 without `StripeEvent`. Portfolio-runtime traffic may therefore increase live
 aggregates, but the immutable B2 500-Order dataset is unchanged. There is still
-no public deployment, production reference end, Neon seed, reset/prune policy,
-runtime cap, public demo session, or recruiter acceptance.
+no repository-recorded public acceptance, reset/prune policy, or runtime cap.
+The current production reference end, Neon seed, deployment, and public-session
+state require independent live verification rather than inference from source
+files.
 
 ### 5.31. Shared Demo Identity Customer-Order Isolation
 
@@ -1725,14 +1733,17 @@ are accepted only temporarily pending dedicated UX before public issuance.
 
 ### 5.32. Reserved Demo Administrator Session Issuance
 
-The local B4 candidate adds bodyless `POST /api/v1/auth/demo-session` without
-adding a password flow or a second token family. A route boundary reads only
-trusted application state. Exact `PORTFOLIO_DEMO_MODE=true` with
-`PAYMENT_PROVIDER=demo` is required; every other or missing pair returns the
-same 404 before limiter, database, or token-service access. The route remains
-registered and appears in generated OpenAPI wherever OpenAPI is enabled. The
-permitted path first resolves its dedicated app-scoped fixed-window bucket and
-only then accesses the canonical `UserTokenService` or database.
+The committed B4 boundary adds bodyless `POST /api/v1/auth/demo-session`
+without adding a password flow or a second token family. A route boundary reads
+only trusted application state. Exact `PORTFOLIO_DEMO_MODE=true` with
+`PAYMENT_PROVIDER=demo` is necessary, and the staged-activation candidate adds
+the independent exact `DEMO_SESSION_ISSUANCE_ENABLED=true` requirement. The
+issuance gate defaults to false. Every disabled, other, or missing combination
+returns the same 404 before limiter, database, or token-service access. The
+route remains registered and appears in generated OpenAPI wherever OpenAPI is
+enabled. The permitted path first resolves its dedicated app-scoped
+fixed-window bucket and only then accesses the canonical `UserTokenService` or
+database.
 
 Local and test runtimes use the direct connection peer. Production uses
 `CF-Connecting-IP` only when trusted settings contain Render's exact built-ins
@@ -1761,11 +1772,15 @@ database failure, absent token configuration, and token issuance failure share
 the existing secret-free 503; missing or invalid trusted Render identity uses
 that same response, and limiter denial remains 429 with `Retry-After`. The
 limiter is process-local and resets on restart, so it is a bounded abuse
-control rather than a distributed quota. This is a local backend candidate,
-not authorization to expose the session publicly. Dedicated Menu and My
-account UX, controlled demo-administrator provisioning, independent review,
-Browser E2E, commit, push, CI, deployment, and public acceptance remain
-separate gates. The earlier bounded evidence comprised 37 passing targeted
+control rather than a distributed quota. The endpoint, visible flag-gated UI,
+dedicated local real-backend E2E, review, commit, push, and CI are complete.
+Their documentation closeout is
+`b6224845d4007111d63a6485bd786265907f7151`; automatic push run
+`41936981074`, attempt 1, passed all four required jobs for that SHA. This does
+not authorize public issuance. The current reserved account, provider flags,
+final Menu/My account UX, deployment, and public acceptance still require
+independent live verification or execution as applicable. The earlier bounded
+evidence comprised 37 passing targeted
 no-database tests and one 62-test isolated PostgreSQL run of the complete
 demo-session and canonical User-auth integration files; those runs predate the
 proxy-bucket remediation. Fresh current-byte evidence is recorded in the
@@ -1773,6 +1788,38 @@ implementation status. The first two broader non-integration attempts each
 reached 1757 passed but one unrelated test fixture could not create its pytest
 temporary directory. One later run with an accessible explicit basetemp
 completed with 1758 passed and native exit 0.
+
+### 5.33. Staged Demo-Session Activation and Reserved Account Lifecycle
+
+The uncommitted rollout-safety candidate separates the payment/runtime mode
+from public JWT issuance. `DEMO_SESSION_ISSUANCE_ENABLED` is a strict boolean,
+defaults to false, and must be true in addition to the existing exact demo pair.
+The Blueprint pins that backend gate and frontend
+`VITE_ENABLE_DEMO_SESSION` to false. This permits an exact release to be checked
+before either the endpoint can issue a token or the static build can advertise
+the action.
+
+A separate operator boundary accepts the pooled database URL only through a
+hidden prompt. Every action binds the exact local release SHA, independently
+copied Neon pooler hostname, `roa_portfolio` database, `roa_runtime` login,
+`roa_migrator`/`roa_owner` role contract, `public` search path, revision 0009,
+and reserved demo-administrator identity. Verification and provisioning also
+bind the canonical portfolio-plan hash and counts; deactivation intentionally
+does not depend on dataset consistency so that the account-scoped rollback
+remains available. Stable output exposes neither URL, credentials, raw SQL
+parameters, nor raw exceptions.
+
+`verify-state` opens a read-only transaction and performs no provisioning.
+`provision` requires an explicit confirmation, inserts only the exact reserved
+ordinary active `admin` with the disabled-password marker when it is absent,
+treats an exact rerun as a no-op, and rejects collisions or drift without
+repair. `deactivate` has its own confirmation and is the account-specific
+rollback: protected requests reload the active User, so deactivation denies
+already-issued demo JWTs without rotating the shared JWT secret. Disabling the
+issuance flag alone stops new tokens but does not revoke existing ones; rotating
+the JWT secret is broader emergency containment that invalidates unrelated
+sessions too. None of these local contracts proves the present provider or
+database state.
 
 ## 6. Architecture Diagram
 

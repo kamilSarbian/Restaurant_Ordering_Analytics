@@ -85,6 +85,7 @@ def _application(
             database_url=None,
             auth_jwt_secret=None,
             portfolio_demo_mode=True,
+            demo_session_issuance_enabled=True,
             payment_provider="demo",
         ),
         session_factory=factory,

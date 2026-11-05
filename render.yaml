@@ -24,6 +24,8 @@ services:
         value: "false"
       - key: PORTFOLIO_DEMO_MODE
         value: "true"
+      - key: DEMO_SESSION_ISSUANCE_ENABLED
+        value: "false"
       - key: PAYMENT_PROVIDER
         value: demo
       - key: TRUSTED_PROXY_MODE
@@ -71,6 +73,8 @@ services:
           envVarKey: RENDER_EXTERNAL_URL
       - key: VITE_API_TIMEOUT_MS
         value: "90000"
+      - key: VITE_ENABLE_DEMO_SESSION
+        value: "false"
     routes:
       - type: rewrite
         source: /*

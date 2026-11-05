@@ -161,6 +161,91 @@ def seed_portfolio_data(
     )
 
 
+def verify_portfolio_data(
+    session_factory: sessionmaker[Session],
+    plan: PortfolioSeedPlan,
+) -> PortfolioSeedResult:
+    """Verify one complete canonical plan without performing any DML.
+
+    Args:
+        session_factory: Factory bound to an explicitly approved database.
+        plan: Fully generated immutable B2-1 portfolio seed plan.
+
+    Returns:
+        Exact verified menu and portfolio row counts with ``inserted=False``.
+
+    Raises:
+        PortfolioSeedPlanError: If the plan violates the approved contract.
+        PortfolioSeedSchemaError: If the database is not at exact revision 0009.
+        PortfolioSeedConflictError: If menu or portfolio rows differ.
+        PortfolioSeedDatabaseError: If another database operation fails.
+    """
+    expected = _validated_expected_rows(plan)
+    menu_result: SeedResult | None = None
+    sanitized_error: PortfolioSeedError | None = None
+
+    try:
+        with session_factory() as session:
+            _require_exact_schema_revision(session)
+            menu_result = require_exact_menu_data(session)
+            _require_exact_rows(session, expected)
+    except PortfolioSeedError:
+        raise
+    except SeedConflictError:
+        sanitized_error = PortfolioSeedConflictError(
+            "Canonical menu data conflicts with existing database records."
+        )
+    except SQLAlchemyError:
+        sanitized_error = PortfolioSeedDatabaseError(
+            "The portfolio database operation did not complete."
+        )
+
+    if sanitized_error is not None:
+        raise sanitized_error
+    if menu_result is None:  # pragma: no cover - defensive invariant
+        raise PortfolioSeedDatabaseError(
+            "The portfolio database operation did not complete."
+        )
+    return PortfolioSeedResult(
+        inserted=False,
+        categories_processed=menu_result.categories_processed,
+        menu_items_processed=menu_result.menu_items_processed,
+        tables_processed=len(expected.tables),
+        orders_processed=len(expected.orders),
+        order_items_processed=len(expected.order_items),
+        status_history_processed=len(expected.status_history),
+        payments_processed=len(expected.payments),
+    )
+
+
+def verify_portfolio_schema(session_factory: sessionmaker[Session]) -> str:
+    """Verify the exact portfolio schema revision without performing DML.
+
+    Args:
+        session_factory: Factory bound to an explicitly approved database.
+
+    Returns:
+        The exact approved Alembic revision.
+
+    Raises:
+        PortfolioSeedSchemaError: If the database is not at exact revision 0009.
+        PortfolioSeedDatabaseError: If the database operation fails.
+    """
+    sanitized_error: PortfolioSeedDatabaseError | None = None
+    try:
+        with session_factory() as session:
+            _require_exact_schema_revision(session)
+    except PortfolioSeedSchemaError:
+        raise
+    except SQLAlchemyError:
+        sanitized_error = PortfolioSeedDatabaseError(
+            "The portfolio database operation did not complete."
+        )
+    if sanitized_error is not None:
+        raise sanitized_error
+    return EXPECTED_SCHEMA_REVISION
+
+
 def _validated_expected_rows(plan: PortfolioSeedPlan) -> _PortfolioRows:
     _validate_plan(plan)
     order_items: list[RowValues] = []
@@ -440,4 +525,6 @@ __all__ = [
     "PortfolioSeedResult",
     "PortfolioSeedSchemaError",
     "seed_portfolio_data",
+    "verify_portfolio_data",
+    "verify_portfolio_schema",
 ]

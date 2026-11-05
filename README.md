@@ -50,10 +50,11 @@ committed at `b7fcd9faa2fade1b042e7f004d60c43afea5a547`; the final dependency
 remediation and retained Exports E2E diagnostics are committed at
 `97fc166cc6d79c4ee455ad91834eae266f72d757`. GitHub Actions run `36629606589`,
 attempt 1, passed `Backend`, `Migrations`, `Frontend`, and `Browser E2E` for
-that final SHA. No Render or Neon resource, production migration or seed, public
-demo-administrator provisioning or public demo-session issuance, online
-release, or public acceptance has been executed. A recruiter-facing public URL
-may be claimed only after Stage 22-D.
+that final SHA. That historical closeout did not establish any Render or Neon
+resource, production migration or seed, public demo-administrator provisioning,
+public demo-session issuance, online release, or public acceptance. The current
+provider and database state must be independently reverified before any further
+cloud write. A recruiter-facing public URL may be claimed only after Stage 22-D.
 The bounded B4-3B5 customer-order isolation change was committed and pushed on
 `main` at `dcbbe0c3b8b69ac0759c56ed9b48340c55993e0b`. Automatic GitHub Actions
 push run `39032664802`, attempt 1, completed `Backend`, `Migrations`, `Frontend`,
@@ -130,20 +131,39 @@ focused wrapping correction was committed and pushed at
 `91c276449b116240e9799328ac207801f6953e36` as
 `fix: allow public navigation to wrap`; automatic push run `41934933203`,
 attempt 1, completed all four required jobs with `success` for that exact SHA.
-This remains not a public session launch: reserved Neon demo-administrator
-account provisioning, public flag activation, final Menu and My account UX,
-deployment, and Render acceptance remain open.
+The documentation closeout is committed at
+`b6224845d4007111d63a6485bd786265907f7151`; automatic push run
+`41936981074`, attempt 1, completed `Backend`, `Migrations`, `Frontend`, and
+`Browser E2E` with `success` for that exact SHA. This remains not a public
+session launch: the current reserved Neon demo-administrator state, public flag
+activation, final Menu and My account UX, deployment, and Render acceptance
+still require independent live verification or execution as applicable.
 The earlier 37-test no-database and 62-test isolated PostgreSQL results predate
 the proxy-bucket remediation; fresh current-byte evidence is recorded in the
 implementation status. Two initial broader non-integration attempts each
 reached 1757 passed before one unrelated temporary-directory setup error; one
 later run with an accessible explicit basetemp completed with 1758 passed and
 native exit 0.
-An uncommitted local implementation candidate now provides a separate,
-operator-gated deployment demo dataset command. It has been exercised only
-against the isolated local integration database; no production reference end,
-Neon credentials or resources, runtime-role grants, migration, or deployment
-seed execution is selected or claimed.
+The separate operator-gated deployment demo dataset command is committed at
+`70df05f36bf4075bdb6ad212306bb0bdcb113dc4`. Its repository acceptance was
+performed against the isolated local integration database. Repository history
+alone does not prove the current Neon target, runtime-role grants, migration,
+reference end, or whether an exact live seed invocation occurred; those facts
+must be independently reverified before another write.
+
+An uncommitted staged-activation safety candidate now adds a second backend
+gate, `DEMO_SESSION_ISSUANCE_ENABLED`, parsed as an exact boolean and defaulting
+to `false`. The Blueprint pins both that backend gate and the frontend
+`VITE_ENABLE_DEMO_SESSION` build flag to `false`, so an initial release cannot
+publish either issuance or its visible entry point implicitly. A separate
+hidden-input operator command verifies the exact release, pooled `roa_runtime`
+target, database and role contract, schema 0009, canonical portfolio plan, and
+reserved account before provisioning. Its `verify-state` action is read-only;
+an exact provision rerun is a no-op, and plan, dataset, or identity drift is a
+hard stop for provisioning. Separately confirmed deactivation is the
+account-specific rollback for already-issued demo tokens after exact target,
+release, role, schema, and reserved-identity checks. This candidate is not yet
+committed, deployed, or evidence of the current Neon or Render state.
 Stage 23 — Portfolio Documentation & Case Study is **not started**.
 
 The FastAPI backend provides public menu and quote APIs, runtime-scoped
@@ -555,10 +575,12 @@ runtime uses a Neon PostgreSQL Free pooled URL. The manual
 `migrate-neon.yml` workflow uses a separate direct Neon migration URL, exact
 required CI checks, and a final current-`main` SHA recheck before running the
 migrator. The named `production-neon` GitHub Environment and its migration
-secret still require operator verification/configuration; a workflow reference
-does not establish live protection rules. No workflow has been dispatched, and
-no Render/Neon resource, production migration or seed, or public deployment is
-claimed.
+secret require current operator verification; a workflow reference does not
+establish live protection rules or current provider state. Repository
+documentation does not independently prove which Render/Neon resources,
+migration, seed, or deployment actions may already have occurred. They must be
+reverified against the exact provider target before any further write or public
+claim.
 
 Migration `0009_add_portfolio_demo_origin_and_payment_provider` adds
 `Order.data_origin` (`live`, `portfolio_seed`, or `portfolio_runtime`),
@@ -1410,7 +1432,49 @@ This repository does not provision or prove the required least-privilege DML
 grants for `roa_runtime`. Those grants, the final reference end, live resources,
 credentials, migrated schema, exact deployed SHA, and an independently reviewed
 operator invocation must all be verified before this command may target Neon.
-The command has not been run against Neon or any production database.
+Repository history does not independently prove whether this command has been
+run against the exact Neon target. Before any invocation or rerun, the operator
+must first verify the existing database state, release, plan, roles, and prior
+execution evidence without mutating the target.
+
+## Portfolio deployment state and reserved demo-administrator operator
+
+The uncommitted staged-activation candidate provides three explicit actions
+from the `backend` directory. Every value shown below is a nonsecret pin that
+must come from separately verified evidence:
+
+```powershell
+& '.\.venv\Scripts\python.exe' -B -m app.portfolio_deployment verify-state `
+  --expected-endpoint-host '<exact-neon-pooler-host>' `
+  --portfolio-reference-end '<approved-aware-ISO-8601-midnight>' `
+  --expected-plan-sha256 '<approved-64-hex-plan-sha256>' `
+  --expected-release-sha '<exact-clean-40-hex-git-sha>'
+
+& '.\.venv\Scripts\python.exe' -B -m app.portfolio_deployment provision `
+  --expected-endpoint-host '<exact-neon-pooler-host>' `
+  --portfolio-reference-end '<approved-aware-ISO-8601-midnight>' `
+  --expected-plan-sha256 '<approved-64-hex-plan-sha256>' `
+  --expected-release-sha '<exact-clean-40-hex-git-sha>' `
+  --confirmation PROVISION_NORDIC_HEARTH_DEMO_ADMIN
+
+& '.\.venv\Scripts\python.exe' -B -m app.portfolio_deployment deactivate `
+  --expected-endpoint-host '<exact-neon-pooler-host>' `
+  --expected-release-sha '<exact-clean-40-hex-git-sha>' `
+  --confirmation DEACTIVATE_NORDIC_HEARTH_DEMO_ADMIN
+```
+
+The pooled `roa_runtime` URL for `roa_portfolio` is entered only at the hidden
+interactive prompt. It must not be put in an environment variable, command-line
+argument, file, shell history, or captured output. Run `verify-state` first,
+and do not provision after any plan, dataset, or identity mismatch.
+`deactivate` is not a repair path: use it only as the separately confirmed,
+account-scoped rollback after its exact target, release, role, schema, and
+reserved-identity checks pass. The database URL can bind the exact host,
+database, and login, but it cannot prove the provider display names for the
+Neon project and branch. The expected project
+`nordic-hearth-portfolio` and branch `production` therefore still require
+independent manual evidence from the provider panel before any write. These
+commands have not been run or authorized by this documentation update.
 
 ## Public menu API
 

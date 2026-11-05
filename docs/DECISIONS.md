@@ -1996,6 +1996,48 @@ while preserving these financial concurrency rules.
   demo-administrator provisioning, deployment configuration, and public
   acceptance must be completed before activation.
 
+## D-090 — Staged Demo-Session Activation and Reserved Account Lifecycle
+
+- **Status:** proposed on 2026-11-05 for the uncommitted rollout-safety
+  candidate. Independent review, commit, CI, live verification, provider
+  changes, and public acceptance remain separate gates.
+- **Precedence:** this decision augments D-089's trusted-runtime condition. Exact
+  `PORTFOLIO_DEMO_MODE=true + PAYMENT_PROVIDER=demo` remains necessary but is no
+  longer sufficient for issuance.
+- **Independent issuance gate:** `DEMO_SESSION_ISSUANCE_ENABLED` is a strict
+  boolean, defaults to `false`, and must be exactly true before the endpoint can
+  reach limiter, database, or JWT work. Disabled or missing state returns the
+  existing constant 404. The Render Blueprint pins this backend gate and the
+  frontend `VITE_ENABLE_DEMO_SESSION` build flag to false; frontend visibility
+  remains presentation only, never authorization.
+- **Operator input and target binding:** the production portfolio operator reads
+  the database URL only from a hidden interactive prompt. Every action requires
+  the exact local release SHA and independently copied pooler host, and
+  validates the `roa_portfolio` database, `roa_runtime` login,
+  `roa_migrator`/`roa_owner` role contract, `public`-only search path, schema
+  revision 0009, and exact reserved identity. Verification and provisioning
+  additionally bind the canonical portfolio-plan hash and counts; deactivation
+  intentionally remains independent of dataset drift. Output must not expose
+  URLs, credentials, SQL parameters, or raw exceptions.
+- **Lifecycle:** `verify-state` is read-only. `provision` requires an explicit
+  confirmation, creates only the exact ordinary active reserved `admin` with
+  the disabled-password marker when absent, treats an exact rerun as a no-op,
+  and rejects collisions or drift without repair. `deactivate` requires its own
+  confirmation and affects only the reserved account.
+- **Activation order:** verify the provider and database target first; deploy an
+  exact green SHA with both flags false; pass health, readiness, CORS, endpoint
+  denial, and rollback checks; provision only when independently verified as
+  absent; then enable backend issuance before rebuilding the frontend with its
+  visibility flag. Each provider write remains separately authorized.
+- **Rollback:** disabling issuance stops new JWTs but does not revoke tokens
+  already issued. Deactivating the reserved account is the scoped rollback
+  because protected requests reload current User state. Rotating the shared JWT
+  secret is emergency containment only and invalidates unrelated sessions too.
+- **Evidence boundary:** this source contract does not establish the current
+  Neon or Render project, branch, database, roles, migration, seed, account,
+  flags, deployment, or public URL. Those facts require current independent
+  provider and database evidence.
+
 ## History of Decisions That Required Resolution
 
 ### O-002: Boundary Between Order Creation and Stripe Checkout Session

@@ -264,6 +264,7 @@ def _validate_backend_service(
         "APP_ENVIRONMENT": "production",
         "APP_DEBUG": "false",
         "PORTFOLIO_DEMO_MODE": "true",
+        "DEMO_SESSION_ISSUANCE_ENABLED": "false",
         "PAYMENT_PROVIDER": "demo",
         "TRUSTED_PROXY_MODE": "direct",
         "AUTH_ACCESS_TOKEN_EXPIRE_MINUTES": "30",
@@ -322,7 +323,11 @@ def _validate_frontend_service(
         raise FreeTierContractError
 
     entries = _environment_entries(service)
-    if set(entries) != {"VITE_API_BASE_URL", "VITE_API_TIMEOUT_MS"}:
+    if set(entries) != {
+        "VITE_API_BASE_URL",
+        "VITE_API_TIMEOUT_MS",
+        "VITE_ENABLE_DEMO_SESSION",
+    }:
         raise FreeTierContractError
     _require_service_environment_reference(
         entries["VITE_API_BASE_URL"], backend_name, "RENDER_EXTERNAL_URL"
@@ -330,6 +335,11 @@ def _validate_frontend_service(
     if entries["VITE_API_TIMEOUT_MS"] != {
         "key": "VITE_API_TIMEOUT_MS",
         "value": "90000",
+    }:
+        raise FreeTierContractError
+    if entries["VITE_ENABLE_DEMO_SESSION"] != {
+        "key": "VITE_ENABLE_DEMO_SESSION",
+        "value": "false",
     }:
         raise FreeTierContractError
 

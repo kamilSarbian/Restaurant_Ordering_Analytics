@@ -664,7 +664,9 @@
 
 ## 22. Production Deployment & Public Acceptance
 
-- **Status:** in progress at the repository-contract level, not deployed.
+- **Status:** in progress. No deployment has passed repository-recorded Stage
+  22-D public acceptance; current provider and database state requires
+  independent live verification.
 - **Goal:** prepare, provision, release, and accept a safe zero-base-cost
   portfolio demo using Render Static Site Free, Render Docker Web Service Free,
   and Neon PostgreSQL Free. The Stage 20 paid/GHCR target is historical, not
@@ -690,11 +692,12 @@
 ### 22-A — Free-Tier Provisioning and Release Prerequisites
 
 The earlier read-only A0/A1 planning and architecture pivot did not create
-resources. Future separately authorized operator work must verify Render/Neon
-free-tier capability, prepare Render service settings and exact HTTPS origins,
-provision Neon only under an approved DB-only boundary, and configure/check
-the `production-neon` GitHub Environment and migration secret. A repository
-workflow reference does not prove live protection rules. Public Render
+resources. Separately authorized operator work must verify the exact current
+Render/Neon resources and free-tier capability, prepare or confirm Render
+service settings and exact HTTPS origins, perform only missing approved Neon
+writes under a DB-only boundary, and configure/check the `production-neon`
+GitHub Environment and migration secret. A repository workflow reference does
+not prove live protection rules or current provider state. Public Render
 Static/Web service creation or activation belongs to the separately approved
 controlled 22-C release unless a proven no-deploy procedure is approved.
 The manual migration workflow must be dispatched only after required CI and
@@ -730,6 +733,11 @@ exact current-`main` checks.
 - Stable seed Orders use `portfolio_seed`; trusted demo runtime creates
   `portfolio_runtime`; ordinary Stripe-test runtime creates `live`. A 250-order
   portfolio-runtime cap remains only a future proposal.
+- **Deployment dataset command:** the separately guarded production-demo seed
+  implementation is committed at `70df05f36bf4075bdb6ad212306bb0bdcb113dc4`.
+  Its local isolated acceptance does not establish the current production
+  reference end, Neon target, grants, migration, or exact live seed state;
+  these must be independently verified before any invocation or rerun.
 - **B3-1 — runtime origin and Stripe isolation:** complete and committed on
   2026-09-26 at `38639550b734112dfeb2782760231b3a8cb3f756`. Server-owned
   configuration assigns `live` or `portfolio_runtime` fail-closed, and Stripe
@@ -799,9 +807,24 @@ data` badge without granting authorization. The dedicated isolated
   was committed and pushed at `91c276449b116240e9799328ac207801f6953e36`
   as `fix: allow public navigation to wrap`; push run `41934933203`, attempt 1,
   completed all four required jobs with `success` for that exact SHA. The
-  endpoint is not publicly activated. Reserved Neon demo-administrator account
-  provisioning, public flag activation, final Menu and My account UX,
-  deployment, Render acceptance, and public session issuance remain open.
+  documentation closeout is committed at
+  `b6224845d4007111d63a6485bd786265907f7151`; push run `41936981074`, attempt
+  1, completed all four required jobs with `success` for that exact SHA. The
+  local artifacts do not prove public activation. The current reserved Neon
+  account, public flags, final Menu/My account UX, deployment, Render
+  acceptance, and public issuance require independent live verification or
+  execution as applicable.
+- **Staged-activation safety candidate:** an uncommitted local slice adds the
+  strict default-false `DEMO_SESSION_ISSUANCE_ENABLED` backend gate, pins both
+  backend issuance and frontend visibility false in the Blueprint, and adds a
+  hidden-input operator boundary. Its read-only `verify-state` action binds the
+  exact release, pooled runtime target, role contract, schema 0009, canonical
+  portfolio state, and reserved identity. Exact provision reruns are no-ops,
+  and plan, dataset, or identity drift is a STOP for provisioning. Separately
+  confirmed deactivation is intentionally dataset-independent and is the
+  account-specific rollback for already-issued demo JWTs after exact target,
+  release, role, schema, and reserved-identity checks. It does not prove current
+  cloud state or authorize activation.
 - **B5 — recruiter journey/UX:** future; clearly label synthetic data and demo
   payment.
 - **B6 — integrated acceptance:** future; verify security, data boundaries,
@@ -817,16 +840,18 @@ complete: its bounded committed safeguards and isolation slices are in place,
 and the demo-session backend boundary and frontend transport are committed and
 CI green. The visible frontend flow remains disabled by default and is
 flag-gated; its dedicated real-backend browser proof, final review, commit,
-push, and follow-up CI are complete. No reserved Neon
-demo-administrator account or public session has been activated. D-060 payment
+push, and follow-up CI are complete. Repository history does not establish the
+current reserved Neon account or public-session activation state. D-060 payment
 neutrality and D-077 NOK-only Admin Menu remain unchanged.
 
 ### 22-C — First Controlled Online Release
 
-After separate approval and completed prerequisites, run the manual exact-SHA
-Neon migration through its direct URL, configure the pooled runtime URL,
-release the two Render Free services, and perform health/readiness and smoke
-checks. No such operation has occurred.
+After separate approval, first verify the exact current project, branch,
+database, schema, roles, data, account, and Render resources. Perform only the
+missing approved writes, configure the pooled runtime URL, release the exact
+green SHA with both public flags initially false, and perform health/readiness
+and smoke checks. Repository text alone does not establish which earlier
+operator steps may already have occurred.
 
 ### 22-D — Public Demo Acceptance
 
@@ -855,14 +880,18 @@ That paragraph records the historical 2026-09-15 reconciliation boundary, not
 the current state. Stage 22 is now in progress through four committed AF1+B1
 slices, committed B2-1 through B2-3, B3-1 through B3-2B, B4-1, B4-3A1 through
 B4-3A3, B4-3B1 through B4-3B5, and the committed demo-session backend boundary
-and frontend transport, with no live deployment. The visible frontend flow is
+and frontend transport, without repository-recorded Stage 22-D public
+acceptance. The visible frontend flow is
 committed behind the exact disabled-by-default `VITE_ENABLE_DEMO_SESSION=true`
 flag. Its dedicated local real-backend browser flow, final independent review,
-commit, push, and follow-up CI are complete. B4-2 CLI-on-DB, reserved Neon
-demo-administrator account provisioning, public flag activation, final UX,
-remaining B4 through B6, any further B3 scope, deployment, Render acceptance,
-and all public release work require separate authorization. Stage 23 remains
-not started.
+commit, push, and follow-up CI are complete; the documentation closeout is
+`b6224845d4007111d63a6485bd786265907f7151`, with four-job-green run
+`41936981074`. The uncommitted default-off issuance and operator-lifecycle
+safety candidate still requires review, commit, and CI. B4-2 CLI-on-DB, exact
+live-state verification, any missing reserved-account work, public flag
+activation, final UX, remaining B4 through B6, any further B3 scope, deployment,
+Render acceptance, and all public release work require separate authorization.
+Stage 23 remains not started.
 
 The repository and Alembic head are
 `0009_add_portfolio_demo_origin_and_payment_provider`. The latest recorded

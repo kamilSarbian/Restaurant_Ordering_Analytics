@@ -64,7 +64,16 @@ def _public_demo_session_is_closed(request: Request) -> bool:
     """Return whether trusted runtime state forbids demo-session issuance."""
     portfolio_demo_mode = getattr(request.app.state, "portfolio_demo_mode", None)
     payment_provider = getattr(request.app.state, "payment_provider", None)
-    return portfolio_demo_mode is not True or payment_provider != "demo"
+    issuance_enabled = getattr(
+        request.app.state,
+        "demo_session_issuance_enabled",
+        None,
+    )
+    return (
+        issuance_enabled is not True
+        or portfolio_demo_mode is not True
+        or payment_provider != "demo"
+    )
 
 
 class _PublicAuthenticationBoundaryRoute(APIRoute):
