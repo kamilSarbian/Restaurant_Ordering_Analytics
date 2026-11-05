@@ -71,7 +71,14 @@ class Settings(BaseSettings):
     trusted_proxy_mode: Literal["direct"] | None = None
     stripe_expected_livemode: bool | None = None
     expected_alembic_head: str | None = None
-    release_sha: str | None = None
+    release_sha: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "RENDER_GIT_COMMIT",
+            "RELEASE_SHA",
+            "release_sha",
+        ),
+    )
     log_level: str = "INFO"
 
     @field_validator("database_url", mode="before")

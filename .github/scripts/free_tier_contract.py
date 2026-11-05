@@ -292,7 +292,6 @@ def _validate_backend_service(
         "AUTH_JWT_SECRET",
         "PUBLIC_APP_ORIGIN",
         "PUBLIC_API_ORIGIN",
-        "RELEASE_SHA",
     }
     if set(entries) != expected_keys:
         raise FreeTierContractError
@@ -312,9 +311,6 @@ def _validate_backend_service(
     backend_name = str(service["name"])
     _require_service_environment_reference(
         entries["PUBLIC_API_ORIGIN"], backend_name, "RENDER_EXTERNAL_URL"
-    )
-    _require_service_environment_reference(
-        entries["RELEASE_SHA"], backend_name, "RENDER_GIT_COMMIT"
     )
     if any(key.startswith("STRIPE_") for key in entries):
         raise FreeTierContractError

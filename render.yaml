@@ -54,12 +54,6 @@ projects:
                   type: web
                   name: roa-portfolio-backend
                   envVarKey: RENDER_EXTERNAL_URL
-              - key: RELEASE_SHA
-                fromService:
-                  type: web
-                  name: roa-portfolio-backend
-                  envVarKey: RENDER_GIT_COMMIT
-
           - type: web
             name: roa-portfolio-frontend
             runtime: static

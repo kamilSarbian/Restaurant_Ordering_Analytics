@@ -239,7 +239,7 @@ def test_blueprint_rejects_project_environment_boundary_drift(
         "hardcoded_api",
         "missing_public_app",
         "missing_public_api",
-        "missing_release_sha",
+        "forbidden_release_sha_reference",
         "missing_timeout",
         "missing_backend_issuance_flag",
         "enabled_backend_issuance_flag",
@@ -287,8 +287,17 @@ def test_blueprint_rejects_frontend_wiring_secret_and_header_drift(
         backend_environment["PUBLIC_APP_ORIGIN"].pop("fromService")
     elif mutation == "missing_public_api":
         backend_environment["PUBLIC_API_ORIGIN"].pop("fromService")
-    elif mutation == "missing_release_sha":
-        backend_environment["RELEASE_SHA"].pop("fromService")
+    elif mutation == "forbidden_release_sha_reference":
+        _list(backend["envVars"]).append(
+            {
+                "key": "RELEASE_SHA",
+                "fromService": {
+                    "type": "web",
+                    "name": backend["name"],
+                    "envVarKey": "RENDER_GIT_COMMIT",
+                },
+            }
+        )
     elif mutation == "missing_timeout":
         _list(frontend["envVars"]).remove(frontend_environment["VITE_API_TIMEOUT_MS"])
     elif mutation == "missing_backend_issuance_flag":

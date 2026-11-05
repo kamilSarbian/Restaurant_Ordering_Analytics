@@ -90,6 +90,7 @@ def test_complete_production_contract_loads_from_environment_strings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Exercise the exact string boundary used by the deployment provider."""
+    monkeypatch.delenv("RENDER_GIT_COMMIT", raising=False)
     monkeypatch.delenv("RENDER_EXTERNAL_HOSTNAME", raising=False)
     environment = {
         "APP_ENVIRONMENT": "production",
@@ -129,6 +130,7 @@ def test_complete_production_contract_loads_from_environment_strings(
     assert settings.trusted_hosts == ("api.restaurant.example",)
     assert settings.trusted_proxy_mode == "direct"
     assert settings.stripe_expected_livemode is False
+    assert settings.release_sha == RELEASE_SHA
     assert settings.log_level == "WARNING"
     assert settings.database_url is not None
     assert str(settings.database_url).startswith("postgresql+psycopg://")
@@ -173,11 +175,50 @@ def _load_production_environment(
     for name in _production_environment_strings():
         monkeypatch.delenv(name, raising=False)
     monkeypatch.delenv("RENDER", raising=False)
+    monkeypatch.delenv("RENDER_GIT_COMMIT", raising=False)
     monkeypatch.delenv("RENDER_SERVICE_TYPE", raising=False)
     monkeypatch.delenv("RENDER_EXTERNAL_HOSTNAME", raising=False)
     for name, value in environment.items():
         monkeypatch.setenv(name, value)
     return Settings(_env_file=None)
+
+
+def test_render_git_commit_supplies_release_pin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Use Render's validated native commit SHA as the runtime release pin."""
+    environment = _production_environment_strings()
+    environment.pop("RELEASE_SHA")
+    render_commit = "b" * 40
+    environment["RENDER_GIT_COMMIT"] = render_commit
+
+    settings = _load_production_environment(monkeypatch, environment)
+
+    assert settings.release_sha == render_commit
+
+
+def test_render_git_commit_takes_precedence_over_generic_release_pin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reject a stale generic release pin by preferring Render's native SHA."""
+    environment = _production_environment_strings()
+    render_commit = "b" * 40
+    environment["RENDER_GIT_COMMIT"] = render_commit
+
+    settings = _load_production_environment(monkeypatch, environment)
+
+    assert settings.release_sha == render_commit
+
+
+def test_invalid_render_git_commit_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reject malformed native Render commit metadata at startup."""
+    environment = _production_environment_strings()
+    environment["RENDER_GIT_COMMIT"] = "not-a-complete-git-sha"
+
+    with pytest.raises(ValidationError, match="Release SHA"):
+        _load_production_environment(monkeypatch, environment)
 
 
 @pytest.mark.parametrize(
