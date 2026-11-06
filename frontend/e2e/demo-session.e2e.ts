@@ -19,7 +19,15 @@ test('starts and ends the real reserved administrator demo session', async ({
   page,
 }) => {
   const demoRequests: DemoRequestObservation[] = [];
+  const restrictedDemoRequests: string[] = [];
   page.on('request', (request) => {
+    const pathname = new URL(request.url()).pathname;
+    if (
+      pathname.startsWith('/api/v1/account/orders') ||
+      pathname.startsWith('/api/v1/admin/menu')
+    ) {
+      restrictedDemoRequests.push(pathname);
+    }
     if (!isApiPath(request, '/api/v1/auth/demo-session')) {
       return;
     }
@@ -82,6 +90,26 @@ test('starts and ends the real reserved administrator demo session', async ({
     ).toBeVisible();
     await expect(page.getByText(DEMO_ADMIN_EMAIL, { exact: true })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Users', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'Menu', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'Review orders' })).toBeVisible();
+
+    await page.goto('/account');
+    await expect(
+      page.getByRole('heading', {
+        name: 'Personal account is unavailable in this demo',
+      }),
+    ).toBeVisible();
+    await expect(page.getByRole('link', { name: 'My account' })).toHaveCount(0);
+
+    await page.goto('/admin/menu');
+    await expect(
+      page.getByRole('heading', { name: 'Menu management is unavailable' }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('link', { name: 'View the public menu' }),
+    ).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Menu', exact: true })).toHaveCount(0);
+    expect(restrictedDemoRequests).toEqual([]);
 
     await page.goto('/menu');
     await expect(

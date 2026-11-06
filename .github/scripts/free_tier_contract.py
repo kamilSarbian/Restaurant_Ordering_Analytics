@@ -21,6 +21,13 @@ EXPECTED_RENDER_PROJECT = "My project"
 EXPECTED_RENDER_ENVIRONMENT = "Production"
 EXPECTED_ALEMBIC_HEAD = "0009_add_portfolio_demo_origin_and_payment_provider"
 EXPECTED_CONFIRMATION = "MIGRATE_NEON_PRODUCTION"
+EXPECTED_FRONTEND_CSP = (
+    "default-src 'self'; base-uri 'none'; connect-src 'self' "
+    "https://roa-portfolio-backend.onrender.com; font-src 'self'; "
+    "form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; "
+    "object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+    "upgrade-insecure-requests"
+)
 REQUIRED_CHECK_NAMES = ("Backend", "Migrations", "Frontend", "Browser E2E")
 EXPECTED_MIGRATION_STEP_NAMES = (
     "Validate request against remote main",
@@ -373,6 +380,7 @@ def _validate_frontend_service(
         actual_headers[identity] = str(value)
 
     required_headers = {
+        ("/*", "content-security-policy"): EXPECTED_FRONTEND_CSP,
         ("/*", "x-frame-options"): "DENY",
         ("/*", "cross-origin-opener-policy"): "same-origin",
         ("/*", "cross-origin-resource-policy"): "same-origin",
@@ -409,8 +417,6 @@ def _validate_frontend_service(
     if matching_index_cache_rules != [("/index.html", "no-store")]:
         raise FreeTierContractError
     if actual_headers != required_headers:
-        raise FreeTierContractError
-    if any(name == "content-security-policy" for _, name in actual_headers):
         raise FreeTierContractError
 
 

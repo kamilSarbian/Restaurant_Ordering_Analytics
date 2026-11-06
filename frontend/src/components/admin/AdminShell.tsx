@@ -83,14 +83,16 @@ export default function AdminShell() {
           >
             Orders
           </NavLink>
-          <NavLink
-            className={({ isActive }) =>
-              `${styles.navigationLink} ${isActive ? styles.navigationLinkActive : ''}`
-            }
-            to="/admin/menu"
-          >
-            Menu
-          </NavLink>
+          {!isDemoSession ? (
+            <NavLink
+              className={({ isActive }) =>
+                `${styles.navigationLink} ${isActive ? styles.navigationLinkActive : ''}`
+              }
+              to="/admin/menu"
+            >
+              Menu
+            </NavLink>
+          ) : null}
           <NavLink
             className={({ isActive }) =>
               `${styles.navigationLink} ${isActive ? styles.navigationLinkActive : ''}`

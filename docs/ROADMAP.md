@@ -810,12 +810,15 @@ data` badge without granting authorization. The dedicated isolated
   documentation closeout is committed at
   `b6224845d4007111d63a6485bd786265907f7151`; push run `41936981074`, attempt
   1, completed all four required jobs with `success` for that exact SHA. The
-  local artifacts do not prove public activation. The current reserved Neon
-  account, public flags, final Menu/My account UX, deployment, Render
-  acceptance, and public issuance require independent live verification or
-  execution as applicable.
-- **Staged-activation safety candidate:** an uncommitted local slice adds the
-  strict default-false `DEMO_SESSION_ISSUANCE_ENABLED` backend gate, pins both
+  local artifacts do not prove public activation. The operator-confirmed
+  reserved Neon account is active and both Render services are live at
+  `c0ec9d18564cfec117b41fd88a810626e5154ccc` with issuance and visibility
+  false. Disabled-mode health, readiness, menu, CORS, demo-session 404,
+  desktop, and mobile checks passed. The current pre-activation Menu/account UX
+  and exact CSP remediation still require review, commit, CI, a controlled
+  false/false sync, and public recheck before activation.
+- **Staged-activation safety boundary:** the committed default-false
+  `DEMO_SESSION_ISSUANCE_ENABLED` backend gate pins both
   backend issuance and frontend visibility false in the Blueprint, and adds a
   hidden-input operator boundary. Its read-only `verify-state` action binds the
   exact release, pooled runtime target, role contract, schema 0009, canonical
@@ -823,8 +826,8 @@ data` badge without granting authorization. The dedicated isolated
   and plan, dataset, or identity drift is a STOP for provisioning. Separately
   confirmed deactivation is intentionally dataset-independent and is the
   account-specific rollback for already-issued demo JWTs after exact target,
-  release, role, schema, and reserved-identity checks. It does not prove current
-  cloud state or authorize activation.
+  release, role, schema, and reserved-identity checks. The confirmed staged
+  release uses this boundary, but it does not authorize activation.
 - **B5 — recruiter journey/UX:** future; clearly label synthetic data and demo
   payment.
 - **B6 — integrated acceptance:** future; verify security, data boundaries,
@@ -840,18 +843,19 @@ complete: its bounded committed safeguards and isolation slices are in place,
 and the demo-session backend boundary and frontend transport are committed and
 CI green. The visible frontend flow remains disabled by default and is
 flag-gated; its dedicated real-backend browser proof, final review, commit,
-push, and follow-up CI are complete. Repository history does not establish the
-current reserved Neon account or public-session activation state. D-060 payment
-neutrality and D-077 NOK-only Admin Menu remain unchanged.
+push, and follow-up CI are complete. Repository history alone does not establish
+provider state. The separately verified staged release has the reserved account
+active and public-session activation disabled. D-060 payment neutrality and
+D-077 NOK-only Admin Menu remain unchanged.
 
 ### 22-C — First Controlled Online Release
 
-After separate approval, first verify the exact current project, branch,
-database, schema, roles, data, account, and Render resources. Perform only the
-missing approved writes, configure the pooled runtime URL, release the exact
-green SHA with both public flags initially false, and perform health/readiness
-and smoke checks. Repository text alone does not establish which earlier
-operator steps may already have occurred.
+The first controlled online release is staged. The exact project, branch,
+database, schema, roles, data, account, and Render resources were verified; the
+two services run with both public flags false, and disabled-mode health,
+readiness, menu, CORS, 404, desktop, and mobile checks passed. This is not public
+demo-session acceptance. Any newer pre-activation security remediation must
+first be released and rechecked in the same false/false state.
 
 ### 22-D — Public Demo Acceptance
 
@@ -886,11 +890,13 @@ committed behind the exact disabled-by-default `VITE_ENABLE_DEMO_SESSION=true`
 flag. Its dedicated local real-backend browser flow, final independent review,
 commit, push, and follow-up CI are complete; the documentation closeout is
 `b6224845d4007111d63a6485bd786265907f7151`, with four-job-green run
-`41936981074`. The uncommitted default-off issuance and operator-lifecycle
-safety candidate still requires review, commit, and CI. B4-2 CLI-on-DB, exact
-live-state verification, any missing reserved-account work, public flag
-activation, final UX, remaining B4 through B6, any further B3 scope, deployment,
-Render acceptance, and all public release work require separate authorization.
+`41936981074`. The default-off issuance and operator-lifecycle boundary is
+committed, and the false/false staged release plus reserved account were
+separately verified. The current Menu/account UX and CSP remediation must pass
+its gates and a false/false public recheck. Public flag activation, Stage 22-D
+acceptance, reset/prune and runtime-cap policy, remaining B4 through B6, any
+further B3 scope, and advertising the public release require separate
+authorization.
 Stage 23 remains not started.
 
 The repository and Alembic head are

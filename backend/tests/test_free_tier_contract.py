@@ -251,6 +251,9 @@ def test_blueprint_rejects_project_environment_boundary_drift(
         "plaintext_jwt",
         "wildcard_csp",
         "broad_csp",
+        "missing_csp",
+        "wrong_api_csp",
+        "extra_csp_source",
         "global_cache_no_store",
         "global_cache_other",
         "missing_asset_cache",
@@ -322,18 +325,32 @@ def test_blueprint_rejects_frontend_wiring_secret_and_header_drift(
     elif mutation == "plaintext_jwt":
         backend_environment["AUTH_JWT_SECRET"].pop("generateValue")
         backend_environment["AUTH_JWT_SECRET"]["value"] = "synthetic-secret"
-    elif mutation in {"wildcard_csp", "broad_csp"}:
-        _list(frontend["headers"]).append(
-            {
-                "path": "/*",
-                "name": "Content-Security-Policy",
-                "value": (
-                    "default-src *"
-                    if mutation == "wildcard_csp"
-                    else "connect-src https:"
-                ),
-            }
+    elif mutation in {
+        "wildcard_csp",
+        "broad_csp",
+        "missing_csp",
+        "wrong_api_csp",
+        "extra_csp_source",
+    }:
+        headers = _list(frontend["headers"])
+        csp_header = next(
+            header
+            for header in (_mapping(item) for item in headers)
+            if header["name"] == "Content-Security-Policy"
         )
+        if mutation == "missing_csp":
+            headers.remove(csp_header)
+        elif mutation == "wildcard_csp":
+            csp_header["value"] = "default-src *"
+        elif mutation == "broad_csp":
+            csp_header["value"] = "default-src 'self'; connect-src https:"
+        elif mutation == "wrong_api_csp":
+            csp_header["value"] = str(csp_header["value"]).replace(
+                "https://roa-portfolio-backend.onrender.com",
+                "https://untrusted.example",
+            )
+        else:
+            csp_header["value"] = f"{csp_header['value']} https://untrusted.example"
     elif mutation in {"global_cache_no_store", "global_cache_other"}:
         _list(frontend["headers"]).append(
             {

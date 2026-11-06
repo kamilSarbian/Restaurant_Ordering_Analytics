@@ -134,9 +134,11 @@ export default function AppShell() {
                       Demo session · shared synthetic data
                     </span>
                   ) : null}
-                  <NavLink className={styles.navigationLink} to="/account">
-                    My account
-                  </NavLink>
+                  {!isDemoSession ? (
+                    <NavLink className={styles.navigationLink} to="/account">
+                      My account
+                    </NavLink>
+                  ) : null}
                   {canOpenAdmin && (
                     <NavLink className={styles.navigationLink} to="/admin">
                       Admin

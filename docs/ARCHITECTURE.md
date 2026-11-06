@@ -1534,12 +1534,14 @@ Render-provided hostname metadata, not request headers. Production API origins
 are exact HTTPS origins with credential-free CORS. The backend has DB-independent
 `/health` and DB-aware `/ready`. Static assets have immutable caching, the
 HTML entry point is no-store, and no broad overlapping Cache-Control rule is
-present. A final live-origin Content Security Policy remains deferred to
-Stage 22-D; this does not authorize a wildcard policy.
+present. The current source pins a strict live-origin Content Security Policy
+whose `connect-src` names only the exact backend service. That header must still
+be deployed and checked on the public Static Site with both demo flags false
+before Stage 22-D activation; no wildcard policy is authorized.
 
-The eventual demo Render configuration specifies
+The staged demo Render configuration specifies
 `PORTFOLIO_DEMO_MODE=true` and `PAYMENT_PROVIDER=demo`, without a Stripe
-secret in that environment. The staged-activation candidate additionally pins
+secret in that environment. The staged-activation boundary additionally pins
 backend `DEMO_SESSION_ISSUANCE_ENABLED=false` and frontend
 `VITE_ENABLE_DEMO_SESSION=false`; enabling either later requires a separate,
 deliberate provider change after its prerequisites pass. The demo flow is
@@ -1697,11 +1699,10 @@ Succeeded demo Payments can enter the shared administrative synthetic
 analytics and reports through
 provider-neutral `Payment.status` and `Payment.succeeded_at` qualification,
 without `StripeEvent`. Portfolio-runtime traffic may therefore increase live
-aggregates, but the immutable B2 500-Order dataset is unchanged. There is still
-no repository-recorded public acceptance, reset/prune policy, or runtime cap.
-The current production reference end, Neon seed, deployment, and public-session
-state require independent live verification rather than inference from source
-files.
+aggregates, but the immutable B2 500-Order dataset is unchanged. The
+operator-confirmed staged Render release is live with both demo flags false,
+the reserved account active, and disabled-mode checks passing. There is still
+no Stage 22-D public-session acceptance, reset/prune policy, or runtime cap.
 
 ### 5.31. Shared Demo Identity Customer-Order Isolation
 
@@ -1728,15 +1729,17 @@ D-083 and D-084 retain one administrative synthetic workspace containing
 `portfolio_seed` and `portfolio_runtime` for Admin Orders, Analytics, and CSV.
 The browser keeps each capability in current-tab `sessionStorage`, but it is a
 transferable bearer secret rather than proof of a person or tab. No public demo
-session is issued. The existing visible `My account` link and generic 403 state
-are accepted only temporarily pending dedicated UX before public issuance.
+session is issued while the activation gate is false. The pre-activation
+frontend guard hides `My account` and administrator Menu navigation for a
+confirmed demo session; direct routes render static explanatory states without
+calling their restricted APIs. Backend denials remain the authority.
 
 ### 5.32. Reserved Demo Administrator Session Issuance
 
 The committed B4 boundary adds bodyless `POST /api/v1/auth/demo-session`
 without adding a password flow or a second token family. A route boundary reads
 only trusted application state. Exact `PORTFOLIO_DEMO_MODE=true` with
-`PAYMENT_PROVIDER=demo` is necessary, and the staged-activation candidate adds
+`PAYMENT_PROVIDER=demo` is necessary, and the staged-activation boundary adds
 the independent exact `DEMO_SESSION_ISSUANCE_ENABLED=true` requirement. The
 issuance gate defaults to false. Every disabled, other, or missing combination
 returns the same 404 before limiter, database, or token-service access. The
@@ -1777,9 +1780,10 @@ dedicated local real-backend E2E, review, commit, push, and CI are complete.
 Their documentation closeout is
 `b6224845d4007111d63a6485bd786265907f7151`; automatic push run
 `41936981074`, attempt 1, passed all four required jobs for that SHA. This does
-not authorize public issuance. The current reserved account, provider flags,
-final Menu/My account UX, deployment, and public acceptance still require
-independent live verification or execution as applicable. The earlier bounded
+not authorize public issuance. The operator-confirmed reserved account and
+staged Render deployment are active with both public flags false. The current
+Menu/account and CSP remediation must be deployed and checked in that disabled
+state before public activation and Stage 22-D acceptance. The earlier bounded
 evidence comprised 37 passing targeted
 no-database tests and one 62-test isolated PostgreSQL run of the complete
 demo-session and canonical User-auth integration files; those runs predate the
@@ -1791,7 +1795,7 @@ completed with 1758 passed and native exit 0.
 
 ### 5.33. Staged Demo-Session Activation and Reserved Account Lifecycle
 
-The uncommitted rollout-safety candidate separates the payment/runtime mode
+The committed rollout-safety boundary separates the payment/runtime mode
 from public JWT issuance. `DEMO_SESSION_ISSUANCE_ENABLED` is a strict boolean,
 defaults to false, and must be true in addition to the existing exact demo pair.
 The Blueprint pins that backend gate and frontend

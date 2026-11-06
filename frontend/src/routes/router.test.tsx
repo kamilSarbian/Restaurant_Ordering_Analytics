@@ -354,6 +354,27 @@ describe('customer frontend routing foundation', () => {
       await within(navigation).findByText('Demo session · shared synthetic data'),
     ).toBeVisible();
     expect(within(navigation).getByRole('link', { name: 'Admin' })).toBeVisible();
+    expect(
+      within(navigation).queryByRole('link', { name: 'My account' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('keeps direct account routes out of the shared demo without account requests', async () => {
+    storeAuthToken();
+    saveDemoSessionMarker();
+    const stub = installFetchStub({ json: currentUser('admin') });
+
+    renderRoute(`/account/orders/${ACCOUNT_ORDER_NUMBER}`);
+
+    expect(
+      await screen.findByRole('heading', {
+        name: 'Personal account is unavailable in this demo',
+      }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole('link', { name: 'Return to the administrator workspace' }),
+    ).toHaveAttribute('href', '/admin');
+    expect(stub.calls.map(({ url }) => url)).toEqual(['/api/v1/auth/me']);
   });
 
   it.each(['/missing-page', '/accounting', '/orders/example/unknown'])(

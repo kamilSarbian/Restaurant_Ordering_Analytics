@@ -259,19 +259,53 @@ describe('administrator authentication routes and guard', () => {
   it('labels a confirmed demo administrator session and clears the marker on logout', async () => {
     storeToken();
     saveDemoSessionMarker();
-    installFetchStub({ json: ME_RESPONSE }, { json: EMPTY_ORDERS_RESPONSE });
+    const stub = installFetchStub({ json: ME_RESPONSE });
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const { router } = renderAdminRoute('/admin');
 
     expect(
       await screen.findByText('Portfolio demo · shared synthetic data'),
     ).toBeVisible();
+    expect(
+      screen.getByText(
+        'Menu management and personal account views are intentionally unavailable in this shared demo.',
+      ),
+    ).toBeVisible();
+    expect(screen.queryByRole('link', { name: /^Menu$/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Review orders' })).toHaveAttribute(
+      'href',
+      '/admin/orders',
+    );
+    expect(stub.calls.map(({ url }) => url)).toEqual(['/api/v1/auth/me']);
     expect(sessionStorage.getItem(DEMO_SESSION_STORAGE_KEY)).toContain('demo');
 
     await user.click(screen.getByRole('button', { name: 'Log out' }));
 
     expect(router.state.location.pathname).toBe('/');
     expect(sessionStorage.getItem(DEMO_SESSION_STORAGE_KEY)).toBeNull();
+  });
+
+  it('renders a safe direct Menu state for the shared demo without Menu requests', async () => {
+    storeToken();
+    saveDemoSessionMarker();
+    const stub = installFetchStub({ json: ME_RESPONSE });
+
+    renderAdminRoute('/admin/menu');
+
+    expect(
+      await screen.findByRole('heading', { name: 'Menu management is unavailable' }),
+    ).toBeVisible();
+    expect(
+      screen.getByText(
+        'Administrator menu reads and mutations are disabled for the shared demo identity. No administrator menu request was sent.',
+      ),
+    ).toBeVisible();
+    expect(screen.getByRole('link', { name: 'View the public menu' })).toHaveAttribute(
+      'href',
+      '/menu',
+    );
+    expect(screen.queryByRole('link', { name: /^Menu$/ })).not.toBeInTheDocument();
+    expect(stub.calls.map(({ url }) => url)).toEqual(['/api/v1/auth/me']);
   });
 
   it('routes an authenticated customer away from administrator content', async () => {

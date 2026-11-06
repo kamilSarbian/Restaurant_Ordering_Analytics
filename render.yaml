@@ -1,7 +1,7 @@
 # Render Blueprint for the zero-cost public portfolio demo.
 #
-# Exact-origin CSP remains a Stage 22-D live-acceptance requirement because a
-# Static Site header cannot interpolate the backend-assigned external URL.
+# The public frontend and API names are fixed deployment identities. Keep the
+# exact API origin in the CSP aligned with the Blueprint service name.
 previews:
   generation: "off"
 
@@ -84,6 +84,9 @@ projects:
               - path: /assets/*
                 name: Cache-Control
                 value: public, max-age=31536000, immutable
+              - path: /*
+                name: Content-Security-Policy
+                value: "default-src 'self'; base-uri 'none'; connect-src 'self' https://roa-portfolio-backend.onrender.com; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; upgrade-insecure-requests"
               - path: /*
                 name: X-Frame-Options
                 value: DENY

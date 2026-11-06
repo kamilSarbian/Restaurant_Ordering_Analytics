@@ -70,10 +70,10 @@ failed, 0 did not run, a 7.1-minute Playwright duration, one worker, zero
 retries, and the `list` reporter. This normal-runtime regression evidence is
 separate from the PostgreSQL demo capability-only evidence and from the
 automatic GitHub Actions run; it is not CI. Final independent review is
-complete, closing only B4-3B5. The B4-2 CLI-on-DB, final Menu UX, public
-demo-administrator provisioning, public activation of demo-session issuance,
-remaining B4, B5/B6, Render/Neon, production seed, deployment, and public
-acceptance remain open.
+complete, closing only B4-3B5. At that closeout, the B4-2 CLI-on-DB, final Menu
+UX, public demo-administrator provisioning, public activation of demo-session
+issuance, remaining B4, B5/B6, Render/Neon, production seed, deployment, and
+public acceptance remained open.
 The backend-only B4 demo-session boundary is committed and pushed on `main` at
 `aeea2ae39eec17c17eb4a5b59ce6537e4fa1b071`. Automatic GitHub Actions push
 run `41894173298`, attempt 1, completed `Backend`, `Migrations`, `Frontend`,
@@ -134,10 +134,15 @@ attempt 1, completed all four required jobs with `success` for that exact SHA.
 The documentation closeout is committed at
 `b6224845d4007111d63a6485bd786265907f7151`; automatic push run
 `41936981074`, attempt 1, completed `Backend`, `Migrations`, `Frontend`, and
-`Browser E2E` with `success` for that exact SHA. This remains not a public
-session launch: the current reserved Neon demo-administrator state, public flag
-activation, final Menu and My account UX, deployment, and Render acceptance
-still require independent live verification or execution as applicable.
+`Browser E2E` with `success` for that exact SHA. The operator-confirmed staged
+deployment now has both Render services live at
+`c0ec9d18564cfec117b41fd88a810626e5154ccc`, the reserved Neon demo
+administrator active, and both public flags false. Disabled-mode public checks
+passed for health, readiness, menu, CORS, demo-session 404, desktop, and mobile.
+This is not a public session launch. The current source adds pre-activation
+Menu/account UX guards and an exact live-origin CSP; that source must pass its
+local and CI gates, then be deployed and rechecked with both flags still false
+before public activation is considered.
 The earlier 37-test no-database and 62-test isolated PostgreSQL results predate
 the proxy-bucket remediation; fresh current-byte evidence is recorded in the
 implementation status. Two initial broader non-integration attempts each
@@ -151,9 +156,9 @@ alone does not prove the current Neon target, runtime-role grants, migration,
 reference end, or whether an exact live seed invocation occurred; those facts
 must be independently reverified before another write.
 
-An uncommitted staged-activation safety candidate now adds a second backend
-gate, `DEMO_SESSION_ISSUANCE_ENABLED`, parsed as an exact boolean and defaulting
-to `false`. The Blueprint pins both that backend gate and the frontend
+The committed staged-activation boundary adds a second backend gate,
+`DEMO_SESSION_ISSUANCE_ENABLED`, parsed as an exact boolean and defaulting to
+`false`. The Blueprint pins both that backend gate and the frontend
 `VITE_ENABLE_DEMO_SESSION` build flag to `false`, so an initial release cannot
 publish either issuance or its visible entry point implicitly. A separate
 hidden-input operator command verifies the exact release, pooled `roa_runtime`
@@ -162,8 +167,9 @@ reserved account before provisioning. Its `verify-state` action is read-only;
 an exact provision rerun is a no-op, and plan, dataset, or identity drift is a
 hard stop for provisioning. Separately confirmed deactivation is the
 account-specific rollback for already-issued demo tokens after exact target,
-release, role, schema, and reserved-identity checks. This candidate is not yet
-committed, deployed, or evidence of the current Neon or Render state.
+release, role, schema, and reserved-identity checks. The operator-confirmed
+staged deployment uses this boundary with both flags false; source text alone
+does not prove any later provider state.
 The role contract permits the exact Neon-managed `cloud_admin` effective
 `SET ROLE roa_owner` capability alongside `roa_migrator`, while direct owner
 membership with `SET OPTION` remains exclusive to `roa_migrator`; any
@@ -337,9 +343,10 @@ without introducing infrastructure that is unnecessary for a single venue.
 - Provider-neutral Order and Payment persistence at migration 0009, with
   `Order.data_origin`, `Payment.provider`, provider-neutral Checkout fields,
   and authoritative `Payment.succeeded_at` for analytics and reports.
-- A repository-ready free-tier target: Render Static Site Free, Render Docker
-  Web Service Free, Neon PostgreSQL Free, and a manual direct-URL migration
-  workflow. No provider resources or production database have been created.
+- A repository-ready and operator-confirmed staged free-tier target: Render
+  Static Site Free, Render Docker Web Service Free, Neon PostgreSQL Free, and a
+  manual direct-URL migration workflow. The staged services run with public
+  demo issuance and visibility disabled; Stage 22-D public acceptance is open.
 - A Nordic Hearth design system and polished customer, account, and
   administrator experiences with responsive WebP delivery, accessibility
   hardening, and route-level lazy loading.
@@ -356,8 +363,9 @@ without introducing infrastructure that is unnecessary for a single venue.
   `sessionStorage`, Vitest, React Testing Library, multi-stage container builds,
   an unprivileged static Nginx runtime, Playwright Test 1.62.1, Chromium browser
   E2E, and GitHub Actions CI.
-- Prepared, not live: the Stage 22 free-tier Render Static Site, Render Docker
-  Web Service, Neon PostgreSQL, and manual GitHub migration contract.
+- Staged and live with public demo disabled: the Stage 22 free-tier Render
+  Static Site, Render Docker Web Service, and Neon PostgreSQL target. The manual
+  GitHub migration contract remains a separate operator boundary.
 - Historical and superseded for the portfolio demo: the Stage 20 paid
   Render/GHCR private-service, cron/migrator, and managed-database target.
 - In progress: Stage 22 Production Deployment & Public Acceptance. Not
@@ -1444,7 +1452,7 @@ execution evidence without mutating the target.
 
 ## Portfolio deployment state and reserved demo-administrator operator
 
-The uncommitted staged-activation candidate provides three explicit actions
+The committed staged-activation boundary provides three explicit actions
 from the `backend` directory. Every value shown below is a nonsecret pin that
 must come from separately verified evidence:
 
@@ -1479,7 +1487,9 @@ database, and login, but it cannot prove the provider display names for the
 Neon project and branch. The expected project
 `nordic-hearth-portfolio` and branch `production` therefore still require
 independent manual evidence from the provider panel before any write. These
-commands have not been run or authorized by this documentation update.
+documentation does not authorize another write. Operator-confirmed evidence
+records one exact provision followed by read-only verification with the reserved
+account active; every future invocation must still repeat its own target checks.
 
 ## Public menu API
 
@@ -2082,8 +2092,10 @@ In exact `false + stripe_test`, customer, administrator, and
 super-administrator roles all receive only their own Orders; no administrator
 bypass exists. In exact `true + demo`, the reserved demo administrator receives
 the fixed general 403 before Order-domain SQL for both list and detail. The
-current visible `My account` link and generic error state are temporary and are
-not approved as final public-demo UX.
+pre-activation frontend guard hides `My account` for a confirmed demo session
+and renders a static explanatory state for direct account routes without
+sending an Account Orders request. This presentation guard does not replace the
+backend 403 authorization boundary.
 
 Account transport accepts strict canonical Bearer only. A guest capability has
 no account authority. Responses contain no owner ID, customer PII, Payment,
@@ -2134,10 +2146,10 @@ is complete. B4-3B5 was committed and pushed on `main` at
 `39032664802`, attempt 1, completed `Backend`, `Migrations`, `Frontend`, and
 `Browser E2E` with `success` for that exact SHA. This automatic run remains
 distinct from the local PostgreSQL and Browser E2E evidence and closes only
-B4-3B5. Stage 22 remains in progress, and the B4-2 CLI-on-DB, final Menu UX,
-public demo-administrator provisioning and public demo-session issuance,
-remaining B4, B5/B6, Render/Neon, production seed, deployment, and public
-acceptance remain open.
+B4-3B5. At that closeout, Stage 22 remained in progress and the B4-2 CLI-on-DB,
+final Menu UX, public demo-administrator provisioning and public demo-session
+issuance, remaining B4, B5/B6, Render/Neon, production seed, deployment, and
+public acceptance remained open.
 
 ### Historical Stage 16F visual, responsive, and accessibility direction
 

@@ -64,10 +64,10 @@ one worker, zero retries, and the `list` reporter in normal
 `false + stripe_test`. That normal-runtime evidence is separate from the
 PostgreSQL demo capability-only evidence and from the automatic GitHub Actions
 run; it is not CI. Final independent review is complete, closing only B4-3B5.
-The slice issues no public demo session; the B4-2 CLI-on-DB, final Menu UX,
-public demo-administrator provisioning and public activation of demo-session
-issuance, remaining B4, B5/B6, Render/Neon, production seed, deployment, and
-public acceptance remain open.
+At that closeout the slice issued no public demo session, and B4-2 CLI-on-DB,
+final Menu UX, public demo-administrator provisioning and activation, remaining
+B4, B5/B6, Render/Neon, production seed, deployment, and public acceptance
+remained open.
 
 The backend-only B4 demo-session boundary is committed and pushed on `main` at
 `aeea2ae39eec17c17eb4a5b59ce6537e4fa1b071`. Automatic GitHub Actions push
@@ -102,20 +102,23 @@ scenario for starting the demo-session flow. The later visible frontend flow
 and dedicated local real-backend scenario are committed; their documentation
 closeout is `b6224845d4007111d63a6485bd786265907f7151`, and automatic push run
 `41936981074`, attempt 1, completed `Backend`, `Migrations`, `Frontend`, and
-`Browser E2E` with `success` for that exact SHA. The current reserved Neon
-demo-administrator state, public flag activation, final Menu/My account UX,
-deployment, and Render acceptance still require independent live verification
-or execution as applicable.
+`Browser E2E` with `success` for that exact SHA. The operator-confirmed staged
+deployment now has both Render services live at
+`c0ec9d18564cfec117b41fd88a810626e5154ccc`, the reserved Neon demo
+administrator active, and both public flags false. Disabled-mode public checks
+passed. The current Menu/account UX and exact CSP remediation must still pass
+its gates, be deployed with both flags false, and be publicly rechecked before
+activation.
 
 The deployment dataset command is committed at
-`70df05f36bf4075bdb6ad212306bb0bdcb113dc4`; its live target and execution state
-are not established by repository history. An uncommitted staged-activation
-safety candidate now adds the strict, default-false
+`70df05f36bf4075bdb6ad212306bb0bdcb113dc4`; repository history alone does not
+establish its live execution state. The committed staged-activation safety
+boundary adds the strict, default-false
 `DEMO_SESSION_ISSUANCE_ENABLED` backend gate, pins both backend issuance and
 frontend visibility to false in the Blueprint, and adds a hidden-input operator
 boundary for read-only state verification, exact no-op provisioning, drift
-refusal, and account-specific deactivation. It is not evidence of current Neon
-or Render state and does not activate a public session.
+refusal, and account-specific deactivation. The confirmed staged release uses
+this boundary with both flags false; it does not activate a public session.
 
 ## 3. Users
 
@@ -1114,9 +1117,10 @@ general `Browser E2E` regression job. A later visible frontend flow and
 dedicated local real-backend browser scenario were committed; their
 documentation closeout is `b6224845d4007111d63a6485bd786265907f7151`, and
 automatic push run `41936981074`, attempt 1, passed all four required jobs. The
-current reserved Neon demo-administrator state, public activation, final UX,
-deployment, and Render acceptance still require independent live verification
-or execution as applicable. The remaining B4 work, B5, and B6 remain open.
+reserved Neon demo administrator and staged false/false Render deployment were
+subsequently verified. The current Menu/account UX plus CSP remediation, public
+activation, and Stage 22-D Render acceptance remain open. The remaining B4
+work, B5, and B6 remain open.
 Stage 23
 — Portfolio Documentation & Case Study is not started. A
 recruiter-facing URL can be claimed only after Stage 22-D public-demo

@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, type ComponentType } from 'react';
 import {
   createBrowserRouter,
+  Link,
   Navigate,
   Outlet,
   type RouteObject,
@@ -111,7 +112,7 @@ function RouteErrorPage() {
 // The account guard stays beside the route tree so both account pages share one boundary.
 // eslint-disable-next-line react-refresh/only-export-components
 function AccountRouteGuard() {
-  const { logout, phase, retrySession } = useAuth();
+  const { isDemoSession, logout, phase, retrySession } = useAuth();
   const location = useLocation();
   const retryButtonRef = useRef<HTMLButtonElement>(null);
   const restoreRetryFocusRef = useRef(false);
@@ -166,6 +167,22 @@ function AccountRouteGuard() {
   if (phase === 'unauthenticated') {
     return (
       <Navigate to={`/login?next=${encodeURIComponent(location.pathname)}`} replace />
+    );
+  }
+  if (isDemoSession) {
+    return (
+      <section className="not-found" aria-labelledby="demo-account-heading">
+        <p className="eyebrow">Portfolio demo</p>
+        <h1 id="demo-account-heading">Personal account is unavailable in this demo</h1>
+        <AsyncNotice title="Shared administrator session">
+          The portfolio demo does not treat its shared administrator identity as a
+          customer order owner. Public order status remains available only with the
+          capability returned when that order is created.
+        </AsyncNotice>
+        <Link className="action-link" to="/admin">
+          Return to the administrator workspace
+        </Link>
+      </section>
     );
   }
   return <Outlet />;
