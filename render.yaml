@@ -29,7 +29,7 @@ projects:
               - key: PORTFOLIO_DEMO_MODE
                 value: "true"
               - key: DEMO_SESSION_ISSUANCE_ENABLED
-                value: "false"
+                value: "true"
               - key: PAYMENT_PROVIDER
                 value: demo
               - key: TRUSTED_PROXY_MODE
