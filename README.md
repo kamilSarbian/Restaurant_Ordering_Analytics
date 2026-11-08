@@ -33,8 +33,9 @@ isolated Browser E2E gate, GREEN -> RED -> GREEN acceptance, and protected
 Stage 20 — Production Deployment Readiness is complete in the repository. Its
 original Render/GHCR private-service, managed-PostgreSQL, and cron/migrator
 target is preserved as historical readiness work, but superseded for the
-zero-base-cost portfolio demo by the Stage 22 free-tier contract. No public
-deployment or public URL is claimed.
+zero-base-cost portfolio demo by the Stage 22 free-tier contract. Stage 20
+itself did not create a public deployment or URL; the later Stage 22 provider
+state is recorded below.
 
 Stage 21 — UI/UX Redesign & Product Polish is complete under the official
 Nordic Hearth identity. Customer, account, and administrator experiences,
@@ -134,15 +135,33 @@ attempt 1, completed all four required jobs with `success` for that exact SHA.
 The documentation closeout is committed at
 `b6224845d4007111d63a6485bd786265907f7151`; automatic push run
 `41936981074`, attempt 1, completed `Backend`, `Migrations`, `Frontend`, and
-`Browser E2E` with `success` for that exact SHA. The operator-confirmed staged
-deployment now has both Render services live at
-`c0ec9d18564cfec117b41fd88a810626e5154ccc`, the reserved Neon demo
-administrator active, and both public flags false. Disabled-mode public checks
-passed for health, readiness, menu, CORS, demo-session 404, desktop, and mobile.
-This is not a public session launch. The current source adds pre-activation
-Menu/account UX guards and an exact live-origin CSP; that source must pass its
-local and CI gates, then be deployed and rechecked with both flags still false
-before public activation is considered.
+`Browser E2E` with `success` for that exact SHA. The later backend canary source
+commit is `0cb135d9157d3d6fdccbff3e11b605f6bb452933`; automatic push run
+`42376544571`, attempt 1, completed all four required jobs with `success` for
+that exact SHA. The bounded public API canary reached `CANARY_PASS`: one JWT was
+issued, and canonical `/api/v1/auth/me` confirmed the exact active reserved
+ordinary `admin`, never `super_admin`. This HTTP canary was not a public Browser
+E2E of the complete visible flow and did not establish Order or Payment
+behavior.
+
+The rollback source commit is
+`dadc63198295cf3a1f89c44b8a161e8330306bb9`; automatic push run
+`42494896475`, attempt 1, completed all four required jobs with `success` for
+that exact SHA. The operator confirmed manual deployment of that commit. The
+first disabled-state observation was `ROLLBACK_FAIL`; its cause was not
+established. A later `ROLLBACK_PASS` restored the exact demo-session 404. After
+the manual deployment, a Blueprint Manual Sync displayed
+`Resources already up to date`; that observation does not independently prove
+which exact SHA the sync evaluated. A fresh public check on 2026-11-08 confirmed
+HTTP 200 for health and readiness and exact 404, without a token or cookie, for
+the bodyless demo-session POST.
+
+Current source and operator-confirmed provider state keep
+`DEMO_SESSION_ISSUANCE_ENABLED=false` and `VITE_ENABLE_DEMO_SESSION=false`. No
+new demo JWT is issued, and the public `Try admin demo` entry remains hidden. A
+JWT issued during the canary could remain usable until its configured 30-minute
+TTL expired. Full visible-flow public Browser E2E acceptance remains separately
+open.
 The earlier 37-test no-database and 62-test isolated PostgreSQL results predate
 the proxy-bucket remediation; fresh current-byte evidence is recorded in the
 implementation status. Two initial broader non-integration attempts each
@@ -168,8 +187,9 @@ an exact provision rerun is a no-op, and plan, dataset, or identity drift is a
 hard stop for provisioning. Separately confirmed deactivation is the
 account-specific rollback for already-issued demo tokens after exact target,
 release, role, schema, and reserved-identity checks. The operator-confirmed
-staged deployment uses this boundary with both flags false; source text alone
-does not prove any later provider state.
+rollback deployment uses this boundary with both flags false; the later Manual
+Sync message does not independently prove the exact SHA it evaluated, and
+source text alone does not prove any later provider state.
 The role contract permits the exact Neon-managed `cloud_admin` effective
 `SET ROLE roa_owner` capability alongside `roa_migrator`, while direct owner
 membership with `SET OPTION` remains exclusive to `roa_migrator`; any

@@ -1991,16 +1991,16 @@ while preserving these financial concurrency rules.
   registration and password login. Denial is 429 with `Retry-After`. Missing
   trusted Render identity, missing or drifted demo identity, database failure,
   absent token configuration, and token failure share the existing secret-free 503.
-- **Operational and UX boundary:** this local backend candidate does not make
-  session issuance public. The final safe Menu and My account UX, controlled
-  demo-administrator provisioning, deployment configuration, and public
-  acceptance must be completed before activation.
+- **Operational and UX boundary:** the backend route, reserved account, and
+  bounded public HTTP canary are implemented; the canary was rolled back to
+  disabled issuance. The final visible Menu/Login journey, public full-flow
+  Browser E2E, and Stage 22-D acceptance remain separate gates.
 
 ## D-090 — Staged Demo-Session Activation and Reserved Account Lifecycle
 
-- **Status:** proposed on 2026-11-05 for the uncommitted rollout-safety
-  candidate. Independent review, commit, CI, live verification, provider
-  changes, and public acceptance remain separate gates.
+- **Status:** accepted and implemented. The source contract, provider writes,
+  public canary, rollback, and public full-flow acceptance remain distinct
+  evidence gates.
 - **Precedence:** this decision augments D-089's trusted-runtime condition. Exact
   `PORTFOLIO_DEMO_MODE=true + PAYMENT_PROVIDER=demo` remains necessary but is no
   longer sufficient for issuance.
@@ -2042,6 +2042,19 @@ while preserving these financial concurrency rules.
   Neon or Render project, branch, database, roles, migration, seed, account,
   flags, deployment, or public URL. Those facts require current independent
   provider and database evidence.
+- **Operational evidence:** canary source commit
+  `0cb135d9157d3d6fdccbff3e11b605f6bb452933` and rollback source commit
+  `dadc63198295cf3a1f89c44b8a161e8330306bb9` each passed all four required
+  GitHub Actions jobs in runs `42376544571` and `42494896475`, attempt 1.
+  Operator evidence records `CANARY_PASS` for the exact active ordinary admin,
+  a first `ROLLBACK_FAIL` whose cause was not established, and later
+  `ROLLBACK_PASS` with exact 404. Manual deployment of the rollback commit was
+  confirmed.
+  A later Blueprint Manual Sync displayed `Resources already up to date`; that
+  observation does not independently prove which exact SHA the sync evaluated.
+  Both flags are now false; no new demo JWT is issued and the button is hidden.
+  The canary JWT could remain usable until its configured 30-minute TTL expired.
+  This was an HTTP canary, not public full-flow Browser E2E.
 
 ## History of Decisions That Required Resolution
 

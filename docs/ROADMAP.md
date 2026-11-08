@@ -811,12 +811,26 @@ data` badge without granting authorization. The dedicated isolated
   `b6224845d4007111d63a6485bd786265907f7151`; push run `41936981074`, attempt
   1, completed all four required jobs with `success` for that exact SHA. The
   local artifacts do not prove public activation. The operator-confirmed
-  reserved Neon account is active and both Render services are live at
-  `c0ec9d18564cfec117b41fd88a810626e5154ccc` with issuance and visibility
-  false. Disabled-mode health, readiness, menu, CORS, demo-session 404,
-  desktop, and mobile checks passed. The current pre-activation Menu/account UX
-  and exact CSP remediation still require review, commit, CI, a controlled
-  false/false sync, and public recheck before activation.
+  reserved Neon account remains active. The bounded backend canary used source
+  commit `0cb135d9157d3d6fdccbff3e11b605f6bb452933`; automatic push run
+  `42376544571`, attempt 1, completed all four required jobs with `success` for
+  that exact SHA. The public HTTP canary produced `CANARY_PASS`: one JWT and
+  canonical `/api/v1/auth/me` for the exact active ordinary `admin`, never
+  `super_admin`. The first disabled-state observation was `ROLLBACK_FAIL`; its
+  cause was not established. A later `ROLLBACK_PASS` restored the exact
+  bodyless demo-session 404. Rollback source commit
+  `dadc63198295cf3a1f89c44b8a161e8330306bb9` passed all four required jobs in
+  automatic push run `42494896475`, attempt 1, and the operator confirmed its
+  manual deployment to both Render services. A later Blueprint Manual Sync
+  displayed `Resources already up to date`; that observation does not
+  independently prove which exact SHA the sync evaluated. Fresh disabled-state
+  checks on 2026-11-08 returned 200 for health and readiness and exact 404
+  without token or cookie for the bodyless demo-session request. Backend
+  issuance and frontend visibility are false, so no new demo JWT is issued and
+  the public button remains hidden. The JWT issued during canary could remain
+  valid until the configured 30-minute TTL expired. This bounded HTTP canary is
+  not a public Browser E2E of the complete visible flow; Stage 22-D remains
+  open.
 - **Staged-activation safety boundary:** the committed default-false
   `DEMO_SESSION_ISSUANCE_ENABLED` backend gate pins both
   backend issuance and frontend visibility false in the Blueprint, and adds a
@@ -826,8 +840,9 @@ data` badge without granting authorization. The dedicated isolated
   and plan, dataset, or identity drift is a STOP for provisioning. Separately
   confirmed deactivation is intentionally dataset-independent and is the
   account-specific rollback for already-issued demo JWTs after exact target,
-  release, role, schema, and reserved-identity checks. The confirmed staged
-  release uses this boundary, but it does not authorize activation.
+  release, role, schema, and reserved-identity checks. The confirmed rollback
+  release uses this boundary with both flags false; visible-UI activation still
+  requires separate authorization.
 - **B5 — recruiter journey/UX:** future; clearly label synthetic data and demo
   payment.
 - **B6 — integrated acceptance:** future; verify security, data boundaries,
@@ -844,18 +859,24 @@ and the demo-session backend boundary and frontend transport are committed and
 CI green. The visible frontend flow remains disabled by default and is
 flag-gated; its dedicated real-backend browser proof, final review, commit,
 push, and follow-up CI are complete. Repository history alone does not establish
-provider state. The separately verified staged release has the reserved account
-active and public-session activation disabled. D-060 payment neutrality and
-D-077 NOK-only Admin Menu remain unchanged.
+provider state. The bounded public HTTP canary and later rollback are complete,
+with both public flags again false. The canary proved issuance and canonical
+identity only; it did not exercise Order or Payment creation. Any later public
+journey can still add shared `portfolio_runtime` Orders and demo Payments to
+Admin Orders, Analytics, and CSV, and no automatic runtime cap, prune, or reset
+policy exists. D-060 payment neutrality and D-077 NOK-only Admin Menu remain
+unchanged.
 
 ### 22-C — First Controlled Online Release
 
-The first controlled online release is staged. The exact project, branch,
-database, schema, roles, data, account, and Render resources were verified; the
-two services run with both public flags false, and disabled-mode health,
-readiness, menu, CORS, 404, desktop, and mobile checks passed. This is not public
-demo-session acceptance. Any newer pre-activation security remediation must
-first be released and rechecked in the same false/false state.
+The controlled online release, bounded backend canary, and rollback to disabled
+issuance are complete. The exact project, branch, database, schema, roles, data,
+account, and Render resources were verified. Both services are
+operator-confirmed live at rollback commit
+`dadc63198295cf3a1f89c44b8a161e8330306bb9`, with backend issuance and frontend
+visibility false; fresh disabled-mode health, readiness, and exact demo-session
+404 checks passed. The canary HTTP evidence is not public full-flow Browser E2E.
+Visible-UI activation and Stage 22-D remain separately authorized.
 
 ### 22-D — Public Demo Acceptance
 

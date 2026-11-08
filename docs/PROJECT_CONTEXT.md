@@ -47,8 +47,9 @@ synthetic production-preview Chromium scenarios, with no JavaScript chunk above
 progress**: AF1+B1-1 through AF1+B1-4, B2-1 through B2-3, B3-1, B3-2A, and
 B3-2B are complete and committed. The B3-2B implementation commit, final
 follow-up commit, and green required CI are recorded in Section 4.14. Stage 23
-— Portfolio Documentation & Case Study is **not started**. No public
-deployment or public URL is claimed.
+— Portfolio Documentation & Case Study is **not started**. Stage 20 itself did
+not create a public deployment or URL; the later Stage 22 provider state is
+recorded below.
 The bounded B4-3B5 customer-order isolation implementation was committed and
 pushed on `main` at `dcbbe0c3b8b69ac0759c56ed9b48340c55993e0b`. Automatic
 GitHub Actions push run `39032664802`, attempt 1, completed `Backend`,
@@ -102,13 +103,24 @@ scenario for starting the demo-session flow. The later visible frontend flow
 and dedicated local real-backend scenario are committed; their documentation
 closeout is `b6224845d4007111d63a6485bd786265907f7151`, and automatic push run
 `41936981074`, attempt 1, completed `Backend`, `Migrations`, `Frontend`, and
-`Browser E2E` with `success` for that exact SHA. The operator-confirmed staged
-deployment now has both Render services live at
-`c0ec9d18564cfec117b41fd88a810626e5154ccc`, the reserved Neon demo
-administrator active, and both public flags false. Disabled-mode public checks
-passed. The current Menu/account UX and exact CSP remediation must still pass
-its gates, be deployed with both flags false, and be publicly rechecked before
-activation.
+`Browser E2E` with `success` for that exact SHA. The later backend canary source
+commit is `0cb135d9157d3d6fdccbff3e11b605f6bb452933`; automatic push run
+`42376544571`, attempt 1, completed all four required jobs with `success`. The
+bounded public API canary reached `CANARY_PASS`: one JWT and canonical
+`/api/v1/auth/me` confirmed the exact active reserved ordinary `admin`, never
+`super_admin`. It was not a public Browser E2E of the complete visible flow and
+did not establish Order or Payment behavior.
+
+The rollback source commit is
+`dadc63198295cf3a1f89c44b8a161e8330306bb9`; automatic push run
+`42494896475`, attempt 1, completed all four required jobs with `success`. The
+operator confirmed manual deployment of that commit. The first disabled-state
+observation was `ROLLBACK_FAIL`; its cause was not established. A later
+`ROLLBACK_PASS` restored the exact demo-session 404. After the manual
+deployment, a Blueprint Manual Sync displayed `Resources already up to date`;
+that observation does not independently prove which exact SHA the sync
+evaluated. A fresh public check on 2026-11-08 confirmed health and readiness 200
+and a bodyless demo-session 404 without a token or cookie.
 
 The deployment dataset command is committed at
 `70df05f36bf4075bdb6ad212306bb0bdcb113dc4`; repository history alone does not
@@ -117,8 +129,11 @@ boundary adds the strict, default-false
 `DEMO_SESSION_ISSUANCE_ENABLED` backend gate, pins both backend issuance and
 frontend visibility to false in the Blueprint, and adds a hidden-input operator
 boundary for read-only state verification, exact no-op provisioning, drift
-refusal, and account-specific deactivation. The confirmed staged release uses
-this boundary with both flags false; it does not activate a public session.
+refusal, and account-specific deactivation. The operator-confirmed rollback
+release has backend issuance and frontend visibility false. No new demo JWT is
+issued, and the public entry remains hidden; a JWT issued during the canary
+could remain usable until its configured 30-minute TTL expired. Full
+visible-flow public Browser E2E acceptance remains open.
 
 ## 3. Users
 
@@ -773,8 +788,9 @@ exact Alembic head. These remain historical security/readiness decisions; the
 paid topology is not the current portfolio-demo release path.
 
 The historical GHCR workflow and paid Blueprint were removed in AF1+B1-3.
-Their repository-ready design never established a deployed service. There is
-still no production deployment or public URL.
+Their repository-ready design never established a deployed service. The later
+Stage 22 provider state is recorded in the current baseline and rollout
+sections, not attributed to this historical topology.
 
 ### 4.13. Nordic Hearth UI/UX Redesign and Product Polish
 
@@ -1117,10 +1133,12 @@ general `Browser E2E` regression job. A later visible frontend flow and
 dedicated local real-backend browser scenario were committed; their
 documentation closeout is `b6224845d4007111d63a6485bd786265907f7151`, and
 automatic push run `41936981074`, attempt 1, passed all four required jobs. The
-reserved Neon demo administrator and staged false/false Render deployment were
-subsequently verified. The current Menu/account UX plus CSP remediation, public
-activation, and Stage 22-D Render acceptance remain open. The remaining B4
-work, B5, and B6 remain open.
+reserved Neon demo administrator and initial false/false Render deployment were
+subsequently verified. A later bounded backend canary reached `CANARY_PASS` and
+was rolled back to exact 404; current issuance and visibility are false. The
+canary was not public full-flow Browser E2E. Visible-UI activation and Stage
+22-D Render acceptance remain open. The remaining B4 work, B5, and B6 remain
+open.
 Stage 23
 — Portfolio Documentation & Case Study is not started. A
 recruiter-facing URL can be claimed only after Stage 22-D public-demo

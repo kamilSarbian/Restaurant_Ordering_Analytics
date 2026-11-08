@@ -45,9 +45,11 @@ sufficient; Zustand and Recharts were not required.
 
 The Stage 20 private-service/GHCR/managed-Render-database/cron target is
 historical and superseded by AF1+B1-3 for the portfolio demo. The current
-free-tier Blueprint and migration workflow are repository contracts only; no
-production resource, migration, or public URL exists. Provisioning and live
-release remain separately authorized Stage 22 work.
+deployment uses the free-tier Render frontend/backend and Neon topology
+described above. The operator-confirmed rollback release is live with backend
+demo-session issuance and frontend visibility disabled. Repository
+configuration alone does not prove later provider state; exact operational
+evidence is recorded in the Stage 22 closeout.
 
 ## 3. Architecture Style: Modular Monolith
 
@@ -1487,7 +1489,8 @@ required checks and an immutable GHCR digest. Its Blueprint described a
 target Nginx frontend, private image-backed backend, isolated no-op migrator
 resource, and managed PostgreSQL 17 database. AF1+B1-3 removed that workflow
 and paid Blueprint. D-078 preserves their historical rationale, not an active
-release instruction. No cloud resource, deployment, or public URL is claimed.
+release instruction. That historical work itself did not establish a cloud
+resource, deployment, or public URL.
 
 ### 5.27. Implemented Stage 21 Frontend Architecture
 
@@ -1534,10 +1537,10 @@ Render-provided hostname metadata, not request headers. Production API origins
 are exact HTTPS origins with credential-free CORS. The backend has DB-independent
 `/health` and DB-aware `/ready`. Static assets have immutable caching, the
 HTML entry point is no-store, and no broad overlapping Cache-Control rule is
-present. The current source pins a strict live-origin Content Security Policy
-whose `connect-src` names only the exact backend service. That header must still
-be deployed and checked on the public Static Site with both demo flags false
-before Stage 22-D activation; no wildcard policy is authorized.
+present. The deployed Static Site uses a strict live-origin Content Security
+Policy whose `connect-src` names only the exact backend service; the public
+disabled-state check confirmed that policy before the bounded canary. No
+wildcard policy is authorized.
 
 The staged demo Render configuration specifies
 `PORTFOLIO_DEMO_MODE=true` and `PAYMENT_PROVIDER=demo`, without a Stripe
@@ -1698,11 +1701,13 @@ not a public control input or secret-based security boundary.
 Succeeded demo Payments can enter the shared administrative synthetic
 analytics and reports through
 provider-neutral `Payment.status` and `Payment.succeeded_at` qualification,
-without `StripeEvent`. Portfolio-runtime traffic may therefore increase live
-aggregates, but the immutable B2 500-Order dataset is unchanged. The
-operator-confirmed staged Render release is live with both demo flags false,
-the reserved account active, and disabled-mode checks passing. There is still
-no Stage 22-D public-session acceptance, reset/prune policy, or runtime cap.
+without `StripeEvent`. Portfolio-runtime traffic may therefore increase shared
+aggregates, while the immutable B2 500-Order dataset remains unchanged. The
+bounded public canary proved only JWT issuance and canonical `/auth/me`; it did
+not establish Order or Payment behavior. The operator-confirmed rollback
+release has both public flags false, no new demo JWT is issued, and the visible
+entry remains hidden. There is still no automatic runtime cap, prune, or reset
+policy, and full visible-flow public Browser E2E acceptance remains open.
 
 ### 5.31. Shared Demo Identity Customer-Order Isolation
 
@@ -1780,11 +1785,12 @@ dedicated local real-backend E2E, review, commit, push, and CI are complete.
 Their documentation closeout is
 `b6224845d4007111d63a6485bd786265907f7151`; automatic push run
 `41936981074`, attempt 1, passed all four required jobs for that SHA. This does
-not authorize public issuance. The operator-confirmed reserved account and
-staged Render deployment are active with both public flags false. The current
-Menu/account and CSP remediation must be deployed and checked in that disabled
-state before public activation and Stage 22-D acceptance. The earlier bounded
-evidence comprised 37 passing targeted
+not authorize public issuance. The later bounded public API canary used source
+commit `0cb135d9157d3d6fdccbff3e11b605f6bb452933`; automatic push run
+`42376544571`, attempt 1, passed all four required jobs. `CANARY_PASS` confirmed
+one JWT and canonical `/api/v1/auth/me` for the exact active reserved ordinary
+`admin`, never `super_admin`. It was not a public Browser E2E of the complete
+visible flow. The earlier bounded evidence comprised 37 passing targeted
 no-database tests and one 62-test isolated PostgreSQL run of the complete
 demo-session and canonical User-auth integration files; those runs predate the
 proxy-bucket remediation. Fresh current-byte evidence is recorded in the
@@ -1830,6 +1836,19 @@ issuance flag alone stops new tokens but does not revoke existing ones; rotating
 the JWT secret is broader emergency containment that invalidates unrelated
 sessions too. None of these local contracts proves the present provider or
 database state.
+
+Rollback source commit `dadc63198295cf3a1f89c44b8a161e8330306bb9` passed
+automatic push run `42494896475`, attempt 1, across all four required jobs and
+was manually deployed by the operator. The first disabled-state observation
+was `ROLLBACK_FAIL`; its cause was not established. A later `ROLLBACK_PASS`
+restored the exact demo-session 404. A subsequent Blueprint Manual Sync
+displayed `Resources already up to date`, which does not independently prove
+which exact SHA the sync evaluated. A fresh public check on 2026-11-08 confirmed
+health and readiness 200 and the bodyless demo-session POST returning exact 404
+without a token or cookie. Backend issuance and frontend visibility remain
+false, so no new demo JWT is issued and the visible entry remains hidden. A JWT
+already issued during the canary could remain valid until the configured
+30-minute TTL expired.
 
 ## 6. Architecture Diagram
 

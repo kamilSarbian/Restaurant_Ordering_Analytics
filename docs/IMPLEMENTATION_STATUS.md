@@ -80,9 +80,10 @@
   in normal `false + stripe_test`. That normal-runtime evidence is separate from
   the PostgreSQL demo capability-only evidence and from the automatic GitHub
   Actions run; it is not CI. Final independent review is complete, closing only
-  B4-3B5. The B4-2 CLI-on-DB, safe final Menu UX, public demo-administrator
-  provisioning and public activation of demo-session issuance, remaining B4
-  work, B5, B6, production provisioning, and deployment also remain open. The
+  B4-3B5. At that closeout, the B4-2 CLI-on-DB, safe final Menu UX, public
+  demo-administrator provisioning and public activation of demo-session
+  issuance, remaining B4 work, B5, B6, production provisioning, and deployment
+  also remained open. The
   backend-only B4 demo-session boundary is committed and pushed on `main` at
   `aeea2ae39eec17c17eb4a5b59ce6537e4fa1b071`; automatic GitHub Actions push
   run `41894173298`, attempt 1, completed `Backend`, `Migrations`, `Frontend`,
@@ -138,14 +139,23 @@ synthetic data` badge uses a presentation-only current-tab `sessionStorage`
   `success` for that exact SHA. The documentation closeout is committed at
   `b6224845d4007111d63a6485bd786265907f7151`; automatic push run `41936981074`,
   attempt 1, completed `Backend`, `Migrations`, `Frontend`, and `Browser E2E`
-  with `success` for that exact SHA. The operator-confirmed staged deployment
-  now has both Render services live at
-  `c0ec9d18564cfec117b41fd88a810626e5154ccc`, the reserved Neon demo
-  administrator active, and backend issuance plus frontend visibility false.
-  Disabled-mode health, readiness, menu, CORS, demo-session 404, desktop, and
-  mobile checks passed. The current local pre-activation remediation adds safe
-  Menu/account route handling and an exact live-origin CSP; it remains
-  undeployed until its gates pass and a controlled false/false sync is accepted.
+  with `success` for that exact SHA. The bounded backend canary used source
+  commit `0cb135d9157d3d6fdccbff3e11b605f6bb452933`; automatic push run
+  `42376544571`, attempt 1, completed all four required jobs with `success`.
+  Operator evidence recorded `CANARY_PASS`: one JWT and canonical
+  `/api/v1/auth/me` for the exact active ordinary admin. The first disabled-state
+  observation was `ROLLBACK_FAIL`; its cause was not established. A later
+  `ROLLBACK_PASS` restored the exact 404. Rollback commit
+  `dadc63198295cf3a1f89c44b8a161e8330306bb9` passed the same four jobs in
+  automatic push run `42494896475`, attempt 1, and the operator confirmed manual
+  deployment to both Render services. A later Blueprint Manual Sync displayed
+  `Resources already up to date`; it does not independently prove which exact
+  SHA the sync evaluated. Fresh public checks on 2026-11-08 returned 200 for
+  health and readiness and exact 404 without token or cookie for the bodyless
+  demo-session request. Backend issuance and frontend visibility are false: no
+  new JWT is issued and the public button remains hidden. The canary token could
+  remain usable until the configured 30-minute TTL expired. This HTTP canary is
+  not public full-flow Browser E2E.
   The guarded
   deployment dataset seed implementation is committed at
   `70df05f36bf4075bdb6ad212306bb0bdcb113dc4`; its repository acceptance used the
@@ -256,9 +266,10 @@ synthetic data` badge uses a presentation-only current-tab `sessionStorage`
   `false + stripe_test`. This normal-runtime evidence is separate from the
   PostgreSQL demo capability-only evidence and from the automatic GitHub Actions
   run; it is not CI. Final independent review is complete, closing only B4-3B5.
-  B4-2 CLI-on-DB, safe final Menu UX, public demo-administrator provisioning and
-  public activation of B4 demo-session issuance, remaining B4 work, B5, B6,
-  and any further B3 scope remain future work. The backend-only demo-session
+  At that closeout, B4-2 CLI-on-DB, safe final Menu UX, public
+  demo-administrator provisioning and public activation of B4 demo-session
+  issuance, remaining B4 work, B5, B6, and any further B3 scope remained future
+  work. The backend-only demo-session
   endpoint is committed and pushed at
   `aeea2ae39eec17c17eb4a5b59ce6537e4fa1b071`; automatic push run
   `41894173298`, attempt 1, passed `Backend`, `Migrations`, `Frontend`, and the
@@ -296,13 +307,18 @@ synthetic data` badge uses a presentation-only current-tab `sessionStorage`
   `Migrations`, `Frontend`, and `Browser E2E` in push run `41934933203`, attempt
   1, for that exact SHA. The documentation closeout commit
   `b6224845d4007111d63a6485bd786265907f7151` then passed all four required jobs
-  in automatic run `41936981074`, attempt 1. The separately verified staged
-  release has both Render services live at `c0ec9d1`, the reserved account
-  active, both public flags false, and the disabled-mode public checks passing.
-  The current Menu/account UX plus CSP remediation remains local until its gates
-  and controlled false/false sync pass. Public activation and Stage 22-D
-  acceptance remain open. Stage 23 is **not started**. Repository history alone
-  does not prove later Render/Neon state.
+  in automatic run `41936981074`, attempt 1. The operator-confirmed online
+  release completed a bounded backend canary at
+  `0cb135d9157d3d6fdccbff3e11b605f6bb452933` and rollback at
+  `dadc63198295cf3a1f89c44b8a161e8330306bb9`. Both commits passed all four
+  required CI jobs; both Render services are live at the operator-confirmed
+  rollback release with issuance and visibility false. Fresh health, readiness,
+  and exact 404 checks pass, no new demo JWT is issued, and the public button is
+  hidden. The first
+  `ROLLBACK_FAIL` remains unexplained; later `ROLLBACK_PASS` is the closing
+  evidence. The canary was not public full-flow Browser E2E. Visible-UI
+  activation and Stage 22-D acceptance remain open. Stage 23 is **not started**.
+  Repository history alone does not prove later Render/Neon state.
   The guarded deployment seed path is committed at
   `70df05f36bf4075bdb6ad212306bb0bdcb113dc4`, but its reference end, target,
   `roa_runtime` privileges, migration, and exact invocation state must be
@@ -946,8 +962,9 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   scenarios, with no JavaScript chunk above 500 kB. This status does not claim a
   production deployment or public URL.
 - **Stage 22 — Production Deployment & Public Acceptance:** **IN PROGRESS**
-  with a staged public deployment live under disabled issuance and visibility.
-  Public demo activation and Stage 22-D acceptance have not occurred.
+  with a public deployment live under disabled issuance and visibility after a
+  bounded backend canary and rollback. Visible-UI activation and Stage 22-D
+  full-flow acceptance have not occurred.
 - **AF1+B1-1 — runtime/config/security:** complete and committed on
   2026-09-18 at `bbb27b97c23ef4360bd4e00e8b1c86daa5ddd838`.
   Fail-closed portfolio/payment configuration, strict public origins/CORS,
@@ -1828,9 +1845,23 @@ demo` link and the matching LoginPage action, gated only by the exact frontend
   with `success` for that exact SHA. The documentation closeout is committed at
   `b6224845d4007111d63a6485bd786265907f7151`; automatic push run `41936981074`,
   attempt 1, completed the same four jobs with `success` for that exact SHA. The
-  later staged deployment confirmed the reserved account and both services with
-  public flags false. Current Menu/account UX and CSP remediation, public
-  activation, and Stage 22-D acceptance remain separate work.
+  later operator-controlled public canary used source commit
+  `0cb135d9157d3d6fdccbff3e11b605f6bb452933`; automatic push run `42376544571`,
+  attempt 1, passed all four required jobs. `CANARY_PASS` issued one JWT, and
+  canonical `/api/v1/auth/me` resolved the exact active ordinary `admin`, never
+  `super_admin`. The first disabled-state observation was `ROLLBACK_FAIL`; its
+  cause was not established. A later `ROLLBACK_PASS` restored exact 404.
+  Rollback source commit `dadc63198295cf3a1f89c44b8a161e8330306bb9` passed all
+  four jobs in automatic run `42494896475`, attempt 1, and the operator confirmed
+  manual deployment of that SHA to both services. A later Blueprint Manual Sync
+  displayed `Resources already up to date`; that observation does not
+  independently prove which exact SHA the sync evaluated. Fresh 2026-11-08
+  checks returned health and readiness 200 and bodyless demo-session 404 without
+  token or cookie. Both flags are false; no new demo JWT is issued, and the
+  button is hidden. The canary JWT could remain usable for the remainder of its
+  configured 30-minute TTL. This API-level canary is not public Browser E2E of
+  the complete visible journey. Stage 22 remains in progress, and Stage 23 is
+  not started.
 
 - **Stage 22 deployment demo dataset seed — committed repository boundary; live
   execution unverified:**
@@ -1895,19 +1926,25 @@ demo` link and the matching LoginPage action, gated only by the exact frontend
   exclusively for `roa_migrator`, rejecting `roa_runtime` and every additional
   application role. Later state verification passed, exact provisioning created
   the reserved account once, and the subsequent read-only verification retained
-  the canonical counts with status `active`.
+  the canonical counts with status `active`. The subsequent bounded canary and
+  rollback preserved the lifecycle boundary: issuance and visibility are again
+  false. Disabling issuance stops new tokens but does not revoke the token
+  already issued during canary; it could remain valid until the 30-minute TTL
+  expired.
 
-- **Stage 22-B0 demo design:** its B3 payment design is now implemented through
-  B3-2B. B4 session issuance is implemented but not independently verified as
-  publicly active. Remaining bounded authorization guards, any
-  remaining B3 scope, B5 recruiter UX, and B6 integrated acceptance remain
-  future work. Reset/prune policy and the runtime cap remain open.
+- **Stage 22-B0 demo design:** its B3 payment design is implemented through
+  B3-2B, and bounded public demo-session issuance plus canonical identity were
+  verified and rolled back. The canary did not exercise Order or Payment
+  creation. Shared `portfolio_runtime` Orders and demo Payments may grow Admin
+  Orders, Analytics, and CSV, with no automatic cap, prune, or reset policy.
+  Remaining authorization work, B5 recruiter UX, and B6 integrated acceptance
+  remain future work.
 - **Stage 22-A/C/D:** the operator-confirmed Render/Neon baseline has schema
-  0009, the canonical seed, an active reserved account, both services live at
-  `c0ec9d1`, and both public flags false. Disabled-mode public acceptance passed.
-  The current pre-activation UX and CSP remediation must still pass its gates,
-  be deployed with false/false, and be rechecked before public activation.
-  Stage 22-D public acceptance remains separately authorized. A
+  0009, the canonical seed, an active reserved account, and both services live
+  at rollback commit `dadc63198295cf3a1f89c44b8a161e8330306bb9` with both
+  public flags false. Disabled-state health, readiness, and exact 404 pass. The
+  bounded HTTP canary is closed, but visible-UI activation and public full-flow
+  Browser E2E remain separately authorized under Stage 22-D. A
   recruiter/portfolio URL may be advertised only after Stage 22-D passes.
 - **Stage 23 — Portfolio Documentation & Case Study:** not started. Final
   recruiter-facing README/case study, screenshots, architecture presentation,
@@ -2041,8 +2078,8 @@ C2 subsequently completed independent review and the final commit at
   database fingerprint, and retained acceptance volumes remain unchanged. No
   acceptance container or network is running. At that historical boundary,
   Stage 20 readiness and Stage 21 UI/UX work had not started. Both subsequently
-  completed locally; no public deployment is claimed, and actual public
-  deployment remains Stage 22 work
+  completed locally. Their closeouts did not claim a public deployment; the
+  later Stage 22 provider state is recorded in the current sections above
 
 Historical Stage 18 verification completed by 2026-08-23. Stage 18-C2 then
 completed independent review and the final commit at
