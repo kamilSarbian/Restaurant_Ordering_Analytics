@@ -137,6 +137,81 @@ describe('shared login page', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it.each([
+    [false, false],
+    [false, true],
+    [true, false],
+    [true, true],
+  ])(
+    'keeps portfolio=%s independent from demo-entry=%s',
+    async (portfolioMode, demoEntry) => {
+      vi.stubEnv('VITE_PORTFOLIO_MODE', portfolioMode ? 'true' : 'false');
+      vi.stubEnv('VITE_ENABLE_DEMO_SESSION', demoEntry ? 'true' : 'false');
+      const fetchSpy = vi.fn<typeof fetch>();
+      vi.stubGlobal('fetch', fetchSpy);
+
+      renderLogin();
+
+      if (portfolioMode) {
+        expect(
+          await screen.findByRole('heading', {
+            name: demoEntry
+              ? 'Explore the administrator demo'
+              : 'Account access is unavailable',
+          }),
+        ).toBeVisible();
+        expect(screen.queryByLabelText('Email')).not.toBeInTheDocument();
+        expect(screen.queryByLabelText('Password')).not.toBeInTheDocument();
+        expect(
+          screen.queryByRole('link', { name: 'Create an account' }),
+        ).not.toBeInTheDocument();
+        expect(screen.getByRole('link', { name: /Back to Menu/ })).toHaveAttribute(
+          'href',
+          '/menu',
+        );
+      } else {
+        expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeVisible();
+        expect(screen.getByLabelText('Email')).toBeVisible();
+        expect(screen.getByLabelText('Password')).toBeVisible();
+        expect(screen.getByRole('link', { name: 'Create an account' })).toHaveAttribute(
+          'href',
+          '/register',
+        );
+        expect(
+          screen.queryByRole('link', { name: /Back to Menu/ }),
+        ).not.toBeInTheDocument();
+      }
+
+      expect(screen.queryByRole('button', { name: 'Try admin demo' }) !== null).toBe(
+        demoEntry,
+      );
+      expect(fetchSpy).not.toHaveBeenCalled();
+    },
+  );
+
+  it('starts the portfolio-only demo action without exposing password fields', async () => {
+    vi.stubEnv('VITE_PORTFOLIO_MODE', 'true');
+    vi.stubEnv('VITE_ENABLE_DEMO_SESSION', 'true');
+    const stub = installFetchStub(
+      { json: TOKEN_RESPONSE },
+      { json: currentUser('admin') },
+    );
+    const user = userEvent.setup();
+
+    renderLogin();
+
+    expect(screen.queryByLabelText('Password')).not.toBeInTheDocument();
+    await user.click(await screen.findByRole('button', { name: 'Try admin demo' }));
+
+    expect(
+      await screen.findByRole('heading', { name: 'Administrator destination' }),
+    ).toBeVisible();
+    expect(stub.calls.map(({ url }) => url)).toEqual([
+      '/api/v1/auth/demo-session',
+      '/api/v1/auth/me',
+    ]);
+  });
+
   it('starts the enabled admin demo without credentials and navigates only after me', async () => {
     vi.stubEnv('VITE_ENABLE_DEMO_SESSION', 'true');
     const currentUserResponse = deferredResponse();

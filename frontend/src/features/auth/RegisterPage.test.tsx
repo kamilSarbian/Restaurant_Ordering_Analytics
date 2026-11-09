@@ -89,6 +89,7 @@ afterEach(() => {
   resetAuthMemoryForTests();
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe('shared registration page', () => {
@@ -122,6 +123,51 @@ describe('shared registration page', () => {
     );
     expect(fetchSpy).not.toHaveBeenCalled();
   });
+
+  it.each([
+    [false, false],
+    [false, true],
+    [true, false],
+    [true, true],
+  ])(
+    'keeps portfolio=%s independent from demo-entry=%s',
+    async (portfolioMode, demoEntry) => {
+      vi.stubEnv('VITE_PORTFOLIO_MODE', portfolioMode ? 'true' : 'false');
+      vi.stubEnv('VITE_ENABLE_DEMO_SESSION', demoEntry ? 'true' : 'false');
+      const fetchSpy = vi.fn<typeof fetch>();
+      vi.stubGlobal('fetch', fetchSpy);
+
+      renderRegister();
+
+      if (portfolioMode) {
+        expect(
+          await screen.findByRole('heading', {
+            name: 'Account creation is unavailable',
+          }),
+        ).toBeVisible();
+        expect(screen.queryByLabelText('Email')).not.toBeInTheDocument();
+        expect(screen.queryByLabelText('Password')).not.toBeInTheDocument();
+        expect(screen.queryByLabelText('Confirm password')).not.toBeInTheDocument();
+        expect(screen.queryByRole('link', { name: 'Sign in' })).not.toBeInTheDocument();
+        expect(screen.getByRole('link', { name: /Back to Menu/ })).toHaveAttribute(
+          'href',
+          '/menu',
+        );
+      } else {
+        expect(
+          await screen.findByRole('heading', { name: 'Create account' }),
+        ).toBeVisible();
+        expect(screen.getByLabelText('Email')).toBeVisible();
+        expect(screen.getByLabelText('Password')).toBeVisible();
+        expect(screen.getByLabelText('Confirm password')).toBeVisible();
+        expect(screen.getByRole('link', { name: 'Sign in' })).toHaveAttribute(
+          'href',
+          '/login',
+        );
+      }
+      expect(fetchSpy).not.toHaveBeenCalled();
+    },
+  );
 
   it('carries a safe encoded continuation to login without submitting', async () => {
     const user = userEvent.setup();

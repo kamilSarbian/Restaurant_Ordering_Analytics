@@ -71,6 +71,8 @@ projects:
                   envVarKey: RENDER_EXTERNAL_URL
               - key: VITE_API_TIMEOUT_MS
                 value: "90000"
+              - key: VITE_PORTFOLIO_MODE
+                value: "true"
               - key: VITE_ENABLE_DEMO_SESSION
                 value: "false"
             routes:

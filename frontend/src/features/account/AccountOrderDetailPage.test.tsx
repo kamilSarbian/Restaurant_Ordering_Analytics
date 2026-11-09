@@ -108,12 +108,47 @@ afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   sessionStorage.clear();
   localStorage.clear();
   resetAuthMemoryForTests();
 });
 
 describe('AccountOrderDetailPage', () => {
+  it.each([false, true])(
+    'renders unauthenticated account-order recovery when portfolio=%s',
+    async (portfolioMode) => {
+      vi.stubEnv('VITE_PORTFOLIO_MODE', portfolioMode ? 'true' : 'false');
+      const fetchSpy = vi.fn<typeof fetch>();
+      vi.stubGlobal('fetch', fetchSpy);
+
+      renderDetail();
+
+      if (portfolioMode) {
+        expect(
+          await screen.findByRole('heading', {
+            level: 1,
+            name: 'Account order access is unavailable',
+          }),
+        ).toBeVisible();
+        expect(screen.queryByRole('link', { name: 'Sign in' })).not.toBeInTheDocument();
+        expect(screen.getByRole('link', { name: 'Back to Menu' })).toHaveAttribute(
+          'href',
+          '/menu',
+        );
+      } else {
+        expect(
+          await screen.findByRole('heading', { level: 1, name: 'Sign in required' }),
+        ).toBeVisible();
+        expect(screen.getByRole('link', { name: 'Sign in' })).toHaveAttribute(
+          'href',
+          `/login?next=${encodeURIComponent(`/account/orders/${PUBLIC_ORDER_NUMBER}`)}`,
+        );
+      }
+      expect(fetchSpy).not.toHaveBeenCalled();
+    },
+  );
+
   it('rejects an invalid route value locally without starting a request', () => {
     const fetchSpy = vi.fn<typeof fetch>();
     vi.stubGlobal('fetch', fetchSpy);
@@ -310,25 +345,41 @@ describe('AccountOrderDetailPage', () => {
     expect(stub.calls).toHaveLength(2);
   });
 
-  it('invalidates the exact session on 401 without anonymous or capability retry', async () => {
-    storeToken();
-    const stub = installFetchStub({ json: CURRENT_USER }, { status: 401 });
+  it.each([false, true])(
+    'invalidates the exact session on 401 without anonymous or capability retry when portfolio=%s',
+    async (portfolioMode) => {
+      vi.stubEnv('VITE_PORTFOLIO_MODE', portfolioMode ? 'true' : 'false');
+      storeToken();
+      const stub = installFetchStub({ json: CURRENT_USER }, { status: 401 });
 
-    renderDetail();
+      renderDetail();
 
-    expect(
-      await screen.findByRole('heading', { level: 1, name: 'Your session expired' }),
-    ).toBeVisible();
-    expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toBeNull();
-    expect(screen.getByRole('link', { name: 'Sign in' })).toHaveAttribute(
-      'href',
-      `/login?next=${encodeURIComponent(`/account/orders/${PUBLIC_ORDER_NUMBER}`)}`,
-    );
-    expect(
-      stub.calls.filter((call) => call.url.includes('/api/v1/account/orders/')),
-    ).toHaveLength(1);
-    expect(stub.calls).toHaveLength(2);
-  });
+      expect(
+        await screen.findByRole('heading', {
+          level: 1,
+          name: 'Your session expired',
+        }),
+      ).toBeVisible();
+      expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toBeNull();
+      if (portfolioMode) {
+        expect(screen.queryByRole('link', { name: 'Sign in' })).not.toBeInTheDocument();
+        expect(screen.getByRole('link', { name: 'Back to Menu' })).toHaveAttribute(
+          'href',
+          '/menu',
+        );
+        expect(document.body).not.toHaveTextContent('Sign in again');
+      } else {
+        expect(screen.getByRole('link', { name: 'Sign in' })).toHaveAttribute(
+          'href',
+          `/login?next=${encodeURIComponent(`/account/orders/${PUBLIC_ORDER_NUMBER}`)}`,
+        );
+      }
+      expect(
+        stub.calls.filter((call) => call.url.includes('/api/v1/account/orders/')),
+      ).toHaveLength(1);
+      expect(stub.calls).toHaveLength(2);
+    },
+  );
 
   it('ignores a stale 401 after a newer session generation succeeds', async () => {
     storeToken();

@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 
 import BrandMark from '../../components/branding/BrandMark';
+import { isPortfolioModeEnabled } from '../../config/portfolioMode';
 import { useAuth } from '../auth/AuthContext';
 import styles from './LandingPage.module.css';
 
@@ -44,6 +45,7 @@ const CURATED_MENU_PREVIEW = [
 export default function LandingPage() {
   const { logout, phase, retrySession, user } = useAuth();
   const canOpenAdmin = user?.role === 'admin' || user?.role === 'super_admin';
+  const portfolioModeEnabled = isPortfolioModeEnabled();
 
   return (
     <div className={styles.page}>
@@ -85,7 +87,7 @@ export default function LandingPage() {
             <Link className={styles.primaryAction} to={'/menu'}>
               View menu
             </Link>
-            {phase === 'unauthenticated' && (
+            {phase === 'unauthenticated' && !portfolioModeEnabled && (
               <>
                 <Link className={styles.secondaryAction} to={'/login'}>
                   Log in

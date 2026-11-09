@@ -248,6 +248,7 @@ describe('CartPage', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
     sessionStorage.clear();
     resetAuthMemoryForTests();
   });
@@ -863,25 +864,45 @@ describe('CartPage', () => {
     expect(sessionStorage.getItem(CART_STORAGE_KEY)).toContain(ITEM_ID);
   });
 
-  it('invalidates the request session on authenticated 401 without a guest retry', async () => {
-    seedCart();
-    seedAuthToken();
-    const calls = installAuthenticatedCartFetch({ orderStatus: 401 });
-    renderCart();
-    await flushAsyncWork();
-    await advanceQuoteDebounce();
+  it.each([false, true])(
+    'invalidates the request session on authenticated 401 without a guest retry when portfolio=%s',
+    async (portfolioMode) => {
+      vi.stubEnv('VITE_PORTFOLIO_MODE', portfolioMode ? 'true' : 'false');
+      seedCart();
+      seedAuthToken();
+      const calls = installAuthenticatedCartFetch({ orderStatus: 401 });
+      renderCart();
+      await flushAsyncWork();
+      await advanceQuoteDebounce();
 
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Place order and continue to payment' }),
-    );
-    await flushAsyncWork();
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Place order and continue to payment' }),
+      );
+      await flushAsyncWork();
 
-    expect(screen.getByRole('alert')).toHaveTextContent('Session expired');
-    expect(calls.filter((call) => call.url.endsWith('/api/v1/orders'))).toHaveLength(1);
-    expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toBeNull();
-    expect(sessionStorage.getItem(CART_STORAGE_KEY)).toContain(ITEM_ID);
-    expect(loadOrderAccess(PUBLIC_ORDER_NUMBER)).toBeNull();
-  });
+      expect(screen.getByRole('alert')).toHaveTextContent('Session expired');
+      if (portfolioMode) {
+        expect(
+          screen.queryByRole('link', { name: 'Sign in again' }),
+        ).not.toBeInTheDocument();
+        expect(screen.getByRole('link', { name: 'Back to Menu' })).toHaveAttribute(
+          'href',
+          '/menu',
+        );
+      } else {
+        expect(screen.getByRole('link', { name: 'Sign in again' })).toHaveAttribute(
+          'href',
+          '/login?next=%2Fcart',
+        );
+      }
+      expect(calls.filter((call) => call.url.endsWith('/api/v1/orders'))).toHaveLength(
+        1,
+      );
+      expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toBeNull();
+      expect(sessionStorage.getItem(CART_STORAGE_KEY)).toContain(ITEM_ID);
+      expect(loadOrderAccess(PUBLIC_ORDER_NUMBER)).toBeNull();
+    },
+  );
 
   it('warns about an ambiguous network result without automatic retry', async () => {
     const stub = await renderReadyCart(

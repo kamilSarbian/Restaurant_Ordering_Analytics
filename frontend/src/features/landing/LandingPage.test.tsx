@@ -61,6 +61,7 @@ afterEach(() => {
   resetAuthMemoryForTests();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe('LandingPage', () => {
@@ -88,6 +89,28 @@ describe('LandingPage', () => {
     expect(screen.queryByText(/my account/i)).not.toBeInTheDocument();
     expect(fetchSpy).not.toHaveBeenCalled();
   });
+
+  it.each(['false', 'true'])(
+    'hides password-auth entry points in portfolio mode when demo-entry=%s',
+    (demoEntry) => {
+      vi.stubEnv('VITE_PORTFOLIO_MODE', 'true');
+      vi.stubEnv('VITE_ENABLE_DEMO_SESSION', demoEntry);
+      const fetchSpy = vi.fn<typeof fetch>();
+      vi.stubGlobal('fetch', fetchSpy);
+
+      renderLanding();
+
+      expect(screen.getByRole('link', { name: 'View menu' })).toHaveAttribute(
+        'href',
+        '/menu',
+      );
+      expect(screen.queryByRole('link', { name: 'Log in' })).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole('link', { name: 'Create account' }),
+      ).not.toBeInTheDocument();
+      expect(fetchSpy).not.toHaveBeenCalled();
+    },
+  );
 
   it('renders a logical editorial hierarchy with restrained responsive branding', () => {
     const { container } = renderLanding();

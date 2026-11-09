@@ -4,6 +4,7 @@ import { Link, useParams } from 'react-router-dom';
 import BrandMark from '../../components/branding/BrandMark';
 import Button from '../../components/ui/Button';
 import Notice from '../../components/ui/Notice';
+import { isPortfolioModeEnabled } from '../../config/portfolioMode';
 import { type AuthenticatedSession, useAuth } from '../auth/AuthContext';
 import { isPublicOrderNumber, loadOrderAccess } from '../checkout/orderAccessStorage';
 import styles from './OrderStatusPage.module.css';
@@ -22,6 +23,7 @@ function OrderStatusBrandLockup() {
 /** Display and safely refresh one guest-visible fulfilment snapshot. */
 export default function OrderStatusPage() {
   const { publicOrderNumber } = useParams();
+  const portfolioModeEnabled = isPortfolioModeEnabled();
   const {
     getAuthenticatedSession,
     invalidateSessionIfCurrent,
@@ -157,13 +159,21 @@ export default function OrderStatusPage() {
           <OrderStatusBrandLockup />
           <p className={styles.eyebrow}>Order access</p>
           <h1>Your session expired</h1>
-          <p>Sign in again before explicitly retrying this order status request.</p>
+          <p>
+            {portfolioModeEnabled
+              ? 'Account sign-in is unavailable in this portfolio experience.'
+              : 'Sign in again before explicitly retrying this order status request.'}
+          </p>
           <Link
             className={`${styles.actionLink} ${styles.primaryAction}`}
             data-action-priority="primary"
-            to={`/login?next=${encodeURIComponent(`/orders/${validPublicOrderNumber}/status`)}`}
+            to={
+              portfolioModeEnabled
+                ? '/menu'
+                : `/login?next=${encodeURIComponent(`/orders/${validPublicOrderNumber}/status`)}`
+            }
           >
-            Sign in
+            {portfolioModeEnabled ? 'Back to Menu' : 'Sign in'}
           </Link>
         </section>
       </div>

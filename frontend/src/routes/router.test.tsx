@@ -326,6 +326,36 @@ describe('customer frontend routing foundation', () => {
     expect(screen.getByRole('main')).toHaveFocus();
   });
 
+  it.each([
+    [false, false],
+    [false, true],
+    [true, false],
+    [true, true],
+  ])(
+    'renders account navigation for portfolio=%s and demo-entry=%s',
+    (portfolioMode, demoEntry) => {
+      vi.stubEnv('VITE_PORTFOLIO_MODE', portfolioMode ? 'true' : 'false');
+      vi.stubEnv('VITE_ENABLE_DEMO_SESSION', demoEntry ? 'true' : 'false');
+
+      renderRoute('/');
+
+      const navigation = screen.getByRole('navigation', {
+        name: 'Customer navigation',
+      });
+      expect(within(navigation).queryByRole('link', { name: 'Log in' }) !== null).toBe(
+        !portfolioMode,
+      );
+      expect(
+        within(navigation).queryByRole('link', { name: 'Create account' }) !== null,
+      ).toBe(!portfolioMode);
+      expect(
+        within(navigation).queryByRole('link', { name: 'Try admin demo' }) !== null,
+      ).toBe(demoEntry);
+      expect(within(navigation).getByRole('link', { name: 'Menu' })).toBeVisible();
+      expect(within(navigation).getByRole('link', { name: 'Cart' })).toBeVisible();
+    },
+  );
+
   it('reveals one public demo entry only when the exact build flag is enabled', async () => {
     vi.stubEnv('VITE_ENABLE_DEMO_SESSION', 'true');
     const user = userEvent.setup();

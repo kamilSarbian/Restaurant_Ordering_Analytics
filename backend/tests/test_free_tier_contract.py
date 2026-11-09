@@ -241,6 +241,8 @@ def test_blueprint_rejects_project_environment_boundary_drift(
         "missing_public_api",
         "forbidden_release_sha_reference",
         "missing_timeout",
+        "missing_frontend_portfolio_mode",
+        "disabled_frontend_portfolio_mode",
         "missing_backend_issuance_flag",
         "enabled_backend_issuance_flag",
         "missing_frontend_demo_flag",
@@ -303,6 +305,10 @@ def test_blueprint_rejects_frontend_wiring_secret_and_header_drift(
         )
     elif mutation == "missing_timeout":
         _list(frontend["envVars"]).remove(frontend_environment["VITE_API_TIMEOUT_MS"])
+    elif mutation == "missing_frontend_portfolio_mode":
+        _list(frontend["envVars"]).remove(frontend_environment["VITE_PORTFOLIO_MODE"])
+    elif mutation == "disabled_frontend_portfolio_mode":
+        frontend_environment["VITE_PORTFOLIO_MODE"]["value"] = "false"
     elif mutation == "missing_backend_issuance_flag":
         _list(backend["envVars"]).remove(
             backend_environment["DEMO_SESSION_ISSUANCE_ENABLED"]

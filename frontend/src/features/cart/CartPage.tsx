@@ -12,6 +12,7 @@ import type {
 import AsyncNotice from '../../components/AsyncNotice';
 import BrandMark from '../../components/branding/BrandMark';
 import Button from '../../components/ui/Button';
+import { isPortfolioModeEnabled } from '../../config/portfolioMode';
 import { useAuth } from '../auth/AuthContext';
 import { saveOrderAccess } from '../checkout/orderAccessStorage';
 import { resolveMenuImage } from '../menu/menuImageCatalog';
@@ -208,6 +209,7 @@ function CartItemThumbnail({ item }: CartItemThumbnailProps) {
 
 export default function CartPage() {
   const navigate = useNavigate();
+  const portfolioModeEnabled = isPortfolioModeEnabled();
   const {
     getAuthenticatedSession,
     invalidateSessionIfCurrent,
@@ -1041,10 +1043,13 @@ export default function CartPage() {
             {orderState.status === 'session-expired' && (
               <AsyncNotice tone="error" title="Session expired">
                 <p>
-                  The authenticated order request was not retried as a guest. Sign in
-                  again before placing another order.
+                  {portfolioModeEnabled
+                    ? 'The authenticated order request was not retried as a guest. Account sign-in is unavailable in this portfolio experience.'
+                    : 'The authenticated order request was not retried as a guest. Sign in again before placing another order.'}
                 </p>
-                <Link to="/login?next=%2Fcart">Sign in again</Link>
+                <Link to={portfolioModeEnabled ? '/menu' : '/login?next=%2Fcart'}>
+                  {portfolioModeEnabled ? 'Back to Menu' : 'Sign in again'}
+                </Link>
               </AsyncNotice>
             )}
 

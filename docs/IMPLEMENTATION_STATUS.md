@@ -109,18 +109,25 @@
   late response cannot rewrite it or restore the unmounted session. Both later
   successful `Browser E2E` jobs are general CI regression evidence, not a
   dedicated demo-session browser flow. The later visible-UX implementation is
-  gated by exact `VITE_ENABLE_DEMO_SESSION=true`; absent any exact
-  opt-in, the flag is disabled, including in the normal public build. When
-  enabled, public navigation exposes `Try admin demo`, LoginPage invokes the
-  existing action, and the client waits for canonical `/api/v1/auth/me` before
-  entering the administrator area. A visible `Portfolio demo · shared
-synthetic data` badge uses a presentation-only current-tab `sessionStorage`
-  marker that grants no authorization; the backend remains authoritative.
-  Current local evidence is 143/143 final targeted frontend tests across three
-  files, 1202/1202 full frontend tests, passing typecheck, ESLint, Prettier, and
-  build checks, plus 71/71 backend harness tests and passing quality checks. The
-  earlier combined 215/215 targeted result predates two later tests; the final
-  targeted current-byte check passed 1/1. A first full harness on prior bytes
+  gated by exact `VITE_ENABLE_DEMO_SESSION=true`; absent that exact opt-in, the
+  demo entry is disabled. A current uncommitted frontend candidate adds an
+  independent exact `VITE_PORTFOLIO_MODE=true` presentation boundary. Portfolio
+  mode hides password-login and registration links and forms while preserving
+  the existing credential-free `Try admin demo` action when its separate flag
+  is enabled. Normal non-portfolio builds retain the existing login and
+  registration behavior. The client still waits for canonical
+  `/api/v1/auth/me` before entering the administrator area. A visible
+  `Portfolio demo · shared synthetic data` badge uses a presentation-only
+  current-tab `sessionStorage` marker that grants no authorization; the backend
+  remains authoritative.
+  The current portfolio-mode candidate passed 253/253 targeted frontend tests,
+  1237/1237 full frontend tests, typecheck, ESLint with zero errors, Prettier,
+  production build, and 104/104 Free Tier contract tests. Earlier visible-UX
+  local evidence is 143/143 final targeted frontend tests across three files,
+  1202/1202 full frontend tests, plus 71/71 backend harness tests and passing
+  quality checks. The earlier combined 215/215 targeted result predates two
+  later tests; the final targeted current-byte check passed 1/1. A first full
+  harness on prior bytes
   ended the normal phase at 31 passed and 1 failed on the focus contract changed
   by the new demo button, did not start its demo phase, and cleaned up to zero
   project containers and networks. After the
@@ -156,6 +163,16 @@ synthetic data` badge uses a presentation-only current-tab `sessionStorage`
   new JWT is issued and the public button remains hidden. The canary token could
   remain usable until the configured 30-minute TTL expired. This HTTP canary is
   not public full-flow Browser E2E.
+  A current uncommitted frontend candidate adds an independent exact
+  `VITE_PORTFOLIO_MODE=true` Blueprint setting while retaining
+  `VITE_ENABLE_DEMO_SESSION=false`. The portfolio presentation hides public
+  password-login and registration links, replaces direct `/login` and
+  `/register` forms with a short explanation and Menu return, and would expose
+  only the existing credential-free `Try admin demo` action on `/login` if the
+  separate demo-entry flag were later enabled. Normal non-portfolio builds
+  retain the existing login and registration behavior. This presentation
+  boundary does not alter backend authorization or enable public demo-session
+  issuance.
   The guarded
   deployment dataset seed implementation is committed at
   `70df05f36bf4075bdb6ad212306bb0bdcb113dc4`; its repository acceptance used the
@@ -1803,23 +1820,30 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   frontend commits are general CI regression evidence, not a dedicated
   demo-session browser flow.
 
-  The later visible-UX implementation adds a public `Try admin
-demo` link and the matching LoginPage action, gated only by the exact frontend
-  build value `VITE_ENABLE_DEMO_SESSION=true`. The flag defaults to disabled,
-  including in the normal public build, and controls presentation rather than
-  authorization. The existing backend remains authoritative, while the client
-  waits for canonical `/api/v1/auth/me` confirmation before administrator
-  navigation. A visible `Portfolio demo · shared synthetic data` badge is
-  driven by a presentation-only current-tab `sessionStorage` marker; this
-  marker cannot grant access.
+  The later visible-UX implementation adds a public `Try admin demo` link and
+  the matching LoginPage action, gated by the exact frontend build value
+  `VITE_ENABLE_DEMO_SESSION=true`. A current uncommitted frontend candidate adds
+  a separate exact `VITE_PORTFOLIO_MODE=true` presentation boundary that hides
+  password-login and registration links and forms without enabling that demo
+  action. In portfolio mode with the demo-entry flag enabled, `/login` exposes
+  only the credential-free demo action; normal non-portfolio builds retain
+  their existing login and registration behavior. Both flags control
+  presentation rather than authorization. The existing backend remains
+  authoritative, while the client waits for canonical `/api/v1/auth/me`
+  confirmation before administrator navigation. A visible
+  `Portfolio demo · shared synthetic data` badge is driven by a
+  presentation-only current-tab `sessionStorage` marker; this marker cannot
+  grant access.
 
-  Current local frontend evidence comprises 143 passing targeted tests across
-  the final three targeted files and one full frontend run with 1202 passing
-  tests, together with passing typecheck, ESLint, Prettier, and production build
-  checks. The earlier combined targeted run completed with 215 passing tests
-  before two later tests were added and remains separate evidence. One final
-  targeted current-byte check passed 1 of 1. Backend harness evidence comprises
-  71 passing tests and passing quality checks.
+  The current portfolio-mode candidate passed 253 targeted frontend tests and
+  one full frontend run with 1237 passing tests, together with passing
+  typecheck, ESLint with zero errors, Prettier, production build, and 104 Free
+  Tier contract tests. Earlier visible-UX local evidence comprises 143 passing
+  targeted tests across the final three targeted files and one full frontend
+  run with 1202 passing tests. The earlier combined targeted run completed with
+  215 passing tests before two later tests were added and remains separate
+  evidence. One final targeted current-byte check passed 1 of 1. Backend harness
+  evidence comprises 71 passing tests and passing quality checks.
 
   Browser evidence preserves two distinct runs. The first full harness used
   prior bytes: its normal phase completed with 31 passed and 1 failed at the

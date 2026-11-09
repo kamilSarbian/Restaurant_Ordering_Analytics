@@ -9,6 +9,7 @@ import Notice, {
   type NoticeRole,
   type NoticeVariant,
 } from '../../components/ui/Notice';
+import { isPortfolioModeEnabled } from '../../config/portfolioMode';
 import { type AuthenticatedSession, useAuth } from '../auth/AuthContext';
 import OrderStatusSummary, {
   formatCustomerDate,
@@ -110,6 +111,7 @@ function shouldRestoreAsyncFocus(origin: HTMLElement | null): boolean {
 /** Display one personally owned, customer-safe order snapshot. */
 export default function AccountOrderDetailPage() {
   const { publicOrderNumber } = useParams();
+  const portfolioModeEnabled = isPortfolioModeEnabled();
   const {
     getAuthenticatedSession,
     invalidateSessionIfCurrent,
@@ -253,20 +255,30 @@ export default function AccountOrderDetailPage() {
   if (state.kind === 'unauthorized' && currentSession === null) {
     return (
       <DetailStateSurface
-        copy="Sign in again to view this personal order."
+        copy={
+          portfolioModeEnabled
+            ? 'Personal order access is unavailable in this portfolio experience.'
+            : 'Sign in again to view this personal order.'
+        }
         heading="Your session expired"
         headingRef={headingRef}
         noticeRole="alert"
-        noticeTitle="Sign in again"
+        noticeTitle={
+          portfolioModeEnabled ? 'Account access unavailable' : 'Sign in again'
+        }
         noticeVariant="warning"
       >
         <Link
           className={`${orderStatusStyles.actionLink} ${orderStatusStyles.primaryAction}`}
-          to={`/login?next=${encodeURIComponent(
-            `/account/orders/${validPublicOrderNumber}`,
-          )}`}
+          to={
+            portfolioModeEnabled
+              ? '/menu'
+              : `/login?next=${encodeURIComponent(
+                  `/account/orders/${validPublicOrderNumber}`,
+                )}`
+          }
         >
-          Sign in
+          {portfolioModeEnabled ? 'Back to Menu' : 'Sign in'}
         </Link>
       </DetailStateSurface>
     );
@@ -306,18 +318,30 @@ export default function AccountOrderDetailPage() {
   if (phase === 'unauthenticated' || currentSession === null) {
     return (
       <DetailStateSurface
-        copy="Sign in to view your personal order history."
-        heading="Sign in required"
+        copy={
+          portfolioModeEnabled
+            ? 'Personal order access is unavailable in this portfolio experience.'
+            : 'Sign in to view your personal order history.'
+        }
+        heading={
+          portfolioModeEnabled
+            ? 'Account order access is unavailable'
+            : 'Sign in required'
+        }
         headingRef={headingRef}
-        noticeTitle="Continue securely"
+        noticeTitle={portfolioModeEnabled ? 'Portfolio access' : 'Continue securely'}
       >
         <Link
           className={`${orderStatusStyles.actionLink} ${orderStatusStyles.primaryAction}`}
-          to={`/login?next=${encodeURIComponent(
-            `/account/orders/${validPublicOrderNumber}`,
-          )}`}
+          to={
+            portfolioModeEnabled
+              ? '/menu'
+              : `/login?next=${encodeURIComponent(
+                  `/account/orders/${validPublicOrderNumber}`,
+                )}`
+          }
         >
-          Sign in
+          {portfolioModeEnabled ? 'Back to Menu' : 'Sign in'}
         </Link>
       </DetailStateSurface>
     );

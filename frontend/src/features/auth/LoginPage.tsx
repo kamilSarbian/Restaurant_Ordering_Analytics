@@ -5,6 +5,7 @@ import BrandMark from '../../components/branding/BrandMark';
 import Button from '../../components/ui/Button';
 import Notice from '../../components/ui/Notice';
 import { isDemoSessionEntryEnabled } from '../../config/demoSession';
+import { isPortfolioModeEnabled } from '../../config/portfolioMode';
 import { useAuth, type AuthActionOutcome } from './AuthContext';
 import {
   isAdminContinuation,
@@ -84,6 +85,7 @@ export default function LoginPage() {
   const { login, logout, phase, retrySession, startDemoSession, user } = useAuth();
   const [searchParams] = useSearchParams();
   const demoSessionEntryEnabled = isDemoSessionEntryEnabled();
+  const portfolioModeEnabled = isPortfolioModeEnabled();
   const emailRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
   const submitButtonRef = useRef<HTMLButtonElement>(null);
@@ -304,9 +306,72 @@ export default function LoginPage() {
     demoRetrySeconds > 0
       ? `Try admin demo in ${demoRetrySeconds} seconds`
       : 'Try admin demo';
+  const demoSessionAccess = demoSessionEntryEnabled ? (
+    <div className={styles.demoAccess}>
+      {!portfolioModeEnabled ? (
+        <div className={styles.demoDivider} aria-hidden="true">
+          <span>or</span>
+        </div>
+      ) : null}
+      <p className={styles.demoGuidance}>
+        Explore the administrator workspace with shared synthetic data.
+      </p>
+      <Button
+        ref={demoButtonRef}
+        className={styles.demoButton}
+        type="button"
+        disabled={submitting || demoRetrySeconds > 0}
+        loading={demoSubmitting}
+        loadingLabel="Starting admin demo"
+        size="lg"
+        variant="secondary"
+        onClick={() => void handleDemoSession()}
+      >
+        {demoRetryLabel}
+      </Button>
+    </div>
+  ) : null;
   const next = searchParams.get('next');
   const registerDestination =
     next === null ? '/register' : `/register?next=${encodeURIComponent(next)}`;
+
+  if (portfolioModeEnabled) {
+    return (
+      <main className={styles.screen}>
+        <section className={styles.panel} aria-labelledby="portfolio-login-heading">
+          <AuthBrand />
+          <div className={styles.heading}>
+            <p className="eyebrow">Portfolio access</p>
+            <h1 id="portfolio-login-heading">
+              {demoSessionEntryEnabled
+                ? 'Explore the administrator demo'
+                : 'Account access is unavailable'}
+            </h1>
+          </div>
+          <p className={styles.intro}>
+            {demoSessionEntryEnabled
+              ? 'Start a temporary demo session without a password.'
+              : 'Password sign-in is not available in this portfolio experience.'}
+          </p>
+          {demoSessionAccess}
+          <Link className={styles.backLink} to="/menu">
+            ← Back to Menu
+          </Link>
+          <div className={styles.feedbackSlot}>
+            {feedback !== '' ? (
+              <Notice
+                className={styles.feedbackNotice}
+                role={feedback.startsWith('Starting') ? 'status' : 'alert'}
+                variant={feedback.startsWith('Starting') ? 'info' : 'danger'}
+              >
+                {feedback}
+              </Notice>
+            ) : null}
+          </div>
+        </section>
+      </main>
+    );
+  }
 
   return (
     <main className={styles.screen}>
@@ -390,29 +455,7 @@ export default function LoginPage() {
           >
             {retryLabel}
           </Button>
-          {demoSessionEntryEnabled ? (
-            <div className={styles.demoAccess}>
-              <div className={styles.demoDivider} aria-hidden="true">
-                <span>or</span>
-              </div>
-              <p className={styles.demoGuidance}>
-                Explore the administrator workspace with shared synthetic data.
-              </p>
-              <Button
-                ref={demoButtonRef}
-                className={styles.demoButton}
-                type="button"
-                disabled={submitting || demoRetrySeconds > 0}
-                loading={demoSubmitting}
-                loadingLabel="Starting admin demo"
-                size="lg"
-                variant="secondary"
-                onClick={() => void handleDemoSession()}
-              >
-                {demoRetryLabel}
-              </Button>
-            </div>
-          ) : null}
+          {demoSessionAccess}
           <p className={styles.authSwitch}>
             New here?{' '}
             <Link className={styles.inlineLink} to={registerDestination}>

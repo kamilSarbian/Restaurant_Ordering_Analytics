@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 
 import { isDemoSessionEntryEnabled } from '../config/demoSession';
+import { isPortfolioModeEnabled } from '../config/portfolioMode';
 import { useAuth } from '../features/auth/AuthContext';
 
 import BrandMark from './branding/BrandMark';
@@ -31,6 +32,7 @@ export default function AppShell() {
   const sessionRetryPendingRef = useRef(false);
   const canOpenAdmin = user?.role === 'admin' || user?.role === 'super_admin';
   const demoSessionEntryEnabled = isDemoSessionEntryEnabled();
+  const portfolioModeEnabled = isPortfolioModeEnabled();
   const sessionFeedbackPath =
     location.pathname.length > 1
       ? location.pathname.replace(/\/+$/u, '')
@@ -111,9 +113,11 @@ export default function AppShell() {
             <div className={styles.navigationGroup} data-navigation-group="account">
               {phase === 'unauthenticated' && (
                 <>
-                  <NavLink className={styles.navigationLink} to="/login">
-                    Log in
-                  </NavLink>
+                  {!portfolioModeEnabled ? (
+                    <NavLink className={styles.navigationLink} to="/login">
+                      Log in
+                    </NavLink>
+                  ) : null}
                   {demoSessionEntryEnabled ? (
                     <NavLink
                       className={styles.navigationLink}
@@ -122,9 +126,11 @@ export default function AppShell() {
                       Try admin demo
                     </NavLink>
                   ) : null}
-                  <NavLink className={styles.navigationLink} to="/register">
-                    Create account
-                  </NavLink>
+                  {!portfolioModeEnabled ? (
+                    <NavLink className={styles.navigationLink} to="/register">
+                      Create account
+                    </NavLink>
+                  ) : null}
                 </>
               )}
               {phase === 'authenticated' && user !== null && (

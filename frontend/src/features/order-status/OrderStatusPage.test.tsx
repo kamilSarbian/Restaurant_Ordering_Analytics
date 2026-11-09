@@ -84,6 +84,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   sessionStorage.clear();
   localStorage.clear();
   Reflect.deleteProperty(navigator, 'onLine');
@@ -197,26 +198,39 @@ describe('OrderStatusPage', () => {
     expect(loadOrderAccess(PUBLIC_ORDER_NUMBER)).toBe(TOKEN);
   });
 
-  it('invalidates an authenticated 401 without retrying as a guest', async () => {
-    storeAuthToken();
-    saveOrderAccess(PUBLIC_ORDER_NUMBER, TOKEN);
-    const stub = installFetchStub({ json: CURRENT_USER }, { status: 401 });
+  it.each([false, true])(
+    'invalidates an authenticated 401 without retrying as a guest when portfolio=%s',
+    async (portfolioMode) => {
+      vi.stubEnv('VITE_PORTFOLIO_MODE', portfolioMode ? 'true' : 'false');
+      storeAuthToken();
+      saveOrderAccess(PUBLIC_ORDER_NUMBER, TOKEN);
+      const stub = installFetchStub({ json: CURRENT_USER }, { status: 401 });
 
-    renderStatusPage();
+      renderStatusPage();
 
-    expect(
-      await screen.findByRole('heading', { name: 'Your session expired' }),
-    ).toBeVisible();
-    expect(
-      stub.calls.filter((call) => call.url.includes(PUBLIC_ORDER_NUMBER)),
-    ).toHaveLength(1);
-    expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toBeNull();
-    expect(loadOrderAccess(PUBLIC_ORDER_NUMBER)).toBe(TOKEN);
-    expect(screen.getByRole('link', { name: 'Sign in' })).toHaveAttribute(
-      'href',
-      `/login?next=${encodeURIComponent(`/orders/${PUBLIC_ORDER_NUMBER}/status`)}`,
-    );
-  });
+      expect(
+        await screen.findByRole('heading', { name: 'Your session expired' }),
+      ).toBeVisible();
+      expect(
+        stub.calls.filter((call) => call.url.includes(PUBLIC_ORDER_NUMBER)),
+      ).toHaveLength(1);
+      expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toBeNull();
+      expect(loadOrderAccess(PUBLIC_ORDER_NUMBER)).toBe(TOKEN);
+      if (portfolioMode) {
+        expect(screen.queryByRole('link', { name: 'Sign in' })).not.toBeInTheDocument();
+        expect(screen.getByRole('link', { name: 'Back to Menu' })).toHaveAttribute(
+          'href',
+          '/menu',
+        );
+        expect(document.body).not.toHaveTextContent('Sign in again');
+      } else {
+        expect(screen.getByRole('link', { name: 'Sign in' })).toHaveAttribute(
+          'href',
+          `/login?next=${encodeURIComponent(`/orders/${PUBLIC_ORDER_NUMBER}/status`)}`,
+        );
+      }
+    },
+  );
 
   it.each([
     ['created', 'Order received', 'neutral'],

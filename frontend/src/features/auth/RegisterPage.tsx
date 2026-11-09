@@ -4,6 +4,7 @@ import { Link, Navigate, useSearchParams } from 'react-router-dom';
 import BrandMark from '../../components/branding/BrandMark';
 import Button from '../../components/ui/Button';
 import Notice from '../../components/ui/Notice';
+import { isPortfolioModeEnabled } from '../../config/portfolioMode';
 import { useAuth, type AuthActionOutcome } from './AuthContext';
 import { resolveAuthDestination } from './authNavigation';
 import styles from './AuthPage.module.css';
@@ -57,6 +58,7 @@ function outcomeMessage(outcome: AuthActionOutcome): string {
 export default function RegisterPage() {
   const { logout, phase, register, retrySession, user } = useAuth();
   const [searchParams] = useSearchParams();
+  const portfolioModeEnabled = isPortfolioModeEnabled();
   const emailRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
   const confirmPasswordRef = useRef<HTMLInputElement>(null);
@@ -148,6 +150,26 @@ export default function RegisterPage() {
               Clear session
             </Button>
           </div>
+        </section>
+      </main>
+    );
+  }
+
+  if (portfolioModeEnabled) {
+    return (
+      <main className={styles.screen}>
+        <section className={styles.panel} aria-labelledby="portfolio-register-heading">
+          <AuthBrand />
+          <div className={styles.heading}>
+            <p className="eyebrow">Portfolio access</p>
+            <h1 id="portfolio-register-heading">Account creation is unavailable</h1>
+          </div>
+          <p className={styles.intro}>
+            Customer registration is not available in this portfolio experience.
+          </p>
+          <Link className={styles.backLink} to="/menu">
+            ← Back to Menu
+          </Link>
         </section>
       </main>
     );

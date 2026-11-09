@@ -95,19 +95,23 @@ reserved `admin` without provisioning or DML and issues the existing
 short-lived canonical `user_access` JWT. Other runtime pairs return a constant
 404 before limiter, database, or token work. The successful CI `Browser E2E`
 job is the general regression suite, not a dedicated browser scenario that
-starts this demo-session flow. The later visible-UX implementation is exposed
-only when the frontend receives the exact build flag
-`VITE_ENABLE_DEMO_SESSION=true`; the flag defaults to disabled, including in
-the normal public build. When explicitly enabled, public navigation exposes a
-`Try admin demo` link and LoginPage offers the matching credential-free action.
-The flag controls presentation only: the backend remains the authority, and
-the client waits for canonical `/api/v1/auth/me` validation before navigating
-to the administrator area. A visible `Portfolio demo · shared synthetic data`
+starts this demo-session flow. The frontend now separates its exact
+`VITE_PORTFOLIO_MODE=true` presentation boundary from the exact
+`VITE_ENABLE_DEMO_SESSION=true` demo-entry flag. Normal non-portfolio builds
+preserve password login and customer registration. The portfolio build hides
+those public links and replaces direct `/login` and `/register` forms with a
+short explanation plus a Menu return. When the independent demo-entry flag is
+explicitly enabled, portfolio `/login` exposes only `Try admin demo`, without a
+password form. Both flags control presentation only: the backend remains the
+authority, and the client waits for canonical `/api/v1/auth/me` validation
+before navigating to the administrator area. A visible `Portfolio demo · shared synthetic data`
 badge is backed by a presentation-only current-tab `sessionStorage` marker;
-the marker grants no authorization. Current local frontend evidence comprises
-143 passing targeted tests across the final three targeted files and one full
-run with 1202 passing tests, plus passing typecheck, ESLint, Prettier, and
-production build checks. The earlier combined targeted result of 215 passing
+the marker grants no authorization. The current uncommitted portfolio-mode
+candidate passed 253 targeted frontend tests, one full frontend run with 1237
+tests, typecheck, ESLint with zero errors, Prettier, production build, and 104
+Free Tier contract tests. Earlier visible-UX local evidence comprises 143
+passing targeted tests across the final three targeted files and one full run
+with 1202 passing tests. The earlier combined targeted result of 215 passing
 tests predates two later tests and remains separate; the final targeted
 current-byte check passed 1 of 1. Backend harness evidence is 71 passing tests
 with its quality checks passing.
@@ -157,8 +161,11 @@ HTTP 200 for health and readiness and exact 404, without a token or cookie, for
 the bodyless demo-session POST.
 
 Current source and operator-confirmed provider state keep
-`DEMO_SESSION_ISSUANCE_ENABLED=false` and `VITE_ENABLE_DEMO_SESSION=false`. No
-new demo JWT is issued, and the public `Try admin demo` entry remains hidden. A
+`DEMO_SESSION_ISSUANCE_ENABLED=false` and `VITE_ENABLE_DEMO_SESSION=false`. The
+Blueprint now explicitly identifies the frontend as portfolio presentation
+with `VITE_PORTFOLIO_MODE=true`; this does not enable demo-session issuance or
+its entry point. No new demo JWT is issued, and the public `Try admin demo`
+entry remains hidden. A
 JWT issued during the canary could remain usable until its configured 30-minute
 TTL expired. Full visible-flow public Browser E2E acceptance remains separately
 open.
@@ -178,8 +185,9 @@ must be independently reverified before another write.
 The committed staged-activation boundary adds a second backend gate,
 `DEMO_SESSION_ISSUANCE_ENABLED`, parsed as an exact boolean and defaulting to
 `false`. The Blueprint pins both that backend gate and the frontend
-`VITE_ENABLE_DEMO_SESSION` build flag to `false`, so an initial release cannot
-publish either issuance or its visible entry point implicitly. A separate
+`VITE_ENABLE_DEMO_SESSION` build flag to `false`, while independently pinning
+`VITE_PORTFOLIO_MODE=true`; an initial release therefore cannot publish either
+issuance or its visible entry point implicitly. A separate
 hidden-input operator command verifies the exact release, pooled `roa_runtime`
 target, database and role contract, schema 0009, canonical portfolio plan, and
 reserved account before provisioning. Its `verify-state` action is read-only;

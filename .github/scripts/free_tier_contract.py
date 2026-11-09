@@ -345,6 +345,7 @@ def _validate_frontend_service(
     if set(entries) != {
         "VITE_API_BASE_URL",
         "VITE_API_TIMEOUT_MS",
+        "VITE_PORTFOLIO_MODE",
         "VITE_ENABLE_DEMO_SESSION",
     }:
         raise FreeTierContractError
@@ -354,6 +355,11 @@ def _validate_frontend_service(
     if entries["VITE_API_TIMEOUT_MS"] != {
         "key": "VITE_API_TIMEOUT_MS",
         "value": "90000",
+    }:
+        raise FreeTierContractError
+    if entries["VITE_PORTFOLIO_MODE"] != {
+        "key": "VITE_PORTFOLIO_MODE",
+        "value": "true",
     }:
         raise FreeTierContractError
     if entries["VITE_ENABLE_DEMO_SESSION"] != {
