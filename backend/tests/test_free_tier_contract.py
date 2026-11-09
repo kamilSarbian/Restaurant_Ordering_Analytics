@@ -244,9 +244,9 @@ def test_blueprint_rejects_project_environment_boundary_drift(
         "missing_frontend_portfolio_mode",
         "disabled_frontend_portfolio_mode",
         "missing_backend_issuance_flag",
-        "enabled_backend_issuance_flag",
+        "disabled_backend_issuance_flag",
         "missing_frontend_demo_flag",
-        "enabled_frontend_demo_flag",
+        "disabled_frontend_demo_flag",
         "e2e_mode",
         "stripe_variable",
         "plaintext_database",
@@ -313,14 +313,14 @@ def test_blueprint_rejects_frontend_wiring_secret_and_header_drift(
         _list(backend["envVars"]).remove(
             backend_environment["DEMO_SESSION_ISSUANCE_ENABLED"]
         )
-    elif mutation == "enabled_backend_issuance_flag":
-        backend_environment["DEMO_SESSION_ISSUANCE_ENABLED"]["value"] = "true"
+    elif mutation == "disabled_backend_issuance_flag":
+        backend_environment["DEMO_SESSION_ISSUANCE_ENABLED"]["value"] = "false"
     elif mutation == "missing_frontend_demo_flag":
         _list(frontend["envVars"]).remove(
             frontend_environment["VITE_ENABLE_DEMO_SESSION"]
         )
-    elif mutation == "enabled_frontend_demo_flag":
-        frontend_environment["VITE_ENABLE_DEMO_SESSION"]["value"] = "true"
+    elif mutation == "disabled_frontend_demo_flag":
+        frontend_environment["VITE_ENABLE_DEMO_SESSION"]["value"] = "false"
     elif mutation == "e2e_mode":
         _list(frontend["envVars"]).append({"key": "VITE_BUILD_MODE", "value": "e2e"})
     elif mutation == "stripe_variable":
