@@ -2096,6 +2096,44 @@ while preserving these financial concurrency rules.
   flag and does not establish deployed behavior. Review, CI, and deployment
   require their own recorded evidence.
 
+## D-092 — Manual Fail-Closed Portfolio-Runtime Reset
+
+- **Status:** accepted on 2026-11-09 as a local, uncommitted operator candidate.
+  Local evidence comprises 38 operator tests, 17 focused reset integration
+  tests, and one 461-test isolated PostgreSQL regression across Orders, demo
+  Checkout, Admin Orders, the seed, Analytics, and CSV. It does not authorize
+  or evidence a Neon reset. Both public demo flags remain false.
+- **Operator boundary:** reset is the explicit `reset-runtime` action of the
+  existing hidden-input deployment operator. It requires its own exact
+  confirmation, a clean pinned release, the exact pooled `roa_runtime` target,
+  `roa_portfolio`, the approved role and `public`-schema contracts, exact
+  revision 0009, and the independently pinned canonical plan and seed. It is
+  not an HTTP endpoint, startup action, cron, automatic prune, or repair path.
+- **Concurrency:** the reset and runtime Order creation use the identical
+  PostgreSQL transaction advisory lock. The reset then locks runtime Orders in
+  stable order before locking Payments, preserving the `Order -> Payment`
+  protocol. Thus creation is linearized with reset across workers, while a new
+  Order may still be created normally after the reset transaction commits.
+- **Fail-closed inventory:** all runtime Orders must be ownerless and within the
+  100-Order capacity contract. Items and status history must form complete,
+  contiguous aggregates whose totals and final status agree with the Order.
+  Each related Payment must be one of at most three terminal canonical demo
+  attempts with matching amount/currency and no provider-session fields. Any
+  related StripeEvent, non-demo or pending Payment, ownership, inconsistent
+  aggregate, unexpected Order/Payment foreign key, schema/seed drift, or row
+  count mismatch aborts the whole transaction without repair.
+- **Deletion and verification:** after all reads pass, the only DML is scoped to
+  the locked runtime IDs and ordered `Payment -> OrderStatusHistory ->
+OrderItem -> Order`. Exact rowcounts, zero remaining runtime children, and a
+  second canonical-seed verification are required before commit. An already
+  empty reset performs zero DELETE. Canonical `portfolio_seed`, `live`, Users,
+  menu, categories, and tables are outside the write set.
+- **Operational boundary:** local owner-level PostgreSQL tests cannot establish
+  the current production grants for `roa_runtime`, provider state, exact
+  release, current data, or rollback readiness. A production invocation needs
+  a separate current review and explicit authorization; database failure or
+  missing DELETE privileges must remain an atomic, secret-free STOP.
+
 ## History of Decisions That Required Resolution
 
 ### O-002: Boundary Between Order Creation and Stripe Checkout Session

@@ -658,9 +658,14 @@ capacity receive a stable 503 and a fourth new Payment key receives a stable
 static gates, and isolated PostgreSQL acceptance are complete: one full
 nine-file database invocation passed 579 tests without retry, while the
 frontend passed 220 targeted tests and 1,211 tests in its full suite. Review,
-CI, and deployment remain separate gates. Both public demo flags remain false,
-and automatic reset/prune behavior remains future work alongside later B4, B5,
-and B6 gates.
+CI, and deployment remain separate gates. Both public demo flags remain false.
+A local, uncommitted, manual-only runtime reset candidate now uses the same
+capacity lock and exact deployment target/seed checks; automatic reset and
+prune behavior remain out of scope alongside later B4, B5, and B6 gates. Its
+local gates include 38 operator tests, 17 focused reset integration tests, and
+one 461-test isolated PostgreSQL regression across Orders, demo Checkout, Admin
+Orders, the seed, Analytics, and CSV. Independent review and any production
+authorization remain separate.
 
 ## Stage 21 Nordic Hearth UI/UX redesign and product polish
 
@@ -1483,7 +1488,8 @@ execution evidence without mutating the target.
 
 ## Portfolio deployment state and reserved demo-administrator operator
 
-The committed staged-activation boundary provides three explicit actions
+The committed staged-activation boundary and the local runtime-reset candidate
+provide four explicit actions
 from the `backend` directory. Every value shown below is a nonsecret pin that
 must come from separately verified evidence:
 
@@ -1505,6 +1511,13 @@ must come from separately verified evidence:
   --expected-endpoint-host '<exact-neon-pooler-host>' `
   --expected-release-sha '<exact-clean-40-hex-git-sha>' `
   --confirmation DEACTIVATE_NORDIC_HEARTH_DEMO_ADMIN
+
+& '.\.venv\Scripts\python.exe' -B -m app.portfolio_deployment reset-runtime `
+  --expected-endpoint-host '<exact-neon-pooler-host>' `
+  --portfolio-reference-end '<approved-aware-ISO-8601-midnight>' `
+  --expected-plan-sha256 '<approved-64-hex-plan-sha256>' `
+  --expected-release-sha '<exact-clean-40-hex-git-sha>' `
+  --confirmation RESET_NORDIC_HEARTH_PORTFOLIO_RUNTIME
 ```
 
 The pooled `roa_runtime` URL for `roa_portfolio` is entered only at the hidden
@@ -1513,7 +1526,16 @@ argument, file, shell history, or captured output. Run `verify-state` first,
 and do not provision after any plan, dataset, or identity mismatch.
 `deactivate` is not a repair path: use it only as the separately confirmed,
 account-scoped rollback after its exact target, release, role, schema, and
-reserved-identity checks pass. The database URL can bind the exact host,
+reserved-identity checks pass. `reset-runtime` is a separately confirmed,
+manual-only data operation. It verifies the exact canonical seed, obtains the
+same transaction advisory lock as runtime Order creation, rejects owned or
+inconsistent runtime aggregates, non-demo or nonterminal Payments, related
+Stripe events, and unknown Order/Payment foreign keys, then deletes only
+validated `portfolio_runtime` Payments, history, items, and Orders child-first
+in one transaction. It verifies both the empty runtime scope and canonical seed
+before commit. An empty rerun issues no DELETE. It never runs during startup,
+from an endpoint, or on a schedule, and these instructions do not authorize a
+production invocation. The database URL can bind the exact host,
 database, and login, but it cannot prove the provider display names for the
 Neon project and branch. The expected project
 `nordic-hearth-portfolio` and branch `production` therefore still require

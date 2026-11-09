@@ -39,6 +39,12 @@ from app.demo import (
     PortfolioSeedPlan,
     generate_portfolio_dataset,
 )
+from app.orders.runtime_reset import (
+    PortfolioRuntimeResetConflictError,
+    PortfolioRuntimeResetDatabaseError,
+    PortfolioRuntimeResetResult,
+    reset_portfolio_runtime_data,
+)
 from app.seed.portfolio import (
     PortfolioSeedConflictError,
     PortfolioSeedDatabaseError,
@@ -60,11 +66,17 @@ PORTFOLIO_OWNER_ROLE = "roa_owner"
 PORTFOLIO_RUNTIME_ROLE = PRODUCTION_RUNTIME_DATABASE_ROLE
 PROVISION_CONFIRMATION = "PROVISION_NORDIC_HEARTH_DEMO_ADMIN"
 DEACTIVATE_CONFIRMATION = "DEACTIVATE_NORDIC_HEARTH_DEMO_ADMIN"
+RESET_RUNTIME_CONFIRMATION = "RESET_NORDIC_HEARTH_PORTFOLIO_RUNTIME"
 PLAN_SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
 HOST_LABEL_PATTERN = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
-PortfolioAction = Literal["verify-state", "provision", "deactivate"]
+PortfolioAction = Literal[
+    "verify-state",
+    "provision",
+    "deactivate",
+    "reset-runtime",
+]
 
 
 class PortfolioDeploymentError(Exception):
@@ -122,6 +134,7 @@ class PortfolioDeploymentResult:
     action: PortfolioAction
     portfolio: PortfolioSeedResult | None
     demo_admin: DemoAdminResult
+    runtime_reset: PortfolioRuntimeResetResult | None = None
 
 
 def _run_portfolio_operation(
@@ -134,7 +147,7 @@ def _run_portfolio_operation(
     """Run one verified portfolio operation against an approved hidden URL.
 
     Args:
-        action: Read-only verification, exact provisioning, or deactivation.
+        action: Verification, account control, or guarded runtime-data reset.
         database_url: URL obtained by the CLI through a hidden interactive prompt.
         expected_endpoint_host: Independently copied exact Neon pooler hostname.
         plan: Independently pinned canonical plan, omitted only for deactivation.
@@ -242,12 +255,16 @@ def main(argv: Sequence[str] | None = None) -> int:
 def _build_parser() -> argparse.ArgumentParser:
     parser = _SecretFreeArgumentParser(
         description=(
-            "Verify portfolio deployment state or control the reserved demo "
-            "administrator without accepting a database URL on the command line."
+            "Verify portfolio deployment state, control the reserved demo "
+            "administrator, or reset validated portfolio-runtime rows without "
+            "accepting a database URL on the command line."
         ),
         allow_abbrev=False,
     )
-    parser.add_argument("action", choices=("verify-state", "provision", "deactivate"))
+    parser.add_argument(
+        "action",
+        choices=("verify-state", "provision", "deactivate", "reset-runtime"),
+    )
     parser.add_argument("--expected-endpoint-host", required=True)
     parser.add_argument("--portfolio-reference-end")
     parser.add_argument("--expected-plan-sha256")
@@ -261,13 +278,19 @@ def _require_confirmation(action: PortfolioAction, confirmation: str | None) -> 
         "verify-state": None,
         "provision": PROVISION_CONFIRMATION,
         "deactivate": DEACTIVATE_CONFIRMATION,
+        "reset-runtime": RESET_RUNTIME_CONFIRMATION,
     }[action]
     if confirmation != expected:
         raise PortfolioDeploymentConfigurationError()
 
 
 def _require_action(action: object) -> PortfolioAction:
-    if action not in ("verify-state", "provision", "deactivate"):
+    if action not in (
+        "verify-state",
+        "provision",
+        "deactivate",
+        "reset-runtime",
+    ):
         raise PortfolioDeploymentConfigurationError()
     return action  # type: ignore[return-value]
 
@@ -448,14 +471,22 @@ def _run_with_engine(
                 else:
                     assert plan is not None  # enforced by the action/plan guard
                     portfolio_result = verify_portfolio_data(factory, plan)
+                runtime_reset: PortfolioRuntimeResetResult | None = None
                 if action == "verify-state":
                     demo_result = inspect_demo_admin(factory)
                 elif action == "provision":
                     demo_result = provision_demo_admin(factory)
+                elif action == "reset-runtime":
+                    with factory() as reset_session:
+                        runtime_reset = reset_portfolio_runtime_data(reset_session)
+                    assert plan is not None
+                    portfolio_result = verify_portfolio_data(factory, plan)
+                    demo_result = inspect_demo_admin(factory)
                 result = PortfolioDeploymentResult(
                     action=action,
                     portfolio=portfolio_result,
                     demo_admin=demo_result,
+                    runtime_reset=runtime_reset,
                 )
     except PortfolioDeploymentError as exc:
         failure = exc
@@ -463,9 +494,18 @@ def _run_with_engine(
         failure = PortfolioDeploymentPlanError()
     except PortfolioSeedSchemaError:
         failure = PortfolioDeploymentStateError()
-    except (PortfolioSeedConflictError, DemoAdminConflictError):
+    except (
+        PortfolioSeedConflictError,
+        DemoAdminConflictError,
+        PortfolioRuntimeResetConflictError,
+    ):
         failure = PortfolioDeploymentStateError()
-    except (PortfolioSeedDatabaseError, DemoAdminDatabaseError, SQLAlchemyError):
+    except (
+        PortfolioSeedDatabaseError,
+        DemoAdminDatabaseError,
+        PortfolioRuntimeResetDatabaseError,
+        SQLAlchemyError,
+    ):
         failure = PortfolioDeploymentExecutionError()
 
     if failure is not None:
@@ -601,6 +641,22 @@ def _require_role_contract(connection: Connection) -> None:
 
 
 def _success_message(result: PortfolioDeploymentResult) -> str:
+    if result.runtime_reset is not None:
+        reset = result.runtime_reset
+        if reset.already_empty:
+            deleted = "runtime data already empty; 0 rows deleted"
+        else:
+            deleted = (
+                f"{reset.orders_deleted} runtime orders, "
+                f"{reset.order_items_deleted} items, "
+                f"{reset.status_history_deleted} history rows, and "
+                f"{reset.payments_deleted} payments deleted"
+            )
+        return (
+            f"Portfolio deployment {result.action} completed: {deleted}; "
+            f"canonical seed verified; demo administrator "
+            f"{result.demo_admin.status}."
+        )
     if result.portfolio is None:
         return (
             f"Portfolio deployment {result.action} completed: exact schema verified; "
@@ -633,6 +689,7 @@ __all__ = [
     "PORTFOLIO_OWNER_ROLE",
     "PORTFOLIO_RUNTIME_ROLE",
     "PROVISION_CONFIRMATION",
+    "RESET_RUNTIME_CONFIRMATION",
     "PortfolioDeploymentConfigurationError",
     "PortfolioDeploymentError",
     "PortfolioDeploymentExecutionError",

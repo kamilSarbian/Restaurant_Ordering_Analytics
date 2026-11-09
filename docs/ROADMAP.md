@@ -876,9 +876,14 @@ Admin Orders, Analytics, and CSV. The current local capacity candidate bounds
 that growth at 100 runtime Orders globally and three demo Payments per runtime
 Order while retaining exact same-key replay. Its local static, isolated
 PostgreSQL, and frontend acceptance evidence is recorded above; independent
-review, CI, and deployment remain separate gates, and no automatic prune or
-reset policy exists. D-060 payment neutrality and D-077 NOK-only Admin Menu
-remain unchanged.
+review, CI, and deployment remain separate gates. D-092 now defines a local,
+uncommitted manual reset candidate that uses the same capacity lock, validates
+the exact operator target and canonical seed, and deletes only fully validated
+runtime aggregates child-first. Its local evidence includes 38 operator tests,
+17 focused reset integration tests, and one 461-test isolated PostgreSQL
+regression. It is not automatic prune/reset behavior and has not been run
+against Neon. D-060 payment neutrality and D-077 NOK-only Admin Menu remain
+unchanged.
 
 ### 22-C — First Controlled Online Release
 
@@ -928,9 +933,10 @@ commit, push, and follow-up CI are complete; the documentation closeout is
 committed, and the false/false staged release plus reserved account were
 separately verified. The current Menu/account UX and CSP remediation must pass
 its gates and a false/false public recheck. Public flag activation, Stage 22-D
-acceptance, the capacity change's deployed and public acceptance, reset/prune
-policy, remaining B4 through B6, any further B3 scope, and advertising the
-public release require separate authorization.
+acceptance, the capacity change's deployed and public acceptance, production
+review and authorization of the manual reset, any automatic prune policy,
+remaining B4 through B6, any further B3 scope, and advertising the public
+release require separate authorization.
 Stage 23 remains not started.
 
 The repository and Alembic head are

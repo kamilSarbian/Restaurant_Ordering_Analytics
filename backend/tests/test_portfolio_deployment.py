@@ -18,6 +18,7 @@ from sqlalchemy.pool import NullPool
 
 from app import portfolio_deployment as operator
 from app.auth.demo_admin import DEMO_ADMIN_EMAIL, DEMO_ADMIN_ID, DemoAdminResult
+from app.orders.runtime_reset import PortfolioRuntimeResetResult
 from app.seed.portfolio import PortfolioSeedResult
 from app.seed.safety import TARGET_CHANGING_POSTGRES_ENVIRONMENT_VARIABLES
 
@@ -67,6 +68,11 @@ def _operation_result(
             id=DEMO_ADMIN_ID,
             email=DEMO_ADMIN_EMAIL,
             status=status,  # type: ignore[arg-type]
+        ),
+        runtime_reset=(
+            PortfolioRuntimeResetResult(2, 3, 4, 1)
+            if action == "reset-runtime"
+            else None
         ),
     )
 
@@ -268,6 +274,49 @@ def test_deactivate_cli_does_not_require_or_generate_dataset_plan(
     )
 
 
+def test_reset_runtime_cli_requires_exact_confirmation_and_plan(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Bind the destructive action to the release, plan, and hidden URL."""
+    _clear_postgres_environment(monkeypatch)
+    plan = object()
+    run = Mock(return_value=_operation_result("reset-runtime"))
+    generate = Mock(return_value=plan)
+    monkeypatch.setattr(operator, "_require_exact_checkout", Mock())
+    monkeypatch.setattr(operator, "_generate_expected_plan", generate)
+    monkeypatch.setattr(operator.getpass, "getpass", Mock(return_value=_url()))
+    monkeypatch.setattr(
+        operator,
+        "_parse_runtime_database_url",
+        Mock(return_value=_parsed_url()),
+    )
+    monkeypatch.setattr(operator, "_run_portfolio_operation", run)
+
+    assert (
+        operator.main(
+            _arguments(
+                "reset-runtime",
+                confirmation=operator.RESET_RUNTIME_CONFIRMATION,
+            )
+        )
+        == 0
+    )
+
+    output = capsys.readouterr()
+    assert output.err == ""
+    assert "2 runtime orders" in output.out
+    assert "canonical seed verified" in output.out
+    assert DATABASE_SECRET not in output.out
+    generate.assert_called_once_with(REFERENCE_END.isoformat(), PLAN_SHA256)
+    run.assert_called_once_with(
+        "reset-runtime",
+        database_url=_parsed_url(),
+        expected_endpoint_host=NEON_HOST,
+        plan=plan,
+    )
+
+
 def test_main_rejects_url_like_argument_without_echo_or_prompt(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -297,6 +346,9 @@ def test_main_rejects_url_like_argument_without_echo_or_prompt(
         ("provision", None, False),
         ("deactivate", operator.DEACTIVATE_CONFIRMATION, True),
         ("deactivate", operator.PROVISION_CONFIRMATION, False),
+        ("reset-runtime", operator.RESET_RUNTIME_CONFIRMATION, True),
+        ("reset-runtime", None, False),
+        ("reset-runtime", operator.PROVISION_CONFIRMATION, False),
     ],
 )
 def test_confirmation_is_exact_and_action_specific(

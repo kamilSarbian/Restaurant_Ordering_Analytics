@@ -1950,8 +1950,21 @@ demo` link and the matching LoginPage action, gated only by the exact frontend
   Orders/Analytics/CSV regressions. The frontend passed 220 targeted tests and
   1,211 tests in its full suite. Independent review, CI, and deployment remain
   separate gates. Both public demo flags remain false, and no automatic prune
-  or reset is implemented. Remaining authorization work, B5 recruiter UX, and
-  B6 integrated acceptance remain future work.
+  or reset is implemented. D-092 adds a local, uncommitted manual reset
+  candidate through the existing hidden-input deployment operator. It requires
+  a separate exact confirmation, target/role/search-path/revision/plan/seed
+  checks, the same transaction advisory lock as runtime Order creation, a
+  complete safe runtime inventory, child-first deletion, exact rowcount and
+  final empty-scope checks, and a second canonical-seed verification before
+  commit. Owner drift, unsafe Payments, related StripeEvent rows, inconsistent
+  aggregates, or an unexpected Order/Payment foreign key are atomic STOPs. An
+  empty rerun emits no DELETE. This path is not an endpoint, scheduler, startup
+  hook, repair, or automatic prune; it has not been run against Neon and both
+  public demo flags remain false. The current bytes passed 38 operator tests,
+  17 focused reset integration tests, and one 461-test isolated PostgreSQL
+  regression covering reset, Orders, demo Checkout, Admin Orders, the canonical
+  seed, Analytics, and CSV. Independent review, any production authorization,
+  B5 recruiter UX, and B6 integrated acceptance remain future work.
 - **Stage 22-A/C/D:** the operator-confirmed Render/Neon baseline has schema
   0009, the canonical seed, an active reserved account, and both services live
   at rollback commit `dadc63198295cf3a1f89c44b8a161e8330306bb9` with both

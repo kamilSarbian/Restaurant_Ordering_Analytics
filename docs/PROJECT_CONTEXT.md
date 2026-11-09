@@ -915,8 +915,16 @@ the fourth new key is rejected. The candidate returns a stable 503 for Order
 capacity and a stable 409 for Payment capacity, with no committed denial-path
 DML. `portfolio_seed`, `live`, and normal `false + stripe_test` behavior remain
 outside these limits. No automatic reset or prune operation is implemented.
-Local static gates and one complete nine-file isolated PostgreSQL invocation
-passed, with 579 tests and no retry; the frontend passed 220 targeted tests and
+D-092 adds a local, uncommitted manual-only reset candidate: the existing
+deployment operator revalidates the exact target and canonical seed, shares the
+Order-capacity transaction advisory lock, refuses owned or inconsistent runtime
+aggregates and unsafe Payment/StripeEvent/FK state, and deletes only validated
+runtime children and Orders in one transaction. It is not deployed and has not
+been invoked against Neon. Its local evidence includes 38 operator tests, 17
+focused reset integration tests, and one 461-test isolated PostgreSQL
+regression. The earlier capacity static gates and one complete nine-file
+isolated PostgreSQL invocation passed, with 579 tests and no retry; the
+frontend passed 220 targeted tests and
 1,211 tests in its full suite. Review, CI, and deployment remain separate
 gates. Both public demo flags remain false.
 

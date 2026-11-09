@@ -1724,6 +1724,21 @@ tests and 1,211 tests in its full suite. Independent review, CI, and deployment
 remain separate gates, both public demo flags remain false, and full
 visible-flow public Browser E2E acceptance remains open.
 
+The later manual reset candidate is an operator-only extension of this
+capacity boundary, not an automatic lifecycle. The existing hidden-input
+portfolio operator verifies the exact clean release, pooled `roa_runtime`
+target, `roa_portfolio`, role contract, public-only search path, revision 0009,
+canonical plan, and immutable seed. Inside the same outer transaction, reset
+acquires `PORTFOLIO_RUNTIME_ORDER_CAPACITY_LOCK_KEY`, locks runtime Orders before
+their Payments, and validates ownerless aggregates, contiguous item/history
+state, at most three terminal canonical demo Payments, no related StripeEvent,
+and the exact known reset-relevant incoming foreign-key graph for revision 0009. Only then may it delete
+Payments, status history, items, and Orders child-first. Exact row counts, zero
+remaining runtime rows, and a second canonical-seed verification are required
+before commit. A no-op rerun emits no DELETE. Seed and live rows are never reset,
+and no endpoint, startup hook, scheduler, repair, or automatic prune invokes
+this path.
+
 ### 5.31. Shared Demo Identity Customer-Order Isolation
 
 B4-3B5 centralizes the customer actor/runtime decision in a mandatory policy.
