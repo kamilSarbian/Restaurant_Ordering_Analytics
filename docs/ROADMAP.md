@@ -731,8 +731,17 @@ exact current-`main` checks.
   filters and the provider-neutral success-time source. No production reference
   end or Neon seed is selected.
 - Stable seed Orders use `portfolio_seed`; trusted demo runtime creates
-  `portfolio_runtime`; ordinary Stripe-test runtime creates `live`. A 250-order
-  portfolio-runtime cap remains only a future proposal.
+  `portfolio_runtime`; ordinary Stripe-test runtime creates `live`. A later
+  Stage 22 capacity change replaces the earlier 250-Order proposal with a
+  global maximum of 100 `portfolio_runtime` Orders and three demo Payments per
+  runtime Order. Order count plus insert share one PostgreSQL transaction
+  advisory lock, and exact same-key Payment replay remains permitted at the
+  Payment limit. Stable capacity responses are 503 for a new Order and 409 for
+  a fourth new Payment key, with no committed denial-path DML. Seed, live, and
+  normal `false + stripe_test` behavior remain unaffected. Local static gates,
+  one 579-test isolated PostgreSQL invocation, 220 targeted frontend tests, and
+  the 1,211-test full frontend suite passed. Review, CI, and deployment remain
+  separate gates, as do automatic reset and prune behavior.
 - **Deployment dataset command:** the separately guarded production-demo seed
   implementation is committed at `70df05f36bf4075bdb6ad212306bb0bdcb113dc4`.
   Its local isolated acceptance does not establish the current production
@@ -863,9 +872,13 @@ provider state. The bounded public HTTP canary and later rollback are complete,
 with both public flags again false. The canary proved issuance and canonical
 identity only; it did not exercise Order or Payment creation. Any later public
 journey can still add shared `portfolio_runtime` Orders and demo Payments to
-Admin Orders, Analytics, and CSV, and no automatic runtime cap, prune, or reset
-policy exists. D-060 payment neutrality and D-077 NOK-only Admin Menu remain
-unchanged.
+Admin Orders, Analytics, and CSV. The current local capacity candidate bounds
+that growth at 100 runtime Orders globally and three demo Payments per runtime
+Order while retaining exact same-key replay. Its local static, isolated
+PostgreSQL, and frontend acceptance evidence is recorded above; independent
+review, CI, and deployment remain separate gates, and no automatic prune or
+reset policy exists. D-060 payment neutrality and D-077 NOK-only Admin Menu
+remain unchanged.
 
 ### 22-C — First Controlled Online Release
 
@@ -915,9 +928,9 @@ commit, push, and follow-up CI are complete; the documentation closeout is
 committed, and the false/false staged release plus reserved account were
 separately verified. The current Menu/account UX and CSP remediation must pass
 its gates and a false/false public recheck. Public flag activation, Stage 22-D
-acceptance, reset/prune and runtime-cap policy, remaining B4 through B6, any
-further B3 scope, and advertising the public release require separate
-authorization.
+acceptance, the capacity change's deployed and public acceptance, reset/prune
+policy, remaining B4 through B6, any further B3 scope, and advertising the
+public release require separate authorization.
 Stage 23 remains not started.
 
 The repository and Alembic head are

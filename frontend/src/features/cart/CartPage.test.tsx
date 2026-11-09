@@ -976,6 +976,33 @@ describe('CartPage', () => {
     },
   );
 
+  it('treats an order-creation 503 as a safe definitive denial', async () => {
+    const stub = await renderReadyCart(
+      { json: quoteFor(1) },
+      { json: { detail: 'private capacity context' }, status: 503 },
+    );
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Place order and continue to payment',
+      }),
+    );
+    await flushAsyncWork();
+
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent(
+      'Order creation is unavailable. No order was created.',
+    );
+    expect(alert).not.toHaveTextContent('private capacity context');
+    expect(screen.getByTestId('current-path')).toHaveTextContent('/cart');
+    expect(loadOrderAccess(PUBLIC_ORDER_NUMBER)).toBeNull();
+    expect(sessionStorage.getItem(CART_STORAGE_KEY)).toContain(ITEM_ID);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+    expect(stub.calls).toHaveLength(4);
+  });
+
   it('focuses the dine-in table after a 422 order response', async () => {
     const stub = await renderReadyCart(
       { json: quoteFor(1) },

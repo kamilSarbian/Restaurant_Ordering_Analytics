@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Generator
+from collections.abc import Generator, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier, Event, current_thread
 from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import delete, event, select, text, update
+from sqlalchemy import delete, event, func, select, text, update
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session, sessionmaker
@@ -23,9 +23,15 @@ from app.core.rate_limit import FixedWindowRateLimiter
 from app.database.session import create_session_factory
 from app.main import create_app
 from app.menu.models import MenuItem
-from app.orders.access import hash_order_access_token
-from app.orders.creation import create_order
+from app.orders.access import generate_public_order_number, hash_order_access_token
+from app.orders.creation import (
+    MAX_PORTFOLIO_RUNTIME_ORDERS,
+    PORTFOLIO_RUNTIME_ORDER_CAPACITY_LOCK_KEY,
+    PortfolioRuntimeOrderCapacityReachedError,
+    create_order,
+)
 from app.orders.models import Order, OrderItem, OrderStatusHistory
+from app.orders.origins import OrderDataOrigin
 from app.orders.schemas import OrderCreateRequest
 from app.restaurant_tables.models import RestaurantTable
 
@@ -112,6 +118,32 @@ def _store_user(session_factory: sessionmaker[Session]) -> UUID:
         session.add(user)
         session.flush()
         return user.id
+
+
+def _store_runtime_orders(
+    session_factory: sessionmaker[Session],
+    *,
+    count: int,
+) -> None:
+    with session_factory.begin() as session:
+        session.add_all(
+            [
+                Order(
+                    public_order_number=generate_public_order_number(),
+                    order_access_token_hash=uuid4().hex + uuid4().hex,
+                    customer_user_id=None,
+                    order_type="takeaway",
+                    table_id=None,
+                    table_number_snapshot=None,
+                    status="created",
+                    data_origin=OrderDataOrigin.PORTFOLIO_RUNTIME.value,
+                    currency="NOK",
+                    subtotal_amount=100,
+                    total_amount=100,
+                )
+                for _ in range(count)
+            ]
+        )
 
 
 def _application(
@@ -256,6 +288,133 @@ def test_two_creations_share_read_locks_without_global_serialization(
     assert len(set(numbers)) == 2
     with concurrency_session_factory() as session:
         assert len(session.scalars(select(Order)).all()) == 2
+
+
+def test_runtime_capacity_lock_serializes_two_creations_at_99(
+    test_database_engine: Engine,
+    concurrency_session_factory: sessionmaker[Session],
+    source_records: tuple[UUID, UUID],
+) -> None:
+    """Allow only one concurrent runtime creation when one slot remains."""
+    item_id, _ = source_records
+    _store_runtime_orders(
+        concurrency_session_factory,
+        count=MAX_PORTFOLIO_RUNTIME_ORDERS - 1,
+    )
+    first_locked = Event()
+    second_attempted = Event()
+    release_first = Event()
+    first_statements: list[tuple[str, object]] = []
+    second_statements: list[str] = []
+    connection_ids: dict[str, list[int]] = {"first": [], "second": []}
+
+    def is_capacity_lock(statement: str) -> bool:
+        return "pg_advisory_xact_lock" in statement.lower()
+
+    def before(
+        connection: object,
+        _cursor: object,
+        statement: str,
+        parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        thread_name = current_thread().name
+        if not thread_name.startswith("runtime-capacity"):
+            return
+        role = "first" if thread_name.endswith("_0") else "second"
+        connection_ids[role].append(id(connection))
+        if role == "first":
+            first_statements.append((statement, parameters))
+        else:
+            second_statements.append(statement)
+        if is_capacity_lock(statement):
+            assert parameters == {"lock_key": PORTFOLIO_RUNTIME_ORDER_CAPACITY_LOCK_KEY}
+            if role == "second":
+                second_attempted.set()
+
+    def after(
+        _connection: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        if current_thread().name.endswith("_0") and is_capacity_lock(statement):
+            first_locked.set()
+            if not release_first.wait(timeout=10):
+                raise RuntimeError("Timed out waiting to release runtime capacity lock")
+
+    def create_runtime_order() -> object:
+        with concurrency_session_factory() as session:
+            return create_order(
+                session,
+                _request(item_id),
+                data_origin=OrderDataOrigin.PORTFOLIO_RUNTIME,
+            )
+
+    event.listen(test_database_engine, "before_cursor_execute", before)
+    event.listen(test_database_engine, "after_cursor_execute", after)
+    try:
+        with ThreadPoolExecutor(
+            max_workers=2,
+            thread_name_prefix="runtime-capacity",
+        ) as executor:
+            first = executor.submit(create_runtime_order)
+            assert first_locked.wait(timeout=10)
+            second = executor.submit(create_runtime_order)
+            assert second_attempted.wait(timeout=10)
+            assert not second.done()
+            release_first.set()
+            accepted = first.result(timeout=10)
+            with pytest.raises(PortfolioRuntimeOrderCapacityReachedError):
+                second.result(timeout=10)
+    finally:
+        release_first.set()
+        event.remove(test_database_engine, "after_cursor_execute", after)
+        event.remove(test_database_engine, "before_cursor_execute", before)
+
+    assert accepted.public_order_number
+    assert len(set(connection_ids["first"])) == 1
+    assert len(set(connection_ids["second"])) == 1
+    normalized_first = [
+        " ".join(statement.lower().split()) for statement, _ in first_statements
+    ]
+    assert "pg_advisory_xact_lock" in normalized_first[0]
+    count_indexes = [
+        index
+        for index, statement in enumerate(normalized_first)
+        if statement.startswith("select count(orders.id)")
+    ]
+    insert_indexes = [
+        index
+        for index, statement in enumerate(normalized_first)
+        if statement.startswith("insert into orders")
+    ]
+    assert len(count_indexes) == len(insert_indexes) == 1
+    assert count_indexes[0] < insert_indexes[0]
+    count_statement, count_parameters = first_statements[count_indexes[0]]
+    assert "orders.data_origin" in count_statement.lower()
+    assert isinstance(count_parameters, Mapping)
+    assert OrderDataOrigin.PORTFOLIO_RUNTIME.value in count_parameters.values()
+    assert not any(
+        " ".join(statement.upper().split()).startswith(
+            ("INSERT ", "UPDATE ", "DELETE ", "TRUNCATE ", "MERGE ")
+        )
+        for statement in second_statements
+    )
+    with concurrency_session_factory() as session:
+        runtime_count = session.scalar(
+            select(func.count(Order.id)).where(
+                Order.data_origin == OrderDataOrigin.PORTFOLIO_RUNTIME.value
+            )
+        )
+        item_count = session.scalar(select(func.count(OrderItem.id)))
+        history_count = session.scalar(select(func.count(OrderStatusHistory.id)))
+    assert runtime_count == MAX_PORTFOLIO_RUNTIME_ORDERS
+    assert item_count == 1
+    assert history_count == 1
 
 
 def test_table_update_waits_for_dine_in_creation_shared_lock(

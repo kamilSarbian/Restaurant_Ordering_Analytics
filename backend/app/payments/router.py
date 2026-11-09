@@ -38,7 +38,11 @@ DatabaseSession = Annotated[Session, Depends(get_db_session)]
         401: {"description": "Invalid canonical authentication credentials"},
         403: {"description": "Order access is not allowed"},
         404: {"description": "Order not found"},
-        409: {"description": "Order or payment state conflict"},
+        409: {
+            "description": (
+                "Order or payment state conflict, or demo payment attempt limit reached"
+            )
+        },
         422: {"description": "Invalid Idempotency-Key"},
         429: {"description": "Checkout rate limit exceeded"},
         502: {"description": "Payment provider unavailable"},
@@ -136,6 +140,11 @@ def create_checkout_session_endpoint(
         raise _http_error(
             status.HTTP_409_CONFLICT,
             "Payment attempt expired",
+        ) from error
+    except demo_checkout.DemoPaymentAttemptLimitReachedError as error:
+        raise _http_error(
+            status.HTTP_409_CONFLICT,
+            "Demo payment attempt limit reached",
         ) from error
     except checkout.PaymentProviderUnavailableError as error:
         raise _http_error(

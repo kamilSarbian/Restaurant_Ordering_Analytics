@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select, text
 from sqlalchemy.engine import RowMapping
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -28,6 +28,8 @@ KNOWN_CREATION_COLLISION_CONSTRAINTS = {
     "uq_orders_public_order_number",
     "uq_orders_order_access_token_hash",
 }
+MAX_PORTFOLIO_RUNTIME_ORDERS = 100
+PORTFOLIO_RUNTIME_ORDER_CAPACITY_LOCK_KEY = 5_931_030_897_180_823_378
 
 
 class InvalidTableError(Exception):
@@ -48,6 +50,10 @@ class MixedCurrencyError(Exception):
 
 class OrderCreationConflictError(Exception):
     """Indicate a known collision in generated public access data."""
+
+
+class PortfolioRuntimeOrderCapacityReachedError(Exception):
+    """Indicate that the durable portfolio-runtime Order cap is full."""
 
 
 @dataclass(frozen=True)
@@ -160,6 +166,21 @@ def _is_known_creation_collision(error: IntegrityError) -> bool:
     return constraint_name in KNOWN_CREATION_COLLISION_CONSTRAINTS
 
 
+def _require_portfolio_runtime_order_capacity(session: Session) -> None:
+    """Serialize and enforce the database-wide portfolio-runtime Order cap."""
+    session.execute(
+        text("SELECT pg_advisory_xact_lock(:lock_key)"),
+        {"lock_key": PORTFOLIO_RUNTIME_ORDER_CAPACITY_LOCK_KEY},
+    )
+    order_count = session.scalar(
+        select(func.count(Order.id)).where(
+            Order.data_origin == OrderDataOrigin.PORTFOLIO_RUNTIME.value
+        )
+    )
+    if order_count is None or order_count >= MAX_PORTFOLIO_RUNTIME_ORDERS:
+        raise PortfolioRuntimeOrderCapacityReachedError
+
+
 def create_order(
     session: Session,
     request: OrderCreateRequest,
@@ -183,12 +204,15 @@ def create_order(
         MenuItemNotFoundError: If an item or its category is missing or inactive.
         MenuItemUnavailableError: If a requested item is unavailable.
         MixedCurrencyError: If valid requested items use multiple currencies.
+        PortfolioRuntimeOrderCapacityReachedError: If the durable demo cap is full.
         OrderCreationConflictError: If generated public access data collides.
         IntegrityError: If any other database integrity constraint fails.
     """
     response_data: dict[str, Any] | None = None
     try:
         with session.begin():
+            if data_origin == OrderDataOrigin.PORTFOLIO_RUNTIME:
+                _require_portfolio_runtime_order_capacity(session)
             table_id, table_number_snapshot = _load_table(session, request)
             requested_ids = [item.menu_item_id for item in request.items]
             rows_by_id = _load_menu_rows(session, requested_ids)

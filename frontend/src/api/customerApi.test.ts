@@ -646,6 +646,72 @@ describe('createCheckoutSession', () => {
     },
   );
 
+  it('classifies only the exact demo payment-attempt limit response', async () => {
+    installFetchStub({
+      json: { detail: 'Demo payment attempt limit reached' },
+      status: 409,
+    });
+
+    const error = await createCheckoutSession(
+      VALID_ORDER.public_order_number,
+      guestCheckoutOptions(),
+    ).catch((reason: unknown) => reason);
+
+    expect(error).toBeInstanceOf(CheckoutRequestError);
+    expect(error).toMatchObject({
+      kind: 'http',
+      reason: 'demo-payment-attempt-limit',
+      status: 409,
+    });
+    expect(String(error)).not.toContain('Demo payment attempt limit reached');
+  });
+
+  it.each([
+    ['different detail', { detail: 'private payment context' }],
+    [
+      'extra field',
+      {
+        detail: 'Demo payment attempt limit reached',
+        internal_context: 'private payment context',
+      },
+    ],
+  ])('does not classify a 409 with %s', async (_case, body) => {
+    installFetchStub({ json: body, status: 409 });
+
+    const error = await createCheckoutSession(
+      VALID_ORDER.public_order_number,
+      guestCheckoutOptions(),
+    ).catch((reason: unknown) => reason);
+
+    expect(error).toBeInstanceOf(CheckoutRequestError);
+    expect(error).toMatchObject({ kind: 'http', reason: null, status: 409 });
+    expect(String(error)).not.toContain('private payment context');
+  });
+
+  it.each([
+    [
+      'malformed JSON',
+      { body: '{"detail":', headers: { 'Content-Type': 'application/json' } },
+    ],
+    [
+      'non-JSON media type',
+      {
+        body: JSON.stringify({ detail: 'Demo payment attempt limit reached' }),
+        headers: { 'Content-Type': 'text/plain' },
+      },
+    ],
+  ])('does not classify a 409 with %s', async (_case, response) => {
+    installFetchStub({ ...response, status: 409 });
+
+    const error = await createCheckoutSession(
+      VALID_ORDER.public_order_number,
+      guestCheckoutOptions(),
+    ).catch((reason: unknown) => reason);
+
+    expect(error).toBeInstanceOf(CheckoutRequestError);
+    expect(error).toMatchObject({ kind: 'http', reason: null, status: 409 });
+  });
+
   it('exposes only a positive integer Retry-After value on a 429', async () => {
     installFetchStub({ headers: { 'Retry-After': '17' }, status: 429 });
 

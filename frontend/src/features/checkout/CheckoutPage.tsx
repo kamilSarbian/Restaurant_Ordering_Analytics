@@ -38,6 +38,7 @@ type CheckoutFeedback =
   | { kind: 'pending' }
   | { kind: 'retry'; message: string }
   | { kind: 'rate-limit'; retryAt: number | null }
+  | { kind: 'attempt-limit' }
   | { kind: 'definitive' }
   | {
       kind: 'terminal';
@@ -115,6 +116,12 @@ function mapCheckoutError(error: unknown): CheckoutFeedback {
     return uncertainCheckoutFeedback();
   }
   if (error.kind === 'http') {
+    if (
+      error instanceof CheckoutRequestError &&
+      error.reason === 'demo-payment-attempt-limit'
+    ) {
+      return { kind: 'attempt-limit' };
+    }
     if (error.status === 429) {
       const retryAfterSeconds =
         error instanceof CheckoutRequestError ? error.retryAfterSeconds : null;
@@ -479,6 +486,7 @@ function CheckoutPageForOrder({
   const rateLimitActive = retrySeconds > 0;
   const checkoutDisabled =
     feedback.kind === 'pending' ||
+    feedback.kind === 'attempt-limit' ||
     feedback.kind === 'definitive' ||
     feedback.kind === 'terminal' ||
     feedback.kind === 'redirect-failed' ||
@@ -633,7 +641,7 @@ function CheckoutPageForOrder({
           {terminalPaymentStatus === 'succeeded'
             ? 'Review the details saved with your order, then follow its current status.'
             : terminalPaymentStatus === 'failed' || terminalPaymentStatus === 'expired'
-              ? 'Review the details saved with your order, then start a new payment attempt when you are ready.'
+              ? 'Review the details saved with your order, then check whether another payment attempt is available.'
               : 'Review the details saved with your order, then continue to secure hosted payment in this tab.'}
         </p>
         <p className={styles.orderNumberLabel}>Public order number</p>
@@ -760,11 +768,11 @@ function CheckoutPageForOrder({
               ? 'The backend confirmed this payment. No payment redirect is needed.'
               : terminalPaymentStatus === 'failed' ||
                   terminalPaymentStatus === 'expired'
-                ? 'The backend confirmed that this attempt is terminal. A retry starts a separate payment attempt for the same order.'
+                ? 'The backend confirmed that this attempt is terminal. You may request another attempt; the server will confirm whether this order is still eligible.'
                 : 'We will open the hosted payment page in this tab. Your order is not paid until payment is confirmed.'}
           </p>
 
-          {feedback.kind !== 'terminal' && (
+          {feedback.kind !== 'terminal' && feedback.kind !== 'attempt-limit' && (
             <div className={styles.actions}>
               <Button
                 className={styles.primaryAction}
@@ -834,6 +842,19 @@ function CheckoutPageForOrder({
               </Notice>
             </div>
           )}
+          {feedback.kind === 'attempt-limit' && (
+            <div className={styles.focusTarget} ref={noticeRef} tabIndex={-1}>
+              <Notice
+                className={styles.inlineNotice}
+                role="alert"
+                title="Payment attempt limit reached"
+                variant="danger"
+              >
+                This demo order has reached its payment-attempt limit. No new payment
+                attempt was created.
+              </Notice>
+            </div>
+          )}
           {feedback.kind === 'definitive' && (
             <div className={styles.focusTarget} ref={noticeRef} tabIndex={-1}>
               <Notice
@@ -881,8 +902,8 @@ function CheckoutPageForOrder({
                 >
                   <p>
                     {feedback.paymentStatus === 'failed'
-                      ? 'This payment attempt failed. Your order remains available for another attempt.'
-                      : 'This payment attempt expired. Your order remains available for another attempt.'}
+                      ? 'This payment attempt failed. If this demo order is still eligible, you can request another attempt.'
+                      : 'This payment attempt expired. If this demo order is still eligible, you can request another attempt.'}
                   </p>
                   <Button
                     className={styles.inlineAction}
@@ -890,7 +911,7 @@ function CheckoutPageForOrder({
                     type="button"
                     variant="secondary"
                   >
-                    Start a new payment attempt
+                    Request another payment attempt
                   </Button>
                 </Notice>
               )}

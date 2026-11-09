@@ -1706,8 +1706,23 @@ aggregates, while the immutable B2 500-Order dataset remains unchanged. The
 bounded public canary proved only JWT issuance and canonical `/auth/me`; it did
 not establish Order or Payment behavior. The operator-confirmed rollback
 release has both public flags false, no new demo JWT is issued, and the visible
-entry remains hidden. There is still no automatic runtime cap, prune, or reset
-policy, and full visible-flow public Browser E2E acceptance remains open.
+entry remains hidden.
+
+A later local Stage 22 capacity candidate serializes the global
+`portfolio_runtime` Order count and insertion with the same PostgreSQL
+transaction advisory lock. At 100 existing runtime Orders, another creation
+returns the stable capacity 503 and commits no Order, item, or history DML.
+Each runtime Order also permits at most three demo Payment records. Existing
+idempotency-key replay is resolved before the new-attempt limit and remains
+available at capacity; a fourth new key returns the stable capacity 409 with no
+committed Payment DML. These limits do not apply to `portfolio_seed`, `live`,
+or normal `false + stripe_test`, and they do not alter the shared
+administrative Analytics or CSV origin scope. No automatic prune or reset is
+implemented. Local static gates and one complete nine-file isolated PostgreSQL
+invocation passed, with 579 tests and no retry; the frontend passed 220 targeted
+tests and 1,211 tests in its full suite. Independent review, CI, and deployment
+remain separate gates, both public demo flags remain false, and full
+visible-flow public Browser E2E acceptance remains open.
 
 ### 5.31. Shared Demo Identity Customer-Order Isolation
 

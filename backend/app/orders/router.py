@@ -41,7 +41,11 @@ DatabaseSession = Annotated[Session, Depends(get_db_session)]
         },
         422: {"description": "Invalid request or restaurant table"},
         429: {"description": "Order creation rate limit exceeded"},
-        503: {"description": "Authentication service unavailable"},
+        503: {
+            "description": (
+                "Authentication service unavailable or portfolio demo capacity reached"
+            )
+        },
     },
     openapi_extra={"security": [{}]},
 )
@@ -102,6 +106,11 @@ def create_order_endpoint(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Order creation conflict",
+        ) from error
+    except creation.PortfolioRuntimeOrderCapacityReachedError as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Portfolio demo order capacity reached",
         ) from error
 
     response.headers["Location"] = f"/api/v1/orders/{created_order.public_order_number}"

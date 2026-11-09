@@ -647,9 +647,20 @@ B2-1 and B2-2 implement a pure deterministic
 500-Order/60-completed-day portfolio plan and its atomic, local-only, explicit
 persistence path. B2-3 proves the persisted plan against all four analytics
 services and all three CSV services in an isolated test database. B3-2B does
-not modify that canonical B2 dataset. B4 constrained demo administration, B5
-recruiter UX, B6 integrated acceptance, production reference-end selection,
-Neon seeding, reset/prune behavior, and a runtime cap remain future work.
+not modify that canonical B2 dataset. A later local Stage 22 candidate bounds
+shared demo growth at 100 `portfolio_runtime` Orders globally and three demo
+Payments per runtime Order. Order capacity is serialized by a PostgreSQL
+transaction advisory lock around the count and insert; an existing Payment
+idempotency key remains replayable after the per-Order limit. New Orders over
+capacity receive a stable 503 and a fourth new Payment key receives a stable
+409, without committed denial-path DML. The boundary does not apply to
+`portfolio_seed`, `live`, or normal `false + stripe_test`. Its local tests,
+static gates, and isolated PostgreSQL acceptance are complete: one full
+nine-file database invocation passed 579 tests without retry, while the
+frontend passed 220 targeted tests and 1,211 tests in its full suite. Review,
+CI, and deployment remain separate gates. Both public demo flags remain false,
+and automatic reset/prune behavior remains future work alongside later B4, B5,
+and B6 gates.
 
 ## Stage 21 Nordic Hearth UI/UX redesign and product polish
 

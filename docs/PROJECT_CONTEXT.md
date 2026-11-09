@@ -905,6 +905,21 @@ alter B2's canonical 500 Orders. B4 constrained demo administration, B5
 recruiter UX, B6 integrated acceptance, any further B3 slice, and Stage 23
 remain future work.
 
+The statement above that B2-3 selected no runtime cap remains the historical
+boundary of that completed slice. A later Stage 22 capacity change adds a
+separate boundary: at most 100 `portfolio_runtime` Orders may
+exist globally, with count and insert serialized under one PostgreSQL
+transaction advisory lock, and each runtime Order may have at most three demo
+Payments. Exact same-key replay remains available after the Payment limit;
+the fourth new key is rejected. The candidate returns a stable 503 for Order
+capacity and a stable 409 for Payment capacity, with no committed denial-path
+DML. `portfolio_seed`, `live`, and normal `false + stripe_test` behavior remain
+outside these limits. No automatic reset or prune operation is implemented.
+Local static gates and one complete nine-file isolated PostgreSQL invocation
+passed, with 579 tests and no retry; the frontend passed 220 targeted tests and
+1,211 tests in its full suite. Review, CI, and deployment remain separate
+gates. Both public demo flags remain false.
+
 ## 5. MVP Scope
 
 The MVP includes:

@@ -36,8 +36,12 @@ from app.core.rate_limit import FixedWindowRateLimiter
 from app.database.session import create_session_factory
 from app.main import create_app
 from app.menu.models import MenuItem
-from app.orders.access import hash_order_access_token
-from app.orders.creation import MenuItemNotFoundError, create_order
+from app.orders.access import generate_public_order_number, hash_order_access_token
+from app.orders.creation import (
+    MAX_PORTFOLIO_RUNTIME_ORDERS,
+    MenuItemNotFoundError,
+    create_order,
+)
 from app.orders.models import Order, OrderItem, OrderStatusHistory
 from app.orders.origins import OrderDataOrigin
 from app.orders.schemas import OrderCreateRequest
@@ -269,6 +273,33 @@ def _aggregate_counts(session_factory: sessionmaker[Session]) -> tuple[int, int,
         )
 
 
+def _store_orders_for_origin(
+    session_factory: sessionmaker[Session],
+    *,
+    count: int,
+    data_origin: OrderDataOrigin,
+) -> None:
+    with session_factory.begin() as session:
+        session.add_all(
+            [
+                Order(
+                    public_order_number=generate_public_order_number(),
+                    order_access_token_hash=uuid4().hex + uuid4().hex,
+                    customer_user_id=None,
+                    order_type="takeaway",
+                    table_id=None,
+                    table_number_snapshot=None,
+                    status="created",
+                    data_origin=data_origin.value,
+                    currency="NOK",
+                    subtotal_amount=100,
+                    total_amount=100,
+                )
+                for _ in range(count)
+            ]
+        )
+
+
 def test_successful_takeaway_persists_exact_snapshot_and_status_access(
     client: TestClient,
     creation_session_factory: sessionmaker[Session],
@@ -398,6 +429,136 @@ def test_public_creation_derives_origin_from_bound_runtime_mode(
             )
             assert order.order_access_token_hash != body["order_access_token"]
     assert _aggregate_counts(creation_session_factory) == (2, 4, 2)
+
+
+def test_runtime_order_capacity_allows_100_and_rejects_101_without_dml(
+    test_database_engine: Engine,
+    creation_session_factory: sessionmaker[Session],
+    menu_records: MenuRecords,
+) -> None:
+    """Commit Order 100 and reject Order 101 without changing its aggregate."""
+    _store_orders_for_origin(
+        creation_session_factory,
+        count=MAX_PORTFOLIO_RUNTIME_ORDERS - 1,
+        data_origin=OrderDataOrigin.PORTFOLIO_RUNTIME,
+    )
+    application = _application(
+        creation_session_factory,
+        portfolio_demo_mode=True,
+        payment_provider=PaymentProvider.DEMO,
+    )
+
+    with TestClient(application) as test_client:
+        accepted = test_client.post(CREATE_PATH, json=_takeaway_payload(menu_records))
+        state_at_capacity = _aggregate_counts(creation_session_factory)
+        statements: list[str] = []
+
+        def capture_denied_statement(*args: object) -> None:
+            statements.append(str(args[2]))
+
+        event.listen(
+            test_database_engine,
+            "before_cursor_execute",
+            capture_denied_statement,
+        )
+        try:
+            rejected = test_client.post(
+                CREATE_PATH,
+                json=_takeaway_payload(menu_records),
+            )
+        finally:
+            event.remove(
+                test_database_engine,
+                "before_cursor_execute",
+                capture_denied_statement,
+            )
+
+    assert accepted.status_code == 201
+    assert rejected.status_code == 503
+    assert rejected.json() == {"detail": "Portfolio demo order capacity reached"}
+    assert "location" not in rejected.headers
+    assert state_at_capacity == (MAX_PORTFOLIO_RUNTIME_ORDERS, 2, 1)
+    assert _aggregate_counts(creation_session_factory) == state_at_capacity
+    assert not any(
+        " ".join(statement.upper().split()).startswith(
+            ("INSERT ", "UPDATE ", "DELETE ", "TRUNCATE ", "MERGE ")
+        )
+        for statement in statements
+    )
+
+
+def test_seed_and_live_orders_do_not_consume_runtime_capacity(
+    creation_session_factory: sessionmaker[Session],
+    menu_records: MenuRecords,
+) -> None:
+    """Count only portfolio-runtime Orders against the durable demo cap."""
+    _store_orders_for_origin(
+        creation_session_factory,
+        count=MAX_PORTFOLIO_RUNTIME_ORDERS,
+        data_origin=OrderDataOrigin.PORTFOLIO_SEED,
+    )
+    _store_orders_for_origin(
+        creation_session_factory,
+        count=MAX_PORTFOLIO_RUNTIME_ORDERS,
+        data_origin=OrderDataOrigin.LIVE,
+    )
+    application = _application(
+        creation_session_factory,
+        portfolio_demo_mode=True,
+        payment_provider=PaymentProvider.DEMO,
+    )
+
+    with TestClient(application) as test_client:
+        response = test_client.post(CREATE_PATH, json=_takeaway_payload(menu_records))
+
+    assert response.status_code == 201
+    with creation_session_factory() as session:
+        counts = {
+            origin: session.scalar(
+                select(func.count(Order.id)).where(Order.data_origin == origin.value)
+            )
+            for origin in OrderDataOrigin
+        }
+    assert counts == {
+        OrderDataOrigin.LIVE: MAX_PORTFOLIO_RUNTIME_ORDERS,
+        OrderDataOrigin.PORTFOLIO_SEED: MAX_PORTFOLIO_RUNTIME_ORDERS,
+        OrderDataOrigin.PORTFOLIO_RUNTIME: 1,
+    }
+
+
+def test_full_runtime_capacity_does_not_limit_normal_live_creation(
+    creation_session_factory: sessionmaker[Session],
+    menu_records: MenuRecords,
+) -> None:
+    """Keep exact false plus stripe-test live creation outside the demo cap."""
+    _store_orders_for_origin(
+        creation_session_factory,
+        count=MAX_PORTFOLIO_RUNTIME_ORDERS,
+        data_origin=OrderDataOrigin.PORTFOLIO_RUNTIME,
+    )
+    application = _application(
+        creation_session_factory,
+        portfolio_demo_mode=False,
+        payment_provider=PaymentProvider.STRIPE_TEST,
+    )
+
+    with TestClient(application) as test_client:
+        response = test_client.post(CREATE_PATH, json=_takeaway_payload(menu_records))
+
+    assert response.status_code == 201
+    with creation_session_factory() as session:
+        runtime_count = session.scalar(
+            select(func.count(Order.id)).where(
+                Order.data_origin == OrderDataOrigin.PORTFOLIO_RUNTIME.value
+            )
+        )
+        live_count = session.scalar(
+            select(func.count(Order.id)).where(
+                Order.data_origin == OrderDataOrigin.LIVE.value
+            )
+        )
+    assert runtime_count == MAX_PORTFOLIO_RUNTIME_ORDERS
+    assert live_count == 1
 
 
 def test_demo_guest_and_exact_demo_admin_create_unowned_runtime_orders(

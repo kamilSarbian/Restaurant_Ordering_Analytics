@@ -40,7 +40,11 @@ from app.orders.models import Order, OrderItem, OrderStatusHistory
 from app.orders.origins import OrderDataOrigin
 from app.orders.statuses import OrderStatus
 from app.payments import checkout
-from app.payments.demo_checkout import checkout_demo_order
+from app.payments.demo_checkout import (
+    DemoPaymentAttemptLimitReachedError,
+    build_demo_provider_idempotency_key,
+    checkout_demo_order,
+)
 from app.payments.models import Payment, StripeEvent
 from app.payments.providers import PaymentProvider
 from app.payments.statuses import PaymentStatus
@@ -51,6 +55,8 @@ NOW = datetime(2026, 9, 28, 12, tzinfo=UTC)
 SUCCESS_ID = UUID("00000000-0000-4000-8000-00000000000b")
 FAILED_ID = UUID("00000000-0000-4000-8000-000000000095")
 EXPIRED_ID = UUID("00000000-0000-4000-8000-000000000040")
+CAPACITY_FAILED_ID = UUID("00000000-0000-4000-8000-000000000108")
+CAPACITY_EXPIRED_ID = UUID("00000000-0000-4000-8000-00000000010f")
 WRITING_VERBS = frozenset({"INSERT", "UPDATE", "DELETE", "TRUNCATE", "MERGE"})
 SYNTHETIC_DB_MARKER = "synthetic-demo-db-password-marker"
 LOCK_WAIT_TIMEOUT_SECONDS = 5.0
@@ -133,6 +139,32 @@ def _store_runtime_order(
             )
         )
     return order_id, public_number, token
+
+
+def _store_terminal_demo_payment(
+    session_factory: sessionmaker[Session],
+    *,
+    order_id: UUID,
+    payment_id: UUID,
+    request_key: UUID,
+    status: PaymentStatus,
+) -> None:
+    with session_factory.begin() as session:
+        session.add(
+            Payment(
+                id=payment_id,
+                order_id=order_id,
+                status=status.value,
+                amount=53700,
+                currency="NOK",
+                request_idempotency_key=request_key,
+                provider=PaymentProvider.DEMO.value,
+                provider_idempotency_key=build_demo_provider_idempotency_key(
+                    payment_id
+                ),
+                succeeded_at=None,
+            )
+        )
 
 
 def _run_demo(
@@ -823,6 +855,89 @@ def test_different_key_after_concurrent_failure_creates_second_attempt(
     assert {(payment.id, payment.status) for payment in payments} == {
         (FAILED_ID, PaymentStatus.FAILED.value),
         (EXPIRED_ID, PaymentStatus.EXPIRED.value),
+    }
+
+
+def test_two_new_keys_at_two_payments_create_only_third_attempt(
+    demo_session_factory: sessionmaker[Session],
+    test_database_engine: Engine,
+) -> None:
+    """Serialize the last demo Payment slot and reject the fourth key."""
+    order_id, public_number, token = _store_runtime_order(demo_session_factory)
+    _store_terminal_demo_payment(
+        demo_session_factory,
+        order_id=order_id,
+        payment_id=FAILED_ID,
+        request_key=uuid4(),
+        status=PaymentStatus.FAILED,
+    )
+    _store_terminal_demo_payment(
+        demo_session_factory,
+        order_id=order_id,
+        payment_id=EXPIRED_ID,
+        request_key=uuid4(),
+        status=PaymentStatus.EXPIRED,
+    )
+    first_key = uuid4()
+    second_key = uuid4()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first, second, observations, cleanup = _submit_serialized_pair(
+            test_database_engine,
+            executor,
+            lambda pid_sink: _run_demo(
+                demo_session_factory,
+                public_number=public_number,
+                token=token,
+                request_key=first_key,
+                payment_id=CAPACITY_FAILED_ID,
+                backend_pid_sink=pid_sink,
+            ),
+            lambda pid_sink: _run_demo(
+                demo_session_factory,
+                public_number=public_number,
+                token=token,
+                request_key=second_key,
+                payment_id=CAPACITY_EXPIRED_ID,
+                backend_pid_sink=pid_sink,
+            ),
+            snapshot_provider=lambda: _related_state_snapshot(
+                test_database_engine,
+                order_id,
+            ),
+        )
+        try:
+            first_outcome = _typed_outcome(
+                first.result(timeout=WORKER_BARRIER_TIMEOUT_SECONDS)
+            )
+            with pytest.raises(DemoPaymentAttemptLimitReachedError):
+                second.result(timeout=WORKER_BARRIER_TIMEOUT_SECONDS)
+        finally:
+            cleanup()
+
+    assert first_outcome.created is True
+    assert first_outcome.response.payment_status is PaymentStatus.FAILED
+    _assert_server_wait_observed(observations)
+    assert not any(
+        _is_data_writing_statement(str(statement))
+        for statement in observations["second_statements"]
+    )
+    assert (
+        _related_state_snapshot(test_database_engine, order_id)
+        == observations["state_before_second"][0]
+    )
+    with demo_session_factory() as session:
+        payments = list(
+            session.scalars(
+                select(Payment)
+                .where(Payment.order_id == order_id)
+                .order_by(Payment.created_at, Payment.id)
+            ).all()
+        )
+    assert {(payment.id, payment.status) for payment in payments} == {
+        (FAILED_ID, PaymentStatus.FAILED.value),
+        (EXPIRED_ID, PaymentStatus.EXPIRED.value),
+        (CAPACITY_FAILED_ID, PaymentStatus.FAILED.value),
     }
 
 

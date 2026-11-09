@@ -144,6 +144,9 @@ function getDefinitiveOrderErrorMessage(error: ApiRequestError): string {
   if (error.kind === 'http' && error.status === 409) {
     return 'An item is unavailable or the order conflicts with current restaurant data. Review the menu and quote.';
   }
+  if (error.kind === 'http' && error.status === 503) {
+    return 'Order creation is unavailable. No order was created.';
+  }
   return 'The server rejected the order. Review the cart before trying again.';
 }
 

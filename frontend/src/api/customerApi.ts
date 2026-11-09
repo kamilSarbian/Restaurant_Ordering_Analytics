@@ -82,6 +82,7 @@ const CHECKOUT_RESPONSE_KEYS = [
 const CANONICAL_UUID_V4_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const AWARE_DATETIME_PATTERN = /(?:Z|[+-][0-9]{2}:[0-9]{2})$/;
+const DEMO_PAYMENT_ATTEMPT_LIMIT_DETAIL = 'Demo payment attempt limit reached';
 
 export interface CreateOrderOptions {
   accessToken?: string;
@@ -101,8 +102,11 @@ export interface OrderStatusOptions {
   signal?: AbortSignal;
 }
 
+export type CheckoutFailureReason = 'demo-payment-attempt-limit';
+
 /** Carry safe checkout transport metadata needed for explicit customer retry. */
 export class CheckoutRequestError extends ApiRequestError {
+  readonly reason: CheckoutFailureReason | null;
   readonly retryAfterSeconds: number | null;
 
   constructor(
@@ -110,12 +114,14 @@ export class CheckoutRequestError extends ApiRequestError {
     message: string,
     options: {
       cause?: unknown;
+      reason?: CheckoutFailureReason;
       retryAfterSeconds?: number;
       status?: number;
     } = {},
   ) {
     super(kind, message, options);
     this.name = 'CheckoutRequestError';
+    this.reason = options.reason ?? null;
     this.retryAfterSeconds = options.retryAfterSeconds ?? null;
   }
 }
@@ -168,6 +174,35 @@ function hasExactKeys(value: Record<string, unknown>, expectedKeys: string[]): b
     actualKeys.length === sortedExpectedKeys.length &&
     actualKeys.every((key, index) => key === sortedExpectedKeys[index])
   );
+}
+
+async function readCheckoutFailureReason(
+  response: Response,
+): Promise<CheckoutFailureReason | null> {
+  if (response.status !== 409) {
+    return null;
+  }
+  const mediaType = response.headers
+    .get('Content-Type')
+    ?.split(';', 1)[0]
+    ?.trim()
+    .toLowerCase();
+  if (mediaType !== 'application/json') {
+    return null;
+  }
+  try {
+    const payload: unknown = await response.json();
+    if (
+      isRecord(payload) &&
+      hasExactKeys(payload, ['detail']) &&
+      payload.detail === DEMO_PAYMENT_ATTEMPT_LIMIT_DETAIL
+    ) {
+      return 'demo-payment-attempt-limit';
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 function isNullableString(value: unknown): value is string | null {
@@ -714,10 +749,12 @@ export async function createCheckoutSession(
     );
     responseReceived = true;
     if (!response.ok) {
+      const reason = await readCheckoutFailureReason(response);
       throw new CheckoutRequestError(
         'http',
         'The checkout request was not successful.',
         {
+          reason: reason ?? undefined,
           retryAfterSeconds:
             response.status === 429
               ? parsePositiveRetryAfter(response.headers.get('Retry-After'))

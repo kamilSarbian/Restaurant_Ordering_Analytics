@@ -195,6 +195,29 @@ def _store_payment(
     return payment_id
 
 
+def _store_demo_payment_limit(
+    session_factory: sessionmaker[Session],
+    *,
+    order_id: UUID,
+) -> tuple[UUID, ...]:
+    request_keys = tuple(
+        uuid4() for _ in range(demo_checkout.MAX_DEMO_PAYMENTS_PER_ORDER)
+    )
+    statuses = (
+        PaymentStatus.FAILED,
+        PaymentStatus.EXPIRED,
+        PaymentStatus.FAILED,
+    )
+    for request_key, payment_status in zip(request_keys, statuses, strict=True):
+        _store_payment(
+            session_factory,
+            order_id=order_id,
+            request_key=request_key,
+            status=payment_status,
+        )
+    return request_keys
+
+
 def _application(
     session_factory: sessionmaker[Session],
     *,
@@ -609,6 +632,70 @@ def test_same_key_replay_after_order_acceptance_is_200_and_zero_dml(
     assert replay.json() == first.json()
     assert not any(_is_data_writing_statement(item) for item in statements)
     assert _checkout_state_snapshot(test_database_engine) == state_before_replay
+    assert stripe.requests == []
+
+
+def test_same_key_replay_remains_available_at_demo_payment_limit(
+    test_database_engine: Engine,
+    api_session_factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Replay an existing terminal key after all three durable slots are used."""
+    order_id, public_number, token = _store_order(api_session_factory)
+    request_keys = _store_demo_payment_limit(
+        api_session_factory,
+        order_id=order_id,
+    )
+    stripe = BombStripeClient()
+    _install_payment_ids(monkeypatch)
+    state_before = _checkout_state_snapshot(test_database_engine)
+
+    with TestClient(_application(api_session_factory, stripe_client=stripe)) as client:
+        replay, statements, _ = _post_with_statement_capture(
+            test_database_engine,
+            client,
+            public_number,
+            token,
+            request_keys[0],
+        )
+
+    assert replay.status_code == 200
+    assert replay.json() == {
+        "public_order_number": public_number,
+        "payment_status": PaymentStatus.FAILED.value,
+        "checkout_url": None,
+        "expires_at": None,
+    }
+    assert not any(_is_data_writing_statement(statement) for statement in statements)
+    assert _checkout_state_snapshot(test_database_engine) == state_before
+    assert stripe.requests == []
+
+
+def test_fourth_demo_payment_key_is_409_and_zero_dml(
+    test_database_engine: Engine,
+    api_session_factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reject a fourth distinct key without generating or persisting a Payment."""
+    order_id, public_number, token = _store_order(api_session_factory)
+    _store_demo_payment_limit(api_session_factory, order_id=order_id)
+    stripe = BombStripeClient()
+    _install_payment_ids(monkeypatch)
+    state_before = _checkout_state_snapshot(test_database_engine)
+
+    with TestClient(_application(api_session_factory, stripe_client=stripe)) as client:
+        rejected, statements, _ = _post_with_statement_capture(
+            test_database_engine,
+            client,
+            public_number,
+            token,
+            uuid4(),
+        )
+
+    assert rejected.status_code == 409
+    assert rejected.json() == {"detail": "Demo payment attempt limit reached"}
+    assert not any(_is_data_writing_statement(statement) for statement in statements)
+    assert _checkout_state_snapshot(test_database_engine) == state_before
     assert stripe.requests == []
 
 

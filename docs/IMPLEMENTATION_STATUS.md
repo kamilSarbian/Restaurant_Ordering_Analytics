@@ -1935,10 +1935,23 @@ demo` link and the matching LoginPage action, gated only by the exact frontend
 - **Stage 22-B0 demo design:** its B3 payment design is implemented through
   B3-2B, and bounded public demo-session issuance plus canonical identity were
   verified and rolled back. The canary did not exercise Order or Payment
-  creation. Shared `portfolio_runtime` Orders and demo Payments may grow Admin
-  Orders, Analytics, and CSV, with no automatic cap, prune, or reset policy.
-  Remaining authorization work, B5 recruiter UX, and B6 integrated acceptance
-  remain future work.
+  creation. D-091 now defines a local, uncommitted capacity candidate: one
+  PostgreSQL transaction advisory lock serializes the global
+  `portfolio_runtime` Order count and insert at a maximum of 100, while each
+  runtime Order permits at most three demo Payments. Exact existing-key replay
+  remains available at the Payment limit. New capacity denials use stable 503
+  for Orders and stable 409 for a fourth new Payment key, with no committed
+  denial-path DML. `portfolio_seed`, `live`, and normal
+  `false + stripe_test` remain unaffected; Admin Orders, Analytics, and CSV
+  retain their intentionally shared portfolio scope. Local static gates passed.
+  One complete nine-file isolated PostgreSQL invocation passed 579 tests
+  without retry, including the 99/100/101 boundary, concurrent creation at 99,
+  existing-key Payment replay at capacity, a fourth new-key denial, and
+  Orders/Analytics/CSV regressions. The frontend passed 220 targeted tests and
+  1,211 tests in its full suite. Independent review, CI, and deployment remain
+  separate gates. Both public demo flags remain false, and no automatic prune
+  or reset is implemented. Remaining authorization work, B5 recruiter UX, and
+  B6 integrated acceptance remain future work.
 - **Stage 22-A/C/D:** the operator-confirmed Render/Neon baseline has schema
   0009, the canonical seed, an active reserved account, and both services live
   at rollback commit `dadc63198295cf3a1f89c44b8a161e8330306bb9` with both

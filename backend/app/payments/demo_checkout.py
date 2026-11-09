@@ -33,8 +33,13 @@ DEMO_OUTCOME_DOMAIN = (
     + _NUL
 )
 DEMO_PROVIDER_IDEMPOTENCY_PREFIX = "demo-runtime:v1:"
+MAX_DEMO_PAYMENTS_PER_ORDER = 3
 _RECONCILIATION_MESSAGE = "Demo payment state requires reconciliation."
 LOGGER = logging.getLogger(__name__)
+
+
+class DemoPaymentAttemptLimitReachedError(Exception):
+    """Indicate that an Order exhausted its durable demo Payment attempts."""
 
 
 def demo_outcome_bucket(payment_id: UUID) -> int:
@@ -86,6 +91,7 @@ def checkout_demo_order(
         OrderNotFoundError: If the runtime-scoped capability does not grant access.
         checkout.OrderNotPayableError: If a new attempt is not permitted.
         checkout.OrderAlreadyPaidError: If a new key follows a success.
+        DemoPaymentAttemptLimitReachedError: If a new key follows three attempts.
         checkout.PaymentSessionReconciliationRequiredError: If persisted or
             persistence state is unsafe.
         checkout.PaymentServiceUnavailableError: If runtime isolation fails.
@@ -167,6 +173,8 @@ def _checkout_demo_order(
                 raise checkout.OrderAlreadyPaidError
             if order.status != OrderStatus.CREATED.value:
                 raise checkout.OrderNotPayableError
+            if len(payments) >= MAX_DEMO_PAYMENTS_PER_ORDER:
+                raise DemoPaymentAttemptLimitReachedError
             outcome = _create_terminal_attempt(
                 session,
                 order=order,

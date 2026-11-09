@@ -2056,6 +2056,46 @@ while preserving these financial concurrency rules.
   The canary JWT could remain usable until its configured 30-minute TTL expired.
   This was an HTTP canary, not public full-flow Browser E2E.
 
+## D-091 — Portfolio-Runtime Order and Demo-Payment Capacity Boundary
+
+- **Status:** accepted on 2026-11-09 as the capacity contract. Local static
+  gates, one complete nine-file isolated PostgreSQL invocation with 579 passed
+  tests and no retry, 220 targeted frontend tests, and the 1,211-test full
+  frontend suite passed. Independent review, CI, deployment, and public
+  visible-flow acceptance remain separate gates. Both public demo flags remain
+  false.
+- **Precedence:** this decision adds a bounded growth policy to D-082 and D-087.
+  Historical statements that B2-3 or B3-2B did not select a runtime cap remain
+  accurate for those completed slices; D-091 is the later decision.
+- **Order capacity:** the database may contain at most 100 Orders whose
+  server-owned `data_origin` is `portfolio_runtime`. In exact trusted
+  `true + demo`, Order creation acquires a fixed PostgreSQL transaction advisory
+  lock before counting those Orders and holds the same lock through the insert
+  transaction. Capacity denial returns one stable 503 and commits no Order,
+  OrderItem, or OrderStatusHistory DML. The database-wide lock, rather than a
+  process-local counter, is the concurrency authority across workers.
+- **Payment capacity and replay:** each `portfolio_runtime` Order may contain at
+  most three demo Payment records. The existing Order lock and idempotency
+  protocol first resolve an exact existing `Idempotency-Key`; that replay
+  remains available after the limit and performs zero DML. Only a fourth new
+  key is denied with one stable 409 and no committed Payment DML or provider
+  call.
+- **Isolation:** the Order and Payment limits apply only to exact trusted
+  `portfolio_runtime + demo`. They do not count or constrain `portfolio_seed`,
+  `live`, normal `false + stripe_test`, Stripe Checkout, or webhook behavior.
+  The immutable canonical 500-Order seed remains unchanged.
+- **Reporting boundary:** authorized portfolio administration continues to read
+  the intentionally shared `portfolio_seed + portfolio_runtime` workspace.
+  Runtime Orders and succeeded demo Payments can still affect Admin Orders,
+  Analytics, and CSV, but their persistent growth is bounded by this decision.
+- **Lifecycle boundary:** D-091 implements no automatic reset, prune, repair, or
+  operator deletion command. Any future reset must independently prove exact
+  runtime-only scope, related-record handling, live/seed preservation,
+  concurrency exclusion, operator authorization, rollback, and acceptance.
+- **Evidence boundary:** the local evidence above does not change either Render
+  flag and does not establish deployed behavior. Review, CI, and deployment
+  require their own recorded evidence.
+
 ## History of Decisions That Required Resolution
 
 ### O-002: Boundary Between Order Creation and Stripe Checkout Session

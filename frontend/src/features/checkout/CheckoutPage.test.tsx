@@ -806,7 +806,7 @@ describe('CheckoutPage', () => {
       `/orders/${PUBLIC_ORDER_NUMBER}/status`,
     );
     expect(
-      screen.queryByRole('button', { name: 'Start a new payment attempt' }),
+      screen.queryByRole('button', { name: 'Request another payment attempt' }),
     ).not.toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: 'Continue to secure payment' }),
@@ -821,11 +821,11 @@ describe('CheckoutPage', () => {
   it.each([
     [
       'failed',
-      'This payment attempt failed. Your order remains available for another attempt.',
+      'This payment attempt failed. If this demo order is still eligible, you can request another attempt.',
     ] as const,
     [
       'expired',
-      'This payment attempt expired. Your order remains available for another attempt.',
+      'This payment attempt expired. If this demo order is still eligible, you can request another attempt.',
     ] as const,
   ])(
     'allows an explicit new-key retry of the same order after terminal %s',
@@ -852,7 +852,7 @@ describe('CheckoutPage', () => {
       expect(loadOrderAccess(PUBLIC_ORDER_NUMBER)).toBe(ACCESS_TOKEN);
 
       await user.click(
-        screen.getByRole('button', { name: 'Start a new payment attempt' }),
+        screen.getByRole('button', { name: 'Request another payment attempt' }),
       );
 
       expect(window.crypto.randomUUID).toHaveBeenCalledTimes(1);
@@ -1231,6 +1231,39 @@ describe('CheckoutPage', () => {
     });
     expect(checkoutButton).toBeEnabled();
     await waitFor(() => expect(checkoutButton).toHaveFocus());
+  });
+
+  it('stops new attempts after the exact demo payment-attempt limit denial', async () => {
+    const user = userEvent.setup();
+    const stub = installFetchStub({
+      json: { detail: 'Demo payment attempt limit reached' },
+      status: 409,
+    });
+    saveOrderAccess(PUBLIC_ORDER_NUMBER, ACCESS_TOKEN);
+    seedAttempt();
+    renderCheckout();
+
+    await user.click(
+      screen.getByRole('button', { name: 'Continue to secure payment' }),
+    );
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Payment attempt limit reached');
+    expect(alert).toHaveTextContent(
+      'This demo order has reached its payment-attempt limit. No new payment attempt was created.',
+    );
+    await waitFor(() => expect(alert.parentElement).toHaveFocus());
+    expect(
+      screen.queryByRole('button', { name: 'Continue to secure payment' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Request another payment attempt' }),
+    ).not.toBeInTheDocument();
+    expect(loadCheckoutAttempt(PUBLIC_ORDER_NUMBER)?.idempotencyKey).toBe(FIRST_KEY);
+    expect(loadOrderAccess(PUBLIC_ORDER_NUMBER)).toBe(ACCESS_TOKEN);
+    expect(window.crypto.randomUUID).not.toHaveBeenCalled();
+    await act(async () => undefined);
+    expect(stub.calls).toHaveLength(1);
   });
 
   it.each([503, 404, 409, 422])(
