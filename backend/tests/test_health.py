@@ -12,6 +12,7 @@ from app.main import app, create_app
 
 PRODUCTION_HOST = "api.restaurant.example"
 PUBLIC_APP_ORIGIN = "https://app.restaurant.example"
+PUBLIC_APP_CUSTOM_ORIGIN = "https://nordic.restaurant.example"
 NEON_RUNTIME_HOST = "ep-roa-runtime-pooler.eu-central-1.aws.neon.tech"
 
 
@@ -34,6 +35,7 @@ def _production_settings() -> Settings:
         ),
         auth_jwt_secret="a" * 32,
         public_app_origin=PUBLIC_APP_ORIGIN,
+        public_app_custom_origin=PUBLIC_APP_CUSTOM_ORIGIN,
         public_api_origin=f"https://{PRODUCTION_HOST}",
         trusted_hosts=(PRODUCTION_HOST,),
         trusted_proxy_mode="direct",
@@ -205,7 +207,12 @@ def test_api_security_headers_cover_success_and_handled_error(path: str) -> None
     )
 
 
-def test_api_security_headers_cover_unhandled_production_error() -> None:
+@pytest.mark.parametrize(
+    "allowed_origin", [PUBLIC_APP_ORIGIN, PUBLIC_APP_CUSTOM_ORIGIN]
+)
+def test_api_security_headers_cover_unhandled_production_error(
+    allowed_origin: str,
+) -> None:
     """Keep the fail-safe 500 response generic and covered by all headers."""
     sensitive_marker = "sensitive-unhandled-error-marker"
     application, _ = _create_readiness_application(settings=_production_settings())
@@ -222,7 +229,7 @@ def test_api_security_headers_cover_unhandled_production_error() -> None:
     ) as client:
         response = client.get(
             "/synthetic-unhandled-error",
-            headers={"Origin": PUBLIC_APP_ORIGIN},
+            headers={"Origin": allowed_origin},
         )
         rejected = client.get(
             "/synthetic-unhandled-error",
@@ -243,23 +250,28 @@ def test_api_security_headers_cover_unhandled_production_error() -> None:
     assert response.headers["Strict-Transport-Security"] == (
         "max-age=31536000; includeSubDomains"
     )
-    assert response.headers["Access-Control-Allow-Origin"] == PUBLIC_APP_ORIGIN
+    assert response.headers["Access-Control-Allow-Origin"] == allowed_origin
     assert response.headers["Vary"] == "Origin"
     assert "Access-Control-Allow-Credentials" not in response.headers
     assert rejected.status_code == 500
     assert "Access-Control-Allow-Origin" not in rejected.headers
 
 
-def test_production_cors_allows_only_the_exact_frontend_origin() -> None:
-    """Allow the static frontend without reflecting unrelated public origins."""
+@pytest.mark.parametrize(
+    "allowed_origin", [PUBLIC_APP_ORIGIN, PUBLIC_APP_CUSTOM_ORIGIN]
+)
+def test_production_cors_allows_only_exact_frontend_origins(
+    allowed_origin: str,
+) -> None:
+    """Allow either exact frontend without reflecting unrelated origins."""
     application, _ = _create_readiness_application(settings=_production_settings())
 
     with TestClient(application, base_url=f"https://{PRODUCTION_HOST}") as client:
-        allowed = client.get("/health", headers={"Origin": PUBLIC_APP_ORIGIN})
+        allowed = client.get("/health", headers={"Origin": allowed_origin})
         rejected = client.get("/health", headers={"Origin": "https://attacker.example"})
         null_origin = client.get("/health", headers={"Origin": "null"})
 
-    assert allowed.headers["Access-Control-Allow-Origin"] == PUBLIC_APP_ORIGIN
+    assert allowed.headers["Access-Control-Allow-Origin"] == allowed_origin
     assert "Access-Control-Allow-Credentials" not in allowed.headers
     assert allowed.headers["Access-Control-Expose-Headers"] == (
         "Content-Disposition, Retry-After"
@@ -270,13 +282,17 @@ def test_production_cors_allows_only_the_exact_frontend_origin() -> None:
 
 
 @pytest.mark.parametrize("method", ["GET", "POST", "PATCH", "OPTIONS"])
+@pytest.mark.parametrize(
+    "allowed_origin", [PUBLIC_APP_ORIGIN, PUBLIC_APP_CUSTOM_ORIGIN]
+)
 def test_production_cors_preflight_accepts_exact_methods_and_required_headers(
     method: str,
+    allowed_origin: str,
 ) -> None:
     """Permit only the methods and request headers used by current transports."""
     application, _ = _create_readiness_application(settings=_production_settings())
     headers = {
-        "Origin": PUBLIC_APP_ORIGIN,
+        "Origin": allowed_origin,
         "Access-Control-Request-Method": method,
         "Access-Control-Request-Headers": (
             "authorization,content-type,idempotency-key,x-order-access-token"
@@ -287,7 +303,7 @@ def test_production_cors_preflight_accepts_exact_methods_and_required_headers(
         response = client.options("/api/v1/orders/quote", headers=headers)
 
     assert response.status_code == 200
-    assert response.headers["Access-Control-Allow-Origin"] == PUBLIC_APP_ORIGIN
+    assert response.headers["Access-Control-Allow-Origin"] == allowed_origin
     assert set(response.headers["Access-Control-Allow-Methods"].split(", ")) == {
         "GET",
         "POST",

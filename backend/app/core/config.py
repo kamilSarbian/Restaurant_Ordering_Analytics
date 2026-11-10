@@ -60,6 +60,7 @@ class Settings(BaseSettings):
         ),
     )
     public_app_origin: str | None = None
+    public_app_custom_origin: str | None = None
     public_api_origin: str | None = None
     trusted_hosts: tuple[str, ...] = ()
     render_runtime: RenderRuntime | None = Field(
@@ -129,7 +130,9 @@ class Settings(BaseSettings):
             )
         return auth_jwt_secret
 
-    @field_validator("public_app_origin", "public_api_origin")
+    @field_validator(
+        "public_app_origin", "public_app_custom_origin", "public_api_origin"
+    )
     @classmethod
     def validate_public_origin(cls, origin: str | None) -> str | None:
         """Require one credential-free HTTPS origin without URL suffixes."""
@@ -140,6 +143,15 @@ class Settings(BaseSettings):
         if parsed.path or "?" in origin or "#" in origin:
             raise ValueError("Public origin must be one exact HTTPS origin")
         return origin
+
+    @property
+    def public_app_origins(self) -> tuple[str, ...]:
+        """Return the exact frontend origins accepted by production CORS."""
+        return tuple(
+            origin
+            for origin in (self.public_app_origin, self.public_app_custom_origin)
+            if origin is not None
+        )
 
     @field_validator("trusted_hosts")
     @classmethod
@@ -195,6 +207,15 @@ class Settings(BaseSettings):
             raise ValueError(
                 "Demo-session issuance requires the portfolio demo runtime"
             )
+        if self.public_app_custom_origin is not None:
+            if self.public_app_origin is None:
+                raise ValueError("PUBLIC_APP_CUSTOM_ORIGIN requires PUBLIC_APP_ORIGIN")
+            if _parse_https_authority(
+                self.public_app_custom_origin
+            ) == _parse_https_authority(self.public_app_origin):
+                raise ValueError(
+                    "PUBLIC_APP_CUSTOM_ORIGIN must differ from PUBLIC_APP_ORIGIN"
+                )
 
         if self.app_environment != "production":
             return self

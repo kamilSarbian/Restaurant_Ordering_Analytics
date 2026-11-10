@@ -238,6 +238,9 @@ def test_blueprint_rejects_project_environment_boundary_drift(
         "missing_dynamic_api",
         "hardcoded_api",
         "missing_public_app",
+        "missing_custom_public_app",
+        "wrong_custom_public_app",
+        "wildcard_custom_public_app",
         "missing_public_api",
         "forbidden_release_sha_reference",
         "missing_timeout",
@@ -290,6 +293,16 @@ def test_blueprint_rejects_frontend_wiring_secret_and_header_drift(
         ] = "https://guessed.onrender.com"
     elif mutation == "missing_public_app":
         backend_environment["PUBLIC_APP_ORIGIN"].pop("fromService")
+    elif mutation == "missing_custom_public_app":
+        _list(backend["envVars"]).remove(
+            backend_environment["PUBLIC_APP_CUSTOM_ORIGIN"]
+        )
+    elif mutation == "wrong_custom_public_app":
+        backend_environment["PUBLIC_APP_CUSTOM_ORIGIN"][
+            "value"
+        ] = "https://attacker.example"
+    elif mutation == "wildcard_custom_public_app":
+        backend_environment["PUBLIC_APP_CUSTOM_ORIGIN"]["value"] = "*"
     elif mutation == "missing_public_api":
         backend_environment["PUBLIC_API_ORIGIN"].pop("fromService")
     elif mutation == "forbidden_release_sha_reference":

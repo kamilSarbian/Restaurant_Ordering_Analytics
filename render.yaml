@@ -49,6 +49,8 @@ projects:
                   type: web
                   name: roa-portfolio-frontend
                   envVarKey: RENDER_EXTERNAL_URL
+              - key: PUBLIC_APP_CUSTOM_ORIGIN
+                value: https://nordic.kamilsarbian.dev
               - key: PUBLIC_API_ORIGIN
                 fromService:
                   type: web

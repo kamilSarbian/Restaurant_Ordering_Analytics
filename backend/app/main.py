@@ -187,10 +187,9 @@ def create_app(
             """Return a generic 500 with the production security headers."""
             headers = dict(API_SECURITY_HEADERS)
             headers["Strict-Transport-Security"] = HSTS_HEADER_VALUE
-            if request.headers.get("origin") == resolved_settings.public_app_origin:
-                headers["Access-Control-Allow-Origin"] = (
-                    resolved_settings.public_app_origin
-                )
+            request_origin = request.headers.get("origin")
+            if request_origin in resolved_settings.public_app_origins:
+                headers["Access-Control-Allow-Origin"] = request_origin
                 headers["Vary"] = "Origin"
             return PlainTextResponse(
                 "Internal Server Error",
@@ -202,7 +201,7 @@ def create_app(
             Exception,
             production_server_error_handler,
         )
-        if resolved_settings.public_app_origin is None:
+        if not resolved_settings.public_app_origins:
             raise RuntimeError("Production public application origin is unavailable")
         application.add_middleware(
             CORSMiddleware,
@@ -215,7 +214,7 @@ def create_app(
                 "X-Order-Access-Token",
             ],
             allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
-            allow_origins=[resolved_settings.public_app_origin],
+            allow_origins=list(resolved_settings.public_app_origins),
             expose_headers=["Content-Disposition", "Retry-After"],
             max_age=600,
         )

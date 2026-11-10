@@ -611,8 +611,10 @@ authorization.
 
 AF1+B1-1 through AF1+B1-4 are complete and committed. The current
 repository target is a Render Static Site Free frontend calling a Render Docker
-Web Service Free backend directly over HTTPS with exact-origin CORS; backend
-runtime uses a Neon PostgreSQL Free pooled URL. The manual
+Web Service Free backend directly over HTTPS with exact-origin CORS. The
+deployment contract preserves the native Render frontend origin and permits
+one separately validated custom frontend origin; wildcard CORS remains
+forbidden. Backend runtime uses a Neon PostgreSQL Free pooled URL. The manual
 `migrate-neon.yml` workflow uses a separate direct Neon migration URL, exact
 required CI checks, and a final current-`main` SHA recheck before running the
 migrator. The named `production-neon` GitHub Environment and its migration

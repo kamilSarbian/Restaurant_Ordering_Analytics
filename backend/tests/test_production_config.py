@@ -9,6 +9,7 @@ from pydantic_settings import SettingsError
 from app.core.config import Settings
 
 PUBLIC_ORIGIN = "https://app.restaurant.example"
+PUBLIC_CUSTOM_ORIGIN = "https://nordic.restaurant.example"
 PUBLIC_API_ORIGIN = "https://api.restaurant.example"
 RENDER_EXTERNAL_HOSTNAME = "api.restaurant.example"
 NEON_RUNTIME_HOST = "ep-roa-runtime-pooler.eu-central-1.aws.neon.tech"
@@ -39,6 +40,7 @@ def _production_values() -> dict[str, object]:
         ),
         "auth_jwt_secret": JWT_SECRET_MARKER,
         "public_app_origin": PUBLIC_ORIGIN,
+        "public_app_custom_origin": PUBLIC_CUSTOM_ORIGIN,
         "public_api_origin": PUBLIC_API_ORIGIN,
         "trusted_hosts": ("api.restaurant.example",),
         "trusted_proxy_mode": "direct",
@@ -66,6 +68,7 @@ def test_complete_production_contract_is_accepted_and_normalized() -> None:
     assert settings.app_environment == "production"
     assert settings.app_debug is False
     assert settings.demo_session_issuance_enabled is False
+    assert settings.public_app_origins == (PUBLIC_ORIGIN, PUBLIC_CUSTOM_ORIGIN)
     assert settings.trusted_hosts == ("api.restaurant.example",)
     assert settings.trusted_proxy_mode == "direct"
     assert settings.stripe_expected_livemode is False
@@ -112,6 +115,7 @@ def test_complete_production_contract_loads_from_environment_strings(
         ),
         "AUTH_JWT_SECRET": "a" * 32,
         "PUBLIC_APP_ORIGIN": PUBLIC_ORIGIN,
+        "PUBLIC_APP_CUSTOM_ORIGIN": PUBLIC_CUSTOM_ORIGIN,
         "PUBLIC_API_ORIGIN": PUBLIC_API_ORIGIN,
         "TRUSTED_HOSTS": '["api.restaurant.example"]',
         "TRUSTED_PROXY_MODE": "direct",
@@ -127,6 +131,7 @@ def test_complete_production_contract_loads_from_environment_strings(
 
     assert settings.app_environment == "production"
     assert settings.demo_session_issuance_enabled is False
+    assert settings.public_app_origins == (PUBLIC_ORIGIN, PUBLIC_CUSTOM_ORIGIN)
     assert settings.trusted_hosts == ("api.restaurant.example",)
     assert settings.trusted_proxy_mode == "direct"
     assert settings.stripe_expected_livemode is False
@@ -158,6 +163,7 @@ def _production_environment_strings() -> dict[str, str]:
         ),
         "AUTH_JWT_SECRET": "a" * 32,
         "PUBLIC_APP_ORIGIN": PUBLIC_ORIGIN,
+        "PUBLIC_APP_CUSTOM_ORIGIN": PUBLIC_CUSTOM_ORIGIN,
         "PUBLIC_API_ORIGIN": PUBLIC_API_ORIGIN,
         "TRUSTED_HOSTS": '["api.restaurant.example"]',
         "TRUSTED_PROXY_MODE": "direct",
@@ -382,6 +388,10 @@ def test_unknown_environment_names_cannot_bypass_production_validation(
 
 
 @pytest.mark.parametrize(
+    "field_name",
+    ["public_app_origin", "public_app_custom_origin"],
+)
+@pytest.mark.parametrize(
     "origin",
     [
         "http://restaurant.example",
@@ -401,10 +411,25 @@ def test_unknown_environment_names_cannot_bypass_production_validation(
         "https:///missing-host",
     ],
 )
-def test_public_origin_rejects_noncanonical_or_unsafe_values(origin: str) -> None:
-    """Accept only one exact credential-free HTTPS origin."""
+def test_public_origin_rejects_noncanonical_or_unsafe_values(
+    field_name: str,
+    origin: str,
+) -> None:
+    """Accept only exact credential-free HTTPS frontend origins."""
     with pytest.raises(ValidationError):
-        production_settings({"public_app_origin": origin})
+        production_settings({field_name: origin})
+
+
+@pytest.mark.parametrize("custom_origin", [PUBLIC_ORIGIN, f"{PUBLIC_ORIGIN}:443"])
+def test_public_app_custom_origin_requires_distinct_primary_origin(
+    custom_origin: str,
+) -> None:
+    """Reject an orphaned or duplicate custom frontend CORS authority."""
+    with pytest.raises(ValidationError, match="requires PUBLIC_APP_ORIGIN"):
+        production_settings({"public_app_origin": None})
+
+    with pytest.raises(ValidationError, match="must differ"):
+        production_settings({"public_app_custom_origin": custom_origin})
 
 
 @pytest.mark.parametrize(
@@ -866,6 +891,8 @@ def test_nonproduction_defaults_remain_backward_compatible() -> None:
     for environment in ("development", "test", "e2e"):
         settings = Settings(_env_file=None, app_environment=environment)
         assert settings.public_app_origin is None
+        assert settings.public_app_custom_origin is None
+        assert settings.public_app_origins == ()
         assert settings.public_api_origin is None
         assert settings.portfolio_demo_mode is False
         assert settings.demo_session_issuance_enabled is False
