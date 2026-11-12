@@ -48,6 +48,8 @@ type CheckoutFeedback =
   | { checkoutUrl: string; kind: 'redirect-failed' }
   | { kind: 'capability' };
 
+type DemoPaymentMethod = 'card' | 'vipps';
+
 type OrderSummaryState =
   | { kind: 'idle' }
   | { kind: 'loading'; publicOrderNumber: string }
@@ -230,10 +232,13 @@ function CheckoutPageForOrder({
   const [authenticatedFailure, setAuthenticatedFailure] = useState(false);
   const [orderSummary, setOrderSummary] = useState<OrderSummaryState>({ kind: 'idle' });
   const [summaryRequestVersion, setSummaryRequestVersion] = useState(0);
+  const [demoPaymentMethod, setDemoPaymentMethod] = useState<DemoPaymentMethod>('card');
+  const [cartClearedAfterCheckout, setCartClearedAfterCheckout] = useState(false);
   const pendingRef = useRef(false);
   const activeControllerRef = useRef<AbortController | null>(null);
   const mountedRef = useRef(false);
   const checkoutButtonRef = useRef<HTMLButtonElement | null>(null);
+  const successActionRef = useRef<HTMLAnchorElement | null>(null);
   const checkoutReadyFocusIntentRef = useRef<AsyncFocusIntent | null>(null);
   const noticeRef = useRef<HTMLDivElement | null>(null);
   const summaryPanelRef = useRef<HTMLElement | null>(null);
@@ -363,7 +368,11 @@ function CheckoutPageForOrder({
     const focusIntent = feedbackFocusIntentRef.current;
     feedbackFocusIntentRef.current = null;
     if (focusIntent !== null && shouldRestoreAsyncFocus(focusIntent.origin)) {
-      noticeRef.current?.focus();
+      if (feedback.kind === 'terminal' && feedback.paymentStatus === 'succeeded') {
+        successActionRef.current?.focus();
+      } else {
+        noticeRef.current?.focus();
+      }
     }
   }, [feedback]);
 
@@ -538,6 +547,7 @@ function CheckoutPageForOrder({
       }
       clearCart();
       saveCartState({ items: [] });
+      setCartClearedAfterCheckout(true);
       if (response.payment_status === 'pending') {
         if (portfolioModeEnabled) {
           setFeedback({
@@ -631,6 +641,11 @@ function CheckoutPageForOrder({
     orderSummary.kind === 'loading';
   const terminalPaymentStatus =
     feedback.kind === 'terminal' ? feedback.paymentStatus : null;
+  const orderCurrency =
+    orderSummary.kind === 'loaded' && summaryMatchesCurrentOrder
+      ? orderSummary.order.currency
+      : null;
+  const vippsSimulationAvailable = orderCurrency === 'NOK';
 
   return (
     <div className={styles.page}>
@@ -640,9 +655,7 @@ function CheckoutPageForOrder({
         <h1 id="order-created-title">Order created</h1>
         <p className={styles.paymentRequired}>
           {terminalPaymentStatus === 'succeeded'
-            ? portfolioModeEnabled
-              ? 'Demo payment completed.'
-              : 'Payment confirmed.'
+            ? 'Your order is ready to track.'
             : terminalPaymentStatus === 'failed'
               ? portfolioModeEnabled
                 ? 'The simulated payment failed.'
@@ -792,8 +805,8 @@ function CheckoutPageForOrder({
           <p>
             {terminalPaymentStatus === 'succeeded'
               ? portfolioModeEnabled
-                ? 'The backend recorded a simulated result. No real money was charged and no delivery was created.'
-                : 'The backend confirmed this payment. No payment redirect is needed.'
+                ? 'Review the generic simulated result below, then continue to order status.'
+                : 'Review the confirmed result below, then continue to order status.'
               : terminalPaymentStatus === 'failed' ||
                   terminalPaymentStatus === 'expired'
                 ? 'The backend confirmed that this attempt is terminal. You may request another attempt; the server will confirm whether this order is still eligible.'
@@ -801,6 +814,86 @@ function CheckoutPageForOrder({
                   ? 'This portfolio flow records a simulated result only. It never opens a hosted payment page, charges real money, or creates a delivery.'
                   : 'We will open the hosted payment page in this tab. Your order is not paid until payment is confirmed.'}
           </p>
+
+          {portfolioModeEnabled &&
+            feedback.kind !== 'terminal' &&
+            feedback.kind !== 'attempt-limit' && (
+              <fieldset
+                className={styles.demoMethodFieldset}
+                disabled={checkoutDisabled}
+              >
+                <legend>Choose a simulated payment method</legend>
+                <p className={styles.demoMethodDisclosure}>
+                  This visual choice stays in the browser and is not sent to a payment
+                  provider. The backend records one generic simulated result.
+                </p>
+                <div className={styles.demoMethodGrid}>
+                  <label
+                    className={styles.demoMethodOption}
+                    data-selected={demoPaymentMethod === 'card'}
+                  >
+                    <span className={styles.demoMethodTitle}>
+                      <input
+                        aria-describedby="demo-payment-card-description"
+                        aria-label="Card"
+                        checked={demoPaymentMethod === 'card'}
+                        name="demo-payment-method"
+                        onChange={() => setDemoPaymentMethod('card')}
+                        type="radio"
+                        value="card"
+                      />
+                      <strong>Card</strong>
+                    </span>
+                    <span id="demo-payment-card-description">
+                      No card number is requested or processed.
+                    </span>
+                  </label>
+                  <label
+                    className={styles.demoMethodOption}
+                    data-selected={demoPaymentMethod === 'vipps'}
+                    data-unavailable={!vippsSimulationAvailable}
+                  >
+                    <span className={styles.demoMethodTitle}>
+                      <input
+                        aria-describedby="demo-payment-vipps-description"
+                        aria-label="Vipps"
+                        checked={demoPaymentMethod === 'vipps'}
+                        disabled={!vippsSimulationAvailable}
+                        name="demo-payment-method"
+                        onChange={() => setDemoPaymentMethod('vipps')}
+                        type="radio"
+                        value="vipps"
+                      />
+                      <strong>Vipps</strong>
+                    </span>
+                    <span id="demo-payment-vipps-description">
+                      {vippsSimulationAvailable
+                        ? 'Available as a NOK simulation. No connection to the Vipps app is made.'
+                        : 'Available only after a NOK order is confirmed.'}
+                    </span>
+                  </label>
+                  <label className={styles.demoMethodOption} data-unavailable="true">
+                    <span className={styles.demoMethodTitle}>
+                      <input
+                        aria-describedby="demo-payment-blik-description"
+                        aria-label="BLIK"
+                        disabled
+                        name="demo-payment-method"
+                        type="radio"
+                        value="blik"
+                      />
+                      <strong>BLIK</strong>
+                    </span>
+                    <span id="demo-payment-blik-description">
+                      Information only. BLIK requires PLN
+                      {orderCurrency === null
+                        ? '.'
+                        : `; this order uses ${orderCurrency}.`}
+                    </span>
+                  </label>
+                </div>
+              </fieldset>
+            )}
 
           {feedback.kind !== 'terminal' && feedback.kind !== 'attempt-limit' && (
             <div className={styles.actions}>
@@ -920,9 +1013,7 @@ function CheckoutPageForOrder({
                   className={styles.inlineNotice}
                   role="status"
                   title={
-                    portfolioModeEnabled
-                      ? 'Demo payment completed'
-                      : 'Payment confirmed'
+                    portfolioModeEnabled ? 'Simulation recorded' : 'Payment recorded'
                   }
                   variant="success"
                 >
@@ -931,7 +1022,11 @@ function CheckoutPageForOrder({
                       ? 'The backend recorded a simulated result. No real money was charged.'
                       : 'Your payment was confirmed by the backend.'}
                   </p>
-                  <Link to={`/orders/${validPublicOrderNumber}/status`}>
+                  <Link
+                    className={`${styles.stateAction} ${styles.statePrimaryAction} ${styles.successAction}`}
+                    ref={successActionRef}
+                    to={`/orders/${validPublicOrderNumber}/status`}
+                  >
                     View order status
                   </Link>
                 </Notice>
@@ -998,11 +1093,13 @@ function CheckoutPageForOrder({
           )}
 
           <nav className={styles.links} aria-label="Order navigation">
-            <Link className={styles.backLink} to="/cart">
-              Return to cart
-            </Link>
+            {!cartClearedAfterCheckout && (
+              <Link className={styles.backLink} to="/cart">
+                Return to cart
+              </Link>
+            )}
             <Link className={styles.menuLink} to="/menu">
-              Browse the menu
+              {cartClearedAfterCheckout ? 'Start another order' : 'Browse the menu'}
             </Link>
           </nav>
         </section>

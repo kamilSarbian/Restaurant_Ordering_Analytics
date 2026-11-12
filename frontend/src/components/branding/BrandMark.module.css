@@ -1,19 +1,24 @@
 .mark {
+    position: relative;
     display: block;
     flex: none;
     overflow: hidden;
+    border-radius: 50%;
+    background: var(--color-surface);
 }
 
 .mark picture {
-    display: block;
-    width: 100%;
-    height: 100%;
+    position: absolute;
+    inset: 0;
 }
 
 .mark img {
+    /* Isolate the 480px square emblem frame from the official 2172x724 lockup. */
+    position: absolute;
+    top: -23.75%;
+    left: -12.9167%;
     display: block;
-    width: auto;
+    width: 452.5%;
     max-width: none;
-    height: 140%;
-    transform: translateY(-14%);
+    height: auto;
 }

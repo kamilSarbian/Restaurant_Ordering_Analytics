@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import styles from './HeroCarousel.module.css';
 
@@ -53,11 +53,11 @@ function prefersReducedMotion(): boolean {
 
 /** Render an accessible, lightweight showcase of existing Nordic Hearth images. */
 export default function HeroCarousel() {
-  const reducedMotion = prefersReducedMotion();
   const [activeIndex, setActiveIndex] = useState(0);
-  const [paused, setPaused] = useState(reducedMotion);
+  const [playing, setPlaying] = useState(() => !prefersReducedMotion());
   const [focusPaused, setFocusPaused] = useState(false);
   const [pointerPaused, setPointerPaused] = useState(false);
+  const [carouselVisible, setCarouselVisible] = useState(true);
   const [documentVisible, setDocumentVisible] = useState(
     () => document.visibilityState !== 'hidden',
   );
@@ -73,27 +73,42 @@ export default function HeroCarousel() {
   }, []);
 
   useEffect(() => {
-    if (paused || focusPaused || pointerPaused || !documentVisible || reducedMotion) {
+    const carousel = carouselRef.current;
+    if (carousel === null || typeof window.IntersectionObserver !== 'function') {
+      return undefined;
+    }
+    const observer = new window.IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        setCarouselVisible(entry?.isIntersecting ?? false);
+      },
+      { threshold: 0.01 },
+    );
+    observer.observe(carousel);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (
+      !playing ||
+      focusPaused ||
+      pointerPaused ||
+      !documentVisible ||
+      !carouselVisible
+    ) {
       return undefined;
     }
     const timer = window.setInterval(() => {
       setActiveIndex((current) => (current + 1) % HERO_SLIDES.length);
     }, SLIDE_INTERVAL_MS);
     return () => window.clearInterval(timer);
-  }, [documentVisible, focusPaused, paused, pointerPaused, reducedMotion]);
+  }, [carouselVisible, documentVisible, focusPaused, playing, pointerPaused]);
 
-  const showSlide = (index: number): void => {
-    setActiveIndex((index + HERO_SLIDES.length) % HERO_SLIDES.length);
-  };
-
-  const handleKeyDown = (event: KeyboardEvent<HTMLElement>): void => {
-    if (event.key === 'ArrowLeft') {
-      event.preventDefault();
-      showSlide(activeIndex - 1);
-    } else if (event.key === 'ArrowRight') {
-      event.preventDefault();
-      showSlide(activeIndex + 1);
-    }
+  const togglePlayback = (): void => {
+    // An explicit click or keyboard choice overrides passive hover/focus pauses.
+    setFocusPaused(false);
+    setPointerPaused(false);
+    setPlaying((current) => !current);
   };
 
   return (
@@ -107,7 +122,6 @@ export default function HeroCarousel() {
         }
       }}
       onFocus={() => setFocusPaused(true)}
-      onKeyDown={handleKeyDown}
       onMouseEnter={() => setPointerPaused(true)}
       onMouseLeave={() => setPointerPaused(false)}
       ref={carouselRef}
@@ -140,59 +154,20 @@ export default function HeroCarousel() {
                 width={slide.width}
               />
             </picture>
-            <figcaption className={styles.caption}>
+            <figcaption className={styles.caption} id={`hero-slide-caption-${index}`}>
               <span>{slide.caption}</span>
               <strong>{slide.title}</strong>
             </figcaption>
           </figure>
         ))}
       </div>
-      <div className={styles.controls} aria-label="Slideshow controls">
-        <button
-          aria-label="Previous image"
-          className={styles.control}
-          type="button"
-          onClick={() => showSlide(activeIndex - 1)}
-        >
-          Previous
-        </button>
-        <div className={styles.dots} aria-label="Choose image">
-          {HERO_SLIDES.map((slide, index) => (
-            <button
-              aria-label={`Show image ${index + 1}: ${slide.title}`}
-              aria-pressed={activeIndex === index}
-              className={styles.dot}
-              key={slide.src}
-              type="button"
-              onClick={() => showSlide(index)}
-            >
-              <span aria-hidden="true">{index + 1}</span>
-            </button>
-          ))}
-        </div>
-        <button
-          aria-label="Next image"
-          className={styles.control}
-          type="button"
-          onClick={() => showSlide(activeIndex + 1)}
-        >
-          Next
-        </button>
-        <button
-          aria-label={reducedMotion ? 'Automatic slideshow disabled' : undefined}
-          aria-pressed={reducedMotion ? undefined : paused}
-          className={styles.control}
-          disabled={reducedMotion}
-          type="button"
-          onClick={() => setPaused((current) => !current)}
-        >
-          {reducedMotion
-            ? 'Reduced motion enabled'
-            : paused
-              ? 'Resume slideshow'
-              : 'Pause slideshow'}
-        </button>
-      </div>
+      <button
+        aria-describedby={`hero-slide-caption-${activeIndex}`}
+        aria-label={playing ? 'Pause automatic slideshow' : 'Start automatic slideshow'}
+        className={styles.mediaControl}
+        type="button"
+        onClick={togglePlayback}
+      />
     </section>
   );
 }

@@ -1,6 +1,5 @@
 import { Link } from 'react-router-dom';
 
-import BrandMark from '../../components/branding/BrandMark';
 import { isPortfolioModeEnabled } from '../../config/portfolioMode';
 import { useAuth } from '../auth/AuthContext';
 import HeroCarousel from './HeroCarousel';
@@ -9,6 +8,8 @@ import styles from './LandingPage.module.css';
 const LANDING_LOGO_IMAGE_SIZES = '(min-width: 48rem) 18rem, min(72vw, 18rem)';
 const LANDING_STORY_IMAGE_SIZES =
   '(min-width: 64rem) 28rem, (min-width: 48rem) 40vw, calc(100vw - 2rem)';
+const LANDING_FINAL_IMAGE_SIZES =
+  '(min-width: 64rem) 30rem, (min-width: 48rem) 42vw, calc(100vw - 2rem)';
 
 const brandLogo = {
   height: 724,
@@ -24,6 +25,14 @@ const storyImage = {
   webpSrcSet:
     '/images/brand/optimized/story/chef-plating-cod-640w.webp 640w, /images/brand/optimized/story/chef-plating-cod-1024w.webp 1024w',
   width: 1536,
+} as const;
+
+const finalCtaImage = {
+  height: 1086,
+  pngSrc: '/images/menu/main_courses/Pan-Seared-Cod.png',
+  webpSrcSet:
+    '/images/menu/optimized/main_courses/Pan-Seared-Cod-480w.webp 480w, /images/menu/optimized/main_courses/Pan-Seared-Cod-720w.webp 720w, /images/menu/optimized/main_courses/Pan-Seared-Cod-1080w.webp 1080w',
+  width: 1448,
 } as const;
 
 const CURATED_MENU_PREVIEW = [
@@ -239,22 +248,42 @@ export default function LandingPage() {
       </section>
 
       <section className={styles.finalCta} aria-labelledby={'final-cta-heading'}>
-        <BrandMark className={styles.finalMark} size={48} />
-        <div>
-          <p className={styles.inverseEyebrow}>Ready to choose?</p>
-          <h2 id={'final-cta-heading'}>Your next dish starts with the menu</h2>
-          <p>Explore the full selection and build an order at your own pace.</p>
+        <picture className={styles.finalPicture}>
+          <source
+            sizes={LANDING_FINAL_IMAGE_SIZES}
+            srcSet={finalCtaImage.webpSrcSet}
+            type={'image/webp'}
+          />
+          <img
+            alt={'Pan-seared cod served with greens and potato purée'}
+            className={styles.finalImage}
+            decoding={'async'}
+            height={finalCtaImage.height}
+            loading={'lazy'}
+            sizes={LANDING_FINAL_IMAGE_SIZES}
+            src={finalCtaImage.pngSrc}
+            width={finalCtaImage.width}
+          />
+        </picture>
+        <div className={styles.finalContent}>
+          <div>
+            <p className={styles.inverseEyebrow}>Ready to choose?</p>
+            <h2 id={'final-cta-heading'}>Your next dish starts with the menu</h2>
+            <p>Explore the full selection and build an order at your own pace.</p>
+          </div>
+          <div className={styles.finalActions}>
+            <Link className={styles.finalAction} to={'/menu'}>
+              Open the menu
+            </Link>
+            <a
+              className={styles.caseStudyLink}
+              href="https://www.kamilsarbian.dev/projects/nordic-hearth"
+              rel="noreferrer"
+            >
+              Read the project case study
+            </a>
+          </div>
         </div>
-        <Link className={styles.finalAction} to={'/menu'}>
-          Open the menu
-        </Link>
-        <a
-          className={styles.caseStudyLink}
-          href="https://www.kamilsarbian.dev/projects/nordic-hearth"
-          rel="noreferrer"
-        >
-          Read the project case study
-        </a>
       </section>
     </div>
   );

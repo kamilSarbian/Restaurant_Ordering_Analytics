@@ -110,7 +110,15 @@
     white-space: nowrap;
 }
 
-.navigationLink:hover {
+.navigation .navigationLinkButton {
+    border-color: transparent;
+    background: transparent;
+    cursor: pointer;
+    font-family: inherit;
+}
+
+.navigationLink:hover,
+.navigation .navigationLinkButton:hover {
     background: var(--color-surface-muted);
     color: var(--color-primary-hover);
 }

@@ -1,0 +1,54 @@
+.demoHome {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-5);
+}
+
+.demoCardGrid {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-4);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.demoCard {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-3);
+    align-content: start;
+    padding: var(--space-5);
+    border: var(--border-width-hairline) solid var(--color-border-subtle);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-elevation-1);
+}
+
+.demoCard h2 {
+    margin: 0;
+    color: var(--color-primary-hover);
+    font-family: var(--font-family-display);
+    font-size: var(--font-size-title-small);
+}
+
+.demoCard p {
+    color: var(--color-text-secondary);
+    line-height: 1.6;
+}
+
+.demoCard a {
+    display: inline-flex;
+    width: fit-content;
+    min-height: 2.75rem;
+    align-items: center;
+    color: var(--color-primary);
+    font-weight: 800;
+    text-underline-offset: 0.2em;
+}
+
+@media (min-width: 40rem) {
+    .demoCardGrid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}

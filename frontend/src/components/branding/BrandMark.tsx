@@ -8,7 +8,7 @@ export interface BrandMarkProps {
   size?: BrandMarkSize;
 }
 
-/** Render the official Nordic Hearth emblem cropped from the canonical logo. */
+/** Render a square crop of the official Nordic Hearth emblem. */
 export default function BrandMark({ className, label, size = 32 }: BrandMarkProps) {
   const accessibleLabel = label?.trim() || undefined;
   const classNames = [styles.mark, className].filter(Boolean).join(' ');
@@ -23,7 +23,7 @@ export default function BrandMark({ className, label, size = 32 }: BrandMarkProp
     >
       <picture>
         <source
-          srcSet="/images/brand/optimized/logo/nordic-hearth-logo-320w.webp"
+          srcSet="/images/brand/optimized/logo/nordic-hearth-logo-320w.webp 1x, /images/brand/optimized/logo/nordic-hearth-logo-640w.webp 2x"
           type="image/webp"
         />
         <img

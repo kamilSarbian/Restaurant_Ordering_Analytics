@@ -19,29 +19,37 @@ three demo Payments per Order; the separately guarded operator action can reset
 only validated `portfolio_runtime` aggregates while preserving canonical seed
 and live data.
 
-Stage 22 remains **in progress** because the current worktree contains a
-separate local customer-demo and historical-presentation candidate. It adds a
-reserved shared `customer` session (never `admin` or `super_admin`), owned
-`portfolio_runtime` Account history, capability-only demo Checkout, independent
-default-false backend and frontend customer-demo flags, and guarded operator
-provision/deactivate actions. It also adds persisted historical sample-period
-metadata and a Europe/Oslo preset with an inclusive UI end date translated to
-the existing half-open API interval, currency-separated results, and no
-timestamp shifting or reseeding. The same candidate makes demo payment,
-guest/customer/admin, official-brand, carousel, SEO, and wake-up messaging
-explicit and truthful. These bytes are **uncommitted and not deployed**. The
-reserved customer account has not been provisioned, both customer-demo flags
-remain `false`, and public acceptance has not run. Targeted current-byte
-isolated PostgreSQL evidence was followed by one clean current-byte invocation
-of all 10 relevant integration files: 308 passed with no filter or retry. The
-local canonical browser harness then passed three isolated phases in one
-invocation: 32/32 for normal `false + stripe_test`, 1/1 for the existing
-administrator demo and 2/2 for the customer-disabled/anonymous-guest flow, and
-1/1 for the enabled customer-demo lifecycle. The run used one worker, zero
-retries, and passed its
-database and secret-safe log audits. This local evidence is neither CI nor
-public acceptance, and this candidate must not be inferred from the accepted
-public administrator demo.
+Stage 22 remains **in progress**. The separate customer-demo and
+historical-presentation foundation is committed at
+`5842268a4bdb991c3289e85565403c89d203db9e`. It adds a reserved shared
+`customer` session (never `admin` or `super_admin`), owned `portfolio_runtime`
+Account history, capability-only demo Checkout, independent default-false
+backend and frontend customer-demo flags, guarded operator
+provision/deactivate actions, and persisted historical sample-period metadata.
+The reserved customer account has not been provisioned, both customer-demo
+flags remain `false`, and public customer-demo acceptance has not run. Its
+isolated evidence remains separate from the accepted public administrator
+demo: 308 PostgreSQL integration tests passed without filter or retry, followed
+by one canonical browser invocation covering 32/32 normal-runtime checks, 1/1
+administrator-demo check, 2/2 customer-disabled/anonymous-guest checks, and 1/1
+enabled customer-demo lifecycle, with one worker, zero retries, and passing
+database and secret-safe log audits.
+
+The current worktree is a separate **uncommitted and undeployed** presentation
+candidate. It simplifies the landing carousel, derives a readable compact
+emblem from the existing Nordic Hearth identity, gives the lower call-to-action
+an existing menu photograph, prepares an accessible customer-demo chooser that
+remains hidden while its flag is false, clarifies simulated payment choices,
+and adds a memory-only administrator menu sandbox with no menu mutation API.
+Local current-byte verification is complete: the clean frontend suite passed
+1,295 tests, typecheck, ESLint with zero errors, Prettier, both npm audits, and
+the production build. The final full canonical browser invocation passed 32/32
+normal-runtime checks, 1/1 administrator-demo check, 2/2
+customer-disabled/anonymous-guest checks, and 1/1 enabled customer-demo
+lifecycle with one worker, zero retries, and passing database and secret-safe
+log audits. This is local evidence, not CI or public acceptance. Independent
+review, commit, push, CI, customer provisioning, deployment, and public
+acceptance remain open.
 
 Stage 23 is **in progress**: the public case study exists, while final
 screenshots, architecture-presentation material, and any remaining CV-facing
@@ -212,8 +220,9 @@ later administrator-demo activation was publicly accepted by the 14/14 Stage
 22-D run recorded at the top of this section. The Blueprint identifies the
 frontend as portfolio presentation with `VITE_PORTFOLIO_MODE=true`; backend
 authorization, rather than the visible entry flag, remains authoritative. The
-separate customer-demo flags introduced by the current local candidate remain
-default-false and are not part of the deployed administrator demo.
+separate customer-demo flags introduced by the committed customer-demo
+foundation remain default-false and are not part of the deployed administrator
+demo.
 The earlier 37-test no-database and 62-test isolated PostgreSQL results predate
 the proxy-bucket remediation; fresh current-byte evidence is recorded in the
 implementation status. Two initial broader non-integration attempts each
@@ -271,8 +280,9 @@ tracking any credential value. Stage 17 provides repeatable local full-system
 containers, Stage 18 provides isolated browser E2E, Stage 19 provides the
 committed deterministic CI baseline, and Stages 20 and 21 add the readiness and
 product-polish work described above. The accepted administrator baseline is
-public; only the customer-demo and historical-presentation candidate described
-above remains local and pre-deployment.
+public. The committed customer-demo and historical-preset foundation remains
+undeployed and unprovisioned, while the presentation-polish candidate described
+above remains local and uncommitted.
 
 ## Unified identity, Order ownership, and account backend
 
@@ -422,8 +432,9 @@ without introducing infrastructure that is unnecessary for a single venue.
 - A repository-ready and operator-confirmed free-tier target: Render
   Static Site Free, Render Docker Web Service Free, Neon PostgreSQL Free, and a
   manual direct-URL migration workflow. The administrator demo passed the
-  recorded Stage 22-D public acceptance; the separate local customer-demo
-  candidate is not part of that deployed evidence.
+  recorded Stage 22-D public acceptance; the committed but undeployed
+  customer-demo foundation and the local presentation-polish candidate are not
+  part of that deployed evidence.
 - A Nordic Hearth design system and polished customer, account, and
   administrator experiences with responsive WebP delivery, accessibility
   hardening, and route-level lazy loading.
@@ -447,8 +458,9 @@ without introducing infrastructure that is unnecessary for a single venue.
 - Historical and superseded for the portfolio demo: the Stage 20 paid
   Render/GHCR private-service, cron/migrator, and managed-database target.
 - In progress: Stage 22 Production Deployment & Public Acceptance, including
-  the uncommitted customer-demo candidate. Stage 23 Portfolio Documentation &
-  Case Study is also in progress; its public case study is published.
+  the committed but undeployed customer-demo foundation and the uncommitted
+  presentation-polish candidate. Stage 23 Portfolio Documentation & Case Study
+  is also in progress; its public case study is published.
 
 ## Repository structure
 

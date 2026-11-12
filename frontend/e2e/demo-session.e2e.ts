@@ -1,4 +1,4 @@
-import { expect, test, type Request } from '@playwright/test';
+import { expect, test, type APIResponse, type Request } from '@playwright/test';
 
 const AUTH_STORAGE_KEY = 'restaurant-ordering:auth:v1';
 const DEMO_SESSION_STORAGE_KEY = 'restaurant-ordering:demo-session:v1';
@@ -11,8 +11,31 @@ interface DemoRequestObservation {
   readonly method: string;
 }
 
+interface CurrentUserObservation {
+  readonly activeAdministrator: boolean;
+  readonly exactEmail: boolean;
+  readonly status: number;
+  readonly superAdministrator: boolean;
+}
+
 function isApiPath(request: Request, pathname: string): boolean {
   return new URL(request.url()).pathname === pathname;
+}
+
+async function inspectCurrentUserResponse(
+  response: APIResponse,
+): Promise<CurrentUserObservation> {
+  const payload: unknown = await response.json();
+  const isObject = typeof payload === 'object' && payload !== null;
+  const role = isObject && 'role' in payload ? payload.role : undefined;
+  const email = isObject && 'email' in payload ? payload.email : undefined;
+  const isActive = isObject && 'is_active' in payload ? payload.is_active : undefined;
+  return {
+    activeAdministrator: role === 'admin' && isActive === true,
+    exactEmail: email === DEMO_ADMIN_EMAIL,
+    status: response.status(),
+    superAdministrator: role === 'super_admin',
+  };
 }
 
 test('starts and ends the real reserved administrator demo session', async ({
@@ -44,14 +67,15 @@ test('starts and ends the real reserved administrator demo session', async ({
   const currentUserResponseGate = new Promise<void>((resolve) => {
     releaseCurrentUserResponse = resolve;
   });
-  let markCurrentUserResponseCaptured: (status: number) => void = () => undefined;
-  const currentUserResponseCaptured = new Promise<number>((resolve) => {
-    markCurrentUserResponseCaptured = resolve;
+  let captureCurrentUser: (observation: CurrentUserObservation) => void = () =>
+    undefined;
+  const currentUserCaptured = new Promise<CurrentUserObservation>((resolve) => {
+    captureCurrentUser = resolve;
   });
 
   await page.route('**/api/v1/auth/me', async (route) => {
     const backendResponse = await route.fetch();
-    markCurrentUserResponseCaptured(backendResponse.status());
+    captureCurrentUser(await inspectCurrentUserResponse(backendResponse));
     await currentUserResponseGate;
     await route.fulfill({ response: backendResponse });
   });
@@ -69,7 +93,13 @@ test('starts and ends the real reserved administrator demo session', async ({
     await page.getByRole('button', { name: 'Try admin demo' }).click();
 
     expect((await demoResponse).status()).toBe(200);
-    expect(await currentUserResponseCaptured).toBe(200);
+    const currentUser = await currentUserCaptured;
+    expect(currentUser).toEqual({
+      activeAdministrator: true,
+      exactEmail: true,
+      status: 200,
+      superAdministrator: false,
+    });
     await expect(page).toHaveURL(/\/login\?next=%2Fadmin$/u);
     await expect(
       page.getByRole('heading', { name: 'Checking your session' }),
@@ -91,7 +121,29 @@ test('starts and ends the real reserved administrator demo session', async ({
     await expect(page.getByText(DEMO_ADMIN_EMAIL, { exact: true })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Users', exact: true })).toHaveCount(0);
     await expect(page.getByRole('link', { name: 'Menu', exact: true })).toHaveCount(0);
-    await expect(page.getByRole('link', { name: 'Review orders' })).toBeVisible();
+    await expect(
+      page.getByRole('link', { name: 'Menu sandbox', exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('link', { name: 'Review orders', exact: true }),
+    ).toBeVisible();
+
+    await page.setViewportSize({ height: 900, width: 640 });
+    await expect(
+      page.getByRole('link', { name: 'Open analytics', exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('link', { name: 'View exports', exact: true }),
+    ).toBeVisible();
+    expect(
+      await page.evaluate(() => {
+        const runtime = globalThis as typeof globalThis & {
+          document: { documentElement: { scrollWidth: number } };
+          innerWidth: number;
+        };
+        return runtime.document.documentElement.scrollWidth <= runtime.innerWidth + 1;
+      }),
+    ).toBe(true);
 
     await page.goto('/account');
     await expect(
@@ -101,14 +153,34 @@ test('starts and ends the real reserved administrator demo session', async ({
     ).toBeVisible();
     await expect(page.getByRole('link', { name: 'My account' })).toHaveCount(0);
 
+    await page.setViewportSize({ height: 812, width: 375 });
     await page.goto('/admin/menu');
+    await expect(page.getByRole('heading', { name: 'Menu sandbox' })).toBeVisible();
     await expect(
-      page.getByRole('heading', { name: 'Menu management is unavailable' }),
+      page.getByText(/Changes stay in this browser memory only/u),
     ).toBeVisible();
+    expect(
+      await page.evaluate(() => {
+        const runtime = globalThis as typeof globalThis & {
+          document: { documentElement: { scrollWidth: number } };
+          innerWidth: number;
+        };
+        return runtime.document.documentElement.scrollWidth <= runtime.innerWidth + 1;
+      }),
+    ).toBe(true);
+    const firstEditor = page.getByRole('group').first();
+    const originalName = await firstEditor.getByLabel('Name').inputValue();
+    await firstEditor.getByLabel('Name').fill('Browser preview dish');
     await expect(
-      page.getByRole('link', { name: 'View the public menu' }),
+      page
+        .getByRole('region', { name: 'Current browser preview' })
+        .getByText('Browser preview dish'),
     ).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Menu', exact: true })).toHaveCount(0);
+    await page.getByRole('link', { name: 'Admin home' }).click();
+    await page.getByRole('link', { name: 'Menu sandbox', exact: true }).click();
+    await expect(page.getByLabel('Name').first()).toHaveValue('Browser preview dish');
+    await page.getByRole('button', { name: 'Reset to original menu' }).click();
+    await expect(page.getByLabel('Name').first()).toHaveValue(originalName);
     expect(restrictedDemoRequests).toEqual([]);
 
     await page.goto('/menu');

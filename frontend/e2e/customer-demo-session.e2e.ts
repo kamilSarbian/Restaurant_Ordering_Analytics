@@ -267,6 +267,7 @@ test('completes the isolated reserved customer demo lifecycle', async ({ page })
   const guard = new BrowserSafetyGuard(page);
   const demoRequests: DemoRequestObservation[] = [];
   const adminApiRequests: string[] = [];
+  const checkoutSessionRequests: string[] = [];
   page.on('request', (request) => {
     const parsed = sameOriginUrl(request.url());
     if (parsed === null) {
@@ -274,6 +275,9 @@ test('completes the isolated reserved customer demo lifecycle', async ({ page })
     }
     if (parsed.pathname.startsWith('/api/v1/admin')) {
       adminApiRequests.push(parsed.pathname);
+    }
+    if (request.method() === 'POST' && parsed.pathname.endsWith('/checkout-session')) {
+      checkoutSessionRequests.push(parsed.pathname);
     }
     if (!isApiPath(request, CUSTOMER_DEMO_SESSION_PATH)) {
       return;
@@ -305,28 +309,48 @@ test('completes the isolated reserved customer demo lifecycle', async ({ page })
   });
 
   try {
+    await page.setViewportSize({ height: 812, width: 375 });
     await page.goto('/menu');
     await expect(
       page.getByRole('heading', { level: 1, name: 'Our menu' }),
     ).toBeVisible();
-    await page.getByRole('link', { name: 'Try customer demo' }).click();
-    await assertLocation(page, '/login');
+    await page.getByRole('button', { name: 'Log in' }).click();
+    const loginDialog = page.getByRole('dialog', {
+      name: 'Choose how to continue',
+    });
+    await expect(loginDialog).toBeVisible();
+    await expect(
+      loginDialog.getByText(/shared synthetic identity and shared order history/u),
+    ).toBeVisible();
+    await expect(
+      loginDialog.getByRole('button', { name: 'Close login options' }),
+    ).toBeVisible();
+    expect(
+      await page.evaluate(() => {
+        const runtime = globalThis as typeof globalThis & {
+          document: { documentElement: { scrollWidth: number } };
+          innerWidth: number;
+        };
+        return runtime.document.documentElement.scrollWidth <= runtime.innerWidth + 1;
+      }),
+    ).toBe(true);
 
     const sessionResponse = waitForApiResponse(
       page,
       'POST',
       CUSTOMER_DEMO_SESSION_PATH,
     );
-    await page.getByRole('button', { name: 'Try customer demo' }).click();
+    await loginDialog.getByRole('button', { name: 'Try customer demo' }).click();
     await assertResponseStatus(sessionResponse, 200, 'CUSTOMER_DEMO_STATUS_MISMATCH');
     const currentUser = await currentUserCaptured;
     safeInvariant(currentUser.status === 200, 'CURRENT_USER_STATUS_MISMATCH');
     safeInvariant(currentUser.activeCustomer, 'CURRENT_USER_ROLE_INVALID');
     safeInvariant(currentUser.exactIdentity, 'CURRENT_USER_IDENTITY_INVALID');
     safeInvariant(!currentUser.superAdministrator, 'CURRENT_USER_PRIVILEGE_INVALID');
+    await assertLocation(page, '/menu');
     await expect(
-      page.getByRole('heading', { level: 1, name: 'Checking your session' }),
-    ).toBeVisible();
+      loginDialog.getByRole('button', { name: 'Starting customer demo' }),
+    ).toBeDisabled();
     expect(demoRequests).toEqual([
       {
         bodyAbsent: true,
@@ -344,6 +368,7 @@ test('completes the isolated reserved customer demo lifecycle', async ({ page })
     await expect(
       page.getByRole('heading', { level: 1, name: 'My orders' }),
     ).toBeVisible();
+    await page.setViewportSize({ height: 720, width: 1_280 });
 
     const foreignPath = `/api/v1/account/orders/${foreignOrderNumber}`;
     guard.expectHttpFailure('GET', foreignPath, 404);
@@ -451,6 +476,20 @@ test('completes the isolated reserved customer demo lifecycle', async ({ page })
       200,
       'CHECKOUT_ORDER_STATUS_MISMATCH',
     );
+    const methodGroup = page.getByRole('group', {
+      name: 'Choose a simulated payment method',
+    });
+    const cardMethod = methodGroup.getByRole('radio', { name: 'Card' });
+    const vippsMethod = methodGroup.getByRole('radio', { name: 'Vipps' });
+    const blikMethod = methodGroup.getByRole('radio', { name: 'BLIK' });
+    await expect(cardMethod).toBeChecked();
+    await expect(vippsMethod).toBeEnabled();
+    await expect(blikMethod).toBeDisabled();
+    await expect(methodGroup).toContainText('No connection to the Vipps app is made.');
+    await expect(methodGroup).toContainText('BLIK requires PLN; this order uses NOK.');
+    await vippsMethod.check();
+    await expect(vippsMethod).toBeChecked();
+    expect(checkoutSessionRequests, 'EARLY_CHECKOUT_SESSION_REQUEST').toEqual([]);
     const checkoutSessionResponse = waitForApiResponse(
       page,
       'POST',
@@ -464,6 +503,9 @@ test('completes the isolated reserved customer demo lifecycle', async ({ page })
       201,
       'CHECKOUT_SESSION_STATUS_MISMATCH',
     );
+    expect(checkoutSessionRequests, 'CHECKOUT_SESSION_REQUEST_COUNT_MISMATCH').toEqual([
+      `/api/v1/orders/${publicOrderNumber}/checkout-session`,
+    ]);
     await expect(
       page.getByRole('heading', {
         level: 2,

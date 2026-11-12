@@ -66,7 +66,7 @@ interface AuthContextValue extends AuthState {
   refreshCurrentUser: () => Promise<AuthUser | null>;
   register: (email: string, password: string) => Promise<AuthActionOutcome>;
   retrySession: () => Promise<void>;
-  startCustomerDemoSession: () => Promise<AuthActionOutcome>;
+  startCustomerDemoSession: (ownerSignal?: AbortSignal) => Promise<AuthActionOutcome>;
   startDemoSession: () => Promise<AuthActionOutcome>;
 }
 
@@ -338,9 +338,37 @@ export function AuthProvider({ children }: { children?: ReactNode }) {
       requestToken: (signal: AbortSignal) => Promise<{ accessToken: string }>,
       classifyError: (error: unknown) => AuthActionOutcome = classifyCredentialError,
       demoSessionKind: DemoSessionKind | null = null,
+      ownerSignal?: AbortSignal,
     ): Promise<AuthActionOutcome> => {
+      if (ownerSignal?.aborted) {
+        return { kind: 'aborted' };
+      }
       const { controller, generation } = beginRequest();
+      let issuedSession: AuthenticatedSession | null = null;
+      const abortOwnedAttempt = (): void => {
+        if (!requestIsCurrent(generation)) {
+          return;
+        }
+        if (
+          issuedSession !== null &&
+          tokenRef.current === issuedSession.accessToken &&
+          sessionGenerationRef.current === issuedSession.generation
+        ) {
+          clearSession();
+          return;
+        }
+        generationRef.current += 1;
+        controller.abort();
+        if (activeControllerRef.current === controller) {
+          activeControllerRef.current = null;
+        }
+      };
+      ownerSignal?.addEventListener('abort', abortOwnedAttempt, { once: true });
       try {
+        if (ownerSignal?.aborted) {
+          abortOwnedAttempt();
+          return { kind: 'aborted' };
+        }
         const tokenResponse = await requestToken(controller.signal);
         if (!requestIsCurrent(generation)) {
           return { kind: 'aborted' };
@@ -349,6 +377,10 @@ export function AuthProvider({ children }: { children?: ReactNode }) {
         sourceRef.current = 'canonical';
         demoSessionKindRef.current = demoSessionKind;
         sessionGenerationRef.current += 1;
+        issuedSession = {
+          accessToken: tokenResponse.accessToken,
+          generation: sessionGenerationRef.current,
+        };
         saveAuthToken(tokenResponse.accessToken);
         if (demoSessionKind !== null) {
           saveDemoSessionMarker(demoSessionKind);
@@ -384,9 +416,11 @@ export function AuthProvider({ children }: { children?: ReactNode }) {
         }
         activeControllerRef.current = null;
         return classifyError(error);
+      } finally {
+        ownerSignal?.removeEventListener('abort', abortOwnedAttempt);
       }
     },
-    [beginRequest, requestIsCurrent, validateToken],
+    [beginRequest, clearSession, requestIsCurrent, validateToken],
   );
 
   const login = useCallback(
@@ -407,11 +441,12 @@ export function AuthProvider({ children }: { children?: ReactNode }) {
   );
 
   const startCustomerDemoSession = useCallback(
-    () =>
+    (ownerSignal?: AbortSignal) =>
       establishCredentials(
         requestCustomerDemoSession,
         classifyDemoSessionError,
         'customer',
+        ownerSignal,
       ),
     [establishCredentials],
   );

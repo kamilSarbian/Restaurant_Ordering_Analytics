@@ -10,6 +10,7 @@ import { afterEach, beforeEach, vi } from 'vitest';
 import AsyncNotice from '../components/AsyncNotice';
 import {
   AUTH_STORAGE_KEY,
+  DEMO_SESSION_STORAGE_KEY,
   resetAuthMemoryForTests,
   saveDemoSessionMarker,
 } from '../features/auth/authStorage';
@@ -339,6 +340,7 @@ describe('customer frontend routing foundation', () => {
     (portfolioMode, demoEntry) => {
       vi.stubEnv('VITE_PORTFOLIO_MODE', portfolioMode ? 'true' : 'false');
       vi.stubEnv('VITE_ENABLE_DEMO_SESSION', demoEntry ? 'true' : 'false');
+      vi.stubEnv('VITE_ENABLE_CUSTOMER_DEMO_SESSION', 'false');
 
       renderRoute('/');
 
@@ -354,11 +356,10 @@ describe('customer frontend routing foundation', () => {
       expect(
         within(navigation).queryByRole('link', { name: 'Try admin demo' }) !== null,
       ).toBe(demoEntry);
+      expect(within(navigation).getByRole('link', { name: 'Menu' })).toBeVisible();
       expect(
-        within(navigation).getByRole('link', {
-          name: portfolioMode ? 'Continue as guest' : 'Menu',
-        }),
-      ).toBeVisible();
+        within(navigation).queryByRole('button', { name: 'Log in' }),
+      ).not.toBeInTheDocument();
       expect(within(navigation).getByRole('link', { name: 'Cart' })).toBeVisible();
     },
   );
@@ -377,23 +378,355 @@ describe('customer frontend routing foundation', () => {
     expect(screen.getByRole('button', { name: 'Try admin demo' })).toBeVisible();
   });
 
-  it('reveals the separate customer demo entry only when its exact flag is enabled', async () => {
+  it('starts customer demo from the disclosed modal only after /auth/me succeeds', async () => {
     vi.stubEnv('VITE_PORTFOLIO_MODE', 'true');
     vi.stubEnv('VITE_ENABLE_CUSTOMER_DEMO_SESSION', 'true');
+    const stub = installFetchStub(
+      {
+        json: {
+          access_token: AUTH_TOKEN,
+          expires_in: 1_800,
+          token_type: 'bearer',
+        },
+      },
+      { json: currentUser('customer') },
+      { json: EMPTY_ACCOUNT_ORDERS },
+    );
     const user = userEvent.setup();
-    renderRoute('/');
+    const { router } = renderRoute('/');
     const navigation = screen.getByRole('navigation', { name: 'Customer navigation' });
-    const demoLink = within(navigation).getByRole('link', {
-      name: 'Try customer demo',
-    });
 
-    expect(demoLink).toHaveAttribute('href', '/login?demo=customer&next=%2Faccount');
-    await user.click(demoLink);
+    await user.click(within(navigation).getByRole('button', { name: 'Log in' }));
 
     expect(
-      await screen.findByRole('button', { name: 'Try customer demo' }),
+      await screen.findByRole('dialog', { name: 'Choose how to continue' }),
+    ).toBeVisible();
+    expect(
+      screen.getByText(/shared synthetic identity and shared order history/u),
     ).toBeVisible();
     expect(screen.queryByLabelText('Password')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Try customer demo' }));
+
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'My orders' }),
+    ).toBeVisible();
+    expect(router.state.location.pathname).toBe('/account');
+    await waitFor(() => expect(stub.calls).toHaveLength(3));
+    expect(stub.calls.map(({ url }) => url)).toEqual([
+      '/api/v1/auth/customer-demo-session',
+      '/api/v1/auth/me',
+      '/api/v1/account/orders?limit=50&offset=0',
+    ]);
+    expect(stub.calls[0]).toMatchObject({ body: null, method: 'POST' });
+  });
+
+  it('continues as guest on the current route without starting a session', async () => {
+    vi.stubEnv('VITE_PORTFOLIO_MODE', 'true');
+    vi.stubEnv('VITE_ENABLE_CUSTOMER_DEMO_SESSION', 'true');
+    const cartRecord = JSON.stringify({
+      items: [
+        {
+          menuItemId: '00000000-0000-4000-8000-000000000011',
+          quantity: 2,
+        },
+      ],
+      version: 1,
+    });
+    sessionStorage.setItem(CART_STORAGE_KEY, cartRecord);
+    const stub = installFetchStub();
+    const user = userEvent.setup();
+    const { router } = renderRoute('/');
+
+    await user.click(screen.getByRole('button', { name: 'Log in' }));
+    await user.click(screen.getByRole('button', { name: 'Continue as guest' }));
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/');
+    expect(
+      screen.getByRole('heading', { level: 1, name: 'Fresh food, ordered your way' }),
+    ).toBeVisible();
+    expect(sessionStorage.getItem(CART_STORAGE_KEY)).toBe(cartRecord);
+    expect(stub.calls).toHaveLength(0);
+  });
+
+  it('invalidates a customer demo request when its modal closes', async () => {
+    vi.stubEnv('VITE_PORTFOLIO_MODE', 'true');
+    vi.stubEnv('VITE_ENABLE_CUSTOMER_DEMO_SESSION', 'true');
+    let resolveToken!: (response: Response) => void;
+    const tokenResponse = new Promise<Response>((resolve) => {
+      resolveToken = resolve;
+    });
+    const stub = installFetchStub({ responsePromise: tokenResponse });
+    const user = userEvent.setup();
+    const { router } = renderRoute('/');
+
+    await user.click(screen.getByRole('button', { name: 'Log in' }));
+    await user.click(screen.getByRole('button', { name: 'Try customer demo' }));
+    await user.click(screen.getByRole('button', { name: 'Close login options' }));
+
+    await act(async () => {
+      resolveToken(
+        Response.json({
+          access_token: AUTH_TOKEN,
+          expires_in: 1_800,
+          token_type: 'bearer',
+        }),
+      );
+      await tokenResponse;
+    });
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/');
+    expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toBeNull();
+    expect(stub.calls).toHaveLength(1);
+  });
+
+  it('invalidates a late customer-demo token when navigation unmounts the shell', async () => {
+    vi.stubEnv('VITE_PORTFOLIO_MODE', 'true');
+    vi.stubEnv('VITE_ENABLE_CUSTOMER_DEMO_SESSION', 'true');
+    let resolveToken!: (response: Response) => void;
+    const tokenResponse = new Promise<Response>((resolve) => {
+      resolveToken = resolve;
+    });
+    const stub = installFetchStub({ responsePromise: tokenResponse });
+    const user = userEvent.setup();
+    const { router } = renderRoute('/');
+
+    await user.click(screen.getByRole('button', { name: 'Log in' }));
+    await user.click(screen.getByRole('button', { name: 'Try customer demo' }));
+    await waitFor(() => expect(stub.calls).toHaveLength(1));
+
+    await act(async () => {
+      await router.navigate('/login');
+    });
+    expect(stub.calls[0]?.signal?.aborted).toBe(true);
+
+    await act(async () => {
+      resolveToken(
+        Response.json({
+          access_token: AUTH_TOKEN,
+          expires_in: 1_800,
+          token_type: 'bearer',
+        }),
+      );
+      await tokenResponse;
+    });
+
+    expect(router.state.location.pathname).toBe('/login');
+    expect(stub.calls).toHaveLength(1);
+    expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toBeNull();
+    expect(sessionStorage.getItem(DEMO_SESSION_STORAGE_KEY)).toBeNull();
+    expect(
+      screen.queryByRole('heading', { level: 1, name: 'My orders' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('clears a provisional token when the modal closes during /auth/me', async () => {
+    vi.stubEnv('VITE_PORTFOLIO_MODE', 'true');
+    vi.stubEnv('VITE_ENABLE_CUSTOMER_DEMO_SESSION', 'true');
+    let resolveCurrentUser!: (response: Response) => void;
+    const currentUserResponse = new Promise<Response>((resolve) => {
+      resolveCurrentUser = resolve;
+    });
+    const stub = installFetchStub(
+      {
+        json: {
+          access_token: AUTH_TOKEN,
+          expires_in: 1_800,
+          token_type: 'bearer',
+        },
+      },
+      { responsePromise: currentUserResponse },
+    );
+    const user = userEvent.setup();
+    const { router } = renderRoute('/');
+
+    await user.click(screen.getByRole('button', { name: 'Log in' }));
+    await user.click(screen.getByRole('button', { name: 'Try customer demo' }));
+    await waitFor(() => expect(stub.calls).toHaveLength(2));
+    expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toContain(AUTH_TOKEN);
+    await user.keyboard('{Escape}');
+
+    await act(async () => {
+      resolveCurrentUser(Response.json(currentUser('customer')));
+      await currentUserResponse;
+    });
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/');
+    expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toBeNull();
+    expect(
+      screen.queryByRole('heading', { level: 1, name: 'My orders' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('clears a provisional token when navigation unmounts the shell during /auth/me', async () => {
+    vi.stubEnv('VITE_PORTFOLIO_MODE', 'true');
+    vi.stubEnv('VITE_ENABLE_CUSTOMER_DEMO_SESSION', 'true');
+    let resolveCurrentUser!: (response: Response) => void;
+    const currentUserResponse = new Promise<Response>((resolve) => {
+      resolveCurrentUser = resolve;
+    });
+    const stub = installFetchStub(
+      {
+        json: {
+          access_token: AUTH_TOKEN,
+          expires_in: 1_800,
+          token_type: 'bearer',
+        },
+      },
+      { responsePromise: currentUserResponse },
+    );
+    const user = userEvent.setup();
+    const { router } = renderRoute('/');
+
+    await user.click(screen.getByRole('button', { name: 'Log in' }));
+    await user.click(screen.getByRole('button', { name: 'Try customer demo' }));
+    await waitFor(() => expect(stub.calls).toHaveLength(2));
+    expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toContain(AUTH_TOKEN);
+
+    await act(async () => {
+      await router.navigate('/login');
+    });
+    expect(stub.calls[1]?.signal?.aborted).toBe(true);
+    expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toBeNull();
+    expect(sessionStorage.getItem(DEMO_SESSION_STORAGE_KEY)).toBeNull();
+
+    await act(async () => {
+      resolveCurrentUser(Response.json(currentUser('customer')));
+      await currentUserResponse;
+    });
+
+    expect(router.state.location.pathname).toBe('/login');
+    expect(stub.calls).toHaveLength(2);
+    expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toBeNull();
+    expect(sessionStorage.getItem(DEMO_SESSION_STORAGE_KEY)).toBeNull();
+    expect(
+      screen.queryByRole('heading', { level: 1, name: 'My orders' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('clears a provisional customer session before continuing as guest after /auth/me fails', async () => {
+    vi.stubEnv('VITE_PORTFOLIO_MODE', 'true');
+    vi.stubEnv('VITE_ENABLE_CUSTOMER_DEMO_SESSION', 'true');
+    const cartRecord = JSON.stringify({
+      items: [
+        {
+          menuItemId: '00000000-0000-4000-8000-000000000011',
+          quantity: 2,
+        },
+      ],
+      version: 1,
+    });
+    sessionStorage.setItem(CART_STORAGE_KEY, cartRecord);
+    const stub = installFetchStub(
+      {
+        json: {
+          access_token: AUTH_TOKEN,
+          expires_in: 1_800,
+          token_type: 'bearer',
+        },
+      },
+      { json: { detail: 'Unavailable' }, status: 503 },
+    );
+    const user = userEvent.setup();
+    const { router } = renderRoute('/');
+
+    await user.click(screen.getByRole('button', { name: 'Log in' }));
+    await user.click(screen.getByRole('button', { name: 'Try customer demo' }));
+
+    expect(
+      await screen.findByText('The customer demo is unavailable right now.'),
+    ).toBeVisible();
+    expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toContain(AUTH_TOKEN);
+    expect(sessionStorage.getItem(DEMO_SESSION_STORAGE_KEY)).not.toBeNull();
+
+    await user.click(screen.getByRole('button', { name: 'Continue as guest' }));
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/');
+    expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toBeNull();
+    expect(sessionStorage.getItem(DEMO_SESSION_STORAGE_KEY)).toBeNull();
+    expect(sessionStorage.getItem(CART_STORAGE_KEY)).toBe(cartRecord);
+    expect(stub.calls.map(({ url }) => url)).toEqual([
+      '/api/v1/auth/customer-demo-session',
+      '/api/v1/auth/me',
+    ]);
+  });
+
+  it.each([
+    ['not found', { status: 404 }, 'The customer demo is unavailable right now.'],
+    [
+      'rate limited',
+      { headers: { 'Retry-After': '17' }, status: 429 },
+      'Too many attempts. Try again in 17 seconds.',
+    ],
+    [
+      'service unavailable',
+      { status: 503 },
+      'The customer demo is unavailable right now.',
+    ],
+    [
+      'network failure',
+      { error: new TypeError('synthetic customer demo network failure') },
+      'Could not start the customer demo. Check your connection.',
+    ],
+  ] as const)(
+    'shows safe customer-demo feedback for %s',
+    async (_label, responseStep, expectedFeedback) => {
+      vi.stubEnv('VITE_PORTFOLIO_MODE', 'true');
+      vi.stubEnv('VITE_ENABLE_CUSTOMER_DEMO_SESSION', 'true');
+      const stub = installFetchStub(responseStep);
+      const user = userEvent.setup();
+      renderRoute('/');
+
+      await user.click(screen.getByRole('button', { name: 'Log in' }));
+      await user.click(screen.getByRole('button', { name: 'Try customer demo' }));
+
+      expect(await screen.findByText(expectedFeedback)).toBeVisible();
+      expect(stub.calls).toHaveLength(1);
+      expect(stub.calls[0]).toMatchObject({
+        body: null,
+        method: 'POST',
+        url: '/api/v1/auth/customer-demo-session',
+      });
+      expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toBeNull();
+      expect(sessionStorage.getItem(DEMO_SESSION_STORAGE_KEY)).toBeNull();
+    },
+  );
+
+  it('shows a safe customer-demo timeout after one bounded request', async () => {
+    vi.stubEnv('VITE_PORTFOLIO_MODE', 'true');
+    vi.stubEnv('VITE_ENABLE_CUSTOMER_DEMO_SESSION', 'true');
+    vi.stubEnv('VITE_API_TIMEOUT_MS', '5');
+    const stub = installFetchStub({ waitForAbort: true });
+    const user = userEvent.setup();
+    renderRoute('/');
+
+    await user.click(screen.getByRole('button', { name: 'Log in' }));
+    await user.click(screen.getByRole('button', { name: 'Try customer demo' }));
+
+    expect(
+      await screen.findByText('The customer demo took too long to respond.'),
+    ).toBeVisible();
+    expect(stub.calls).toHaveLength(1);
+    expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toBeNull();
+    expect(sessionStorage.getItem(DEMO_SESSION_STORAGE_KEY)).toBeNull();
+  });
+
+  it('coalesces a rapid customer-demo double click into one request', async () => {
+    vi.stubEnv('VITE_PORTFOLIO_MODE', 'true');
+    vi.stubEnv('VITE_ENABLE_CUSTOMER_DEMO_SESSION', 'true');
+    const stub = installFetchStub({ waitForAbort: true });
+    const user = userEvent.setup();
+    renderRoute('/');
+
+    await user.click(screen.getByRole('button', { name: 'Log in' }));
+    await user.dblClick(screen.getByRole('button', { name: 'Try customer demo' }));
+
+    expect(stub.calls).toHaveLength(1);
+    await user.click(screen.getByRole('button', { name: 'Close login options' }));
+    await waitFor(() => expect(stub.calls[0]?.signal?.aborted).toBe(true));
   });
 
   it('does not expose customer demo outside portfolio mode', () => {
@@ -404,7 +737,7 @@ describe('customer frontend routing foundation', () => {
 
     const navigation = screen.getByRole('navigation', { name: 'Customer navigation' });
     expect(
-      within(navigation).queryByRole('link', { name: 'Try customer demo' }),
+      within(navigation).queryByRole('button', { name: 'Try customer demo' }),
     ).not.toBeInTheDocument();
     expect(within(navigation).getByRole('link', { name: 'Log in' })).toBeVisible();
     expect(

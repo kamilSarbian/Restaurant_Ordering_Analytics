@@ -17,6 +17,8 @@ const USER_ID = '11111111-1111-4111-8111-111111111111';
 const LANDING_LOGO_IMAGE_SIZES = '(min-width: 48rem) 18rem, min(72vw, 18rem)';
 const LANDING_STORY_IMAGE_SIZES =
   '(min-width: 64rem) 28rem, (min-width: 48rem) 40vw, calc(100vw - 2rem)';
+const LANDING_FINAL_IMAGE_SIZES =
+  '(min-width: 64rem) 30rem, (min-width: 48rem) 42vw, calc(100vw - 2rem)';
 
 function currentUser(role: 'admin' | 'customer' | 'super_admin') {
   return {
@@ -146,9 +148,11 @@ describe('LandingPage', () => {
     expect(
       screen.getByRole('region', { name: 'One clear path from menu to order' }),
     ).toBeVisible();
-    expect(
-      screen.getByRole('region', { name: 'Your next dish starts with the menu' }),
-    ).toBeVisible();
+    const finalRegion = screen.getByRole('region', {
+      name: 'Your next dish starts with the menu',
+    });
+    expect(finalRegion).toBeVisible();
+    expect(finalRegion.querySelector('[aria-hidden="true"] img')).toBeNull();
     const logo = screen.getByRole('img', { name: 'Nordic Hearth' });
     expect(logo).toBeVisible();
     expect(
@@ -156,7 +160,7 @@ describe('LandingPage', () => {
     ).not.toBeInTheDocument();
     expect(screen.getByText('A Nordic-inspired table')).toBeVisible();
     const brandMarks = [...container.querySelectorAll('[aria-hidden="true"] img')];
-    expect(brandMarks.length).toBeGreaterThan(0);
+    expect(brandMarks).toHaveLength(0);
 
     const previewItems = within(
       screen.getByRole('list', { name: 'Menu inspiration' }),
@@ -250,6 +254,30 @@ describe('LandingPage', () => {
       ].join(', '),
     );
 
+    const finalImage = screen.getByRole('img', {
+      name: 'Pan-seared cod served with greens and potato purée',
+    });
+    expect(finalImage).toHaveAttribute(
+      'src',
+      '/images/menu/main_courses/Pan-Seared-Cod.png',
+    );
+    expect(finalImage).toHaveAttribute('width', '1448');
+    expect(finalImage).toHaveAttribute('height', '1086');
+    expect(finalImage).toHaveAttribute('decoding', 'async');
+    expect(finalImage).toHaveAttribute('loading', 'lazy');
+    expect(finalImage).toHaveAttribute('sizes', LANDING_FINAL_IMAGE_SIZES);
+    const finalSource = finalImage.closest('picture')?.querySelector('source');
+    expect(finalSource).toHaveAttribute('type', 'image/webp');
+    expect(finalSource).toHaveAttribute('sizes', LANDING_FINAL_IMAGE_SIZES);
+    expect(finalSource).toHaveAttribute(
+      'srcset',
+      [
+        '/images/menu/optimized/main_courses/Pan-Seared-Cod-480w.webp 480w',
+        '/images/menu/optimized/main_courses/Pan-Seared-Cod-720w.webp 720w',
+        '/images/menu/optimized/main_courses/Pan-Seared-Cod-1080w.webp 1080w',
+      ].join(', '),
+    );
+
     expect(
       [...container.querySelectorAll('img')].map((image) => image.getAttribute('src')),
     ).toEqual(
@@ -258,6 +286,7 @@ describe('LandingPage', () => {
         '/images/brand/hero/restaurant-hero.png',
         '/images/brand/story/chef-plating-cod.png',
         '/images/brand/story/order-ready-pickup.png',
+        '/images/menu/main_courses/Pan-Seared-Cod.png',
       ]),
     );
     const pickupImage = container.querySelector(

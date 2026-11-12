@@ -5,15 +5,22 @@ import BrandMark, { type BrandMarkSize } from './BrandMark';
 const SUPPORTED_SIZES: BrandMarkSize[] = [16, 24, 32, 48, 96];
 
 describe('BrandMark', () => {
-  it('renders the canonical logo emblem as a decorative image by default', () => {
+  it('renders a deterministic crop of the canonical logo as a decorative image', () => {
     const { container } = render(<BrandMark />);
     const mark = container.querySelector('span');
     const image = container.querySelector('img');
+    const source = container.querySelector('source');
 
     expect(mark).toHaveAttribute('aria-hidden', 'true');
     expect(mark).toHaveStyle({ height: '32px', width: '32px' });
     expect(image).toHaveAttribute('src', '/images/brand/logo/nordic-hearth-logo.png');
+    expect(image).toHaveAttribute('width', '2172');
+    expect(image).toHaveAttribute('height', '724');
     expect(image).toHaveAttribute('alt', '');
+    expect(source).toHaveAttribute(
+      'srcset',
+      '/images/brand/optimized/logo/nordic-hearth-logo-320w.webp 1x, /images/brand/optimized/logo/nordic-hearth-logo-640w.webp 2x',
+    );
     expect(screen.queryByRole('img')).not.toBeInTheDocument();
   });
 

@@ -55,6 +55,7 @@ test('keeps customer demo disabled while admin demo remains available', async ({
     ).toBeVisible();
     await expect(page.getByRole('link', { name: 'Try admin demo' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Try customer demo' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Log in' })).toHaveCount(0);
     await expect(
       page.getByRole('button', { name: 'Add to cart' }).first(),
     ).toBeVisible();

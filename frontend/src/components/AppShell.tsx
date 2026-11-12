@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 
 import { isDemoSessionEntryEnabled } from '../config/demoSession';
@@ -7,6 +7,7 @@ import { isPortfolioModeEnabled } from '../config/portfolioMode';
 import { useAuth } from '../features/auth/AuthContext';
 
 import BrandMark from './branding/BrandMark';
+import CustomerDemoDialog from './CustomerDemoDialog';
 import Button from './ui/Button';
 import styles from './AppShell.module.css';
 
@@ -22,7 +23,7 @@ function shouldRestoreAsyncFocus(): boolean {
 
 /** Render shared customer navigation and the active customer route. */
 export default function AppShell() {
-  const { demoSessionKind, logout, phase, user } = useAuth();
+  const { demoSessionKind, logout, phase, startCustomerDemoSession, user } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const mainRef = useRef<HTMLElement>(null);
@@ -31,6 +32,14 @@ export default function AppShell() {
   const previousSessionPhaseRef = useRef(phase);
   const previousPathnameRef = useRef(location.pathname);
   const sessionRetryPendingRef = useRef(false);
+  const customerDemoTriggerRef = useRef<HTMLButtonElement>(null);
+  const customerDemoRequestRef = useRef(0);
+  const customerDemoPendingRef = useRef(false);
+  const customerDemoControllerRef = useRef<AbortController | null>(null);
+  const customerDemoAuthStateRef = useRef({ demoSessionKind, phase });
+  const [customerDemoDialogOpen, setCustomerDemoDialogOpen] = useState(false);
+  const [customerDemoPending, setCustomerDemoPending] = useState(false);
+  const [customerDemoFeedback, setCustomerDemoFeedback] = useState<string | null>(null);
   const canOpenAdmin = user?.role === 'admin' || user?.role === 'super_admin';
   const demoSessionEntryEnabled = isDemoSessionEntryEnabled();
   const customerDemoSessionEntryEnabled = isCustomerDemoSessionEntryEnabled();
@@ -48,6 +57,19 @@ export default function AppShell() {
       sessionFeedbackPath,
     );
 
+  const cancelCustomerDemoAttempt = useCallback((): boolean => {
+    customerDemoRequestRef.current += 1;
+    const wasPending = customerDemoPendingRef.current;
+    customerDemoPendingRef.current = false;
+    customerDemoControllerRef.current?.abort();
+    customerDemoControllerRef.current = null;
+    return wasPending;
+  }, []);
+
+  useEffect(() => {
+    customerDemoAuthStateRef.current = { demoSessionKind, phase };
+  }, [demoSessionKind, phase]);
+
   useEffect(() => {
     const isFirstRouteEffect = isFirstRouteEffectRef.current;
     const pathnameChanged = previousPathnameRef.current !== location.pathname;
@@ -56,10 +78,31 @@ export default function AppShell() {
     isFirstRouteEffectRef.current = false;
     previousPathnameRef.current = location.pathname;
 
+    if (pathnameChanged && customerDemoPendingRef.current) {
+      cancelCustomerDemoAttempt();
+      setCustomerDemoPending(false);
+      setCustomerDemoFeedback(null);
+      setCustomerDemoDialogOpen(false);
+    }
     if (pathnameChanged || mountedAfterClientNavigation) {
       mainRef.current?.focus({ preventScroll: true });
     }
-  }, [location.pathname]);
+  }, [cancelCustomerDemoAttempt, location.pathname]);
+
+  useEffect(
+    () => () => {
+      const wasPending = cancelCustomerDemoAttempt();
+      const latestAuthState = customerDemoAuthStateRef.current;
+      if (
+        !wasPending &&
+        latestAuthState.demoSessionKind === 'customer' &&
+        latestAuthState.phase !== 'authenticated'
+      ) {
+        logout();
+      }
+    },
+    [cancelCustomerDemoAttempt, logout],
+  );
 
   useEffect(() => {
     const previousPhase = previousSessionPhaseRef.current;
@@ -89,6 +132,55 @@ export default function AppShell() {
     navigate('/', { flushSync: true, replace: true });
   };
 
+  const closeCustomerDemoDialog = (): void => {
+    const wasPending = cancelCustomerDemoAttempt();
+    if (!wasPending && phase !== 'authenticated' && demoSessionKind === 'customer') {
+      logout();
+    }
+    setCustomerDemoPending(false);
+    setCustomerDemoFeedback(null);
+    setCustomerDemoDialogOpen(false);
+  };
+
+  const handleCustomerDemoStart = async (): Promise<void> => {
+    if (customerDemoPendingRef.current) return;
+    const requestId = customerDemoRequestRef.current + 1;
+    customerDemoRequestRef.current = requestId;
+    const controller = new AbortController();
+    customerDemoControllerRef.current = controller;
+    customerDemoPendingRef.current = true;
+    setCustomerDemoFeedback(null);
+    setCustomerDemoPending(true);
+    const outcome = await startCustomerDemoSession(controller.signal);
+    if (customerDemoControllerRef.current === controller) {
+      customerDemoControllerRef.current = null;
+    }
+    if (customerDemoRequestRef.current !== requestId) return;
+    customerDemoPendingRef.current = false;
+    setCustomerDemoPending(false);
+    if (outcome.kind === 'authenticated') {
+      setCustomerDemoDialogOpen(false);
+      navigate('/account');
+      return;
+    }
+    if (outcome.kind === 'aborted') return;
+    if (outcome.kind === 'rate-limited') {
+      setCustomerDemoFeedback(
+        outcome.retryAfterSeconds === null
+          ? 'Too many attempts. Please wait before trying again.'
+          : `Too many attempts. Try again in ${outcome.retryAfterSeconds} seconds.`,
+      );
+      return;
+    }
+    setCustomerDemoFeedback(
+      outcome.kind === 'timeout'
+        ? 'The customer demo took too long to respond.'
+        : outcome.kind === 'network'
+          ? 'Could not start the customer demo. Check your connection.'
+          : 'The customer demo is unavailable right now.',
+    );
+  };
+
   return (
     <div className={styles.shell}>
       <a className={styles.skipLink} href="#main-content">
@@ -106,9 +198,7 @@ export default function AppShell() {
                 Home
               </NavLink>
               <NavLink className={styles.navigationLink} to="/menu">
-                {portfolioModeEnabled && phase === 'unauthenticated'
-                  ? 'Continue as guest'
-                  : 'Menu'}
+                Menu
               </NavLink>
               <NavLink className={styles.navigationLink} to="/cart">
                 Cart
@@ -131,12 +221,17 @@ export default function AppShell() {
                     </NavLink>
                   ) : null}
                   {portfolioModeEnabled && customerDemoSessionEntryEnabled ? (
-                    <NavLink
-                      className={styles.navigationLink}
-                      to="/login?demo=customer&next=%2Faccount"
+                    <button
+                      className={`${styles.navigationLink} ${styles.navigationLinkButton}`}
+                      onClick={() => {
+                        setCustomerDemoFeedback(null);
+                        setCustomerDemoDialogOpen(true);
+                      }}
+                      ref={customerDemoTriggerRef}
+                      type="button"
                     >
-                      Try customer demo
-                    </NavLink>
+                      Log in
+                    </button>
                   ) : null}
                   {!portfolioModeEnabled ? (
                     <NavLink className={styles.navigationLink} to="/register">
@@ -195,6 +290,15 @@ export default function AppShell() {
           </nav>
         </div>
       </header>
+      {customerDemoDialogOpen ? (
+        <CustomerDemoDialog
+          busy={customerDemoPending}
+          feedback={customerDemoFeedback}
+          onClose={closeCustomerDemoDialog}
+          onStartDemo={() => void handleCustomerDemoStart()}
+          returnFocusRef={customerDemoTriggerRef}
+        />
+      ) : null}
       <main ref={mainRef} id="main-content" className={styles.main} tabIndex={-1}>
         <Outlet />
       </main>

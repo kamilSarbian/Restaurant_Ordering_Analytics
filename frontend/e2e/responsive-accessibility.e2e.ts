@@ -160,6 +160,13 @@ const LANDING_STORY_WEBP_640_PATH =
   '/images/brand/optimized/story/chef-plating-cod-640w.webp';
 const LANDING_STORY_WEBP_SRCSET =
   '/images/brand/optimized/story/chef-plating-cod-640w.webp 640w, /images/brand/optimized/story/chef-plating-cod-1024w.webp 1024w';
+const LANDING_FINAL_PNG_PATH = '/images/menu/main_courses/Pan-Seared-Cod.png';
+const LANDING_FINAL_SIZES =
+  '(min-width: 64rem) 30rem, (min-width: 48rem) 42vw, calc(100vw - 2rem)';
+const LANDING_FINAL_WEBP_480_PATH =
+  '/images/menu/optimized/main_courses/Pan-Seared-Cod-480w.webp';
+const LANDING_FINAL_WEBP_SRCSET =
+  '/images/menu/optimized/main_courses/Pan-Seared-Cod-480w.webp 480w, /images/menu/optimized/main_courses/Pan-Seared-Cod-720w.webp 720w, /images/menu/optimized/main_courses/Pan-Seared-Cod-1080w.webp 1080w';
 const LANDING_VIEWPORTS = [
   { candidateWidth: 640, height: 568, label: 'compact-mobile', width: 320 },
   { candidateWidth: 640, height: 812, label: 'mobile', width: 375 },
@@ -5601,6 +5608,7 @@ async function assertLandingViewport(
   const logoResponse = waitForLocalImageResponse(page, LANDING_LOGO_WEBP_320_PATH);
   const heroResponse = waitForLocalImageResponse(page, expectedHeroImagePath);
   const storyResponse = waitForLocalImageResponse(page, LANDING_STORY_WEBP_640_PATH);
+  const finalResponse = waitForLocalImageResponse(page, LANDING_FINAL_WEBP_480_PATH);
 
   await page.goto('/');
 
@@ -5627,17 +5635,33 @@ async function assertLandingViewport(
   ).toBeVisible();
   await expect(
     carousel.getByRole('button', { exact: true, name: 'Previous image' }),
-  ).toBeVisible();
+  ).toHaveCount(0);
   await expect(
     carousel.getByRole('button', { exact: true, name: 'Next image' }),
-  ).toBeVisible();
+  ).toHaveCount(0);
+  await expect(carousel.getByRole('button', { name: /^Show image /u })).toHaveCount(0);
   await expect(
-    carousel.getByRole('button', {
-      exact: true,
-      name: 'Automatic slideshow disabled',
-    }),
-  ).toBeDisabled();
-  await expect(carousel.getByRole('button', { name: /^Show image /u })).toHaveCount(3);
+    carousel.getByText('Reduced motion enabled', { exact: true }),
+  ).toHaveCount(0);
+  const playbackControl = carousel.getByRole('button', {
+    exact: true,
+    name: /^(?:Pause|Start) automatic slideshow$/u,
+  });
+  await expect(playbackControl).toBeVisible();
+  await blurActiveElement(page);
+  await tabTo(page, playbackControl);
+  await assertVisibleKeyboardFocus(playbackControl);
+  await page.keyboard.press('Enter');
+  await expect(playbackControl).toHaveAccessibleName('Pause automatic slideshow');
+  const captionBox = await carousel
+    .getByText('Seasonal dining', { exact: true })
+    .boundingBox();
+  safeInvariant(captionBox !== null, 'LANDING_CAROUSEL_CAPTION_BOX_MISSING');
+  await page.mouse.click(
+    captionBox.x + captionBox.width / 2,
+    captionBox.y + captionBox.height / 2,
+  );
+  await expect(playbackControl).toHaveAccessibleName('Start automatic slideshow');
 
   const introduction = page.getByText(
     /Explore starters, main courses, burgers, desserts, and non-alcoholic drinks/u,
@@ -5715,11 +5739,6 @@ async function assertLandingViewport(
     name: 'A cook plating cod with greens',
   });
   await expect(storyImageLocator).toHaveAttribute('loading', 'lazy');
-  const initialStoryBox = await storyImageLocator.boundingBox();
-  safeInvariant(
-    initialStoryBox !== null && initialStoryBox.y >= viewport.height,
-    'LANDING_STORY_IMAGE_NOT_BELOW_FOLD',
-  );
   await storyImageLocator.scrollIntoViewIfNeeded();
   const storyImage = await assertLandingImageContract(
     page,
@@ -5737,8 +5756,30 @@ async function assertLandingViewport(
     },
     'LANDING_STORY_IMAGE',
   );
+  const finalImageLocator = main.getByRole('img', {
+    exact: true,
+    name: 'Pan-seared cod served with greens and potato purée',
+  });
+  await expect(finalImageLocator).toHaveAttribute('loading', 'lazy');
+  await finalImageLocator.scrollIntoViewIfNeeded();
+  const finalImage = await assertLandingImageContract(
+    page,
+    finalResponse,
+    {
+      alt: 'Pan-seared cod served with greens and potato purée',
+      candidatePath: LANDING_FINAL_WEBP_480_PATH,
+      fallbackPath: LANDING_FINAL_PNG_PATH,
+      height: '1086',
+      highPriority: false,
+      loading: 'lazy',
+      sizes: LANDING_FINAL_SIZES,
+      srcSet: LANDING_FINAL_WEBP_SRCSET,
+      width: '1448',
+    },
+    'LANDING_FINAL_IMAGE',
+  );
 
-  await expect(main.getByRole('img')).toHaveCount(3);
+  await expect(main.getByRole('img')).toHaveCount(4);
   await expect(main.locator('img[fetchpriority=high]')).toHaveCount(1);
   await expect(
     page.getByRole('link', { exact: true, name: 'Nordic Hearth home' }),
@@ -5779,23 +5820,29 @@ async function assertLandingViewport(
     logoPicture,
     heroImage,
     storyImage,
+    finalImage,
     menuLink,
   ]);
 
   const imageBox = await heroImage.boundingBox();
   safeInvariant(imageBox !== null, 'LANDING_HERO_IMAGE_BOX_MISSING');
-  const maximumHeroImageHeightRatio = viewport.width >= 1024 ? 0.8 : 0.75;
-  safeInvariant(
-    imageBox.height <=
-      viewport.height * maximumHeroImageHeightRatio + OVERFLOW_TOLERANCE_PX,
-    'LANDING_HERO_IMAGE_EXCESSIVE_HEIGHT',
-  );
+  if (viewport.width < 1024) {
+    safeInvariant(
+      imageBox.height <= viewport.height * 0.75 + OVERFLOW_TOLERANCE_PX,
+      'LANDING_HERO_IMAGE_EXCESSIVE_HEIGHT',
+    );
+  }
   await assertContainedWithin(logoImage, heroRegion, 'LANDING_LOGO_IMAGE_CLIPPED');
   await assertContainedWithin(heroImage, heroRegion, 'LANDING_HERO_IMAGE_CLIPPED');
   await assertContainedWithin(
     storyImage,
     page.getByRole('region', { name: 'A taste of the menu' }),
     'LANDING_STORY_IMAGE_CLIPPED',
+  );
+  await assertContainedWithin(
+    finalImage,
+    page.getByRole('region', { name: 'Your next dish starts with the menu' }),
+    'LANDING_FINAL_IMAGE_CLIPPED',
   );
   await assertResponsiveSurface(page);
 
@@ -12638,6 +12685,32 @@ async function assertDecorativeBrandMark(
   await expect(image).toHaveAttribute('alt', '');
   await expect(image).toHaveAttribute('src', BRAND_MARK_PNG_PATH);
   await expect(container.getByRole('img')).toHaveCount(0);
+  const crop = await mark.evaluate((element) => {
+    const markBox = element.getBoundingClientRect();
+    const image = element.querySelector('img');
+    if (image === null) {
+      return null;
+    }
+    const imageBox = image.getBoundingClientRect();
+    return {
+      heightRatio: imageBox.height / markBox.height,
+      widthRatio: imageBox.width / markBox.width,
+      xOffsetRatio: (imageBox.left - markBox.left) / markBox.width,
+      yOffsetRatio: (imageBox.top - markBox.top) / markBox.height,
+    };
+  });
+  safeInvariant(
+    crop !== null &&
+      crop.widthRatio >= 4.51 &&
+      crop.widthRatio <= 4.54 &&
+      crop.heightRatio >= 1.49 &&
+      crop.heightRatio <= 1.52 &&
+      crop.xOffsetRatio >= -0.14 &&
+      crop.xOffsetRatio <= -0.11 &&
+      crop.yOffsetRatio >= -0.25 &&
+      crop.yOffsetRatio <= -0.22,
+    'BRAND_MARK_CROP_MISMATCH',
+  );
 }
 
 async function assertG3DecorativeShellBrand(

@@ -397,10 +397,13 @@ describe('CheckoutPage', () => {
     resetAuthMemoryForTests();
   });
 
-  it('describes portfolio payments as simulated and never as hosted checkout', async () => {
+  it('keeps portfolio payment methods visual and reports one generic result', async () => {
     vi.stubEnv('VITE_PORTFOLIO_MODE', 'true');
     const redirectToCheckout = vi.fn();
-    installFetchStub({ json: terminalCheckoutResponse('succeeded'), status: 201 });
+    const stub = installFetchStub({
+      json: terminalCheckoutResponse('succeeded'),
+      status: 201,
+    });
     saveOrderAccess(PUBLIC_ORDER_NUMBER, ACCESS_TOKEN);
     seedAttempt();
     const user = userEvent.setup();
@@ -413,9 +416,41 @@ describe('CheckoutPage', () => {
     ).toBeVisible();
     expect(screen.queryByText(/secure hosted payment/i)).not.toBeInTheDocument();
 
+    const methodGroup = await screen.findByRole('group', {
+      name: 'Choose a simulated payment method',
+    });
+    const card = within(methodGroup).getByRole('radio', { name: /^Card\b/u });
+    const vipps = within(methodGroup).getByRole('radio', { name: /^Vipps\b/u });
+    const blik = within(methodGroup).getByRole('radio', { name: /^BLIK\b/u });
+    expect(card).toBeChecked();
+    expect(vipps).toBeEnabled();
+    expect(blik).toBeDisabled();
+    expect(methodGroup).toHaveTextContent('No card number is requested or processed.');
+    expect(methodGroup).toHaveTextContent('No connection to the Vipps app is made.');
+    expect(methodGroup).toHaveTextContent('BLIK requires PLN; this order uses NOK.');
+    expect(screen.queryByRole('textbox', { name: /card number/iu })).toBeNull();
+    expect(screen.queryByRole('textbox', { name: /vipps.*phone/iu })).toBeNull();
+    expect(screen.queryByRole('textbox', { name: /blik.*code/iu })).toBeNull();
+    expect(stub.calls).toHaveLength(0);
+    expect(loadCheckoutAttempt(PUBLIC_ORDER_NUMBER)?.idempotencyKey).toBe(FIRST_KEY);
+
+    await user.click(vipps);
+
+    expect(vipps).toBeChecked();
+    expect(stub.calls).toHaveLength(0);
+    expect(loadCheckoutAttempt(PUBLIC_ORDER_NUMBER)?.idempotencyKey).toBe(FIRST_KEY);
+
     await user.click(screen.getByRole('button', { name: 'Run simulated payment' }));
 
-    expect(await screen.findByText('Demo payment completed.')).toBeVisible();
+    expect(
+      await screen.findByRole('heading', {
+        level: 2,
+        name: 'Demo payment completed',
+      }),
+    ).toBeVisible();
+    expect(screen.getAllByText('Demo payment completed', { exact: true })).toHaveLength(
+      1,
+    );
     expect(
       screen.getByText(
         'The backend recorded a simulated result. No real money was charged.',
@@ -424,7 +459,84 @@ describe('CheckoutPage', () => {
     expect(
       screen.queryByText('Your payment was confirmed by the backend.'),
     ).not.toBeInTheDocument();
+    expect(stub.calls).toHaveLength(1);
+    expect(stub.calls[0]).toMatchObject({ body: null, method: 'POST' });
+    expect(stub.calls[0]?.url).not.toMatch(/card|vipps|blik/iu);
+    expect([...stub.calls[0]!.headers.keys()].sort()).toEqual([
+      'idempotency-key',
+      'x-order-access-token',
+    ]);
+    const statusLink = screen.getByRole('link', { name: 'View order status' });
+    expect(statusLink).toHaveAttribute('href', `/orders/${PUBLIC_ORDER_NUMBER}/status`);
+    await waitFor(() => expect(statusLink).toHaveFocus());
+    expect(screen.queryByRole('link', { name: 'Return to cart' })).toBeNull();
+    expect(screen.getByRole('link', { name: 'Start another order' })).toHaveAttribute(
+      'href',
+      '/menu',
+    );
     expect(redirectToCheckout).not.toHaveBeenCalled();
+  });
+
+  it('never redirects a portfolio checkout when the backend returns pending', async () => {
+    vi.stubEnv('VITE_PORTFOLIO_MODE', 'true');
+    const redirectToCheckout = vi.fn();
+    const stub = installFetchStub({ json: VALID_CHECKOUT, status: 201 });
+    saveOrderAccess(PUBLIC_ORDER_NUMBER, ACCESS_TOKEN);
+    seedAttempt();
+    const user = userEvent.setup();
+
+    renderCheckout(PUBLIC_ORDER_NUMBER, null, redirectToCheckout);
+
+    await user.click(screen.getByRole('button', { name: 'Run simulated payment' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'The demo payment did not return a final simulated result',
+    );
+    expect(stub.calls).toHaveLength(1);
+    expect(stub.calls[0]).toMatchObject({ body: null, method: 'POST' });
+    expect(redirectToCheckout).not.toHaveBeenCalled();
+    expect(screen.queryByRole('link', { name: 'Return to cart' })).toBeNull();
+    expect(screen.getByRole('link', { name: 'Start another order' })).toHaveAttribute(
+      'href',
+      '/menu',
+    );
+  });
+
+  it('keeps Vipps unavailable outside NOK and never renders demo methods normally', async () => {
+    vi.stubEnv('VITE_PORTFOLIO_MODE', 'true');
+    saveOrderAccess(PUBLIC_ORDER_NUMBER, ACCESS_TOKEN);
+    const loadOrderSummary = vi
+      .fn<OrderSummaryLoader>()
+      .mockResolvedValue({ ...VALID_ORDER_SUMMARY, currency: 'EUR' });
+
+    const portfolioView = renderCheckout(
+      PUBLIC_ORDER_NUMBER,
+      null,
+      vi.fn(),
+      loadOrderSummary,
+    );
+
+    const methodGroup = await screen.findByRole('group', {
+      name: 'Choose a simulated payment method',
+    });
+    expect(
+      within(methodGroup).getByRole('radio', { name: /^Vipps\b/u }),
+    ).toBeDisabled();
+    expect(methodGroup).toHaveTextContent(
+      'Available only after a NOK order is confirmed.',
+    );
+    expect(methodGroup).toHaveTextContent('BLIK requires PLN; this order uses EUR.');
+
+    portfolioView.unmount();
+    vi.stubEnv('VITE_PORTFOLIO_MODE', 'false');
+    renderCheckout();
+
+    expect(
+      screen.queryByRole('group', { name: 'Choose a simulated payment method' }),
+    ).toBeNull();
+    expect(
+      screen.getByRole('button', { name: 'Continue to secure payment' }),
+    ).toBeEnabled();
   });
 
   it('renders the branded authoritative summary without starting checkout', async () => {
@@ -1298,6 +1410,49 @@ describe('CheckoutPage', () => {
     expect(window.crypto.randomUUID).not.toHaveBeenCalled();
     await act(async () => undefined);
     expect(stub.calls).toHaveLength(1);
+  });
+
+  it('keeps cleared-cart navigation after a terminal failure reaches the limit', async () => {
+    vi.stubEnv('VITE_PORTFOLIO_MODE', 'true');
+    vi.mocked(window.crypto.randomUUID).mockReturnValueOnce(SECOND_KEY);
+    const user = userEvent.setup();
+    const stub = installFetchStub(
+      { json: terminalCheckoutResponse('failed'), status: 201 },
+      {
+        json: { detail: 'Demo payment attempt limit reached' },
+        status: 409,
+      },
+    );
+    sessionStorage.setItem(
+      'restaurant-ordering:cart:v1',
+      JSON.stringify({
+        items: [{ menuItemId: '00000000-0000-4000-8000-000000000010', quantity: 1 }],
+        version: 1,
+      }),
+    );
+    saveOrderAccess(PUBLIC_ORDER_NUMBER, ACCESS_TOKEN);
+    seedAttempt();
+    renderCheckout();
+
+    await user.click(screen.getByRole('button', { name: 'Run simulated payment' }));
+    await user.click(
+      await screen.findByRole('button', { name: 'Request another payment attempt' }),
+    );
+    await user.click(screen.getByRole('button', { name: 'Run simulated payment' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Payment attempt limit reached',
+    );
+    expect(stub.calls).toHaveLength(2);
+    expect(stub.calls.map((call) => call.body)).toEqual([null, null]);
+    expect(screen.queryByRole('link', { name: 'Return to cart' })).toBeNull();
+    expect(screen.getByRole('link', { name: 'Start another order' })).toHaveAttribute(
+      'href',
+      '/menu',
+    );
+    expect(
+      JSON.parse(sessionStorage.getItem('restaurant-ordering:cart:v1') ?? ''),
+    ).toEqual({ items: [], version: 1 });
   });
 
   it.each([503, 404, 409, 422])(

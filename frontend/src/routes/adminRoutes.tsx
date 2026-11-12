@@ -8,7 +8,11 @@ import {
   SuperAdminRouteGuard,
 } from '../features/auth/RouteGuards';
 import { useAuth } from '../features/auth/AuthContext';
+import DemoMenuSandbox, {
+  DemoMenuSandboxProvider,
+} from '../features/admin-menu/DemoMenuSandbox';
 import AdminNotFoundPage from './AdminNotFoundPage';
+import styles from './adminRoutes.module.css';
 
 function routeLoadingFallback() {
   return (
@@ -31,8 +35,37 @@ const adminHomePage = lazyRoute(() => import('../features/admin-home/AdminHomePa
 const adminMenuPage = lazyRoute(() => import('../features/admin-menu/AdminMenuPage'));
 
 function DemoAdministratorHome() {
+  const cards = [
+    {
+      description: 'Review shared synthetic orders and their recorded details.',
+      label: 'Review orders',
+      title: 'Orders',
+      to: '/admin/orders',
+    },
+    {
+      description:
+        'Explore the historical sample period without treating it as live trading data.',
+      label: 'Open analytics',
+      title: 'Analytics',
+      to: '/admin/analytics',
+    },
+    {
+      description: 'Download the available CSV views of shared synthetic data.',
+      label: 'View exports',
+      title: 'Exports',
+      to: '/admin/exports',
+    },
+    {
+      description:
+        'Try browser-only catalog edits and preview them without changing the public menu.',
+      label: 'Open menu sandbox',
+      title: 'Menu sandbox',
+      to: '/admin/menu',
+    },
+  ] as const;
+
   return (
-    <section aria-labelledby="admin-demo-heading">
+    <section className={styles.demoHome} aria-labelledby="admin-demo-heading">
       <p className="eyebrow">Portfolio demo</p>
       <h1 id="admin-demo-heading">Administrator workspace</h1>
       <AsyncNotice title="Shared synthetic workspace">
@@ -40,20 +73,14 @@ function DemoAdministratorHome() {
         be visible to other demo visitors; the canonical seeded dataset remains
         protected by the backend.
       </AsyncNotice>
-      <p>
-        Menu management and personal account views are intentionally unavailable in this
-        shared demo.
-      </p>
-      <ul>
-        <li>
-          <Link to="/admin/orders">Review orders</Link>
-        </li>
-        <li>
-          <Link to="/admin/analytics">Open analytics</Link>
-        </li>
-        <li>
-          <Link to="/admin/exports">Download reports</Link>
-        </li>
+      <ul className={styles.demoCardGrid}>
+        {cards.map((card) => (
+          <li className={styles.demoCard} key={card.to}>
+            <h2>{card.title}</h2>
+            <p>{card.description}</p>
+            <Link to={card.to}>{card.label}</Link>
+          </li>
+        ))}
       </ul>
     </section>
   );
@@ -66,19 +93,7 @@ function DemoAwareAdminHome() {
 
 function DemoAwareAdminMenu() {
   const { isDemoSession } = useAuth();
-  if (!isDemoSession) return adminMenuPage;
-
-  return (
-    <section aria-labelledby="admin-demo-menu-heading">
-      <p className="eyebrow">Portfolio demo</p>
-      <h1 id="admin-demo-menu-heading">Menu management is unavailable</h1>
-      <AsyncNotice title="The shared catalog is read-only here">
-        Administrator menu reads and mutations are disabled for the shared demo
-        identity. No administrator menu request was sent.
-      </AsyncNotice>
-      <Link to="/menu">View the public menu</Link>
-    </section>
-  );
+  return isDemoSession ? <DemoMenuSandbox /> : adminMenuPage;
 }
 
 export const adminRoutes: RouteObject = {
@@ -108,7 +123,11 @@ export const adminRoutes: RouteObject = {
       element: <AdministratorRouteGuard />,
       children: [
         {
-          element: <AdminShell />,
+          element: (
+            <DemoMenuSandboxProvider>
+              <AdminShell />
+            </DemoMenuSandboxProvider>
+          ),
           children: [
             {
               index: true,

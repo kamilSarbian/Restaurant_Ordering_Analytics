@@ -52,6 +52,29 @@ const EMPTY_ORDERS_RESPONSE = { items: [], total: 0, limit: 50, offset: 0 };
 const EMPTY_CATEGORIES_RESPONSE = { items: [], total: 0, limit: 50, offset: 0 };
 const EMPTY_MENU_ITEMS_RESPONSE = { items: [], total: 0, limit: 50, offset: 0 };
 const EMPTY_USERS_RESPONSE = { items: [], total: 0, limit: 50, offset: 0 };
+const PUBLIC_MENU_RESPONSE = {
+  categories: [
+    {
+      description: null,
+      display_order: 1,
+      id: '00000000-0000-4000-8000-000000000001',
+      items: [
+        {
+          allergens: [],
+          currency: 'NOK',
+          description: 'Roasted root vegetables and barley.',
+          display_order: 1,
+          id: '00000000-0000-4000-8000-000000000011',
+          image_url: null,
+          is_available: true,
+          name: 'Nordic bowl',
+          price_amount: 18_900,
+        },
+      ],
+      name: 'Main dishes',
+    },
+  ],
+};
 const ANALYTICS_RANGE = {
   start: '2026-08-06T00:00:00+02:00',
   end: '2026-08-13T00:00:00+02:00',
@@ -271,15 +294,26 @@ describe('administrator authentication routes and guard', () => {
     expect(
       await screen.findByText('Portfolio demo · shared synthetic data'),
     ).toBeVisible();
-    expect(
-      screen.getByText(
-        'Menu management and personal account views are intentionally unavailable in this shared demo.',
-      ),
-    ).toBeVisible();
-    expect(screen.queryByRole('link', { name: /^Menu$/ })).not.toBeInTheDocument();
+    expect(screen.getByText('Shared synthetic workspace')).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Menu sandbox' })).toHaveAttribute(
+      'href',
+      '/admin/menu',
+    );
     expect(screen.getByRole('link', { name: 'Review orders' })).toHaveAttribute(
       'href',
       '/admin/orders',
+    );
+    expect(screen.getByRole('link', { name: 'Open analytics' })).toHaveAttribute(
+      'href',
+      '/admin/analytics',
+    );
+    expect(screen.getByRole('link', { name: 'View exports' })).toHaveAttribute(
+      'href',
+      '/admin/exports',
+    );
+    expect(screen.getByRole('link', { name: 'Open menu sandbox' })).toHaveAttribute(
+      'href',
+      '/admin/menu',
     );
     expect(stub.calls.map(({ url }) => url)).toEqual(['/api/v1/auth/me']);
     expect(JSON.parse(sessionStorage.getItem(DEMO_SESSION_STORAGE_KEY) ?? '')).toEqual({
@@ -293,27 +327,60 @@ describe('administrator authentication routes and guard', () => {
     expect(sessionStorage.getItem(DEMO_SESSION_STORAGE_KEY)).toBeNull();
   });
 
-  it('renders a safe direct Menu state for the shared demo without Menu requests', async () => {
+  it('builds the demo Menu sandbox from one public GET without admin requests', async () => {
     storeToken();
     saveDemoSessionMarker();
-    const stub = installFetchStub({ json: ME_RESPONSE });
+    const stub = installFetchStub(
+      { json: ME_RESPONSE },
+      { json: PUBLIC_MENU_RESPONSE },
+    );
 
     renderAdminRoute('/admin/menu');
 
-    expect(
-      await screen.findByRole('heading', { name: 'Menu management is unavailable' }),
-    ).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'Menu sandbox' })).toBeVisible();
+    expect(await screen.findByRole('group', { name: 'Nordic bowl' })).toBeVisible();
     expect(
       screen.getByText(
-        'Administrator menu reads and mutations are disabled for the shared demo identity. No administrator menu request was sent.',
+        /Changes stay in this browser memory only and are discarded on refresh or logout/u,
       ),
     ).toBeVisible();
-    expect(screen.getByRole('link', { name: 'View the public menu' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Menu sandbox' })).toHaveAttribute(
       'href',
-      '/menu',
+      '/admin/menu',
     );
-    expect(screen.queryByRole('link', { name: /^Menu$/ })).not.toBeInTheDocument();
-    expect(stub.calls.map(({ url }) => url)).toEqual(['/api/v1/auth/me']);
+    expect(stub.calls.map(({ method, url }) => ({ method, url }))).toEqual([
+      { method: 'GET', url: '/api/v1/auth/me' },
+      { method: 'GET', url: '/api/v1/menu' },
+    ]);
+  });
+
+  it('keeps sandbox edits across administrator navigation without another GET', async () => {
+    storeToken();
+    saveDemoSessionMarker();
+    const stub = installFetchStub(
+      { json: ME_RESPONSE },
+      { json: PUBLIC_MENU_RESPONSE },
+    );
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+    renderAdminRoute('/admin/menu');
+
+    await screen.findByRole('group', { name: 'Nordic bowl' });
+    const nameInput = screen.getByLabelText('Name');
+    await user.clear(nameInput);
+    await user.type(nameInput, 'Forest bowl');
+
+    await user.click(screen.getByRole('link', { name: 'Admin home' }));
+    expect(
+      await screen.findByRole('heading', { name: 'Administrator workspace' }),
+    ).toBeVisible();
+    await user.click(screen.getByRole('link', { name: 'Menu sandbox' }));
+
+    expect(await screen.findByRole('group', { name: 'Forest bowl' })).toBeVisible();
+    expect(stub.calls.map(({ url }) => url)).toEqual([
+      '/api/v1/auth/me',
+      '/api/v1/menu',
+    ]);
   });
 
   it('routes an authenticated customer away from administrator content', async () => {

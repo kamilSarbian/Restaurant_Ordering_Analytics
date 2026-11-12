@@ -515,6 +515,52 @@ describe('AuthProvider demo-session flow', () => {
     expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toContain(SECOND_TOKEN);
   });
 
+  it('does not clear a newer independent session when an old customer owner aborts', async () => {
+    let resolveCustomerUser!: (response: Response) => void;
+    const customerUserResponse = new Promise<Response>((resolve) => {
+      resolveCustomerUser = resolve;
+    });
+    const newerUser = {
+      ...USER,
+      email: 'newer-admin@example.invalid',
+    };
+    const stub = installFetchStub(
+      { json: tokenResponse() },
+      { responsePromise: customerUserResponse },
+      { json: tokenResponse(SECOND_TOKEN) },
+      { json: newerUser },
+    );
+    const ownerController = new AbortController();
+    renderAuth();
+    let customerOutcome!: Promise<AuthActionOutcome>;
+
+    act(() => {
+      customerOutcome = auth().startCustomerDemoSession(ownerController.signal);
+    });
+    await waitFor(() => expect(stub.calls).toHaveLength(2));
+
+    await act(async () => {
+      expect(await auth().login('newer@example.invalid', 'newer-password')).toEqual({
+        kind: 'authenticated',
+      });
+    });
+    expect(auth().accessToken).toBe(SECOND_TOKEN);
+    expect(auth().user?.email).toBe(newerUser.email);
+
+    act(() => ownerController.abort());
+    await act(async () => {
+      resolveCustomerUser(Response.json(CUSTOMER_USER));
+      expect(await customerOutcome).toEqual({ kind: 'aborted' });
+    });
+
+    expect(auth().phase).toBe('authenticated');
+    expect(auth().accessToken).toBe(SECOND_TOKEN);
+    expect(auth().user?.email).toBe(newerUser.email);
+    expect(auth().demoSessionKind).toBeNull();
+    expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toContain(SECOND_TOKEN);
+    expect(sessionStorage.getItem(DEMO_SESSION_STORAGE_KEY)).toBeNull();
+  });
+
   it('invalidates a demo-session response that arrives after unmount', async () => {
     let resolveTokenResponse!: (response: Response) => void;
     const tokenResponsePromise = new Promise<Response>((resolve) => {
