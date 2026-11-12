@@ -226,7 +226,7 @@ def get_order_status_endpoint(
             session,
             public_order_number,
             access_token,
-            current_user_id=policy.effective_owner_id,
+            current_user_id=policy.public_owner_id,
             required_data_origin=policy.public_origin_scope,
         )
     except CustomerOrderAccessDeniedError as error:

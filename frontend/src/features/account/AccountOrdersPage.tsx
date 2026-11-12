@@ -182,8 +182,13 @@ function OrderList({ data }: { data: AccountOrdersResponse }) {
 
 /** Display one authenticated user's personally owned order history. */
 export default function AccountOrdersPage() {
-  const { getAuthenticatedSession, invalidateSessionIfCurrent, logout, phase } =
-    useAuth();
+  const {
+    demoSessionKind,
+    getAuthenticatedSession,
+    invalidateSessionIfCurrent,
+    logout,
+    phase,
+  } = useAuth();
   const [offset, setOffset] = useState(0);
   const [state, setState] = useState<OrdersState>({
     data: null,
@@ -321,6 +326,15 @@ export default function AccountOrdersPage() {
           <p>Review orders placed while signed in to this account.</p>
         </div>
       </header>
+
+      {demoSessionKind === 'customer' ? (
+        <Notice className={styles.progressNotice} role="status" variant="info">
+          <p>
+            This is a shared synthetic customer history. Other demo visitors may see
+            orders created with the same demo account.
+          </p>
+        </Notice>
+      ) : null}
 
       {state.loading && data === null && state.error === null ? (
         <Notice className={styles.stateNotice} role="status" variant="info">

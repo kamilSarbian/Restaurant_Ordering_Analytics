@@ -5,21 +5,15 @@ import BrandMark, { type BrandMarkSize } from './BrandMark';
 const SUPPORTED_SIZES: BrandMarkSize[] = [16, 24, 32, 48, 96];
 
 describe('BrandMark', () => {
-  it('renders a safe, monochrome decorative SVG by default', () => {
+  it('renders the canonical logo emblem as a decorative image by default', () => {
     const { container } = render(<BrandMark />);
-    const mark = container.querySelector('svg');
+    const mark = container.querySelector('span');
+    const image = container.querySelector('img');
 
     expect(mark).toHaveAttribute('aria-hidden', 'true');
-    expect(mark).toHaveAttribute('focusable', 'false');
-    expect(mark).toHaveAttribute('stroke', 'currentColor');
-    expect(mark).toHaveAttribute('viewBox', '0 0 48 48');
-    expect(mark).toHaveAttribute('width', '32');
-    expect(mark).toHaveAttribute('height', '32');
-    expect(mark?.querySelectorAll('path')).toHaveLength(2);
-    expect(mark?.querySelector('[data-part="steam"]')).toBeInTheDocument();
-    expect(
-      mark?.querySelectorAll('script, image, use, text, foreignObject, linearGradient'),
-    ).toHaveLength(0);
+    expect(mark).toHaveStyle({ height: '32px', width: '32px' });
+    expect(image).toHaveAttribute('src', '/images/brand/logo/nordic-hearth-logo.png');
+    expect(image).toHaveAttribute('alt', '');
     expect(screen.queryByRole('img')).not.toBeInTheDocument();
   });
 
@@ -30,7 +24,7 @@ describe('BrandMark', () => {
 
     const labelledMark = screen.getByRole('img', { name: 'Nordic Hearth' });
     expect(labelledMark).toHaveClass('brand-slot');
-    expect(labelledMark).toHaveAttribute('width', '48');
+    expect(labelledMark).toHaveStyle({ height: '48px', width: '48px' });
     expect(labelledMark).not.toHaveAttribute('aria-hidden');
 
     rerender(<BrandMark label="   " />);
@@ -39,9 +33,8 @@ describe('BrandMark', () => {
 
   it.each(SUPPORTED_SIZES)('supports the %i px contract', (size) => {
     const { container } = render(<BrandMark size={size} />);
-    const mark = container.querySelector('svg');
+    const mark = container.querySelector('span');
 
-    expect(mark).toHaveAttribute('width', String(size));
-    expect(mark).toHaveAttribute('height', String(size));
+    expect(mark).toHaveStyle({ height: `${size}px`, width: `${size}px` });
   });
 });

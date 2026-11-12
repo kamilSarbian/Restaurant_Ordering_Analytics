@@ -8,6 +8,7 @@ import {
   parseAuthTokenResponse,
   parseAuthUser,
   registerUser,
+  startCustomerDemoSession,
   startDemoSession,
 } from './authApi';
 
@@ -89,6 +90,37 @@ describe('canonical authentication API', () => {
     const [input, init] = fetchMock.mock.calls[0]!;
     const headers = new Headers(init?.headers);
     expect(input).toBe('/api/v1/auth/demo-session');
+    expect(init).toMatchObject({
+      cache: 'no-store',
+      credentials: 'omit',
+      method: 'POST',
+    });
+    expect(init?.body).toBeUndefined();
+    expect(headers.get('Accept')).toBe('application/json');
+    expect(headers.get('Authorization')).toBeNull();
+    expect(headers.get('Content-Type')).toBeNull();
+    expect(headers.get('Cookie')).toBeNull();
+  });
+
+  it('sends one bodyless credential-free customer demo request', async () => {
+    const fetchMock = vi.fn<typeof fetch>(() =>
+      Promise.resolve(
+        new Response(JSON.stringify(VALID_TOKEN_RESPONSE), {
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(startCustomerDemoSession()).resolves.toMatchObject({
+      accessToken: SYNTHETIC_TOKEN,
+      tokenType: 'bearer',
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [input, init] = fetchMock.mock.calls[0]!;
+    const headers = new Headers(init?.headers);
+    expect(input).toBe('/api/v1/auth/customer-demo-session');
     expect(init).toMatchObject({
       cache: 'no-store',
       credentials: 'omit',

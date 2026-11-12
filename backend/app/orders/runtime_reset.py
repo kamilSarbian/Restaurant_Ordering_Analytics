@@ -11,6 +11,7 @@ from sqlalchemy import delete, func, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app.auth.demo_customer import DEMO_CUSTOMER_ID
 from app.orders.creation import (
     MAX_PORTFOLIO_RUNTIME_ORDERS,
     PORTFOLIO_RUNTIME_ORDER_CAPACITY_LOCK_KEY,
@@ -238,7 +239,7 @@ def _require_consistent_runtime_aggregates(
     for order in orders:
         if (
             order.data_origin != OrderDataOrigin.PORTFOLIO_RUNTIME.value
-            or order.customer_user_id is not None
+            or order.customer_user_id not in {None, DEMO_CUSTOMER_ID}
         ):
             raise PortfolioRuntimeResetConflictError
         _require_consistent_items(order, items_by_order[order.id])

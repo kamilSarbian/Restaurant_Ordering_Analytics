@@ -21,15 +21,94 @@ from app.analytics.schemas import (
     AnalyticsProductItem,
     AnalyticsProductResponse,
     AnalyticsRangeResponse,
+    AnalyticsSamplePeriodResponse,
 )
 from app.auth.models import User
-from app.orders.admin_service import resolve_admin_order_read_origin_scope
+from app.orders.admin_service import (
+    AdminOrderReadDeniedError,
+    resolve_admin_order_read_origin_scope,
+)
 from app.orders.models import Order, OrderItem
+from app.orders.origins import OrderDataOrigin
 from app.payments.models import Payment
 from app.payments.statuses import PaymentStatus
 
 ANALYTICS_TIMEZONE_NAME = "Europe/Oslo"
 ANALYTICS_TIMEZONE = ZoneInfo(ANALYTICS_TIMEZONE_NAME)
+PORTFOLIO_SAMPLE_ORDER_COUNT = 500
+PORTFOLIO_SAMPLE_LOCAL_DAY_COUNT = 60
+
+
+class AnalyticsSamplePeriodUnavailableError(Exception):
+    """Indicate that persisted historical demo rows do not match the contract."""
+
+
+def get_analytics_sample_period(
+    session: Session,
+    *,
+    current_user: User,
+    portfolio_demo_mode: bool | None,
+    payment_provider: str | None,
+) -> AnalyticsSamplePeriodResponse:
+    """Return the inclusive Europe/Oslo date bounds of canonical sample Orders.
+
+    Args:
+        session: Request-scoped database session.
+        current_user: Current active User freshly loaded by authentication.
+        portfolio_demo_mode: Trusted application-scoped demo-mode state.
+        payment_provider: Trusted application-scoped payment-provider state.
+
+    Returns:
+        Inclusive local-calendar bounds derived from persisted sample Orders.
+
+    Raises:
+        AdminOrderReadDeniedError: If identity or runtime forbids the read.
+        AnalyticsSamplePeriodUnavailableError: If sample rows are missing or drifted.
+    """
+    origin_scope = resolve_admin_order_read_origin_scope(
+        current_user=current_user,
+        portfolio_demo_mode=portfolio_demo_mode,
+        payment_provider=payment_provider,
+    )
+    expected_scope = (
+        OrderDataOrigin.PORTFOLIO_SEED.value,
+        OrderDataOrigin.PORTFOLIO_RUNTIME.value,
+    )
+    if origin_scope != expected_scope:
+        # The sample-period boundary is portfolio-only even though normal analytics
+        # intentionally remains available to ordinary administrators.
+        raise AdminOrderReadDeniedError
+
+    local_order_date = func.date(
+        func.timezone(ANALYTICS_TIMEZONE_NAME, Order.created_at)
+    )
+    row = session.execute(
+        select(
+            func.count(Order.id).label("order_count"),
+            func.count(func.distinct(local_order_date)).label("local_day_count"),
+            func.min(Order.created_at).label("first_created_at"),
+            func.max(Order.created_at).label("last_created_at"),
+        ).where(Order.data_origin == OrderDataOrigin.PORTFOLIO_SEED.value)
+    ).one()
+
+    if (
+        int(row.order_count or 0) != PORTFOLIO_SAMPLE_ORDER_COUNT
+        or int(row.local_day_count or 0) != PORTFOLIO_SAMPLE_LOCAL_DAY_COUNT
+        or row.first_created_at is None
+        or row.last_created_at is None
+    ):
+        raise AnalyticsSamplePeriodUnavailableError
+
+    start_date = row.first_created_at.astimezone(ANALYTICS_TIMEZONE).date()
+    end_date = row.last_created_at.astimezone(ANALYTICS_TIMEZONE).date()
+    if (end_date - start_date).days != PORTFOLIO_SAMPLE_LOCAL_DAY_COUNT - 1:
+        raise AnalyticsSamplePeriodUnavailableError
+
+    return AnalyticsSamplePeriodResponse(
+        start_date=start_date,
+        end_date=end_date,
+        timezone=ANALYTICS_TIMEZONE_NAME,
+    )
 
 
 def get_analytics_overview(

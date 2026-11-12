@@ -284,8 +284,11 @@ describe('customer frontend routing foundation', () => {
     const brand = screen.getByRole('link', { name: 'Nordic Hearth home' });
     const homeLink = within(navigation).getByRole('link', { name: 'Home' });
     expect(brand).toHaveTextContent('Nordic Hearth');
-    expect(brand.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
-    expect(brand.querySelector('svg')).toHaveAttribute('width', '32');
+    expect(brand.querySelector('img')).toHaveAttribute(
+      'src',
+      '/images/brand/logo/nordic-hearth-logo.png',
+    );
+    expect(brand.querySelector('img')).toHaveAttribute('alt', '');
     expect(within(brand).queryByRole('img')).not.toBeInTheDocument();
     expect(navigation.querySelectorAll('[data-navigation-group]')).toHaveLength(2);
     expect(homeLink).toHaveAttribute('href', '/');
@@ -351,7 +354,11 @@ describe('customer frontend routing foundation', () => {
       expect(
         within(navigation).queryByRole('link', { name: 'Try admin demo' }) !== null,
       ).toBe(demoEntry);
-      expect(within(navigation).getByRole('link', { name: 'Menu' })).toBeVisible();
+      expect(
+        within(navigation).getByRole('link', {
+          name: portfolioMode ? 'Continue as guest' : 'Menu',
+        }),
+      ).toBeVisible();
       expect(within(navigation).getByRole('link', { name: 'Cart' })).toBeVisible();
     },
   );
@@ -370,6 +377,41 @@ describe('customer frontend routing foundation', () => {
     expect(screen.getByRole('button', { name: 'Try admin demo' })).toBeVisible();
   });
 
+  it('reveals the separate customer demo entry only when its exact flag is enabled', async () => {
+    vi.stubEnv('VITE_PORTFOLIO_MODE', 'true');
+    vi.stubEnv('VITE_ENABLE_CUSTOMER_DEMO_SESSION', 'true');
+    const user = userEvent.setup();
+    renderRoute('/');
+    const navigation = screen.getByRole('navigation', { name: 'Customer navigation' });
+    const demoLink = within(navigation).getByRole('link', {
+      name: 'Try customer demo',
+    });
+
+    expect(demoLink).toHaveAttribute('href', '/login?demo=customer&next=%2Faccount');
+    await user.click(demoLink);
+
+    expect(
+      await screen.findByRole('button', { name: 'Try customer demo' }),
+    ).toBeVisible();
+    expect(screen.queryByLabelText('Password')).not.toBeInTheDocument();
+  });
+
+  it('does not expose customer demo outside portfolio mode', () => {
+    vi.stubEnv('VITE_PORTFOLIO_MODE', 'false');
+    vi.stubEnv('VITE_ENABLE_CUSTOMER_DEMO_SESSION', 'true');
+
+    renderRoute('/');
+
+    const navigation = screen.getByRole('navigation', { name: 'Customer navigation' });
+    expect(
+      within(navigation).queryByRole('link', { name: 'Try customer demo' }),
+    ).not.toBeInTheDocument();
+    expect(within(navigation).getByRole('link', { name: 'Log in' })).toBeVisible();
+    expect(
+      within(navigation).getByRole('link', { name: 'Create account' }),
+    ).toBeVisible();
+  });
+
   it('labels a confirmed demo session throughout the public customer shell', async () => {
     storeAuthToken();
     saveDemoSessionMarker();
@@ -381,7 +423,7 @@ describe('customer frontend routing foundation', () => {
       name: 'Customer navigation',
     });
     expect(
-      await within(navigation).findByText('Demo session · shared synthetic data'),
+      await within(navigation).findByText('Admin demo · shared synthetic data'),
     ).toBeVisible();
     expect(within(navigation).getByRole('link', { name: 'Admin' })).toBeVisible();
     expect(
@@ -405,6 +447,31 @@ describe('customer frontend routing foundation', () => {
       screen.getByRole('link', { name: 'Return to the administrator workspace' }),
     ).toHaveAttribute('href', '/admin');
     expect(stub.calls.map(({ url }) => url)).toEqual(['/api/v1/auth/me']);
+  });
+
+  it('allows the typed customer demo marker to reach account history', async () => {
+    storeAuthToken();
+    saveDemoSessionMarker('customer');
+    const stub = installFetchStub(
+      { json: currentUser('customer') },
+      { json: EMPTY_ACCOUNT_ORDERS },
+    );
+
+    renderRoute('/account');
+
+    expect(await screen.findByRole('heading', { name: 'My orders' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'No orders yet' })).toBeVisible();
+    const navigation = screen.getByRole('navigation', {
+      name: 'Customer navigation',
+    });
+    expect(
+      within(navigation).getByText('Customer demo · shared synthetic history'),
+    ).toBeVisible();
+    expect(within(navigation).getByRole('link', { name: 'My account' })).toBeVisible();
+    expect(stub.calls.map(({ url }) => url)).toEqual([
+      '/api/v1/auth/me',
+      '/api/v1/account/orders?limit=50&offset=0',
+    ]);
   });
 
   it.each(['/missing-page', '/accounting', '/orders/example/unknown'])(

@@ -113,6 +113,7 @@ export default function AccountOrderDetailPage() {
   const { publicOrderNumber } = useParams();
   const portfolioModeEnabled = isPortfolioModeEnabled();
   const {
+    demoSessionKind,
     getAuthenticatedSession,
     invalidateSessionIfCurrent,
     logout,
@@ -439,6 +440,12 @@ export default function AccountOrderDetailPage() {
           </p>
         </div>
       </header>
+      {demoSessionKind === 'customer' ? (
+        <Notice className={styles.stateNotice} role="status" variant="info">
+          This order belongs to a shared synthetic customer account used by other demo
+          visitors.
+        </Notice>
+      ) : null}
       <OrderStatusSummary order={state.order} presentation="account-detail" />
       <nav
         className={`${orderStatusStyles.navigation} ${orderStatusStyles.accountNavigation}`}

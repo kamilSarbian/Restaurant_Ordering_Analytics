@@ -113,7 +113,7 @@ test('starts and ends the real reserved administrator demo session', async ({
 
     await page.goto('/menu');
     await expect(
-      page.getByText('Demo session · shared synthetic data', { exact: true }),
+      page.getByText('Admin demo · shared synthetic data', { exact: true }),
     ).toBeVisible();
     await page.getByRole('link', { name: 'Admin', exact: true }).click();
     await expect(page).toHaveURL(/\/admin$/u);

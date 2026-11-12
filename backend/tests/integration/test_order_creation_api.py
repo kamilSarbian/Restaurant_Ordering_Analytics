@@ -20,6 +20,11 @@ from app.auth.demo_admin import (
     DEMO_ADMIN_EMAIL,
     DEMO_ADMIN_ID,
 )
+from app.auth.demo_customer import (
+    DEMO_CUSTOMER_DISABLED_PASSWORD_HASH,
+    DEMO_CUSTOMER_EMAIL,
+    DEMO_CUSTOMER_ID,
+)
 from app.auth.models import User
 from app.auth.roles import UserRole
 from app.auth.service import (
@@ -561,18 +566,25 @@ def test_full_runtime_capacity_does_not_limit_normal_live_creation(
     assert live_count == 1
 
 
-def test_demo_guest_and_exact_demo_admin_create_unowned_runtime_orders(
+def test_demo_guest_admin_and_customer_create_correctly_owned_runtime_orders(
     creation_session_factory: sessionmaker[Session],
     menu_records: MenuRecords,
     user_token_service: UserTokenService,
 ) -> None:
-    """Give guest and shared demo-admin callers distinct one-time capabilities."""
+    """Keep guest/admin unowned while the exact customer owns its runtime Order."""
     demo_admin_id = _store_user(
         creation_session_factory,
         user_id=DEMO_ADMIN_ID,
         email=DEMO_ADMIN_EMAIL,
         password_hash=DEMO_ADMIN_DISABLED_PASSWORD_HASH,
         role=UserRole.ADMIN,
+    )
+    demo_customer_id = _store_user(
+        creation_session_factory,
+        user_id=DEMO_CUSTOMER_ID,
+        email=DEMO_CUSTOMER_EMAIL,
+        password_hash=DEMO_CUSTOMER_DISABLED_PASSWORD_HASH,
+        role=UserRole.CUSTOMER,
     )
     application = _application(
         creation_session_factory,
@@ -593,22 +605,39 @@ def test_demo_guest_and_exact_demo_admin_create_unowned_runtime_orders(
                 user_token_service.create_access_token(demo_admin_id)
             ),
         )
+        demo_customer_response = test_client.post(
+            CREATE_PATH,
+            json=_takeaway_payload(menu_records),
+            headers=_authorization(
+                user_token_service.create_access_token(demo_customer_id)
+            ),
+        )
 
-    assert guest_response.status_code == demo_admin_response.status_code == 201
-    response_bodies = [guest_response.json(), demo_admin_response.json()]
     assert (
-        response_bodies[0]["order_access_token"]
-        != response_bodies[1]["order_access_token"]
+        guest_response.status_code
+        == demo_admin_response.status_code
+        == demo_customer_response.status_code
+        == 201
     )
+    response_bodies = [
+        guest_response.json(),
+        demo_admin_response.json(),
+        demo_customer_response.json(),
+    ]
+    assert len({body["order_access_token"] for body in response_bodies}) == 3
     with creation_session_factory() as session:
         orders_by_number = {
             order.public_order_number: order
             for order in session.scalars(select(Order)).all()
         }
-        for body in response_bodies:
+        for body, expected_owner in zip(
+            response_bodies,
+            (None, None, DEMO_CUSTOMER_ID),
+            strict=True,
+        ):
             order = orders_by_number[body["public_order_number"]]
             assert order.data_origin == OrderDataOrigin.PORTFOLIO_RUNTIME.value
-            assert order.customer_user_id is None
+            assert order.customer_user_id == expected_owner
             assert order.order_access_token_hash == hash_order_access_token(
                 body["order_access_token"]
             )

@@ -30,6 +30,8 @@ projects:
                 value: "true"
               - key: DEMO_SESSION_ISSUANCE_ENABLED
                 value: "true"
+              - key: CUSTOMER_DEMO_SESSION_ISSUANCE_ENABLED
+                value: "false"
               - key: PAYMENT_PROVIDER
                 value: demo
               - key: TRUSTED_PROXY_MODE
@@ -77,6 +79,8 @@ projects:
                 value: "true"
               - key: VITE_ENABLE_DEMO_SESSION
                 value: "true"
+              - key: VITE_ENABLE_CUSTOMER_DEMO_SESSION
+                value: "false"
             routes:
               - type: rewrite
                 source: /*

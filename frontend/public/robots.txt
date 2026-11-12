@@ -1,0 +1,11 @@
+User-agent: *
+Allow: /
+Allow: /menu
+Disallow: /account
+Disallow: /admin
+Disallow: /cart
+Disallow: /login
+Disallow: /orders
+Disallow: /register
+
+Sitemap: https://nordic.kamilsarbian.dev/sitemap.xml

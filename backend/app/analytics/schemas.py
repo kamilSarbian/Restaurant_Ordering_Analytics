@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -50,6 +51,16 @@ class AnalyticsRangeResponse(BaseModel):
 
     start: AwareDatetime
     end: AwareDatetime
+    timezone: Literal["Europe/Oslo"]
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class AnalyticsSamplePeriodResponse(BaseModel):
+    """Represent the canonical historical demo period as inclusive local dates."""
+
+    start_date: date
+    end_date: date
     timezone: Literal["Europe/Oslo"]
 
     model_config = ConfigDict(extra="forbid")

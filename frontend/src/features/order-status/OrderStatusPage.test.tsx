@@ -341,10 +341,9 @@ describe('OrderStatusPage', () => {
     });
     const brandName = screen.getByText('Nordic Hearth');
     expect(screen.getAllByText('Nordic Hearth')).toHaveLength(1);
-    expect(brandName.parentElement?.querySelector('svg')).toHaveAttribute(
-      'aria-hidden',
-      'true',
-    );
+    expect(
+      brandName.parentElement?.querySelector('[aria-hidden="true"] img'),
+    ).toHaveAttribute('src', '/images/brand/logo/nordic-hearth-logo.png');
     expect(screen.queryByRole('img')).not.toBeInTheDocument();
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
     const orderNumber = screen.getByText(MAX_PUBLIC_ORDER_NUMBER);

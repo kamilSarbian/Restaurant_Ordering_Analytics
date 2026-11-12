@@ -1,13 +1,12 @@
 """Read-only customer account services for personally owned Orders."""
 
-from uuid import UUID
-
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.auth.models import User
 from app.orders.access import (
     CustomerOrderAccessDeniedError,
+    CustomerOrderAccessPolicy,
     build_order_status_response,
     resolve_customer_order_access_policy,
 )
@@ -50,13 +49,17 @@ def list_account_orders(
     Raises:
         AccountOrderAccessDeniedError: If actor or runtime policy denies access.
     """
-    current_user_id = _account_owner_id(
+    policy = _account_access_policy(
         current_user=current_user,
         portfolio_demo_mode=portfolio_demo_mode,
         payment_provider=payment_provider,
     )
-    owner_filter = Order.customer_user_id == current_user_id
-    total = session.scalar(select(func.count()).select_from(Order).where(owner_filter))
+    owner_filters = [Order.customer_user_id == policy.effective_owner_id]
+    if policy.account_origin_scope is not None:
+        owner_filters.append(Order.data_origin == policy.account_origin_scope.value)
+    total = session.scalar(
+        select(func.count()).select_from(Order).where(*owner_filters)
+    )
     order_rows = (
         session.execute(
             select(
@@ -68,7 +71,7 @@ def list_account_orders(
                 Order.created_at,
                 Order.updated_at,
             )
-            .where(owner_filter)
+            .where(*owner_filters)
             .order_by(Order.created_at.desc(), Order.id.desc())
             .limit(limit)
             .offset(offset)
@@ -119,7 +122,7 @@ def get_account_order(
         AccountOrderAccessDeniedError: If actor or runtime policy denies access.
         AccountOrderNotFoundError: If the Order is unknown or not personally owned.
     """
-    current_user_id = _account_owner_id(
+    policy = _account_access_policy(
         current_user=current_user,
         portfolio_demo_mode=portfolio_demo_mode,
         payment_provider=payment_provider,
@@ -139,7 +142,12 @@ def get_account_order(
                 Order.updated_at,
             ).where(
                 Order.public_order_number == public_order_number,
-                Order.customer_user_id == current_user_id,
+                Order.customer_user_id == policy.effective_owner_id,
+                *(
+                    (Order.data_origin == policy.account_origin_scope.value,)
+                    if policy.account_origin_scope is not None
+                    else ()
+                ),
             )
         )
         .mappings()
@@ -166,13 +174,13 @@ def get_account_order(
     return build_order_status_response(order_row=order_row, item_rows=item_rows)
 
 
-def _account_owner_id(
+def _account_access_policy(
     *,
     current_user: User,
     portfolio_demo_mode: bool | None,
     payment_provider: str | None,
-) -> UUID:
-    """Return the normal-runtime owner ID before any account-domain query."""
+) -> CustomerOrderAccessPolicy:
+    """Return the exact account access policy before any account-domain query."""
     try:
         policy = resolve_customer_order_access_policy(
             current_user=current_user,
@@ -183,4 +191,4 @@ def _account_owner_id(
         raise AccountOrderAccessDeniedError from None
     if not policy.account_reads_allowed or policy.effective_owner_id is None:
         raise AccountOrderAccessDeniedError
-    return policy.effective_owner_id
+    return policy

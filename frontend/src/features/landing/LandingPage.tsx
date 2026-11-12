@@ -3,11 +3,10 @@ import { Link } from 'react-router-dom';
 import BrandMark from '../../components/branding/BrandMark';
 import { isPortfolioModeEnabled } from '../../config/portfolioMode';
 import { useAuth } from '../auth/AuthContext';
+import HeroCarousel from './HeroCarousel';
 import styles from './LandingPage.module.css';
 
 const LANDING_LOGO_IMAGE_SIZES = '(min-width: 48rem) 18rem, min(72vw, 18rem)';
-const LANDING_HERO_IMAGE_SIZES =
-  '(min-width: 76rem) calc(36rem - 1px), (min-width: 64rem) calc(50vw - 2rem - 1px), (min-width: 48rem) calc(100vw - 4rem - 2px), calc(100vw - 2rem - 2px)';
 const LANDING_STORY_IMAGE_SIZES =
   '(min-width: 64rem) 28rem, (min-width: 48rem) 40vw, calc(100vw - 2rem)';
 
@@ -17,14 +16,6 @@ const brandLogo = {
   webpSrcSet:
     '/images/brand/optimized/logo/nordic-hearth-logo-320w.webp 320w, /images/brand/optimized/logo/nordic-hearth-logo-640w.webp 640w',
   width: 2172,
-} as const;
-
-const heroImage = {
-  height: 941,
-  pngSrc: '/images/brand/hero/restaurant-hero.png',
-  webpSrcSet:
-    '/images/brand/optimized/hero/restaurant-hero-640w.webp 640w, /images/brand/optimized/hero/restaurant-hero-1024w.webp 1024w, /images/brand/optimized/hero/restaurant-hero-1600w.webp 1600w',
-  width: 1672,
 } as const;
 
 const storyImage = {
@@ -37,7 +28,7 @@ const storyImage = {
 
 const CURATED_MENU_PREVIEW = [
   { category: 'Main Courses', name: 'Pan-Seared Cod' },
-  { category: 'Desserts', name: 'Warm Apple Cake' },
+  { category: 'Desserts', name: 'Seasonal dessert' },
   { category: 'Drinks', name: 'Cloudberry Spritz' },
 ] as const;
 
@@ -79,7 +70,8 @@ export default function LandingPage() {
             </h1>
             <p className={styles.introduction}>
               Explore starters, main courses, burgers, desserts, and non-alcoholic
-              drinks, then order in a few clear steps.
+              drinks, then order in a few clear steps. The free demo service may need a
+              short wake-up on the first request.
             </p>
           </div>
 
@@ -98,6 +90,13 @@ export default function LandingPage() {
               </>
             )}
           </nav>
+
+          {portfolioModeEnabled ? (
+            <p className={styles.demoDisclosure}>
+              Portfolio demo only: orders and payments are synthetic. No real money is
+              charged and no food is delivered.
+            </p>
+          ) : null}
 
           {phase === 'checking-session' && (
             <div className={styles.sessionNotice} role={'status'} aria-live={'polite'}>
@@ -156,31 +155,7 @@ export default function LandingPage() {
           )}
         </div>
 
-        <figure className={styles.heroMedia}>
-          <picture className={styles.heroPicture}>
-            <source
-              sizes={LANDING_HERO_IMAGE_SIZES}
-              srcSet={heroImage.webpSrcSet}
-              type={'image/webp'}
-            />
-            <img
-              alt={'A candlelit dining table set with Nordic-inspired dishes'}
-              className={styles.heroImage}
-              decoding={'async'}
-              fetchPriority={'high'}
-              height={heroImage.height}
-              loading={'eager'}
-              sizes={LANDING_HERO_IMAGE_SIZES}
-              src={heroImage.pngSrc}
-              width={heroImage.width}
-            />
-          </picture>
-          <figcaption className={styles.heroCaption}>
-            <span>Nordic atmosphere</span>
-            <strong>Warmth at the table</strong>
-            <span>Seasonal dining</span>
-          </figcaption>
-        </figure>
+        <HeroCarousel />
       </section>
 
       <section className={styles.menuStory} aria-labelledby={'menu-story-heading'}>
@@ -273,6 +248,13 @@ export default function LandingPage() {
         <Link className={styles.finalAction} to={'/menu'}>
           Open the menu
         </Link>
+        <a
+          className={styles.caseStudyLink}
+          href="https://www.kamilsarbian.dev/projects/nordic-hearth"
+          rel="noreferrer"
+        >
+          Read the project case study
+        </a>
       </section>
     </div>
   );

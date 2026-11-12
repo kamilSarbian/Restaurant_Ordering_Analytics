@@ -34,6 +34,8 @@ const ORDER_TYPE_KEYS = [
   'succeeded_orders_count',
   'collected_revenue_amount',
 ] as const;
+const SAMPLE_PERIOD_KEYS = ['start_date', 'end_date', 'timezone'] as const;
+const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 export interface AdminAnalyticsQuery {
   currency?: string;
@@ -61,6 +63,12 @@ export interface AdminAnalyticsOverviewCurrency {
 export interface AdminAnalyticsOverview {
   currencies: AdminAnalyticsOverviewCurrency[];
   range: AdminAnalyticsRange;
+}
+
+export interface AdminAnalyticsSamplePeriod {
+  endDate: string;
+  startDate: string;
+  timezone: 'Europe/Oslo';
 }
 
 export interface AdminProductSalesItem {
@@ -135,6 +143,29 @@ function isAwareTimestamp(value: unknown): value is string {
     AWARE_TIMESTAMP_PATTERN.test(value) &&
     !Number.isNaN(Date.parse(value))
   );
+}
+
+function isDateOnly(value: unknown): value is string {
+  if (typeof value !== 'string' || !DATE_ONLY_PATTERN.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+function parseSamplePeriod(value: unknown): AdminAnalyticsSamplePeriod {
+  if (
+    !hasExactKeys(value, SAMPLE_PERIOD_KEYS) ||
+    !isDateOnly(value.start_date) ||
+    !isDateOnly(value.end_date) ||
+    value.start_date > value.end_date ||
+    value.timezone !== 'Europe/Oslo'
+  ) {
+    return invalidResponse();
+  }
+  return {
+    endDate: value.end_date,
+    startDate: value.start_date,
+    timezone: value.timezone,
+  };
 }
 
 function parseRange(value: unknown): AdminAnalyticsRange {
@@ -300,6 +331,19 @@ export async function fetchAdminAnalyticsOverview(
   );
   validateResponseRange(parsed.range, query);
   return parsed;
+}
+
+/** Fetch the canonical historical demo period for the exact portfolio runtime. */
+export async function fetchAdminAnalyticsSamplePeriod(
+  accessToken: string,
+  signal?: AbortSignal,
+): Promise<AdminAnalyticsSamplePeriod> {
+  return parseSamplePeriod(
+    await adminRequestJson(`${ANALYTICS_PATH}/sample-period`, {
+      accessToken,
+      signal,
+    }),
+  );
 }
 
 /** Fetch strict historical product sales in backend rank order. */

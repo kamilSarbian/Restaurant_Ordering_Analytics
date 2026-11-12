@@ -4,6 +4,7 @@ import { Link, Navigate, useSearchParams } from 'react-router-dom';
 import BrandMark from '../../components/branding/BrandMark';
 import Button from '../../components/ui/Button';
 import Notice from '../../components/ui/Notice';
+import { isCustomerDemoSessionEntryEnabled } from '../../config/customerDemoSession';
 import { isDemoSessionEntryEnabled } from '../../config/demoSession';
 import { isPortfolioModeEnabled } from '../../config/portfolioMode';
 import { useAuth, type AuthActionOutcome } from './AuthContext';
@@ -57,24 +58,28 @@ function outcomeMessage(outcome: AuthActionOutcome): string {
   }
 }
 
-function demoOutcomeMessage(outcome: AuthActionOutcome): string {
+function demoOutcomeMessage(
+  outcome: AuthActionOutcome,
+  demoLabel: 'admin' | 'customer',
+): string {
+  const label = `${demoLabel} demo`;
   switch (outcome.kind) {
     case 'rate-limited':
       return 'Too many demo requests. Try again later.';
     case 'service-unavailable':
     case 'session-unavailable':
-      return 'The admin demo is temporarily unavailable.';
+      return `The ${label} is temporarily unavailable.`;
     case 'timeout':
-      return 'The admin demo timed out. Try again.';
+      return `The ${label} timed out. Try again.`;
     case 'network':
-      return 'Could not start the admin demo. Check your connection.';
+      return `Could not start the ${label}. Check your connection.`;
     case 'aborted':
-      return 'The admin demo request was cancelled.';
+      return `The ${label} request was cancelled.`;
     case 'invalid-response':
     case 'account-exists':
     case 'invalid-credentials':
     case 'validation':
-      return 'Could not start the admin demo. Try again later.';
+      return `Could not start the ${label}. Try again later.`;
     case 'authenticated':
       return '';
   }
@@ -82,15 +87,26 @@ function demoOutcomeMessage(outcome: AuthActionOutcome): string {
 
 /** Render the role-neutral Nordic Hearth sign-in experience. */
 export default function LoginPage() {
-  const { login, logout, phase, retrySession, startDemoSession, user } = useAuth();
+  const {
+    login,
+    logout,
+    phase,
+    retrySession,
+    startCustomerDemoSession,
+    startDemoSession,
+    user,
+  } = useAuth();
   const [searchParams] = useSearchParams();
   const demoSessionEntryEnabled = isDemoSessionEntryEnabled();
+  const customerDemoSessionEntryEnabled = isCustomerDemoSessionEntryEnabled();
   const portfolioModeEnabled = isPortfolioModeEnabled();
   const emailRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
   const submitButtonRef = useRef<HTMLButtonElement>(null);
   const demoButtonRef = useRef<HTMLButtonElement>(null);
+  const customerDemoButtonRef = useRef<HTMLButtonElement>(null);
   const demoRequestActiveRef = useRef(false);
+  const demoFocusTargetRef = useRef<'admin' | 'customer'>('admin');
   const restoreSubmitFocusRef = useRef(false);
   const restoreDemoFocusRef = useRef(false);
   const [email, setEmail] = useState('');
@@ -99,7 +115,10 @@ export default function LoginPage() {
   const [feedback, setFeedback] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [demoSubmitting, setDemoSubmitting] = useState(false);
-  const [demoNavigationRequested, setDemoNavigationRequested] = useState(false);
+  const [customerDemoSubmitting, setCustomerDemoSubmitting] = useState(false);
+  const [demoNavigationTarget, setDemoNavigationTarget] = useState<
+    'admin' | 'customer' | null
+  >(null);
   const [retrySeconds, setRetrySeconds] = useState(0);
   const [demoRetrySeconds, setDemoRetrySeconds] = useState(0);
   const [passwordVisible, setPasswordVisible] = useState(false);
@@ -143,7 +162,7 @@ export default function LoginPage() {
   }, [retrySeconds, submitting]);
 
   useEffect(() => {
-    if (demoSubmitting || !restoreDemoFocusRef.current) {
+    if (demoSubmitting || customerDemoSubmitting || !restoreDemoFocusRef.current) {
       return;
     }
 
@@ -156,12 +175,21 @@ export default function LoginPage() {
       return;
     }
 
-    demoButtonRef.current?.focus();
+    if (demoFocusTargetRef.current === 'customer') {
+      customerDemoButtonRef.current?.focus();
+    } else {
+      demoButtonRef.current?.focus();
+    }
     restoreDemoFocusRef.current = false;
-  }, [demoRetrySeconds, demoSubmitting]);
+  }, [customerDemoSubmitting, demoRetrySeconds, demoSubmitting]);
 
   if (phase === 'authenticated' && user !== null) {
-    const next = demoNavigationRequested ? '/admin' : searchParams.get('next');
+    const next =
+      demoNavigationTarget === 'admin'
+        ? '/admin'
+        : demoNavigationTarget === 'customer'
+          ? '/account'
+          : searchParams.get('next');
     const safeNext = parseSafeNext(next);
     const denied =
       user.role === 'customer' && safeNext !== null && isAdminContinuation(safeNext);
@@ -236,7 +264,7 @@ export default function LoginPage() {
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (submitting || demoSubmitting || retrySeconds > 0) {
+    if (submitting || demoSubmitting || customerDemoSubmitting || retrySeconds > 0) {
       return;
     }
     const nextErrors = validate();
@@ -252,7 +280,7 @@ export default function LoginPage() {
     }
 
     restoreSubmitFocusRef.current = document.activeElement === submitButtonRef.current;
-    setDemoNavigationRequested(false);
+    setDemoNavigationTarget(null);
     setSubmitting(true);
     setFeedback('Signing in and validating your session…');
     const outcome = await login(email, password);
@@ -267,9 +295,11 @@ export default function LoginPage() {
     setFeedback(outcomeMessage(outcome));
   };
 
-  const handleDemoSession = async () => {
+  const handleDemoSession = async (demoKind: 'admin' | 'customer') => {
+    const enabled =
+      demoKind === 'admin' ? demoSessionEntryEnabled : customerDemoSessionEntryEnabled;
     if (
-      !demoSessionEntryEnabled ||
+      !enabled ||
       demoRequestActiveRef.current ||
       submitting ||
       demoRetrySeconds > 0
@@ -278,12 +308,22 @@ export default function LoginPage() {
     }
 
     demoRequestActiveRef.current = true;
-    setDemoNavigationRequested(true);
-    restoreDemoFocusRef.current = document.activeElement === demoButtonRef.current;
-    setDemoSubmitting(true);
-    setFeedback('Starting the admin demo and validating its session…');
+    demoFocusTargetRef.current = demoKind;
+    setDemoNavigationTarget(demoKind);
+    restoreDemoFocusRef.current =
+      document.activeElement ===
+      (demoKind === 'admin' ? demoButtonRef.current : customerDemoButtonRef.current);
+    if (demoKind === 'admin') {
+      setDemoSubmitting(true);
+    } else {
+      setCustomerDemoSubmitting(true);
+    }
+    setFeedback(`Starting the ${demoKind} demo and validating its session…`);
     try {
-      const outcome = await startDemoSession();
+      const outcome =
+        demoKind === 'admin'
+          ? await startDemoSession()
+          : await startCustomerDemoSession();
       if (outcome.kind === 'authenticated') {
         return;
       }
@@ -291,12 +331,16 @@ export default function LoginPage() {
         setDemoRetrySeconds(outcome.retryAfterSeconds ?? 0);
       }
       if (outcome.kind !== 'session-unavailable') {
-        setDemoNavigationRequested(false);
+        setDemoNavigationTarget(null);
       }
-      setFeedback(demoOutcomeMessage(outcome));
+      setFeedback(demoOutcomeMessage(outcome, demoKind));
     } finally {
       demoRequestActiveRef.current = false;
-      setDemoSubmitting(false);
+      if (demoKind === 'admin') {
+        setDemoSubmitting(false);
+      } else {
+        setCustomerDemoSubmitting(false);
+      }
     }
   };
 
@@ -306,6 +350,10 @@ export default function LoginPage() {
     demoRetrySeconds > 0
       ? `Try admin demo in ${demoRetrySeconds} seconds`
       : 'Try admin demo';
+  const customerDemoRetryLabel =
+    demoRetrySeconds > 0
+      ? `Try customer demo in ${demoRetrySeconds} seconds`
+      : 'Try customer demo';
   const demoSessionAccess = demoSessionEntryEnabled ? (
     <div className={styles.demoAccess}>
       {!portfolioModeEnabled ? (
@@ -320,14 +368,35 @@ export default function LoginPage() {
         ref={demoButtonRef}
         className={styles.demoButton}
         type="button"
-        disabled={submitting || demoRetrySeconds > 0}
+        disabled={submitting || customerDemoSubmitting || demoRetrySeconds > 0}
         loading={demoSubmitting}
         loadingLabel="Starting admin demo"
         size="lg"
         variant="secondary"
-        onClick={() => void handleDemoSession()}
+        onClick={() => void handleDemoSession('admin')}
       >
         {demoRetryLabel}
+      </Button>
+    </div>
+  ) : null;
+  const customerDemoSessionAccess = customerDemoSessionEntryEnabled ? (
+    <div className={styles.demoAccess}>
+      <p className={styles.demoGuidance}>
+        Explore a shared synthetic customer account and its order history. Other demo
+        visitors may see the same account activity.
+      </p>
+      <Button
+        ref={customerDemoButtonRef}
+        className={styles.demoButton}
+        type="button"
+        disabled={submitting || demoSubmitting || demoRetrySeconds > 0}
+        loading={customerDemoSubmitting}
+        loadingLabel="Starting customer demo"
+        size="lg"
+        variant="secondary"
+        onClick={() => void handleDemoSession('customer')}
+      >
+        {customerDemoRetryLabel}
       </Button>
     </div>
   ) : null;
@@ -343,19 +412,33 @@ export default function LoginPage() {
           <div className={styles.heading}>
             <p className="eyebrow">Portfolio access</p>
             <h1 id="portfolio-login-heading">
-              {demoSessionEntryEnabled
-                ? 'Explore the administrator demo'
+              {demoSessionEntryEnabled || customerDemoSessionEntryEnabled
+                ? 'Choose a portfolio demo path'
                 : 'Account access is unavailable'}
             </h1>
           </div>
           <p className={styles.intro}>
-            {demoSessionEntryEnabled
-              ? 'Start a temporary demo session without a password.'
+            {demoSessionEntryEnabled || customerDemoSessionEntryEnabled
+              ? 'Start a temporary shared session without a password, or browse and order as a guest.'
               : 'Password sign-in is not available in this portfolio experience.'}
           </p>
+          <div className={styles.demoAccess}>
+            <p className={styles.demoGuidance}>
+              Guest checkout uses a private order link for this browser and does not
+              create an account.
+            </p>
+            <Link className={styles.backLink} to="/menu">
+              Continue as guest
+            </Link>
+          </div>
+          {customerDemoSessionAccess}
           {demoSessionAccess}
+          <p className={styles.guidance}>
+            The free demo service may need a short wake-up before the first request
+            completes.
+          </p>
           <Link className={styles.backLink} to="/menu">
-            ← Back to Menu
+            Back to Menu
           </Link>
           <div className={styles.feedbackSlot}>
             {feedback !== '' ? (
@@ -383,7 +466,7 @@ export default function LoginPage() {
         </div>
         <p className={styles.intro}>Use your customer or administrator account.</p>
         <form
-          aria-busy={submitting || demoSubmitting}
+          aria-busy={submitting || demoSubmitting || customerDemoSubmitting}
           className={styles.form}
           noValidate
           onSubmit={(event) => void handleSubmit(event)}
@@ -448,7 +531,7 @@ export default function LoginPage() {
             ref={submitButtonRef}
             className={styles.submitButton}
             type="submit"
-            disabled={demoSubmitting || retrySeconds > 0}
+            disabled={demoSubmitting || customerDemoSubmitting || retrySeconds > 0}
             loading={submitting}
             loadingLabel="Signing in"
             size="lg"

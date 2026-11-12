@@ -156,7 +156,7 @@ describe('shared login page', () => {
         expect(
           await screen.findByRole('heading', {
             name: demoEntry
-              ? 'Explore the administrator demo'
+              ? 'Choose a portfolio demo path'
               : 'Account access is unavailable',
           }),
         ).toBeVisible();
@@ -210,6 +210,69 @@ describe('shared login page', () => {
       '/api/v1/auth/demo-session',
       '/api/v1/auth/me',
     ]);
+  });
+
+  it('starts one customer demo request and navigates to account only after me', async () => {
+    vi.stubEnv('VITE_PORTFOLIO_MODE', 'true');
+    vi.stubEnv('VITE_ENABLE_CUSTOMER_DEMO_SESSION', 'true');
+    const currentUserResponse = deferredResponse();
+    const stub = installFetchStub(
+      { json: TOKEN_RESPONSE },
+      { responsePromise: currentUserResponse.promise },
+    );
+    const user = userEvent.setup();
+    const { router } = renderLogin('/login?demo=customer&next=%2Faccount');
+
+    const button = await screen.findByRole('button', {
+      name: 'Try customer demo',
+    });
+    await user.click(button);
+    fireEvent.click(button);
+
+    expect(stub.calls).toHaveLength(2);
+    expect(stub.calls[0]).toMatchObject({
+      body: null,
+      method: 'POST',
+      url: '/api/v1/auth/customer-demo-session',
+    });
+    expect(
+      screen.getByRole('heading', { name: 'Checking your session' }),
+    ).toBeVisible();
+    expect(router.state.location.pathname).toBe('/login');
+
+    await act(async () => {
+      currentUserResponse.resolve(
+        new Response(JSON.stringify(currentUser('customer')), {
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+    });
+
+    expect(
+      await screen.findByRole('heading', { name: 'Account destination' }),
+    ).toBeVisible();
+    expect(router.state.location.pathname).toBe('/account');
+  });
+
+  it('shows a safe customer-demo rate limit without retrying', async () => {
+    vi.stubEnv('VITE_PORTFOLIO_MODE', 'true');
+    vi.stubEnv('VITE_ENABLE_CUSTOMER_DEMO_SESSION', 'true');
+    const stub = installFetchStub({
+      headers: { 'Retry-After': '11' },
+      status: 429,
+    });
+    const user = userEvent.setup();
+    renderLogin();
+
+    await user.click(await screen.findByRole('button', { name: 'Try customer demo' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Too many demo requests. Try again later.',
+    );
+    expect(
+      screen.getByRole('button', { name: 'Try customer demo in 11 seconds' }),
+    ).toBeDisabled();
+    expect(stub.calls).toHaveLength(1);
   });
 
   it('starts the enabled admin demo without credentials and navigates only after me', async () => {

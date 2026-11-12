@@ -1,5 +1,19 @@
 .mark {
     display: block;
     flex: none;
-    color: inherit;
+    overflow: hidden;
+}
+
+.mark picture {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+.mark img {
+    display: block;
+    width: auto;
+    max-width: none;
+    height: 140%;
+    transform: translateY(-14%);
 }

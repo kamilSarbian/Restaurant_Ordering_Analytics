@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.dialects import postgresql
 
 from app.auth.demo_admin import DEMO_ADMIN_EMAIL, DEMO_ADMIN_ID
+from app.auth.demo_customer import DEMO_CUSTOMER_EMAIL, DEMO_CUSTOMER_ID
 from app.auth.dependencies import get_current_user
 from app.auth.models import User
 from app.auth.roles import UserRole
@@ -131,6 +132,18 @@ def _user(kind: str) -> User:
             UserRole.SUPER_ADMIN,
             True,
         ),
+        "customer_reserved_id_super_admin": (
+            DEMO_CUSTOMER_ID,
+            "customer-reserved-id-super-admin@example.com",
+            UserRole.SUPER_ADMIN,
+            True,
+        ),
+        "customer_reserved_email_super_admin": (
+            UUID("00000000-0000-4000-8000-00000000e106"),
+            DEMO_CUSTOMER_EMAIL,
+            UserRole.SUPER_ADMIN,
+            True,
+        ),
         "inactive_super_admin": (
             UUID("00000000-0000-4000-8000-00000000e103"),
             "inactive-user-super-admin@example.com",
@@ -177,6 +190,18 @@ def _user(kind: str) -> User:
             TARGET_ID,
             DEMO_ADMIN_EMAIL,
             UserRole.ADMIN,
+            True,
+        ),
+        "target_customer_reserved_id": (
+            DEMO_CUSTOMER_ID,
+            "customer-reserved-target-id@example.com",
+            UserRole.CUSTOMER,
+            True,
+        ),
+        "target_customer_reserved_email": (
+            TARGET_ID,
+            DEMO_CUSTOMER_EMAIL,
+            UserRole.CUSTOMER,
             True,
         ),
     }
@@ -288,6 +313,18 @@ DENIED_POLICY_CASES = (
         id="reserved-email-actor",
     ),
     pytest.param(
+        "customer_reserved_id_super_admin",
+        False,
+        PaymentProvider.STRIPE_TEST.value,
+        id="customer-reserved-id-actor",
+    ),
+    pytest.param(
+        "customer_reserved_email_super_admin",
+        False,
+        PaymentProvider.STRIPE_TEST.value,
+        id="customer-reserved-email-actor",
+    ),
+    pytest.param(
         "inactive_super_admin",
         False,
         PaymentProvider.STRIPE_TEST.value,
@@ -334,7 +371,15 @@ def test_normal_runtime_non_reserved_super_admin_reaches_transaction_boundary() 
     assert session.flush_calls == 0
 
 
-@pytest.mark.parametrize("target", ["target_reserved_id", "target_reserved_email"])
+@pytest.mark.parametrize(
+    "target",
+    [
+        "target_reserved_id",
+        "target_reserved_email",
+        "target_customer_reserved_id",
+        "target_customer_reserved_email",
+    ],
+)
 def test_existing_reserved_target_is_rejected_after_lock_without_mutation(
     target: str,
 ) -> None:

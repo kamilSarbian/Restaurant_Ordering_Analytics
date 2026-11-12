@@ -1,5 +1,56 @@
 # Implementation Status
 
+## Current Reconciliation — 2026-11-10
+
+- **Accepted public administrator baseline:** Stage 22-D public report
+  `stage22d-public-20261110t002125z` completed 14/14 checks with SHA-256
+  `5c02f7d5806cc39f9f85cb3e49d011dc86b3efb66473dbf0bf409f4975e79214`.
+  The accepted application is <https://nordic.kamilsarbian.dev>; the published
+  case study is <https://www.kamilsarbian.dev/projects/nordic-hearth>. The
+  report covers the existing administrator flow, desktop and mobile-width
+  presentation, keyboard/focus, console/network checks, and logout. Reflow was
+  exercised at 640 CSS pixels, not literal 200% browser zoom. This acceptance
+  is evidence for the deployed administrator baseline only.
+- **Existing persistent-data controls:** the committed runtime boundary allows
+  at most 100 `portfolio_runtime` Orders globally and at most three demo
+  Payments per runtime Order, while preserving exact idempotency-key replay.
+  The committed guarded operator reset shares the Order-capacity advisory lock,
+  verifies the exact target, schema, plan, and seed, and deletes only validated
+  runtime aggregates child-first. It is manual, not a cron or automatic prune,
+  and production execution always requires separate authorization.
+- **Current local candidate:** the worktree adds a separate reserved shared
+  customer demo session with exact `customer` role, never `admin` or
+  `super_admin`; owned `portfolio_runtime` Account history; capability-only
+  Checkout; independent default-false backend and frontend customer-session
+  flags; and guarded customer provision/deactivate operator actions. The
+  reserved customer account is not provisioned.
+- **Historical-data and presentation scope:** the same candidate adds persisted
+  sample-period metadata, a Europe/Oslo historical preset with inclusive UI end
+  dates translated to the existing half-open API interval, currency-separated
+  results, and no timestamp shifting or reseeding. It also adds truthful demo
+  payment and guest/customer/admin labels, official logo/carousel presentation,
+  SEO metadata, and cold-start guidance.
+- **Evidence and release boundary:** these candidate bytes are uncommitted and
+  not deployed. Both customer-demo flags remain `false`. Targeted current-byte
+  isolated PostgreSQL evidence was followed by one clean current-byte invocation
+  of all 10 relevant integration files: 308 passed with no filter or retry. The
+  local canonical browser harness then passed three isolated phases with one
+  worker and zero retries: 32/32 in normal `false + stripe_test`, 3/3 in exact
+  portfolio demo with customer issuance disabled while administrator demo and
+  anonymous guest checkout remained available, and 1/1 with customer demo
+  enabled. The last phase verified the exact customer `/auth/me` identity,
+  owned runtime Order/history/detail, capability checkout and status, foreign
+  Order isolation, administrator-route denial without an administrator API
+  read, and logout; the final database and secret-safe log audits also passed.
+  This is local Compose evidence, not CI or public acceptance. Final independent
+  review, public acceptance, commit, CI, customer provisioning, and controlled
+  deployment remain open. Do not attribute the existing public administrator
+  report to this candidate.
+- **Stage status:** Stage 22 remains **in progress** for this candidate and its
+  gates. Stage 23 is **in progress**: the public case study exists, while final
+  screenshots, architecture-presentation material, and any remaining
+  CV-facing closeout remain open.
+
 - **Repository documentation baseline:** AF1+B1-4, B2-1 through B2-3, B3-1
   through B3-2B, and B4-1 are complete and committed. B4-2 provides an
   offline-only demo-administrator provision/verify boundary. The B4-3A1 guard
@@ -110,7 +161,8 @@
   successful `Browser E2E` jobs are general CI regression evidence, not a
   dedicated demo-session browser flow. The later visible-UX implementation is
   gated by exact `VITE_ENABLE_DEMO_SESSION=true`; absent that exact opt-in, the
-  demo entry is disabled. A current uncommitted frontend candidate adds an
+  demo entry is disabled. The then-local frontend candidate, later committed at
+  `90a6c937604fe109fb49b0f451a5e3125410221b`, added an
   independent exact `VITE_PORTFOLIO_MODE=true` presentation boundary. Portfolio
   mode hides password-login and registration links and forms while preserving
   the existing credential-free `Try admin demo` action when its separate flag
@@ -120,7 +172,7 @@
   `Portfolio demo · shared synthetic data` badge uses a presentation-only
   current-tab `sessionStorage` marker that grants no authorization; the backend
   remains authoritative.
-  The current portfolio-mode candidate passed 253/253 targeted frontend tests,
+  That portfolio-mode candidate passed 253/253 targeted frontend tests,
   1237/1237 full frontend tests, typecheck, ESLint with zero errors, Prettier,
   production build, and 104/104 Free Tier contract tests. Earlier visible-UX
   local evidence is 143/143 final targeted frontend tests across three files,
@@ -159,11 +211,13 @@
   `Resources already up to date`; it does not independently prove which exact
   SHA the sync evaluated. Fresh public checks on 2026-11-08 returned 200 for
   health and readiness and exact 404 without token or cookie for the bodyless
-  demo-session request. Backend issuance and frontend visibility are false: no
-  new JWT is issued and the public button remains hidden. The canary token could
+  demo-session request. At that rollback boundary, backend issuance and
+  frontend visibility were false: no new JWT was issued and the public button
+  was hidden. The canary token could
   remain usable until the configured 30-minute TTL expired. This HTTP canary is
   not public full-flow Browser E2E.
-  A current uncommitted frontend candidate adds an independent exact
+  The then-local frontend candidate later committed at
+  `90a6c937604fe109fb49b0f451a5e3125410221b` added an independent exact
   `VITE_PORTFOLIO_MODE=true` Blueprint setting while retaining
   `VITE_ENABLE_DEMO_SESSION=false`. The portfolio presentation hides public
   password-login and registration links, replaces direct `/login` and
@@ -186,8 +240,8 @@
   file records durable implementation scope and acceptance evidence;
   repository history, independent-review records, and CI are authoritative for
   transient commit and run status.
-  Recruiter-facing portfolio documentation and case-study work remain Stage 23
-  and have not started
+  Stage 23 portfolio work is in progress: the public case study is published,
+  while remaining presentation and CV-facing closeout is open.
 - **Stage 1:** completed
 - **Stage 2:** completed
 - **Stage 3:** completed
@@ -328,13 +382,13 @@
   release completed a bounded backend canary at
   `0cb135d9157d3d6fdccbff3e11b605f6bb452933` and rollback at
   `dadc63198295cf3a1f89c44b8a161e8330306bb9`. Both commits passed all four
-  required CI jobs; both Render services are live at the operator-confirmed
-  rollback release with issuance and visibility false. Fresh health, readiness,
-  and exact 404 checks pass, no new demo JWT is issued, and the public button is
-  hidden. The first
+  required CI jobs. The rollback release's false/false configuration, health,
+  readiness, and exact 404 are historical post-canary evidence. The first
   `ROLLBACK_FAIL` remains unexplained; later `ROLLBACK_PASS` is the closing
-  evidence. The canary was not public full-flow Browser E2E. Visible-UI
-  activation and Stage 22-D acceptance remain open. Stage 23 is **not started**.
+  rollback evidence. The canary was not public full-flow Browser E2E. A later
+  public activation completed Stage 22-D with the 14/14 report and public URLs
+  recorded in the current reconciliation above. Stage 22 remains in progress
+  for the distinct local customer-demo candidate; Stage 23 is in progress.
   Repository history alone does not prove later Render/Neon state.
   The guarded deployment seed path is committed at
   `70df05f36bf4075bdb6ad212306bb0bdcb113dc4`, but its reference end, target,
@@ -978,10 +1032,13 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   1,073/1,073 frontend tests and 23/23 synthetic production-preview Playwright
   scenarios, with no JavaScript chunk above 500 kB. This status does not claim a
   production deployment or public URL.
-- **Stage 22 — Production Deployment & Public Acceptance:** **IN PROGRESS**
-  with a public deployment live under disabled issuance and visibility after a
-  bounded backend canary and rollback. Visible-UI activation and Stage 22-D
-  full-flow acceptance have not occurred.
+- **Stage 22 — Production Deployment & Public Acceptance:** **IN PROGRESS**.
+  The existing administrator deployment completed visible Stage 22-D public
+  acceptance with the 14/14 report recorded above. The distinct uncommitted
+  customer-demo, historical-preset, and presentation candidate keeps Stage 22
+  open. It is not deployed; clean current-byte PostgreSQL evidence and dedicated
+  local three-phase customer-demo Browser E2E evidence do not constitute public
+  customer-demo acceptance.
 - **AF1+B1-1 — runtime/config/security:** complete and committed on
   2026-09-18 at `bbb27b97c23ef4360bd4e00e8b1c86daa5ddd838`.
   Fail-closed portfolio/payment configuration, strict public origins/CORS,
@@ -1781,11 +1838,13 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   `Browser E2E` job is the general regression suite and does not constitute a
   dedicated browser test that starts the demo-session path. Later slices added
   the visible button and dedicated browser proof, and the staged false/false
-  deployment plus reserved Neon account were separately verified. The current
-  local pre-activation remediation replaces demo Menu/account error paths with
-  static safe states and adds exact CSP enforcement. Its deployment, public
-  activation, and Stage 22-D Render acceptance remain open. Stage 22 remains in
-  progress, and Stage 23 is not started.
+  deployment plus reserved Neon account were separately verified. At that
+  slice's closeout, the then-current local pre-activation remediation replaced
+  demo Menu/account error paths with static safe states and added exact CSP
+  enforcement; its deployment, public activation, and Stage 22-D Render
+  acceptance were still open. Later slices closed those administrator-demo
+  gates. Stage 22 now remains in progress for the separate local customer-demo
+  candidate, and Stage 23 is in progress.
 
   A later frontend-only plumbing slice adds one bodyless
   `POST /api/v1/auth/demo-session` transport and exposes `startDemoSession()`
@@ -1822,8 +1881,9 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
 
   The later visible-UX implementation adds a public `Try admin demo` link and
   the matching LoginPage action, gated by the exact frontend build value
-  `VITE_ENABLE_DEMO_SESSION=true`. A current uncommitted frontend candidate adds
-  a separate exact `VITE_PORTFOLIO_MODE=true` presentation boundary that hides
+  `VITE_ENABLE_DEMO_SESSION=true`. The then-local candidate later committed at
+  `90a6c937604fe109fb49b0f451a5e3125410221b` added a separate exact
+  `VITE_PORTFOLIO_MODE=true` presentation boundary that hides
   password-login and registration links and forms without enabling that demo
   action. In portfolio mode with the demo-entry flag enabled, `/login` exposes
   only the credential-free demo action; normal non-portfolio builds retain
@@ -1835,7 +1895,7 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   presentation-only current-tab `sessionStorage` marker; this marker cannot
   grant access.
 
-  The current portfolio-mode candidate passed 253 targeted frontend tests and
+  That portfolio-mode candidate passed 253 targeted frontend tests and
   one full frontend run with 1237 passing tests, together with passing
   typecheck, ESLint with zero errors, Prettier, production build, and 104 Free
   Tier contract tests. Earlier visible-UX local evidence comprises 143 passing
@@ -1959,7 +2019,7 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
 - **Stage 22-B0 demo design:** its B3 payment design is implemented through
   B3-2B, and bounded public demo-session issuance plus canonical identity were
   verified and rolled back. The canary did not exercise Order or Payment
-  creation. D-091 now defines a local, uncommitted capacity candidate: one
+  creation. D-091 defines the committed capacity boundary: one
   PostgreSQL transaction advisory lock serializes the global
   `portfolio_runtime` Order count and insert at a maximum of 100, while each
   runtime Order permits at most three demo Payments. Exact existing-key replay
@@ -1972,10 +2032,10 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   without retry, including the 99/100/101 boundary, concurrent creation at 99,
   existing-key Payment replay at capacity, a fourth new-key denial, and
   Orders/Analytics/CSV regressions. The frontend passed 220 targeted tests and
-  1,211 tests in its full suite. Independent review, CI, and deployment remain
-  separate gates. Both public demo flags remain false, and no automatic prune
-  or reset is implemented. D-092 adds a local, uncommitted manual reset
-  candidate through the existing hidden-input deployment operator. It requires
+  1,211 tests in its full suite. Independent review, commit, CI, and later
+  public evidence are recorded separately. No automatic prune is implemented.
+  D-092 adds the committed manual reset
+  boundary through the existing hidden-input deployment operator. It requires
   a separate exact confirmation, target/role/search-path/revision/plan/seed
   checks, the same transaction advisory lock as runtime Order creation, a
   complete safe runtime inventory, child-first deletion, exact rowcount and
@@ -1987,18 +2047,20 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   public demo flags remain false. The current bytes passed 38 operator tests,
   17 focused reset integration tests, and one 461-test isolated PostgreSQL
   regression covering reset, Orders, demo Checkout, Admin Orders, the canonical
-  seed, Analytics, and CSV. Independent review, any production authorization,
-  B5 recruiter UX, and B6 integrated acceptance remain future work.
-- **Stage 22-A/C/D:** the operator-confirmed Render/Neon baseline has schema
-  0009, the canonical seed, an active reserved account, and both services live
-  at rollback commit `dadc63198295cf3a1f89c44b8a161e8330306bb9` with both
-  public flags false. Disabled-state health, readiness, and exact 404 pass. The
-  bounded HTTP canary is closed, but visible-UI activation and public full-flow
-  Browser E2E remain separately authorized under Stage 22-D. A
-  recruiter/portfolio URL may be advertised only after Stage 22-D passes.
-- **Stage 23 — Portfolio Documentation & Case Study:** not started. Final
-  recruiter-facing README/case study, screenshots, architecture presentation,
-  and CV-facing material remain future work.
+  seed, Analytics, and CSV. Any production reset still requires separate
+  authorization.
+- **Stage 22-A/C/D:** the false/false rollback at
+  `dadc63198295cf3a1f89c44b8a161e8330306bb9` remains historical evidence. The
+  later administrator-demo activation passed the 14/14 public Stage 22-D report
+  recorded in the current reconciliation above, and the public custom domain is
+  live. Stage 22 remains in progress only for the distinct local customer-demo,
+  historical-preset, and presentation candidate, whose flags remain false and
+  whose clean current-byte PostgreSQL evidence and dedicated local three-phase
+  customer-demo Browser E2E evidence do not replace public customer-demo
+  acceptance.
+- **Stage 23 — Portfolio Documentation & Case Study:** in progress. The public
+  case study is published; final screenshots, architecture presentation, and
+  remaining CV-facing material remain open.
 
 ## Known limitations
 
@@ -2061,8 +2123,9 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
 - Stage 17 provides a repeatable loopback-only local container stack. Stage 20
   adds deployment-ready configuration, security contracts, portable images,
   migration isolation, and an immutable release blueprint, but does not itself
-  provision a public deployment. Public infrastructure, managed production
-  secrets, and the first controlled online release remain Stage 22 work.
+  provision a public deployment. Stage 22 later provisioned and accepted the
+  public administrator baseline; the local customer-demo candidate remains
+  Stage 22 work.
 - Stage 17 acceptance used programmatic SPA and API HTTP smoke, not browser E2E.
   Stage 18 now supplies the required browser proof through Playwright Test
   1.62.1 and real Chromium only. The in-app browser was unavailable and is not
@@ -2072,9 +2135,10 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   management, Order ownership, read-only own-order API and frontend, and
   `/admin/users` UI are implemented. Refresh tokens, password recovery, MFA,
   and refunds have not started. Continuous integration is implemented and live
-  acceptance-verified, and Stage 20 deployment readiness is complete. Public
-  infrastructure and the first controlled release remain Stage 22; portfolio
-  documentation remains Stage 23.
+  acceptance-verified, and Stage 20 deployment readiness is complete. The
+  public administrator release is accepted; Stage 22 remains open for the local
+  customer-demo candidate, and Stage 23 remains in progress for its remaining
+  portfolio material.
 
 ## Historical Stage 19 verification
 

@@ -22,6 +22,12 @@ const USER = {
   is_active: true,
   role: 'admin',
 };
+const CUSTOMER_USER = {
+  email: 'demo-customer@example.invalid',
+  id: '22222222-2222-4222-8222-222222222222',
+  is_active: true,
+  role: 'customer',
+};
 
 type AuthValue = ReturnType<typeof useAuth>;
 let currentAuth: AuthValue | null = null;
@@ -339,9 +345,61 @@ describe('AuthProvider demo-session flow', () => {
     expect(auth().user).toMatchObject({ id: USER_ID, role: 'admin' });
     expect(auth().getAuthenticatedSession()?.accessToken).toBe(TOKEN);
     expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toContain(TOKEN);
-    expect(sessionStorage.getItem(DEMO_SESSION_STORAGE_KEY)).toContain('demo');
+    expect(auth().demoSessionKind).toBe('admin');
+    expect(sessionStorage.getItem(DEMO_SESSION_STORAGE_KEY)).toContain('admin');
     expect(localStorageWrite).not.toHaveBeenCalled();
   });
+
+  it('validates the customer demo role before exposing account access', async () => {
+    const stub = installFetchStub({ json: tokenResponse() }, { json: CUSTOMER_USER });
+    renderAuth();
+
+    await act(async () => {
+      expect(await auth().startCustomerDemoSession()).toEqual({
+        kind: 'authenticated',
+      });
+    });
+
+    expect(stub.calls.map(({ url }) => url)).toEqual([
+      '/api/v1/auth/customer-demo-session',
+      '/api/v1/auth/me',
+    ]);
+    expect(auth()).toMatchObject({
+      demoSessionKind: 'customer',
+      isDemoSession: true,
+      phase: 'authenticated',
+    });
+    expect(auth().user).toMatchObject({ role: 'customer' });
+    expect(sessionStorage.getItem(DEMO_SESSION_STORAGE_KEY)).toContain('customer');
+  });
+
+  it.each([
+    ['admin endpoint returning customer', 'admin', CUSTOMER_USER],
+    ['customer endpoint returning admin', 'customer', USER],
+  ] as const)(
+    'fails closed when %s role does not match the demo marker',
+    async (_label, demoKind, responseUser) => {
+      installFetchStub({ json: tokenResponse() }, { json: responseUser });
+      renderAuth();
+
+      await act(async () => {
+        const outcome =
+          demoKind === 'admin'
+            ? await auth().startDemoSession()
+            : await auth().startCustomerDemoSession();
+        expect(outcome).toEqual({ kind: 'invalid-credentials' });
+      });
+
+      expect(auth()).toMatchObject({
+        demoSessionKind: null,
+        isDemoSession: false,
+        phase: 'unauthenticated',
+        user: null,
+      });
+      expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toBeNull();
+      expect(sessionStorage.getItem(DEMO_SESSION_STORAGE_KEY)).toBeNull();
+    },
+  );
 
   it.each([
     [404, undefined, { kind: 'service-unavailable' }],

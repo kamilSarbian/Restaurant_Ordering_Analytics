@@ -9,6 +9,7 @@ import {
   clearDemoSessionMarker,
   clearLegacyAuthToken,
   loadAuthToken,
+  loadDemoSessionKind,
   loadDemoSessionMarker,
   loadLegacyAuthToken,
   resetAuthMemoryForTests,
@@ -95,16 +96,37 @@ describe('canonical authentication storage', () => {
     expect(saveDemoSessionMarker()).toBe(true);
 
     expect(loadDemoSessionMarker()).toBe(true);
+    expect(loadDemoSessionKind()).toBe('admin');
     expect(JSON.parse(sessionStorage.getItem(DEMO_SESSION_STORAGE_KEY) ?? '')).toEqual({
-      sessionKind: 'demo',
+      sessionKind: 'admin',
       version: AUTH_STORAGE_VERSION,
     });
+  });
+
+  it('stores and loads a typed customer demo marker', () => {
+    expect(saveDemoSessionMarker('customer')).toBe(true);
+
+    expect(loadDemoSessionKind()).toBe('customer');
+    expect(loadDemoSessionMarker()).toBe(true);
+    expect(JSON.parse(sessionStorage.getItem(DEMO_SESSION_STORAGE_KEY) ?? '')).toEqual({
+      sessionKind: 'customer',
+      version: AUTH_STORAGE_VERSION,
+    });
+  });
+
+  it('migrates the legacy demo marker to the admin presentation kind', () => {
+    sessionStorage.setItem(
+      DEMO_SESSION_STORAGE_KEY,
+      JSON.stringify({ sessionKind: 'demo', version: AUTH_STORAGE_VERSION }),
+    );
+
+    expect(loadDemoSessionKind()).toBe('admin');
   });
 
   it.each([
     '{broken',
     JSON.stringify({ sessionKind: 'demo', version: 2 }),
-    JSON.stringify({ sessionKind: 'customer', version: 1 }),
+    JSON.stringify({ sessionKind: 'owner', version: 1 }),
     JSON.stringify({ sessionKind: 'demo', extra: true, version: 1 }),
   ])('rejects malformed demo presentation marker %s', (serialized) => {
     sessionStorage.setItem(DEMO_SESSION_STORAGE_KEY, serialized);

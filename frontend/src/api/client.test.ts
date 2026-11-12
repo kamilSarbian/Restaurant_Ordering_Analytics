@@ -270,10 +270,17 @@ describe('frontend container build-mode contract', () => {
     expect(runtimeStageIndex).toBeGreaterThan(0);
     const runtimeStage = dockerfile.slice(runtimeStageIndex);
     expect(dockerfile).toContain('ARG VITE_BUILD_MODE=production');
+    expect(dockerfile).toContain('ARG VITE_ENABLE_DEMO_SESSION=false');
+    expect(dockerfile).toContain('ARG VITE_ENABLE_CUSTOMER_DEMO_SESSION=false');
+    expect(dockerfile).toContain('ARG VITE_PORTFOLIO_MODE=false');
     expect(dockerfile).toContain('production|e2e) ;;');
     expect(dockerfile).toContain('npm run build -- --mode "$VITE_BUILD_MODE"');
     expect(dockerfile).not.toMatch(/^ENV\s+VITE_BUILD_MODE=/mu);
+    expect(dockerfile).not.toMatch(/^ENV\s+VITE_ENABLE_(?:CUSTOMER_)?DEMO_SESSION=/mu);
+    expect(dockerfile).not.toMatch(/^ENV\s+VITE_PORTFOLIO_MODE=/mu);
     expect(runtimeStage).not.toContain('VITE_BUILD_MODE');
+    expect(runtimeStage).not.toContain('VITE_ENABLE_CUSTOMER_DEMO_SESSION');
+    expect(runtimeStage).not.toContain('VITE_PORTFOLIO_MODE');
   });
 
   it('selects the literal E2E mode only in the frontend Compose overlay', () => {
@@ -286,6 +293,10 @@ describe('frontend container build-mode contract', () => {
       / {2}frontend:\r?\n {4}build:\r?\n {6}args:\r?\n {8}VITE_BUILD_MODE: e2e\r?\n/u,
     );
     expect(composeOverlay.match(/VITE_BUILD_MODE:/gu)).toHaveLength(1);
+    expect(composeOverlay).toContain(
+      'VITE_ENABLE_CUSTOMER_DEMO_SESSION: ${VITE_ENABLE_CUSTOMER_DEMO_SESSION:',
+    );
+    expect(composeOverlay).toContain('VITE_PORTFOLIO_MODE: ${VITE_PORTFOLIO_MODE:');
     expect(composeOverlay).not.toContain('${VITE_BUILD_MODE');
     expect(composeOverlay).not.toContain('VITE_API_BASE_URL');
   });

@@ -21,6 +21,11 @@ from app.auth.demo_admin import (
     DEMO_ADMIN_EMAIL,
     DEMO_ADMIN_ID,
 )
+from app.auth.demo_customer import (
+    DEMO_CUSTOMER_DISABLED_PASSWORD_HASH,
+    DEMO_CUSTOMER_EMAIL,
+    DEMO_CUSTOMER_ID,
+)
 from app.auth.models import User
 from app.auth.roles import UserRole
 from app.auth.service import (
@@ -275,6 +280,20 @@ def _store_demo_admin(session_factory: sessionmaker[Session]) -> UUID:
     return DEMO_ADMIN_ID
 
 
+def _store_demo_customer(session_factory: sessionmaker[Session]) -> UUID:
+    with session_factory.begin() as session:
+        session.add(
+            User(
+                id=DEMO_CUSTOMER_ID,
+                email=DEMO_CUSTOMER_EMAIL,
+                password_hash=DEMO_CUSTOMER_DISABLED_PASSWORD_HASH,
+                role=UserRole.CUSTOMER,
+                is_active=True,
+            )
+        )
+    return DEMO_CUSTOMER_ID
+
+
 def _authorization(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
@@ -355,6 +374,7 @@ def _assert_demo_status_sql(
     public_order_number: str,
     authenticated: bool,
     child_read_expected: bool,
+    expected_user_id: UUID = DEMO_ADMIN_ID,
 ) -> None:
     records = _captured_records_without_exact_probe(statements, parameter_sets)
     if any(_is_data_writing_statement(statement) for statement, _ in records):
@@ -432,7 +452,7 @@ def _assert_demo_status_sql(
             raise AssertionError("Demo status auth read was not canonical")
         if not isinstance(user_parameters, Mapping):
             raise AssertionError("Demo status auth read did not bind named parameters")
-        if DEMO_ADMIN_ID not in user_parameters.values():
+        if expected_user_id not in user_parameters.values():
             raise AssertionError("Demo status auth read bound the wrong User")
 
     order_statement, order_parameters = order_reads[0]
@@ -894,6 +914,68 @@ def test_demo_status_requires_capability_and_scopes_the_first_order_select(
         )
     assert invalid_bearer.status_code == 401
     assert invalid_bearer.json() == {"detail": "Invalid authentication credentials"}
+
+
+def test_demo_customer_status_requires_capability_despite_shared_ownership(
+    status_session_factory: sessionmaker[Session],
+    test_database_engine: Engine,
+    user_token_service: UserTokenService,
+) -> None:
+    """Keep the shared customer JWT from authorizing public status by itself."""
+    demo_customer_id = _store_demo_customer(status_session_factory)
+    stored = _store_order(
+        status_session_factory,
+        customer_user_id=demo_customer_id,
+        data_origin=OrderDataOrigin.PORTFOLIO_RUNTIME,
+    )
+    authorization = _authorization(
+        user_token_service.create_access_token(demo_customer_id)
+    )
+    application = _application(
+        status_session_factory,
+        user_token_service=user_token_service,
+        portfolio_demo_mode=True,
+        payment_provider=PaymentProvider.DEMO,
+    )
+
+    with TestClient(application) as test_client:
+        jwt_only, statements, parameter_sets = _get_status_with_statement_capture(
+            test_database_engine,
+            test_client,
+            stored.public_order_number,
+            authorization,
+        )
+        if jwt_only.status_code != 404 or jwt_only.json() != {
+            "detail": "Order not found"
+        }:
+            raise AssertionError("Shared customer JWT gained public status authority")
+        _assert_demo_status_sql(
+            statements=statements,
+            parameter_sets=parameter_sets,
+            public_order_number=stored.public_order_number,
+            authenticated=True,
+            child_read_expected=False,
+            expected_user_id=demo_customer_id,
+        )
+
+        capability, statements, parameter_sets = _get_status_with_statement_capture(
+            test_database_engine,
+            test_client,
+            stored.public_order_number,
+            {**authorization, **_headers(stored)},
+        )
+        if capability.status_code != 200:
+            raise AssertionError("Customer capability status access failed")
+        if capability.json().get("public_order_number") != stored.public_order_number:
+            raise AssertionError("Customer capability returned the wrong Order")
+        _assert_demo_status_sql(
+            statements=statements,
+            parameter_sets=parameter_sets,
+            public_order_number=stored.public_order_number,
+            authenticated=True,
+            child_read_expected=True,
+            expected_user_id=demo_customer_id,
+        )
 
 
 def test_invalid_present_authorization_never_falls_back_to_valid_capability(

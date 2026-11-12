@@ -1100,12 +1100,14 @@ def test_openapi_documents_canonical_auth_and_keeps_public_routes_open(
     )
 
     analytics_operations = [
+        document["paths"]["/api/v1/admin/analytics/sample-period"]["get"],
         document["paths"]["/api/v1/admin/analytics/overview"]["get"],
         document["paths"]["/api/v1/admin/analytics/products"]["get"],
         document["paths"]["/api/v1/admin/analytics/categories"]["get"],
         document["paths"]["/api/v1/admin/analytics/order-types"]["get"],
     ]
     assert [operation["summary"] for operation in analytics_operations] == [
+        "Get historical demo data period",
         "Get administrator analytics overview",
         "Get administrator product analytics",
         "Get administrator category analytics",
@@ -1123,6 +1125,7 @@ def test_openapi_documents_canonical_auth_and_keeps_public_routes_open(
         for operation in analytics_operations
     ]
     assert [schema.rsplit("/", 1)[-1] for schema in response_schemas] == [
+        "AnalyticsSamplePeriodResponse",
         "AnalyticsOverviewResponse",
         "AnalyticsProductResponse",
         "AnalyticsCategoryResponse",
@@ -1131,6 +1134,7 @@ def test_openapi_documents_canonical_auth_and_keeps_public_routes_open(
     assert {
         path for path in document["paths"] if "/api/v1/admin/analytics" in path
     } == {
+        "/api/v1/admin/analytics/sample-period",
         "/api/v1/admin/analytics/overview",
         "/api/v1/admin/analytics/products",
         "/api/v1/admin/analytics/categories",

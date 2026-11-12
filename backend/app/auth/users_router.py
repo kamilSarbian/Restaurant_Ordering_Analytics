@@ -17,6 +17,11 @@ from app.auth.demo_admin import (
     DemoAdminDatabaseError,
     verify_demo_admin,
 )
+from app.auth.demo_customer import (
+    DemoCustomerConflictError,
+    DemoCustomerDatabaseError,
+    verify_demo_customer,
+)
 from app.auth.dependencies import get_current_user
 from app.auth.models import User
 from app.auth.service import (
@@ -50,7 +55,8 @@ _PASSWORD_AUTH_PATHS = frozenset(
         "/api/v1/auth/login",
     }
 )
-_DEMO_SESSION_PATH = "/api/v1/auth/demo-session"
+_ADMIN_DEMO_SESSION_PATH = "/api/v1/auth/demo-session"
+_CUSTOMER_DEMO_SESSION_PATH = "/api/v1/auth/customer-demo-session"
 
 
 def _public_password_auth_is_closed(request: Request) -> bool:
@@ -60,15 +66,13 @@ def _public_password_auth_is_closed(request: Request) -> bool:
     return portfolio_demo_mode is not False or payment_provider != "stripe_test"
 
 
-def _public_demo_session_is_closed(request: Request) -> bool:
+def _public_demo_session_is_closed(
+    request: Request, *, issuance_state_name: str
+) -> bool:
     """Return whether trusted runtime state forbids demo-session issuance."""
     portfolio_demo_mode = getattr(request.app.state, "portfolio_demo_mode", None)
     payment_provider = getattr(request.app.state, "payment_provider", None)
-    issuance_enabled = getattr(
-        request.app.state,
-        "demo_session_issuance_enabled",
-        None,
-    )
+    issuance_enabled = getattr(request.app.state, issuance_state_name, None)
     return (
         issuance_enabled is not True
         or portfolio_demo_mode is not True
@@ -84,7 +88,8 @@ class _PublicAuthenticationBoundaryRoute(APIRoute):
     ) -> Callable[[Request], Coroutine[Any, Any, Response]]:
         original_route_handler = super().get_route_handler()
         protects_password_auth = self.path in _PASSWORD_AUTH_PATHS
-        protects_demo_session = self.path == _DEMO_SESSION_PATH
+        protects_admin_demo_session = self.path == _ADMIN_DEMO_SESSION_PATH
+        protects_customer_demo_session = self.path == _CUSTOMER_DEMO_SESSION_PATH
 
         async def guarded_route_handler(request: Request) -> Response:
             if protects_password_auth and _public_password_auth_is_closed(request):
@@ -92,7 +97,19 @@ class _PublicAuthenticationBoundaryRoute(APIRoute):
                     status_code=status.HTTP_404_NOT_FOUND,
                     content={"detail": "Not Found"},
                 )
-            if protects_demo_session and _public_demo_session_is_closed(request):
+            closes_admin_demo = protects_admin_demo_session and (
+                _public_demo_session_is_closed(
+                    request,
+                    issuance_state_name="demo_session_issuance_enabled",
+                )
+            )
+            closes_customer_demo = protects_customer_demo_session and (
+                _public_demo_session_is_closed(
+                    request,
+                    issuance_state_name="customer_demo_session_issuance_enabled",
+                )
+            )
+            if closes_admin_demo or closes_customer_demo:
                 return JSONResponse(
                     status_code=status.HTTP_404_NOT_FOUND,
                     content={"detail": "Not Found"},
@@ -198,6 +215,28 @@ def create_demo_session(request: Request) -> TokenResponse:
     except (DemoAdminConflictError, DemoAdminDatabaseError):
         raise _service_unavailable_error() from None
     return _issue_token(token_service, demo_admin.id)
+
+
+@router.post(
+    "/customer-demo-session",
+    response_model=TokenResponse,
+    summary="Start the portfolio demo customer session",
+    responses={
+        404: {"description": "Demo session is unavailable"},
+        429: {"description": "Demo-session rate limit exceeded"},
+        503: {"description": "Authentication service unavailable"},
+    },
+)
+def create_customer_demo_session(request: Request) -> TokenResponse:
+    """Issue a canonical token for the verified reserved demo customer."""
+    _enforce_demo_session_rate_limit(request)
+    token_service = _get_token_service(request)
+    session_factory = _get_session_factory(request)
+    try:
+        demo_customer = verify_demo_customer(session_factory)
+    except (DemoCustomerConflictError, DemoCustomerDatabaseError):
+        raise _service_unavailable_error() from None
+    return _issue_token(token_service, demo_customer.id)
 
 
 @router.get(

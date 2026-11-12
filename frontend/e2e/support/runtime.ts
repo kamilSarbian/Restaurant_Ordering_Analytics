@@ -6,7 +6,11 @@ import { dirname, join, resolve } from 'node:path';
 import process from 'node:process';
 import { URL } from 'node:url';
 
-const SAFE_ENVIRONMENT_NAMES = new Set(['E2E_BASE_URL', 'E2E_RUN_ID']);
+const SAFE_ENVIRONMENT_NAMES = new Set([
+  'E2E_BASE_URL',
+  'E2E_FOREIGN_ORDER_NUMBER',
+  'E2E_RUN_ID',
+]);
 const RUN_NAME_PREFIX_PATTERN = /^[a-z][a-z0-9-]{2,39}$/u;
 const RUN_ID_PATTERN = /^[a-f0-9]{16}$/u;
 const LOOPBACK_URL_PATTERN =

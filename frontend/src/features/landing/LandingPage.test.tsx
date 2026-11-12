@@ -15,8 +15,6 @@ import LandingPage from './LandingPage';
 const TOKEN = 'synthetic-landing-token';
 const USER_ID = '11111111-1111-4111-8111-111111111111';
 const LANDING_LOGO_IMAGE_SIZES = '(min-width: 48rem) 18rem, min(72vw, 18rem)';
-const LANDING_HERO_IMAGE_SIZES =
-  '(min-width: 76rem) calc(36rem - 1px), (min-width: 64rem) calc(50vw - 2rem - 1px), (min-width: 48rem) calc(100vw - 4rem - 2px), calc(100vw - 2rem - 2px)';
 const LANDING_STORY_IMAGE_SIZES =
   '(min-width: 64rem) 28rem, (min-width: 48rem) 40vw, calc(100vw - 2rem)';
 
@@ -133,7 +131,7 @@ describe('LandingPage', () => {
       'Fresh food, ordered your way',
       'A taste of the menu',
       'Pan-Seared Cod',
-      'Warm Apple Cake',
+      'Seasonal dessert',
       'Cloudberry Spritz',
       'One clear path from menu to order',
       'Browse the menu',
@@ -157,12 +155,8 @@ describe('LandingPage', () => {
       screen.queryByText('Nordic Hearth', { exact: true }),
     ).not.toBeInTheDocument();
     expect(screen.getByText('A Nordic-inspired table')).toBeVisible();
-    const brandMarks = [...container.querySelectorAll('svg')];
+    const brandMarks = [...container.querySelectorAll('[aria-hidden="true"] img')];
     expect(brandMarks.length).toBeGreaterThan(0);
-    for (const brandMark of brandMarks) {
-      expect(brandMark).toHaveAttribute('aria-hidden', 'true');
-      expect(brandMark).toHaveAttribute('focusable', 'false');
-    }
 
     const previewItems = within(
       screen.getByRole('list', { name: 'Menu inspiration' }),
@@ -170,7 +164,7 @@ describe('LandingPage', () => {
     expect(previewItems).toHaveLength(3);
     for (const [index, expected] of [
       { category: 'Main Courses', name: 'Pan-Seared Cod' },
-      { category: 'Desserts', name: 'Warm Apple Cake' },
+      { category: 'Desserts', name: 'Seasonal dessert' },
       { category: 'Drinks', name: 'Cloudberry Spritz' },
     ].entries()) {
       const previewItem = previewItems[index];
@@ -213,10 +207,16 @@ describe('LandingPage', () => {
     expect(heroImage).toHaveAttribute('decoding', 'async');
     expect(heroImage).toHaveAttribute('loading', 'eager');
     expect(heroImage).toHaveAttribute('fetchpriority', 'high');
-    expect(heroImage).toHaveAttribute('sizes', LANDING_HERO_IMAGE_SIZES);
+    expect(heroImage).toHaveAttribute(
+      'sizes',
+      '(min-width: 64rem) 36rem, calc(100vw - 2rem)',
+    );
     const heroSource = heroImage.closest('picture')?.querySelector('source');
     expect(heroSource).toHaveAttribute('type', 'image/webp');
-    expect(heroSource).toHaveAttribute('sizes', LANDING_HERO_IMAGE_SIZES);
+    expect(heroSource).toHaveAttribute(
+      'sizes',
+      '(min-width: 64rem) 36rem, calc(100vw - 2rem)',
+    );
     expect(heroSource).toHaveAttribute(
       'srcset',
       [
@@ -252,11 +252,25 @@ describe('LandingPage', () => {
 
     expect(
       [...container.querySelectorAll('img')].map((image) => image.getAttribute('src')),
-    ).toEqual([
-      '/images/brand/logo/nordic-hearth-logo.png',
-      '/images/brand/hero/restaurant-hero.png',
-      '/images/brand/story/chef-plating-cod.png',
-    ]);
+    ).toEqual(
+      expect.arrayContaining([
+        '/images/brand/logo/nordic-hearth-logo.png',
+        '/images/brand/hero/restaurant-hero.png',
+        '/images/brand/story/chef-plating-cod.png',
+        '/images/brand/story/order-ready-pickup.png',
+      ]),
+    );
+    const pickupImage = container.querySelector(
+      'img[src="/images/brand/story/order-ready-pickup.png"]',
+    );
+    expect(pickupImage).toHaveAttribute('loading', 'lazy');
+    expect(pickupImage?.closest('picture')?.querySelector('source')).toHaveAttribute(
+      'srcset',
+      [
+        '/images/brand/optimized/story/order-ready-pickup-640w.webp 640w',
+        '/images/brand/optimized/story/order-ready-pickup-1024w.webp 1024w',
+      ].join(', '),
+    );
     expect(container.querySelectorAll('img[fetchpriority=high]')).toHaveLength(1);
     expect(container.innerHTML).not.toMatch(
       /images\/brand\/(?:mockups|project-hero)\//u,
@@ -264,6 +278,9 @@ describe('LandingPage', () => {
     expect(container.innerHTML).not.toContain(
       '/images/brand/story/customer-mobile-ordering.png',
     );
+    expect(
+      screen.getByRole('link', { name: 'Read the project case study' }),
+    ).toHaveAttribute('href', 'https://www.kamilsarbian.dev/projects/nordic-hearth');
   });
 
   it('uses the native hero link to open the existing menu route', async () => {

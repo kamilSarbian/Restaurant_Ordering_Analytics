@@ -112,7 +112,8 @@
 .tertiaryAction,
 .secondaryButton,
 .tertiaryButton,
-.finalAction {
+.finalAction,
+.caseStudyLink {
     display: inline-flex;
     min-height: 2.75rem;
     align-items: center;
@@ -184,6 +185,17 @@
     border-left: var(--border-width-accent) solid var(--color-sage-support);
     border-radius: var(--radius-control);
     background: var(--color-canvas);
+}
+
+.demoDisclosure {
+    max-width: 42rem;
+    padding: var(--space-3) var(--space-4);
+    border-left: var(--border-width-accent) solid var(--color-brand-accent);
+    border-radius: var(--radius-control);
+    background: var(--color-warning-surface);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-label);
+    line-height: var(--line-height-body);
 }
 
 .sessionNotice span,
@@ -452,6 +464,19 @@
     border-color: var(--color-sage-support);
     background: var(--color-sage-support);
     color: var(--color-primary-active);
+}
+
+.caseStudyLink {
+    justify-self: start;
+    padding-inline: 0;
+    color: var(--color-sage-support);
+    font-size: var(--font-size-label);
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+}
+
+.caseStudyLink:hover {
+    color: var(--color-text-inverse);
 }
 
 @keyframes landing-logo-enter {

@@ -27,6 +27,45 @@ The goal is to build a secure web application that:
 - provides basic KPIs, reports, and CSV exports;
 - can run locally through Docker Compose and be deployed as a demo.
 
+### Current public baseline and local-candidate boundary (2026-11-10)
+
+The existing public administrator demo passed Stage 22-D in report
+`stage22d-public-20261110t002125z`: 14 of 14 checks passed and the report
+SHA-256 is
+`5c02f7d5806cc39f9f85cb3e49d011dc86b3efb66473dbf0bf409f4975e79214`.
+The accepted public application is <https://nordic.kamilsarbian.dev>, and the
+published case study is
+<https://www.kamilsarbian.dev/projects/nordic-hearth>. Reflow evidence used a
+640 CSS-pixel viewport, not literal 200% browser zoom. Persistent shared-demo
+growth is bounded at 100 `portfolio_runtime` Orders and three demo Payments per
+Order, and a separate guarded operator action resets only validated runtime
+aggregates while preserving canonical seed and live rows.
+
+The current worktree is a distinct **uncommitted, undeployed** candidate. It
+adds a reserved shared customer identity with exact `customer` role, never
+`admin` or `super_admin`; customer-owned `portfolio_runtime` Account history;
+capability-only demo Checkout; independent default-false customer-session
+backend and frontend flags; and guarded operator provision/deactivate actions.
+The customer account has not been provisioned. It also exposes persisted
+historical sample-period metadata to the exact demo administrator and uses a
+Europe/Oslo inclusive-date preset without shifting timestamps or reseeding;
+results remain separated by currency. Public copy and presentation distinguish
+guest, customer, and administrator demo roles, describe demo payment truthfully,
+and add the official brand, carousel, SEO, and cold-start guidance. Targeted
+current-byte isolated PostgreSQL evidence was followed by one clean invocation
+of all 10 relevant integration files: 308 passed with no filter or retry. One
+local canonical browser invocation separately passed 32/32 normal-runtime
+tests, 1/1 administrator-demo test and 2/2 customer-disabled/anonymous-guest
+flow tests, and 1/1 enabled customer-demo lifecycle test, with one worker, zero
+retries, and clean database and secret-safe log audits. This is not CI or public
+customer-demo
+acceptance. Nothing in the accepted public administrator report proves this
+candidate is deployed.
+
+Stage 22 therefore remains in progress. Stage 23 is also in progress: the case
+study is public, while final screenshot, architecture-presentation, and
+CV-facing closeout remain open.
+
 Stages 1 through 19 are complete, verified, and committed. Stage 17's backend
 and frontend images, four-service Compose runtime, readiness/startup gates, and
 isolated container acceptance passed. Stage 18's isolated browser E2E and final
@@ -47,7 +86,7 @@ synthetic production-preview Chromium scenarios, with no JavaScript chunk above
 progress**: AF1+B1-1 through AF1+B1-4, B2-1 through B2-3, B3-1, B3-2A, and
 B3-2B are complete and committed. The B3-2B implementation commit, final
 follow-up commit, and green required CI are recorded in Section 4.14. Stage 23
-— Portfolio Documentation & Case Study is **not started**. Stage 20 itself did
+— Portfolio Documentation & Case Study is **in progress**. Stage 20 itself did
 not create a public deployment or URL; the later Stage 22 provider state is
 recorded below.
 The bounded B4-3B5 customer-order isolation implementation was committed and
@@ -644,10 +683,10 @@ tmpfs mounts, all Linux capabilities dropped, and
 `no-new-privileges`. Nginx overwrites client forwarding headers at the trusted
 proxy hop, while Uvicorn disables proxy-header trust. These controls and the
 loopback host bindings describe the historical Stage 17 local runtime, not a
-public deployment. Stage 20 now defines repository-ready HTTPS, managed-secret,
-trusted-proxy, application-role, and migration-role contracts. No corresponding
-production infrastructure has been provisioned; Stage 22 must provision and
-validate it before public release.
+public deployment. Stage 20 defined the repository-ready HTTPS, managed-secret,
+trusted-proxy, application-role, and migration-role contracts. Stage 22 later
+provisioned and accepted the public administrator baseline described in the
+current reconciliation; the loopback contract itself remains historical.
 
 Stage 17-5 validated the runtime under the unique isolated Compose project
 `roa-stage17-accept-7975ee`, with synthetic configuration, separate loopback
@@ -906,7 +945,8 @@ recruiter UX, B6 integrated acceptance, any further B3 slice, and Stage 23
 remain future work.
 
 The statement above that B2-3 selected no runtime cap remains the historical
-boundary of that completed slice. A later Stage 22 capacity change adds a
+boundary of that completed slice. The later committed Stage 22 capacity change
+adds a
 separate boundary: at most 100 `portfolio_runtime` Orders may
 exist globally, with count and insert serialized under one PostgreSQL
 transaction advisory lock, and each runtime Order may have at most three demo
@@ -915,18 +955,25 @@ the fourth new key is rejected. The candidate returns a stable 503 for Order
 capacity and a stable 409 for Payment capacity, with no committed denial-path
 DML. `portfolio_seed`, `live`, and normal `false + stripe_test` behavior remain
 outside these limits. No automatic reset or prune operation is implemented.
-D-092 adds a local, uncommitted manual-only reset candidate: the existing
+D-092 adds the committed manual-only reset boundary: the existing
 deployment operator revalidates the exact target and canonical seed, shares the
 Order-capacity transaction advisory lock, refuses owned or inconsistent runtime
 aggregates and unsafe Payment/StripeEvent/FK state, and deletes only validated
-runtime children and Orders in one transaction. It is not deployed and has not
-been invoked against Neon. Its local evidence includes 38 operator tests, 17
+runtime children and Orders in one transaction. It has not been invoked against
+Neon. Its local evidence includes 38 operator tests, 17
 focused reset integration tests, and one 461-test isolated PostgreSQL
 regression. The earlier capacity static gates and one complete nine-file
 isolated PostgreSQL invocation passed, with 579 tests and no retry; the
 frontend passed 220 targeted tests and
-1,211 tests in its full suite. Review, CI, and deployment remain separate
-gates. Both public demo flags remain false.
+1,211 tests in its full suite. Review, commit, and CI are recorded separately
+from any production reset authorization.
+
+The current local customer-demo candidate narrows one part of that inventory
+contract: reset may accept either an unowned runtime Order or an Order owned by
+the exact reserved demo customer, while every other owner remains a fail-closed
+STOP. That extension is uncommitted and has targeted current-byte isolated
+PostgreSQL coverage, including the clean 308-test invocation of all 10 relevant
+integration files. It has not been deployed or run against Neon.
 
 ## 5. MVP Scope
 
@@ -948,8 +995,8 @@ The MVP includes:
 - CSV exports for orders, product sales, and payments;
 - tests for critical logic;
 - local execution through Docker Compose;
-- CI and a deployment-ready demo architecture; public deployment and
-  acceptance remain Stage 22.
+- CI, the deployed administrator demo architecture, and its public acceptance;
+  the separate local customer-demo candidate remains Stage 22 work.
 
 ## 6. Features Outside the MVP
 
@@ -1147,8 +1194,9 @@ and native exit code 0 in normal `false + stripe_test`; it is separate from the
 PostgreSQL demo capability-only evidence and from the automatic GitHub Actions
 run, and it is not CI. Final independent review is complete, closing only
 B4-3B5.
-Stage 22 — Production Deployment & Public Acceptance remains in progress and
-has not yet passed repository-recorded Stage 22-D public acceptance. The
+Stage 22 — Production Deployment & Public Acceptance remains in progress, but
+the existing administrator demo has now passed repository-recorded Stage 22-D
+public acceptance. The
 backend-only B4 demo-session endpoint is committed and pushed
 at `aeea2ae39eec17c17eb4a5b59ce6537e4fa1b071`; automatic GitHub Actions run
 `41894173298`, attempt 1, passed `Backend`, `Migrations`, `Frontend`, and the
@@ -1158,14 +1206,13 @@ documentation closeout is `b6224845d4007111d63a6485bd786265907f7151`, and
 automatic push run `41936981074`, attempt 1, passed all four required jobs. The
 reserved Neon demo administrator and initial false/false Render deployment were
 subsequently verified. A later bounded backend canary reached `CANARY_PASS` and
-was rolled back to exact 404; current issuance and visibility are false. The
-canary was not public full-flow Browser E2E. Visible-UI activation and Stage
-22-D Render acceptance remain open. The remaining B4 work, B5, and B6 remain
-open.
-Stage 23
-— Portfolio Documentation & Case Study is not started. A
-recruiter-facing URL can be claimed only after Stage 22-D public-demo
-acceptance.
+was rolled back to exact 404; that canary was not public full-flow Browser E2E.
+The later 14/14 public acceptance report and public URLs are recorded in the
+current baseline above. The remaining Stage 22 work is the uncommitted customer
+demo, historical-preset, and presentation candidate plus its independent
+review and acceptance.
+Stage 23 — Portfolio Documentation & Case Study is in progress. The public case
+study exists; remaining presentation and CV-facing material remains open.
 
 The project should demonstrate to a recruiter that its author can:
 

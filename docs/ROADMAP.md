@@ -664,9 +664,14 @@
 
 ## 22. Production Deployment & Public Acceptance
 
-- **Status:** in progress. No deployment has passed repository-recorded Stage
-  22-D public acceptance; current provider and database state requires
-  independent live verification.
+- **Status:** in progress. The existing public administrator demo passed Stage
+  22-D in report `stage22d-public-20261110t002125z` with 14/14 checks passing;
+  its SHA-256 is
+  `5c02f7d5806cc39f9f85cb3e49d011dc86b3efb66473dbf0bf409f4975e79214`.
+  Reflow was checked at 640 CSS pixels rather than literal 200% browser zoom.
+  Stage 22 remains open for the distinct uncommitted customer-demo,
+  historical-preset, and public-presentation candidate and its required review
+  and acceptance.
 - **Goal:** prepare, provision, release, and accept a safe zero-base-cost
   portfolio demo using Render Static Site Free, Render Docker Web Service Free,
   and Neon PostgreSQL Free. The Stage 20 paid/GHCR target is historical, not
@@ -732,7 +737,8 @@ exact current-`main` checks.
   end or Neon seed is selected.
 - Stable seed Orders use `portfolio_seed`; trusted demo runtime creates
   `portfolio_runtime`; ordinary Stripe-test runtime creates `live`. A later
-  Stage 22 capacity change replaces the earlier 250-Order proposal with a
+  committed Stage 22 capacity change replaces the earlier 250-Order proposal
+  with a
   global maximum of 100 `portfolio_runtime` Orders and three demo Payments per
   runtime Order. Order count plus insert share one PostgreSQL transaction
   advisory lock, and exact same-key Payment replay remains permitted at the
@@ -740,8 +746,8 @@ exact current-`main` checks.
   a fourth new Payment key, with no committed denial-path DML. Seed, live, and
   normal `false + stripe_test` behavior remain unaffected. Local static gates,
   one 579-test isolated PostgreSQL invocation, 220 targeted frontend tests, and
-  the 1,211-test full frontend suite passed. Review, CI, and deployment remain
-  separate gates, as do automatic reset and prune behavior.
+  the 1,211-test full frontend suite passed. Review, commit, and CI are recorded
+  separately; automatic prune remains out of scope.
 - **Deployment dataset command:** the separately guarded production-demo seed
   implementation is committed at `70df05f36bf4075bdb6ad212306bb0bdcb113dc4`.
   Its local isolated acceptance does not establish the current production
@@ -852,59 +858,88 @@ data` badge without granting authorization. The dedicated isolated
   release, role, schema, and reserved-identity checks. The confirmed rollback
   release uses this boundary with both flags false; visible-UI activation still
   requires separate authorization.
-- **B5 — recruiter journey/UX:** future; clearly label synthetic data and demo
-  payment.
-- **B6 — integrated acceptance:** future; verify security, data boundaries,
-  deterministic behavior, and operator reset before public release.
+- **B5 — recruiter journey/UX:** complete for the accepted administrator demo;
+  the current local candidate adds more explicit guest/customer/admin and demo
+  payment labels, official-brand carousel/SEO work, and wake-up guidance that
+  require separate review.
+- **B6 — integrated acceptance:** complete for the accepted administrator
+  journey through the 14/14 Stage 22-D report. It is not acceptance of the
+  uncommitted customer-demo candidate.
 
 The current database schema supports `Order.data_origin`, `Payment.provider`,
 provider-neutral Checkout fields, and `Payment.succeeded_at`; B2's local
 deterministic generator, persistence, and isolated acceptance plus B3's bounded
 demo payment flow are implemented. Succeeded demo Payments may enter existing
 analytics/reports through status and `succeeded_at` without a `StripeEvent`;
-the canonical B2 dataset remains unchanged. Demo administration is not
-complete: its bounded committed safeguards and isolation slices are in place,
-and the demo-session backend boundary and frontend transport are committed and
-CI green. The visible frontend flow remains disabled by default and is
-flag-gated; its dedicated real-backend browser proof, final review, commit,
-push, and follow-up CI are complete. Repository history alone does not establish
-provider state. The bounded public HTTP canary and later rollback are complete,
-with both public flags again false. The canary proved issuance and canonical
-identity only; it did not exercise Order or Payment creation. Any later public
+the canonical B2 dataset remains unchanged. The existing administrator demo,
+its visible frontend flow, and its dedicated public Stage 22-D acceptance are
+complete. The earlier bounded HTTP canary and false/false rollback remain
+historical evidence; repository history alone does not establish provider
+state. Any later public
 journey can still add shared `portfolio_runtime` Orders and demo Payments to
-Admin Orders, Analytics, and CSV. The current local capacity candidate bounds
+Admin Orders, Analytics, and CSV. The committed capacity boundary bounds
 that growth at 100 runtime Orders globally and three demo Payments per runtime
 Order while retaining exact same-key replay. Its local static, isolated
 PostgreSQL, and frontend acceptance evidence is recorded above; independent
-review, CI, and deployment remain separate gates. D-092 now defines a local,
-uncommitted manual reset candidate that uses the same capacity lock, validates
+review, CI, and deployment evidence are recorded separately. D-092 defines the
+committed manual reset boundary that uses the same capacity lock, validates
 the exact operator target and canonical seed, and deletes only fully validated
 runtime aggregates child-first. Its local evidence includes 38 operator tests,
 17 focused reset integration tests, and one 461-test isolated PostgreSQL
-regression. It is not automatic prune/reset behavior and has not been run
-against Neon. D-060 payment neutrality and D-077 NOK-only Admin Menu remain
-unchanged.
+regression. It is not automatic prune/reset behavior and production use still
+requires a separately authorized current-state check. D-060 payment neutrality
+and D-077 NOK-only Admin Menu remain unchanged.
 
 ### 22-C — First Controlled Online Release
 
-The controlled online release, bounded backend canary, and rollback to disabled
-issuance are complete. The exact project, branch, database, schema, roles, data,
-account, and Render resources were verified. Both services are
-operator-confirmed live at rollback commit
-`dadc63198295cf3a1f89c44b8a161e8330306bb9`, with backend issuance and frontend
-visibility false; fresh disabled-mode health, readiness, and exact demo-session
-404 checks passed. The canary HTTP evidence is not public full-flow Browser E2E.
-Visible-UI activation and Stage 22-D remain separately authorized.
+The controlled online release, bounded backend canary, and historical rollback
+to disabled issuance are complete. The exact project, branch, database, schema,
+roles, data, account, and Render resources were verified. The false/false state
+at `dadc63198295cf3a1f89c44b8a161e8330306bb9` and its exact 404 checks remain
+historical evidence, not the current public-administrator state. The later
+visible administrator activation and Stage 22-D acceptance are recorded below.
 
 ### 22-D — Public Demo Acceptance
 
-Complete public security, functional, responsive, accessibility, and
-operational acceptance. A recruiter/portfolio URL may be advertised only after
-this slice passes.
+**Status: complete for the existing administrator demo.** Public security,
+functional, responsive, accessibility, and operational acceptance passed 14 of
+14 checks in report `stage22d-public-20261110t002125z`, SHA-256
+`5c02f7d5806cc39f9f85cb3e49d011dc86b3efb66473dbf0bf409f4975e79214`.
+The accepted public URL is <https://nordic.kamilsarbian.dev>. The reflow check
+used a 640 CSS-pixel viewport rather than literal 200% browser zoom. This
+acceptance does not cover the current uncommitted customer-demo or historical
+preset candidate.
+
+### 22-E — Reserved Customer Demo and Historical Presentation Candidate
+
+**Status: local, uncommitted, not deployed.** The candidate adds a separately
+flagged shared customer session whose exact role is `customer`, never `admin`
+or `super_admin`. Its `portfolio_runtime` Orders are owned and visible in
+Account history, while demo Checkout stays capability-only. Backend and
+frontend customer-session flags default to `false`; the exact reserved account
+has not been provisioned, and operator provision/deactivate actions are the
+only lifecycle path.
+
+The same candidate derives the historical sample period from persisted seed
+metadata, applies a Europe/Oslo inclusive UI preset over the existing half-open
+API interval, keeps currencies separate, and does not shift timestamps or
+reseed data. It also makes demo payment and guest/customer/admin labels
+truthful and adds official logo, carousel, SEO, and cold-start copy. Required
+next gates are final independent review, commit, CI, provisioning, controlled
+deployment, and public acceptance. One clean current-byte invocation of all 10
+relevant integration files passed 308 tests with no filter or retry. One local
+canonical browser invocation passed 32/32 normal-runtime tests, 1/1
+administrator-demo test and 2/2 customer-disabled/anonymous-guest flow tests,
+and 1/1 enabled customer-demo lifecycle test, using one worker and zero retries
+with clean database and secret-safe log audits. This is not public customer-demo
+activation or acceptance.
 
 ## 23. Portfolio Documentation & Case Study
 
-- **Status:** not started.
+- **Status:** in progress. The case study is published at
+  <https://www.kamilsarbian.dev/projects/nordic-hearth>; final screenshots,
+  architecture-presentation material, and any remaining CV-facing closeout are
+  open.
 - **Goal:** produce the final recruiter-facing README, case study, screenshots,
   architecture presentation, and CV-facing material after Stage 22-D
   acceptance.
@@ -920,24 +955,30 @@ the renewed pre-commit independent review and logical commit-plan confirmation.
 Neither stage claims a live deployment or public URL.
 
 That paragraph records the historical 2026-09-15 reconciliation boundary, not
-the current state. Stage 22 is now in progress through four committed AF1+B1
-slices, committed B2-1 through B2-3, B3-1 through B3-2B, B4-1, B4-3A1 through
-B4-3A3, B4-3B1 through B4-3B5, and the committed demo-session backend boundary
-and frontend transport, without repository-recorded Stage 22-D public
-acceptance. The visible frontend flow is
-committed behind the exact disabled-by-default `VITE_ENABLE_DEMO_SESSION=true`
-flag. Its dedicated local real-backend browser flow, final independent review,
-commit, push, and follow-up CI are complete; the documentation closeout is
-`b6224845d4007111d63a6485bd786265907f7151`, with four-job-green run
-`41936981074`. The default-off issuance and operator-lifecycle boundary is
-committed, and the false/false staged release plus reserved account were
-separately verified. The current Menu/account UX and CSP remediation must pass
-its gates and a false/false public recheck. Public flag activation, Stage 22-D
-acceptance, the capacity change's deployed and public acceptance, production
-review and authorization of the manual reset, any automatic prune policy,
-remaining B4 through B6, any further B3 scope, and advertising the public
-release require separate authorization.
-Stage 23 remains not started.
+the current state. The existing administrator demo and public URL have passed
+Stage 22-D, and the case study is published. The next recommended Stage 22 work
+is independent review of the exact uncommitted 22-E manifest, followed only on
+separate authorization by commit and CI. Clean 308-test current-byte PostgreSQL
+evidence and the dedicated local three-phase customer-demo browser evidence are
+already recorded, but neither closes the public gate. Customer-account
+provisioning, customer-session flag activation, deployment, and public
+acceptance remain later independent gates.
+The pre-commit boundary contains 101 paths relative to
+`054e3db5eb9b2848657072f8d78a9692b025b821`: the reviewed 90-path product
+candidate plus 10 paths required for the isolated three-phase browser harness
+and one OpenAPI regression path. The exact expansion is
+`.github/scripts/run-browser-e2e.sh`, `compose.e2e.yaml`,
+`backend/e2e_harness.py`, `backend/tests/test_e2e_harness.py`,
+`frontend/Dockerfile`, `frontend/e2e/customer-demo-disabled.e2e.ts`,
+`frontend/e2e/customer-demo-session.e2e.ts`,
+`frontend/e2e/support/runtime.ts`, `frontend/e2e/runtime.e2e.ts`,
+`frontend/src/api/client.test.ts`, and
+`backend/tests/integration/test_user_auth_api.py`. The four preserved local
+Stage 22-D paths and the earlier diagnostic-only hunk in
+`frontend/src/features/auth/LoginPage.test.tsx` are outside this boundary.
+The operator reset remains manual and separately authorized; no automatic
+prune policy is selected. Stage 23 remains in progress for its remaining
+presentation and CV-facing closeout.
 
 The repository and Alembic head are
 `0009_add_portfolio_demo_origin_and_payment_provider`. The latest recorded

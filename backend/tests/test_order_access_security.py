@@ -16,6 +16,11 @@ from app.auth.demo_admin import (
     DEMO_ADMIN_EMAIL,
     DEMO_ADMIN_ID,
 )
+from app.auth.demo_customer import (
+    DEMO_CUSTOMER_DISABLED_PASSWORD_HASH,
+    DEMO_CUSTOMER_EMAIL,
+    DEMO_CUSTOMER_ID,
+)
 from app.auth.models import User
 from app.auth.roles import UserRole
 from app.orders.access import (
@@ -66,6 +71,15 @@ def _demo_admin() -> User:
         email=DEMO_ADMIN_EMAIL,
         password_hash=DEMO_ADMIN_DISABLED_PASSWORD_HASH,
         role=UserRole.ADMIN,
+    )
+
+
+def _demo_customer() -> User:
+    return _user(
+        user_id=DEMO_CUSTOMER_ID,
+        email=DEMO_CUSTOMER_EMAIL,
+        password_hash=DEMO_CUSTOMER_DISABLED_PASSWORD_HASH,
+        role=UserRole.CUSTOMER,
     )
 
 
@@ -221,9 +235,11 @@ def test_demo_customer_policy_is_unowned_capability_only(
     )
 
     assert policy.effective_owner_id is None
+    assert policy.public_owner_id is None
     assert policy.creation_origin is OrderDataOrigin.PORTFOLIO_RUNTIME
     assert policy.public_origin_scope is OrderDataOrigin.PORTFOLIO_RUNTIME
     assert policy.account_reads_allowed is False
+    assert policy.account_origin_scope is None
     assert (
         can_access_order(
             order_customer_user_id=DEMO_ADMIN_ID,
@@ -273,9 +289,11 @@ def test_normal_customer_policy_preserves_non_reserved_ownership(
     )
 
     assert policy.effective_owner_id == current_user.id
+    assert policy.public_owner_id == current_user.id
     assert policy.creation_origin is OrderDataOrigin.LIVE
     assert policy.public_origin_scope is None
     assert policy.account_reads_allowed is True
+    assert policy.account_origin_scope is None
 
 
 def test_normal_guest_policy_preserves_unowned_live_orders() -> None:
@@ -287,9 +305,45 @@ def test_normal_guest_policy_preserves_unowned_live_orders() -> None:
     )
 
     assert policy.effective_owner_id is None
+    assert policy.public_owner_id is None
     assert policy.creation_origin is OrderDataOrigin.LIVE
     assert policy.public_origin_scope is None
     assert policy.account_reads_allowed is False
+    assert policy.account_origin_scope is None
+
+
+def test_exact_demo_customer_owns_only_runtime_orders_and_can_read_account() -> None:
+    """Bind the shared customer identity to runtime-origin account data only."""
+    policy = resolve_customer_order_access_policy(
+        current_user=_demo_customer(),
+        portfolio_demo_mode=True,
+        payment_provider=PaymentProvider.DEMO.value,
+    )
+
+    assert policy.effective_owner_id == DEMO_CUSTOMER_ID
+    assert policy.public_owner_id is None
+    assert policy.creation_origin is OrderDataOrigin.PORTFOLIO_RUNTIME
+    assert policy.public_origin_scope is OrderDataOrigin.PORTFOLIO_RUNTIME
+    assert policy.account_reads_allowed is True
+    assert policy.account_origin_scope is OrderDataOrigin.PORTFOLIO_RUNTIME
+    assert (
+        can_access_order(
+            order_customer_user_id=DEMO_CUSTOMER_ID,
+            current_user_id=policy.public_owner_id,
+            access_token=None,
+            expected_access_token_hash=hash_order_access_token(VALID_CAPABILITY),
+        )
+        is False
+    )
+    assert (
+        can_access_order(
+            order_customer_user_id=DEMO_CUSTOMER_ID,
+            current_user_id=policy.public_owner_id,
+            access_token=VALID_CAPABILITY,
+            expected_access_token_hash=hash_order_access_token(VALID_CAPABILITY),
+        )
+        is True
+    )
 
 
 @pytest.mark.parametrize(
@@ -299,6 +353,7 @@ def test_normal_guest_policy_preserves_unowned_live_orders() -> None:
         (_user(user_id=DEMO_ADMIN_ID), True, PaymentProvider.DEMO.value),
         (_user(email=DEMO_ADMIN_EMAIL), True, PaymentProvider.DEMO.value),
         (_demo_admin(), False, PaymentProvider.STRIPE_TEST.value),
+        (_demo_customer(), False, PaymentProvider.STRIPE_TEST.value),
         (_user(user_id=DEMO_ADMIN_ID), False, PaymentProvider.STRIPE_TEST.value),
         (_user(email=DEMO_ADMIN_EMAIL), False, PaymentProvider.STRIPE_TEST.value),
         (_user(is_active=False), False, PaymentProvider.STRIPE_TEST.value),
@@ -312,6 +367,7 @@ def test_normal_guest_policy_preserves_unowned_live_orders() -> None:
         "reserved-id-drift-in-demo",
         "reserved-email-drift-in-demo",
         "exact-demo-admin-in-normal",
+        "exact-demo-customer-in-normal",
         "reserved-id-in-normal",
         "reserved-email-in-normal",
         "inactive-user-in-normal",

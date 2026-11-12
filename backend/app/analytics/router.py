@@ -12,9 +12,12 @@ from app.analytics.schemas import (
     AnalyticsOverviewQuery,
     AnalyticsOverviewResponse,
     AnalyticsProductResponse,
+    AnalyticsSamplePeriodResponse,
 )
 from app.analytics.service import (
+    AnalyticsSamplePeriodUnavailableError,
     get_analytics_overview,
+    get_analytics_sample_period,
     get_category_analytics,
     get_order_type_analytics,
     get_product_analytics,
@@ -30,6 +33,44 @@ DatabaseSession = Annotated[Session, Depends(get_db_session)]
 CurrentAdmin = Annotated[AdminPrincipal, Depends(require_admin)]
 CurrentUser = Annotated[User, Depends(get_current_user)]
 ADMIN_REPORTING_FORBIDDEN_DETAIL = "Administrator reporting access is not allowed"
+SAMPLE_PERIOD_UNAVAILABLE_DETAIL = "Historical demo data period is unavailable"
+
+
+@router.get(
+    "/sample-period",
+    response_model=AnalyticsSamplePeriodResponse,
+    summary="Get historical demo data period",
+    responses={
+        401: {"description": "Invalid authentication credentials"},
+        403: {"description": ADMIN_REPORTING_FORBIDDEN_DETAIL},
+        503: {"description": SAMPLE_PERIOD_UNAVAILABLE_DETAIL},
+    },
+)
+def get_analytics_sample_period_endpoint(
+    request: Request,
+    session: DatabaseSession,
+    _admin: CurrentAdmin,
+    current_user: CurrentUser,
+) -> AnalyticsSamplePeriodResponse:
+    """Return persisted sample-period dates to the exact demo administrator."""
+    try:
+        return get_analytics_sample_period(
+            session,
+            current_user=current_user,
+            portfolio_demo_mode=getattr(
+                request.app.state,
+                "portfolio_demo_mode",
+                None,
+            ),
+            payment_provider=getattr(request.app.state, "payment_provider", None),
+        )
+    except AdminOrderReadDeniedError as error:
+        raise _admin_reporting_forbidden_error() from error
+    except AnalyticsSamplePeriodUnavailableError as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=SAMPLE_PERIOD_UNAVAILABLE_DETAIL,
+        ) from error
 
 
 @router.get(

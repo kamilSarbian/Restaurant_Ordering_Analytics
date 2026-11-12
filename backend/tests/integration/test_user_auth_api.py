@@ -35,6 +35,7 @@ REGISTER_PATH = "/api/v1/auth/register"
 LOGIN_PATH = "/api/v1/auth/login"
 ME_PATH = "/api/v1/auth/me"
 DEMO_SESSION_PATH = "/api/v1/auth/demo-session"
+CUSTOMER_DEMO_SESSION_PATH = "/api/v1/auth/customer-demo-session"
 LEGACY_LOGIN_PATH = "/api/v1/admin/auth/login"
 LEGACY_ME_PATH = "/api/v1/admin/auth/me"
 ADMIN_ORDERS_PATH = "/api/v1/admin/orders"
@@ -720,7 +721,7 @@ def test_removed_legacy_auth_routes_do_not_consume_canonical_login_limit(
     assert registration.status_code == 201
 
 
-def test_openapi_contains_only_four_canonical_auth_operations(
+def test_openapi_contains_only_five_canonical_auth_operations(
     user_session_factory: sessionmaker[Session],
     user_token_service: UserTokenService,
 ) -> None:
@@ -740,6 +741,7 @@ def test_openapi_contains_only_four_canonical_auth_operations(
         ("POST", REGISTER_PATH),
         ("POST", LOGIN_PATH),
         ("POST", DEMO_SESSION_PATH),
+        ("POST", CUSTOMER_DEMO_SESSION_PATH),
         ("GET", ME_PATH),
     }
     assert LEGACY_LOGIN_PATH not in document["paths"]

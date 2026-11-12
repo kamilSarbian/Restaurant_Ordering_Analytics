@@ -68,6 +68,7 @@ def test_complete_production_contract_is_accepted_and_normalized() -> None:
     assert settings.app_environment == "production"
     assert settings.app_debug is False
     assert settings.demo_session_issuance_enabled is False
+    assert settings.customer_demo_session_issuance_enabled is False
     assert settings.public_app_origins == (PUBLIC_ORIGIN, PUBLIC_CUSTOM_ORIGIN)
     assert settings.trusted_hosts == ("api.restaurant.example",)
     assert settings.trusted_proxy_mode == "direct"
@@ -100,6 +101,7 @@ def test_complete_production_contract_loads_from_environment_strings(
         "APP_DEBUG": "false",
         "PORTFOLIO_DEMO_MODE": "false",
         "DEMO_SESSION_ISSUANCE_ENABLED": "false",
+        "CUSTOMER_DEMO_SESSION_ISSUANCE_ENABLED": "false",
         "PAYMENT_PROVIDER": "stripe_test",
         "DATABASE_URL": (
             f"postgresql://roa_runtime:synthetic@{NEON_RUNTIME_HOST}/restaurant"
@@ -131,6 +133,7 @@ def test_complete_production_contract_loads_from_environment_strings(
 
     assert settings.app_environment == "production"
     assert settings.demo_session_issuance_enabled is False
+    assert settings.customer_demo_session_issuance_enabled is False
     assert settings.public_app_origins == (PUBLIC_ORIGIN, PUBLIC_CUSTOM_ORIGIN)
     assert settings.trusted_hosts == ("api.restaurant.example",)
     assert settings.trusted_proxy_mode == "direct"
@@ -148,6 +151,7 @@ def _production_environment_strings() -> dict[str, str]:
         "APP_DEBUG": "false",
         "PORTFOLIO_DEMO_MODE": "false",
         "DEMO_SESSION_ISSUANCE_ENABLED": "false",
+        "CUSTOMER_DEMO_SESSION_ISSUANCE_ENABLED": "false",
         "PAYMENT_PROVIDER": "stripe_test",
         "DATABASE_URL": (
             f"postgresql://roa_runtime:synthetic@{NEON_RUNTIME_HOST}/restaurant"
@@ -302,6 +306,12 @@ def test_demo_session_issuance_requires_exact_demo_runtime_pair() -> None:
     """Reject issuance enablement in the normal Stripe-test runtime."""
     with pytest.raises(ValidationError, match="portfolio demo runtime"):
         production_settings({"demo_session_issuance_enabled": True})
+
+
+def test_customer_demo_session_issuance_requires_exact_demo_runtime_pair() -> None:
+    """Reject customer-demo issuance in the normal Stripe-test runtime."""
+    with pytest.raises(ValidationError, match="portfolio demo runtime"):
+        production_settings({"customer_demo_session_issuance_enabled": True})
 
 
 def test_invalid_payment_provider_environment_string_is_rejected(

@@ -22,14 +22,17 @@ import {
 import Button from '../../components/ui/Button';
 import Notice from '../../components/ui/Notice';
 import StatusBadge from '../../components/ui/StatusBadge';
+import { isPortfolioModeEnabled } from '../../config/portfolioMode';
 import { useAuth } from '../auth/AuthContext';
 import {
   type AdminAnalyticsOverview,
   type AdminAnalyticsQuery,
+  type AdminAnalyticsSamplePeriod,
   type AdminCategorySales,
   type AdminOrderTypeSales,
   type AdminProductSales,
   fetchAdminAnalyticsOverview,
+  fetchAdminAnalyticsSamplePeriod,
   fetchAdminCategorySales,
   fetchAdminOrderTypeSales,
   fetchAdminProductSales,
@@ -426,6 +429,7 @@ export default function AdminAnalyticsPage() {
     logout,
     refreshCurrentUser,
   } = useAuth();
+  const portfolioMode = isPortfolioModeEnabled();
   const [filters, setFilters] = useState<DraftFilters>(() => ({
     ...getDefaultAdminDateRange(),
     currency: '',
@@ -433,6 +437,9 @@ export default function AdminAnalyticsPage() {
   }));
   const [filterErrors, setFilterErrors] = useState<FilterErrors>({});
   const [analytics, setAnalytics] = useState<AnalyticsState>(initialAnalyticsState);
+  const [samplePeriod, setSamplePeriod] = useState<AdminAnalyticsSamplePeriod | null>(
+    null,
+  );
   const initialFiltersRef = useRef(filters);
   const dateControlRef = useRef<AdminDateRangeControlHandle>(null);
   const currencyRef = useRef<HTMLInputElement>(null);
@@ -564,16 +571,85 @@ export default function AdminAnalyticsPage() {
     },
     [getAuthenticatedSession, invalidateSessionIfCurrent, logout, refreshCurrentUser],
   );
-
   useEffect(() => {
     let active = true;
-    queueMicrotask(() => {
-      if (!active) return;
-      const validated = validateFilters(initialFiltersRef.current);
-      if (validated.applied !== null) {
-        void runAnalytics(validated.applied, 'initial');
+    const initialize = async () => {
+      let initialFilters = initialFiltersRef.current;
+      if (portfolioMode) {
+        const authSession = getAuthenticatedSession();
+        if (authSession === null) {
+          logout();
+          return;
+        }
+        const controller = new AbortController();
+        controllerRef.current = controller;
+        try {
+          const period = await fetchAdminAnalyticsSamplePeriod(
+            authSession.accessToken,
+            controller.signal,
+          );
+          if (!active) return;
+          setSamplePeriod(period);
+          initialFilters = {
+            ...initialFilters,
+            endDate: period.endDate,
+            startDate: period.startDate,
+          };
+          initialFiltersRef.current = initialFilters;
+          setFilters(initialFilters);
+        } catch (error: unknown) {
+          if (!active) return;
+          if (error instanceof AdminApiRequestError && error.kind === 'aborted') {
+            return;
+          }
+          if (error instanceof AdminApiRequestError && error.status === 401) {
+            invalidateSessionIfCurrent(authSession);
+            return;
+          }
+          if (error instanceof AdminApiRequestError && error.status === 403) {
+            await refreshCurrentUser();
+            return;
+          }
+          const message = getSectionError(error);
+          setAnalytics((previous) => ({
+            ...previous,
+            categories: {
+              ...previous.categories,
+              error: message,
+              loading: false,
+              revision: previous.categories.revision + 1,
+            },
+            orderTypes: {
+              ...previous.orderTypes,
+              error: message,
+              loading: false,
+              revision: previous.orderTypes.revision + 1,
+            },
+            overview: {
+              ...previous.overview,
+              error: message,
+              loading: false,
+              revision: previous.overview.revision + 1,
+            },
+            products: {
+              ...previous.products,
+              error: message,
+              loading: false,
+              revision: previous.products.revision + 1,
+            },
+          }));
+          return;
+        } finally {
+          if (controllerRef.current === controller) controllerRef.current = null;
+        }
       }
-    });
+      if (!active) return;
+      const validated = validateFilters(initialFilters);
+      if (validated.applied !== null) {
+        await runAnalytics(validated.applied, 'initial');
+      }
+    };
+    queueMicrotask(() => void initialize());
     return () => {
       active = false;
       generationRef.current += 1;
@@ -581,7 +657,14 @@ export default function AdminAnalyticsPage() {
       controllerRef.current = null;
       requestInFlightRef.current = false;
     };
-  }, [runAnalytics]);
+  }, [
+    getAuthenticatedSession,
+    invalidateSessionIfCurrent,
+    logout,
+    portfolioMode,
+    refreshCurrentUser,
+    runAnalytics,
+  ]);
 
   useEffect(() => {
     if (analytics.focusTarget === null) return;
@@ -607,7 +690,7 @@ export default function AdminAnalyticsPage() {
   };
 
   const handleApply = (event: ReactMouseEvent<HTMLButtonElement>) => {
-    if (requestInFlightRef.current) return;
+    if (requestInFlightRef.current || (portfolioMode && samplePeriod === null)) return;
     const validated = validateFilters(filters);
     setFilterErrors(validated.errors);
     if (validated.applied === null) {
@@ -727,6 +810,31 @@ export default function AdminAnalyticsPage() {
         <fieldset className={styles.presets}>
           <legend>Quick ranges</legend>
           <div>
+            {samplePeriod === null ? null : (
+              <Button
+                aria-pressed={
+                  analytics.applied?.startDate === samplePeriod.startDate &&
+                  analytics.applied.endDate === samplePeriod.endDate
+                }
+                className={styles.presetButton}
+                size={'md'}
+                variant={'secondary'}
+                onClick={() => {
+                  setFilters((current) => ({
+                    ...current,
+                    endDate: samplePeriod.endDate,
+                    startDate: samplePeriod.startDate,
+                  }));
+                  setFilterErrors((current) => ({
+                    ...current,
+                    endDate: undefined,
+                    startDate: undefined,
+                  }));
+                }}
+              >
+                Historical demo data
+              </Button>
+            )}
             {presets.map((preset) => {
               const isApplied =
                 analytics.applied?.startDate === preset.startDate &&
@@ -756,6 +864,13 @@ export default function AdminAnalyticsPage() {
               );
             })}
           </div>
+          {samplePeriod === null ? null : (
+            <p>
+              The sample-data period is inclusive in Europe/Oslo. Analytics can also
+              include later demo activity when its timestamp falls inside the selected
+              period.
+            </p>
+          )}
         </fieldset>
         <AdminDateRangeControl
           ref={dateControlRef}
@@ -816,7 +931,7 @@ export default function AdminAnalyticsPage() {
         ) : null}
         <div className={styles.actions}>
           <Button
-            disabled={isRefreshing}
+            disabled={isRefreshing || (portfolioMode && samplePeriod === null)}
             loading={analytics.requestMode === 'apply'}
             loadingLabel={'Applying analytics filters'}
             onClick={handleApply}

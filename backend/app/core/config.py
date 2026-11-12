@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     app_debug: bool = False
     portfolio_demo_mode: bool = False
     demo_session_issuance_enabled: bool = False
+    customer_demo_session_issuance_enabled: bool = False
     payment_provider: PaymentProvider = "stripe_test"
     database_url: PostgresDsn | None = Field(default=None, repr=False)
     stripe_secret_key: SecretStr | None = Field(default=None, repr=False)
@@ -100,7 +101,11 @@ class Settings(BaseSettings):
             return False
         raise ValueError("Portfolio demo mode must be exactly true or false")
 
-    @field_validator("demo_session_issuance_enabled", mode="before")
+    @field_validator(
+        "demo_session_issuance_enabled",
+        "customer_demo_session_issuance_enabled",
+        mode="before",
+    )
     @classmethod
     def validate_demo_session_issuance_enabled(cls, value: object) -> bool:
         """Accept only explicit boolean values at the issuance boundary."""
@@ -203,7 +208,10 @@ class Settings(BaseSettings):
             raise ValueError(
                 "Portfolio demo mode and the demo payment provider must be enabled together"
             )
-        if self.demo_session_issuance_enabled and not self.portfolio_demo_mode:
+        if (
+            self.demo_session_issuance_enabled
+            or self.customer_demo_session_issuance_enabled
+        ) and not self.portfolio_demo_mode:
             raise ValueError(
                 "Demo-session issuance requires the portfolio demo runtime"
             )

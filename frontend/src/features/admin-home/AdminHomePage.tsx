@@ -17,8 +17,10 @@ import {
 import Button from '../../components/ui/Button';
 import Notice from '../../components/ui/Notice';
 import StatusBadge, { type StatusBadgeVariant } from '../../components/ui/StatusBadge';
+import { isPortfolioModeEnabled } from '../../config/portfolioMode';
 import {
   type AdminAnalyticsOverview,
+  fetchAdminAnalyticsSamplePeriod,
   fetchAdminAnalyticsOverview,
   formatAnalyticsMoney,
 } from '../admin-analytics/adminAnalyticsApi';
@@ -239,10 +241,15 @@ export default function AdminHomePage() {
     refreshCurrentUser,
     user,
   } = useAuth();
-  const [reportingRange] = useState<ReportingRange>(() => {
+  const [reportingRange, setReportingRange] = useState<ReportingRange>(() => {
     const selection = getDefaultAdminDateRange();
     return { ...selection, ...buildAdminAwareDateRange(selection) };
   });
+  const reportingRangeRef = useRef(reportingRange);
+  useEffect(() => {
+    reportingRangeRef.current = reportingRange;
+  }, [reportingRange]);
+  const [usesSamplePeriod, setUsesSamplePeriod] = useState(false);
   const [orders, setOrders] =
     useState<SectionState<AdminOrderListResponse>>(initialSection);
   const [menu, setMenu] =
@@ -268,7 +275,10 @@ export default function AdminHomePage() {
   }, []);
 
   const runDashboard = useCallback(
-    async (sections: readonly DashboardSection[] = DASHBOARD_SECTIONS) => {
+    async (
+      sections: readonly DashboardSection[] = DASHBOARD_SECTIONS,
+      requestedRange: ReportingRange = reportingRangeRef.current,
+    ) => {
       if (requestActiveRef.current) return;
       const authSession = getAuthenticatedSession();
       if (authSession === null) {
@@ -312,7 +322,7 @@ export default function AdminHomePage() {
           return {
             data: await fetchAdminAnalyticsOverview(
               authSession.accessToken,
-              { end: reportingRange.end, start: reportingRange.start },
+              { end: requestedRange.end, start: requestedRange.start },
               controller.signal,
             ),
             section,
@@ -388,17 +398,18 @@ export default function AdminHomePage() {
       invalidateSessionIfCurrent,
       logout,
       refreshCurrentUser,
-      reportingRange,
       setSectionLoading,
     ],
   );
-
   const retrySection = useCallback(
     (section: DashboardSection, origin: HTMLButtonElement) => {
+      if (section === 'analytics' && isPortfolioModeEnabled() && !usesSamplePeriod) {
+        return;
+      }
       retryFocusRef.current = { origin, section };
       void runDashboard([section]);
     },
-    [runDashboard],
+    [runDashboard, usesSamplePeriod],
   );
 
   useEffect(() => {
@@ -424,15 +435,73 @@ export default function AdminHomePage() {
   }, [analytics, menu, orders]);
 
   useEffect(() => {
-    const requestStartId = window.setTimeout(() => void runDashboard(), 0);
+    let active = true;
+    const initialize = async () => {
+      if (!isPortfolioModeEnabled()) {
+        await runDashboard();
+        return;
+      }
+      const authSession = getAuthenticatedSession();
+      if (authSession === null) {
+        logout();
+        return;
+      }
+      const controller = new AbortController();
+      activeControllerRef.current = controller;
+      try {
+        const period = await fetchAdminAnalyticsSamplePeriod(
+          authSession.accessToken,
+          controller.signal,
+        );
+        if (!active) return;
+        const selection = {
+          endDate: period.endDate,
+          startDate: period.startDate,
+        };
+        const sampleRange = {
+          ...selection,
+          ...buildAdminAwareDateRange(selection),
+        };
+        setReportingRange(sampleRange);
+        setUsesSamplePeriod(true);
+        activeControllerRef.current = null;
+        await runDashboard(DASHBOARD_SECTIONS, sampleRange);
+      } catch (error: unknown) {
+        if (!active) return;
+        activeControllerRef.current = null;
+        if (error instanceof AdminApiRequestError && error.kind === 'aborted') return;
+        if (error instanceof AdminApiRequestError && error.status === 401) {
+          invalidateSessionIfCurrent(authSession);
+          return;
+        }
+        if (error instanceof AdminApiRequestError && error.status === 403) {
+          await refreshCurrentUser();
+          return;
+        }
+        setAnalytics({
+          data: null,
+          error: getSectionErrorMessage('analytics', error),
+          loading: false,
+        });
+        await runDashboard(['orders', 'menu']);
+      }
+    };
+    const requestStartId = window.setTimeout(() => void initialize(), 0);
     return () => {
+      active = false;
       window.clearTimeout(requestStartId);
       generationRef.current += 1;
       requestActiveRef.current = false;
       activeControllerRef.current?.abort();
       activeControllerRef.current = null;
     };
-  }, [runDashboard]);
+  }, [
+    getAuthenticatedSession,
+    invalidateSessionIfCurrent,
+    logout,
+    refreshCurrentUser,
+    runDashboard,
+  ]);
 
   const recentAttentionOrders = useMemo(
     () =>
@@ -485,8 +554,8 @@ export default function AdminHomePage() {
           <h1 id="admin-home-heading">Administrator workspace</h1>
         </div>
         <p>
-          Current order, menu, and seven-day sales signals from existing administrator
-          data.
+          Current order and menu signals with an explicitly dated sales summary from
+          existing administrator data.
         </p>
       </header>
 
@@ -518,7 +587,7 @@ export default function AdminHomePage() {
           ) : null}
           {analytics.error !== null ? (
             <DataError
-              disabled={isAnyLoading}
+              disabled={isAnyLoading || (isPortfolioModeEnabled() && !usesSamplePeriod)}
               loading={analytics.loading}
               message={analytics.error}
               section="analytics"
@@ -636,7 +705,11 @@ export default function AdminHomePage() {
           {analytics.data !== null ? (
             <KpiCard
               context={`${reportingRange.startDate} to ${reportingRange.endDate} · Europe/Oslo`}
-              label="Collected revenue · 7 days"
+              label={
+                usesSamplePeriod
+                  ? 'Collected revenue · historical demo data'
+                  : 'Collected revenue · 7 days'
+              }
               value={
                 <CurrencyValues data={analytics.data} field="collectedRevenueAmount" />
               }
@@ -645,7 +718,11 @@ export default function AdminHomePage() {
           {analytics.data !== null ? (
             <KpiCard
               context={`${reportingRange.startDate} to ${reportingRange.endDate} · by currency`}
-              label="Average order value · 7 days"
+              label={
+                usesSamplePeriod
+                  ? 'Average order value · historical demo data'
+                  : 'Average order value · 7 days'
+              }
               value={
                 <CurrencyValues data={analytics.data} field="averageOrderValueAmount" />
               }

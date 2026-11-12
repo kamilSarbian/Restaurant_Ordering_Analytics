@@ -2058,12 +2058,12 @@ while preserving these financial concurrency rules.
 
 ## D-091 — Portfolio-Runtime Order and Demo-Payment Capacity Boundary
 
-- **Status:** accepted on 2026-11-09 as the capacity contract. Local static
+- **Status:** accepted and implemented on 2026-11-09 at
+  `874034a6f18936b50afa97eb72f8d4db16146352`. Local static
   gates, one complete nine-file isolated PostgreSQL invocation with 579 passed
   tests and no retry, 220 targeted frontend tests, and the 1,211-test full
-  frontend suite passed. Independent review, CI, deployment, and public
-  visible-flow acceptance remain separate gates. Both public demo flags remain
-  false.
+  frontend suite passed. Review, CI, deployment, and public visible-flow
+  acceptance are recorded separately from that local evidence.
 - **Precedence:** this decision adds a bounded growth policy to D-082 and D-087.
   Historical statements that B2-3 or B3-2B did not select a runtime cap remain
   accurate for those completed slices; D-091 is the later decision.
@@ -2098,11 +2098,12 @@ while preserving these financial concurrency rules.
 
 ## D-092 — Manual Fail-Closed Portfolio-Runtime Reset
 
-- **Status:** accepted on 2026-11-09 as a local, uncommitted operator candidate.
+- **Status:** accepted and implemented on 2026-11-09 at
+  `dd645fe733d237d9e2e9b12f2f49be9bd4cf8b88` as a manual operator boundary.
   Local evidence comprises 38 operator tests, 17 focused reset integration
   tests, and one 461-test isolated PostgreSQL regression across Orders, demo
   Checkout, Admin Orders, the seed, Analytics, and CSV. It does not authorize
-  or evidence a Neon reset. Both public demo flags remain false.
+  or evidence a Neon reset.
 - **Operator boundary:** reset is the explicit `reset-runtime` action of the
   existing hidden-input deployment operator. It requires its own exact
   confirmation, a clean pinned release, the exact pooled `roa_runtime` target,
@@ -2133,6 +2134,66 @@ OrderItem -> Order`. Exact rowcounts, zero remaining runtime children, and a
   release, current data, or rollback readiness. A production invocation needs
   a separate current review and explicit authorization; database failure or
   missing DELETE privileges must remain an atomic, secret-free STOP.
+
+## D-093 — Separate Reserved Customer Demo Session and Ownership
+
+- **Status:** proposed by the current local candidate on 2026-11-10;
+  uncommitted and not deployed or accepted on the public service. Targeted
+  current-byte isolated PostgreSQL evidence includes one clean invocation of all
+  10 relevant integration files with 308 passing tests. Both customer-demo flags
+  default to `false`, and the reserved customer account has not been provisioned.
+- **Identity boundary:** the new bodyless customer-demo session may resolve only
+  the exact active reserved identity with role `customer`. It must never issue
+  `admin` or `super_admin`, accept a password, or create the User during an HTTP
+  request. The existing shared administrator demo remains a distinct identity
+  and authorization surface.
+- **Order ownership:** in exact trusted portfolio demo runtime, the reserved
+  customer owns newly created `portfolio_runtime` Orders and may read those
+  Orders through Account list/detail. Guest and administrator-created runtime
+  Orders retain their existing unowned behavior. Normal `false + stripe_test`
+  ownership is unchanged.
+- **Checkout boundary:** demo public status and Checkout remain capability-only,
+  including for the reserved customer. The shared customer JWT is not a
+  substitute for the one-time Order capability.
+- **Activation and lifecycle:** backend
+  `CUSTOMER_DEMO_SESSION_ISSUANCE_ENABLED` and frontend
+  `VITE_ENABLE_CUSTOMER_DEMO_SESSION` are independent exact-true gates and
+  default to `false`. Only separately confirmed operator actions may provision
+  or deactivate the reserved customer; HTTP session issuance never provisions
+  it.
+- **Reset interaction:** the candidate extends D-092's allowed runtime-owner
+  inventory to `NULL` or the exact reserved customer ID. Any other owner still
+  aborts the reset before DML. Targeted current-byte PostgreSQL tests cover this
+  extension, including the clean 308-test invocation of all 10 relevant files.
+
+## D-094 — Persisted Historical Period and Truthful Portfolio Presentation
+
+- **Status:** proposed by the current local candidate on 2026-11-10;
+  uncommitted, not deployed, and not covered by the existing 14/14 Stage 22-D
+  public report.
+- **Historical period:** the exact demo administrator reads a strict sample
+  period derived from persisted canonical seed data. The backend does not
+  rewrite timestamps, shift the dataset to the current date, or reseed it for
+  presentation.
+- **Date semantics:** portfolio analytics and exports present the period in
+  `Europe/Oslo`. The UI shows inclusive local start and end dates and translates
+  the inclusive end to the existing half-open API interval. Currency groups
+  remain separate; amounts from different currencies are never combined.
+- **Presentation truthfulness:** public and authenticated copy distinguishes
+  guest, customer, and administrator demo roles and states clearly that demo
+  payment is simulated. The official logo, carousel, SEO metadata, and free-tier
+  wake-up guidance must not imply a real restaurant transaction or hide a cold
+  start.
+- **Evidence boundary:** targeted current-byte isolated PostgreSQL evidence is
+  complete for all 10 relevant integration files with 308 passing tests. The
+  local canonical browser harness then passed three isolated phases in one
+  invocation: 32/32 normal-runtime tests, 1/1 administrator-demo test and 2/2
+  customer-disabled/anonymous-guest flow tests, and 1/1 enabled customer-demo
+  lifecycle test, using one worker and zero retries with clean database and
+  secret-safe log audits. This is local evidence, not CI or public customer-demo
+  acceptance.
+  The accepted public administrator report and published case study remain
+  evidence for the earlier deployed baseline only.
 
 ## History of Decisions That Required Resolution
 

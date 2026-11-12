@@ -5,7 +5,11 @@ import { afterEach, vi } from 'vitest';
 
 import { installFetchStub, type FetchStep } from '../../test/fetchStub';
 import { useAuth, AuthProvider } from '../auth/AuthContext';
-import { AUTH_STORAGE_KEY, resetAuthMemoryForTests } from '../auth/authStorage';
+import {
+  AUTH_STORAGE_KEY,
+  resetAuthMemoryForTests,
+  saveDemoSessionMarker,
+} from '../auth/authStorage';
 import {
   formatCustomerDate,
   formatCustomerMoney,
@@ -103,6 +107,15 @@ afterEach(() => {
 });
 
 describe('customer account orders list', () => {
+  it('discloses that customer demo history is shared and synthetic', async () => {
+    saveDemoSessionMarker('customer');
+    installFetchStub({ json: currentUser('customer') }, { json: listResponse([]) });
+
+    renderOrders();
+
+    expect(await screen.findByText(/shared synthetic customer history/i)).toBeVisible();
+  });
+
   it.each(['customer', 'admin', 'super_admin'] as const)(
     'loads the personal account page for an authenticated %s',
     async (role) => {
@@ -121,8 +134,11 @@ describe('customer account orders list', () => {
       const brandLockup = brandName.parentElement;
       expect(brandLockup).not.toBeNull();
       expect(within(brandLockup as HTMLElement).queryByRole('img')).toBeNull();
-      expect(brandLockup?.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
-      expect(brandLockup?.querySelector('svg')).toHaveAttribute('focusable', 'false');
+      const brandMark = brandLockup?.querySelector('[aria-hidden="true"]');
+      expect(brandMark?.querySelector('img')).toHaveAttribute(
+        'src',
+        '/images/brand/logo/nordic-hearth-logo.png',
+      );
       expect(
         await screen.findByRole('heading', { name: 'No orders yet' }),
       ).toBeVisible();

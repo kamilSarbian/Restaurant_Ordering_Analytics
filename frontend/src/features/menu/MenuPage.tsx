@@ -157,7 +157,9 @@ export default function MenuPage() {
       </header>
 
       {loadState.status === 'loading' && (
-        <AsyncNotice title="Loading menu…">Fetching the menu.</AsyncNotice>
+        <AsyncNotice title="Loading menu…">
+          The free demo service may need a short wake-up before the menu appears.
+        </AsyncNotice>
       )}
 
       {loadState.status === 'error' && (

@@ -17,11 +17,13 @@ from app.analytics.schemas import (
     AnalyticsOrderTypeResponse,
     AnalyticsOverviewResponse,
     AnalyticsProductResponse,
+    AnalyticsSamplePeriodResponse,
 )
 from app.analytics.service import (
     build_product_sales_statement,
     build_qualified_succeeded_payments,
     get_analytics_overview,
+    get_analytics_sample_period,
     get_category_analytics,
     get_order_type_analytics,
     get_product_analytics,
@@ -442,6 +444,7 @@ def test_demo_product_builder_inherits_shared_qualified_origin_scope() -> None:
         get_product_analytics,
         get_category_analytics,
         get_order_type_analytics,
+        get_analytics_sample_period,
         export_orders_csv,
         export_product_sales_csv,
         export_payments_csv,
@@ -473,6 +476,7 @@ def test_public_reporting_contract_does_not_expose_data_origin() -> None:
         AnalyticsProductResponse,
         AnalyticsCategoryResponse,
         AnalyticsOrderTypeResponse,
+        AnalyticsSamplePeriodResponse,
     )
     assert all("data_origin" not in str(model.model_json_schema()) for model in schemas)
     assert all(
@@ -492,6 +496,7 @@ def test_public_reporting_contract_does_not_expose_data_origin() -> None:
         "/api/v1/admin/analytics/products",
         "/api/v1/admin/analytics/categories",
         "/api/v1/admin/analytics/order-types",
+        "/api/v1/admin/analytics/sample-period",
         "/api/v1/admin/exports/orders.csv",
         "/api/v1/admin/exports/product-sales.csv",
         "/api/v1/admin/exports/payments.csv",

@@ -20,6 +20,7 @@ REGISTER_PATH = "/api/v1/auth/register"
 LOGIN_PATH = "/api/v1/auth/login"
 ME_PATH = "/api/v1/auth/me"
 DEMO_SESSION_PATH = "/api/v1/auth/demo-session"
+CUSTOMER_DEMO_SESSION_PATH = "/api/v1/auth/customer-demo-session"
 SYNTHETIC_SECRET = "b4-closed-boundary-secret-material"
 SYNTHETIC_PASSWORD = "synthetic-user-password"
 
@@ -81,6 +82,7 @@ def _patch_auth_access_as_unexpected(monkeypatch: pytest.MonkeyPatch) -> None:
         "_enforce_demo_session_rate_limit",
         "_enforce_login_rate_limit",
         "verify_demo_admin",
+        "verify_demo_customer",
         "_issue_token",
         "create_customer",
         "authenticate_user",
@@ -118,6 +120,7 @@ def test_non_demo_mode_preserves_password_auth_and_me(
         registered = client.post(REGISTER_PATH, json=_registration_payload())
         logged_in = client.post(LOGIN_PATH, json=_login_payload())
         demo_session = client.post(DEMO_SESSION_PATH)
+        customer_demo_session = client.post(CUSTOMER_DEMO_SESSION_PATH)
         current = client.get(
             ME_PATH,
             headers={
@@ -129,6 +132,8 @@ def test_non_demo_mode_preserves_password_auth_and_me(
     assert logged_in.status_code == 200
     assert demo_session.status_code == 404
     assert demo_session.json() == {"detail": "Not Found"}
+    assert customer_demo_session.status_code == 404
+    assert customer_demo_session.json() == {"detail": "Not Found"}
     assert current.status_code == 200
     assert current.json()["role"] == "admin"
 
@@ -151,6 +156,31 @@ def test_normal_runtime_closes_demo_session_before_protected_access(
 
     with TestClient(application) as client:
         response = client.post(DEMO_SESSION_PATH)
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Not Found"}
+    assert "access_token" not in response.text
+
+
+def test_disabled_customer_demo_session_closes_before_protected_access(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Return 404 before limiter, database, or JWT work when disabled."""
+    _patch_auth_access_as_unexpected(monkeypatch)
+    application = create_app(
+        settings=Settings(
+            _env_file=None,
+            database_url=None,
+            auth_jwt_secret=SYNTHETIC_SECRET,
+            portfolio_demo_mode=True,
+            payment_provider="demo",
+            customer_demo_session_issuance_enabled=False,
+        ),
+        session_factory=_session_factory(_user()),  # type: ignore[arg-type]
+    )
+
+    with TestClient(application) as client:
+        response = client.post(CUSTOMER_DEMO_SESSION_PATH)
 
     assert response.status_code == 404
     assert response.json() == {"detail": "Not Found"}

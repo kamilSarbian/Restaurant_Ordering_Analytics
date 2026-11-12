@@ -46,7 +46,7 @@ function storeToken(): void {
   );
 }
 
-function renderExports(): ReturnType<typeof createMemoryRouter> {
+function renderExports(strictMode = true): ReturnType<typeof createMemoryRouter> {
   storeToken();
   const router = createMemoryRouter(
     [
@@ -62,11 +62,8 @@ function renderExports(): ReturnType<typeof createMemoryRouter> {
     ],
     { initialEntries: ['/admin/exports'] },
   );
-  render(
-    <StrictMode>
-      <RouterProvider router={router} />
-    </StrictMode>,
-  );
+  const content = <RouterProvider router={router} />;
+  render(strictMode ? <StrictMode>{content}</StrictMode> : content);
   return router;
 }
 
@@ -93,10 +90,73 @@ afterEach(() => {
   resetAuthMemoryForTests();
   vi.mocked(downloadCsvBlob).mockReset();
   vi.useRealTimers();
+  vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });
 
 describe('administrator CSV export page', () => {
+  it('waits for and applies the historical demo period in portfolio mode', async () => {
+    vi.stubEnv('VITE_PORTFOLIO_MODE', 'true');
+    const period = { endDate: '2026-07-30', startDate: '2026-06-01' };
+    const stub = installFetchStub(
+      { json: ME },
+      {
+        json: {
+          end_date: period.endDate,
+          start_date: period.startDate,
+          timezone: 'Europe/Oslo',
+        },
+      },
+      { body: 'header-one,header-two\r\n', headers: CSV_HEADERS },
+    );
+    const user = userEvent.setup();
+
+    renderExports(false);
+    await waitForExportsPage();
+    const download = screen.getByRole('button', { name: 'Download orders CSV' });
+    await waitFor(() => expect(download).toBeEnabled());
+    expect(
+      screen.getByRole('button', { name: 'Historical demo data' }),
+    ).toHaveAttribute('aria-pressed', 'true');
+    expect(selectedRange()).toEqual(period);
+
+    await user.click(download);
+    await waitFor(() => expect(stub.calls).toHaveLength(3));
+    expect(stub.calls.map((call) => new URL(call.url, 'http://x').pathname)).toEqual([
+      '/api/v1/auth/me',
+      '/api/v1/admin/analytics/sample-period',
+      '/api/v1/admin/exports/orders.csv',
+    ]);
+    const aware = buildAdminAwareDateRange(period);
+    expect(requestQuery(stub.calls[2]!.url).get('start')).toBe(aware.start);
+    expect(requestQuery(stub.calls[2]!.url).get('end')).toBe(aware.end);
+  });
+
+  it('keeps portfolio exports disabled when sample-period metadata is unavailable', async () => {
+    vi.stubEnv('VITE_PORTFOLIO_MODE', 'true');
+    const stub = installFetchStub(
+      { json: ME },
+      {
+        json: { detail: 'Historical demo data period is unavailable' },
+        status: 503,
+      },
+    );
+
+    renderExports(false);
+
+    expect(
+      await screen.findByText('Historical demo data is unavailable'),
+    ).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Download orders CSV' })).toBeDisabled();
+    expect(
+      screen.getByRole('button', { name: 'Download product sales CSV' }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole('button', { name: 'Download payments CSV' }),
+    ).toBeDisabled();
+    expect(stub.calls).toHaveLength(2);
+  });
+
   it('renders exactly the three real CSV exports and feature-local parameter truth', async () => {
     const stub = installFetchStub({ json: ME });
     renderExports();

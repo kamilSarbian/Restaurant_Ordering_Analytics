@@ -61,7 +61,7 @@ function storeToken(): void {
   );
 }
 
-function renderAnalytics(): ReturnType<typeof createMemoryRouter> {
+function renderAnalytics(strictMode = true): ReturnType<typeof createMemoryRouter> {
   storeToken();
   const router = createMemoryRouter(
     [
@@ -77,11 +77,8 @@ function renderAnalytics(): ReturnType<typeof createMemoryRouter> {
     ],
     { initialEntries: ['/admin/analytics'] },
   );
-  render(
-    <StrictMode>
-      <RouterProvider router={router} />
-    </StrictMode>,
-  );
+  const content = <RouterProvider router={router} />;
+  render(strictMode ? <StrictMode>{content}</StrictMode> : content);
   return router;
 }
 
@@ -125,10 +122,116 @@ afterEach(() => {
   localStorage.clear();
   resetAuthMemoryForTests();
   vi.useRealTimers();
+  vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });
 
 describe('administrator analytics filters and transport', () => {
+  it('uses the historical demo preset before the first portfolio request', async () => {
+    vi.stubEnv('VITE_PORTFOLIO_MODE', 'true');
+    const period = { endDate: '2026-07-30', startDate: '2026-06-01' };
+    const aware = buildAdminAwareDateRange(period);
+    const historicalRange = {
+      end: aware.end,
+      start: aware.start,
+      timezone: 'Europe/Oslo',
+    };
+    const stub = installFetchStub(
+      { json: ME },
+      {
+        json: {
+          end_date: period.endDate,
+          start_date: period.startDate,
+          timezone: 'Europe/Oslo',
+        },
+      },
+      { json: { currencies: [], range: historicalRange } },
+      { json: { items: [], limit_per_currency: 50, range: historicalRange } },
+      { json: { items: [], limit_per_currency: 50, range: historicalRange } },
+      { json: { items: [], range: historicalRange } },
+    );
+
+    renderAnalytics(false);
+    await waitFor(() => expect(stub.calls).toHaveLength(6));
+    expect(stub.calls.slice(2).every((call) => call.signal?.aborted === false)).toBe(
+      true,
+    );
+    await waitForInitialAnalytics();
+
+    expect(
+      screen.getByRole('button', { name: 'Historical demo data' }),
+    ).toHaveAttribute('aria-pressed', 'true');
+    expect((screen.getByLabelText('Start date') as HTMLInputElement).value).toBe(
+      period.startDate,
+    );
+    expect((screen.getByLabelText('End date') as HTMLInputElement).value).toBe(
+      period.endDate,
+    );
+    expect(stub.calls).toHaveLength(6);
+    expect(stub.calls.map((call) => new URL(call.url, 'http://x').pathname)).toEqual([
+      '/api/v1/auth/me',
+      '/api/v1/admin/analytics/sample-period',
+      '/api/v1/admin/analytics/overview',
+      '/api/v1/admin/analytics/products',
+      '/api/v1/admin/analytics/categories',
+      '/api/v1/admin/analytics/order-types',
+    ]);
+    for (const call of stub.calls.slice(2)) {
+      expect(queryFor(call.url).get('start')).toBe(aware.start);
+      expect(queryFor(call.url).get('end')).toBe(aware.end);
+    }
+  });
+
+  it('does not fall back to seven-day analytics when portfolio metadata is unavailable', async () => {
+    vi.stubEnv('VITE_PORTFOLIO_MODE', 'true');
+    const stub = installFetchStub(
+      { json: ME },
+      {
+        json: { detail: 'Historical demo data period is unavailable' },
+        status: 503,
+      },
+    );
+
+    renderAnalytics(false);
+
+    expect(
+      await screen.findAllByText(
+        'This analytics section is temporarily unavailable. Refresh later.',
+      ),
+    ).toHaveLength(4);
+    expect(stub.calls).toHaveLength(2);
+    expect(stub.calls.map((call) => new URL(call.url, 'http://x').pathname)).toEqual([
+      '/api/v1/auth/me',
+      '/api/v1/admin/analytics/sample-period',
+    ]);
+    expect(screen.getByRole('button', { name: 'Apply filters' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Refresh' })).toBeDisabled();
+  });
+
+  it('rejects non-exact sample metadata before any portfolio analytics request', async () => {
+    vi.stubEnv('VITE_PORTFOLIO_MODE', 'true');
+    const stub = installFetchStub(
+      { json: ME },
+      {
+        json: {
+          data_origin: 'portfolio_seed',
+          end_date: '2026-07-30',
+          start_date: '2026-06-01',
+          timezone: 'Europe/Oslo',
+        },
+      },
+    );
+
+    renderAnalytics(false);
+
+    expect(
+      await screen.findAllByText(
+        'This analytics section received an unexpected response. Refresh later.',
+      ),
+    ).toHaveLength(4);
+    expect(stub.calls).toHaveLength(2);
+  });
+
   it('loads exactly four authenticated endpoints with the default seven Oslo calendar days', async () => {
     const stub = installFetchStub({ json: ME }, ...emptyAnalyticsSteps());
     renderAnalytics();

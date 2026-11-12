@@ -23,9 +23,15 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.analytics.service import (
     get_analytics_overview,
+    get_analytics_sample_period,
     get_category_analytics,
     get_order_type_analytics,
     get_product_analytics,
+)
+from app.auth.demo_admin import (
+    DEMO_ADMIN_DISABLED_PASSWORD_HASH,
+    DEMO_ADMIN_EMAIL,
+    DEMO_ADMIN_ID,
 )
 from app.auth.models import User
 from app.auth.roles import UserRole
@@ -151,6 +157,17 @@ def _normal_reporting_admin() -> User:
         id=uuid.uuid5(uuid.NAMESPACE_URL, "b2-3/reporting-admin"),
         email="portfolio-reporting-admin@example.com",
         password_hash="synthetic-disabled-password-hash",
+        role=UserRole.ADMIN,
+        is_active=True,
+    )
+
+
+def _demo_reporting_admin() -> User:
+    """Build the exact reserved demo administrator for direct service calls."""
+    return User(
+        id=DEMO_ADMIN_ID,
+        email=DEMO_ADMIN_EMAIL,
+        password_hash=DEMO_ADMIN_DISABLED_PASSWORD_HASH,
         role=UserRole.ADMIN,
         is_active=True,
     )
@@ -1235,6 +1252,14 @@ def test_seeded_portfolio_matches_all_analytics_services(
     with portfolio_session_factory() as session:
         assert session.scalar(select(func.count()).select_from(StripeEvent)) == 0
         session.connection()
+        with _capture_sql_statements(test_database_engine) as sample_statements:
+            sample_period = get_analytics_sample_period(
+                session,
+                current_user=_demo_reporting_admin(),
+                portfolio_demo_mode=True,
+                payment_provider=PaymentProvider.DEMO.value,
+            )
+        _assert_single_read_statement("analytics sample period", sample_statements)
         with _capture_sql_statements(test_database_engine) as overview_statements:
             overview = get_analytics_overview(
                 session,
@@ -1283,13 +1308,19 @@ def test_seeded_portfolio_matches_all_analytics_services(
         _assert_single_read_statement("order-type analytics", order_type_statements)
 
     application_statements = [
+        *sample_statements,
         *overview_statements,
         *product_statements,
         *category_statements,
         *order_type_statements,
     ]
-    assert len(application_statements) == 4
+    assert len(application_statements) == 5
     _assert_no_dml(application_statements)
+    assert sample_period.start_date == portfolio_plan.metadata.window_start_local_date
+    assert sample_period.end_date == (
+        portfolio_plan.metadata.reference_end_local_date - timedelta(days=1)
+    )
+    assert sample_period.timezone == "Europe/Oslo"
     for response in (overview, products, categories, order_types):
         assert response.range.start.isoformat() == _format_oslo_datetime(start)
         assert response.range.end.isoformat() == _format_oslo_datetime(end)

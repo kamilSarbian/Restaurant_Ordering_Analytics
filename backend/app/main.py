@@ -58,7 +58,10 @@ HSTS_HEADER_VALUE = "max-age=31536000; includeSubDomains"
 
 def _demo_session_client_ip_mode(settings: Settings) -> str | None:
     """Select the trusted demo-session client identity source for this runtime."""
-    if settings.demo_session_issuance_enabled is not True:
+    if not (
+        settings.demo_session_issuance_enabled is True
+        or settings.customer_demo_session_issuance_enabled is True
+    ):
         return None
     if settings.app_environment != "production":
         return DEMO_SESSION_CLIENT_IP_MODE_DIRECT
@@ -291,6 +294,9 @@ def create_app(
     application.state.portfolio_demo_mode = resolved_settings.portfolio_demo_mode
     application.state.demo_session_issuance_enabled = (
         resolved_settings.demo_session_issuance_enabled
+    )
+    application.state.customer_demo_session_issuance_enabled = (
+        resolved_settings.customer_demo_session_issuance_enabled
     )
     application.state.demo_session_client_ip_mode = _demo_session_client_ip_mode(
         resolved_settings

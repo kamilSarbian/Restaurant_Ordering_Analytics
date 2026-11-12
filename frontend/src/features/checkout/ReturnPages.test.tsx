@@ -160,9 +160,12 @@ it.each([
 
     expect(screen.getAllByText('Nordic Hearth')).toHaveLength(1);
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
-    const mark = container.querySelector('svg');
+    const mark = container.querySelector('[aria-hidden="true"]');
     expect(mark).toHaveAttribute('aria-hidden', 'true');
-    expect(mark).toHaveAttribute('focusable', 'false');
+    expect(mark?.querySelector('img')).toHaveAttribute(
+      'src',
+      '/images/brand/logo/nordic-hearth-logo.png',
+    );
     expect(screen.queryByRole('img')).not.toBeInTheDocument();
 
     const primaryActions = container.querySelectorAll(

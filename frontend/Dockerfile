@@ -16,6 +16,8 @@ COPY --chown=1000:1000 public ./public
 
 ARG VITE_BUILD_MODE=production
 ARG VITE_ENABLE_DEMO_SESSION=false
+ARG VITE_ENABLE_CUSTOMER_DEMO_SESSION=false
+ARG VITE_PORTFOLIO_MODE=false
 RUN case "$VITE_BUILD_MODE" in \
         production|e2e) ;; \
         *) printf '%s\n' 'Unsupported frontend build mode.' >&2; exit 1 ;; \
@@ -23,6 +25,14 @@ RUN case "$VITE_BUILD_MODE" in \
     && case "$VITE_ENABLE_DEMO_SESSION" in \
         true|false) ;; \
         *) printf '%s\n' 'Unsupported demo-session build flag.' >&2; exit 1 ;; \
+    esac \
+    && case "$VITE_ENABLE_CUSTOMER_DEMO_SESSION" in \
+        true|false) ;; \
+        *) printf '%s\n' 'Unsupported customer-demo build flag.' >&2; exit 1 ;; \
+    esac \
+    && case "$VITE_PORTFOLIO_MODE" in \
+        true|false) ;; \
+        *) printf '%s\n' 'Unsupported portfolio-mode build flag.' >&2; exit 1 ;; \
     esac \
     && npm run build -- --mode "$VITE_BUILD_MODE" \
     && test -z "$(find dist -type f -name '*.map' -print -quit)" \

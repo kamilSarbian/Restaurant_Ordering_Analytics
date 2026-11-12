@@ -14,6 +14,11 @@ import {
 import Button from '../../components/ui/Button';
 import Notice, { type NoticeVariant } from '../../components/ui/Notice';
 import StatusBadge from '../../components/ui/StatusBadge';
+import { isPortfolioModeEnabled } from '../../config/portfolioMode';
+import {
+  type AdminAnalyticsSamplePeriod,
+  fetchAdminAnalyticsSamplePeriod,
+} from '../admin-analytics/adminAnalyticsApi';
 import { useAuth } from '../auth/AuthContext';
 import {
   requestAdminCsvExport,
@@ -174,6 +179,12 @@ export default function AdminExportsPage() {
     refreshCurrentUser,
   } = useAuth();
   const [dates, setDates] = useState(getDefaultAdminDateRange);
+  const portfolioMode = isPortfolioModeEnabled();
+  const [samplePeriod, setSamplePeriod] = useState<AdminAnalyticsSamplePeriod | null>(
+    null,
+  );
+  const [samplePeriodLoading, setSamplePeriodLoading] = useState(portfolioMode);
+  const [samplePeriodError, setSamplePeriodError] = useState(false);
   const [dateErrors, setDateErrors] = useState<AdminDateRangeErrors>({});
   const [currency, setCurrency] = useState('');
   const [currencyError, setCurrencyError] = useState<string>();
@@ -195,6 +206,7 @@ export default function AdminExportsPage() {
   const pendingFocusRestoresRef = useRef(new Map<AdminExportKind, number>());
   const pendingRef = useRef(new Set<AdminExportKind>());
   const controllersRef = useRef(new Map<AdminExportKind, AbortController>());
+  const samplePeriodControllerRef = useRef<AbortController | null>(null);
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -202,10 +214,59 @@ export default function AdminExportsPage() {
     const controllers = controllersRef.current;
     return () => {
       mountedRef.current = false;
+      samplePeriodControllerRef.current?.abort();
+      samplePeriodControllerRef.current = null;
       controllers.forEach((controller) => controller.abort());
       controllers.clear();
     };
   }, []);
+
+  useEffect(() => {
+    if (!portfolioMode) return;
+    const authSession = getAuthenticatedSession();
+    if (authSession === null) {
+      logout();
+      return;
+    }
+    const controller = new AbortController();
+    samplePeriodControllerRef.current = controller;
+    const loadSamplePeriod = async () => {
+      try {
+        const period = await fetchAdminAnalyticsSamplePeriod(
+          authSession.accessToken,
+          controller.signal,
+        );
+        if (!mountedRef.current) return;
+        setSamplePeriod(period);
+        setDates({ endDate: period.endDate, startDate: period.startDate });
+      } catch (error: unknown) {
+        if (!mountedRef.current) return;
+        if (error instanceof AdminApiRequestError && error.kind === 'aborted') return;
+        if (error instanceof AdminApiRequestError && error.status === 401) {
+          invalidateSessionIfCurrent(authSession);
+          return;
+        }
+        if (error instanceof AdminApiRequestError && error.status === 403) {
+          await refreshCurrentUser();
+          return;
+        }
+        setSamplePeriodError(true);
+      } finally {
+        if (samplePeriodControllerRef.current === controller) {
+          samplePeriodControllerRef.current = null;
+        }
+        if (mountedRef.current) setSamplePeriodLoading(false);
+      }
+    };
+    void loadSamplePeriod();
+    return () => controller.abort();
+  }, [
+    getAuthenticatedSession,
+    invalidateSessionIfCurrent,
+    logout,
+    portfolioMode,
+    refreshCurrentUser,
+  ]);
 
   useEffect(() => {
     pendingFocusRestoresRef.current.forEach((focusVersion, kind) => {
@@ -233,7 +294,12 @@ export default function AdminExportsPage() {
   };
 
   const startExport = async (kind: AdminExportKind) => {
-    if (pendingRef.current.has(kind)) return;
+    if (
+      samplePeriodLoading ||
+      (portfolioMode && samplePeriod === null) ||
+      pendingRef.current.has(kind)
+    )
+      return;
     const nextDateErrors = validateDates(dates);
     const normalizedCurrency = currency.trim().toUpperCase();
     const nextCurrencyError =
@@ -403,6 +469,37 @@ export default function AdminExportsPage() {
           These values are local to Exports and are not inherited from Analytics. Each
           action takes its own immutable snapshot when activated.
         </p>
+        {samplePeriodError ? (
+          <Notice title="Historical demo data is unavailable" variant="danger">
+            <p>Exports are disabled until the sample-data period is available.</p>
+          </Notice>
+        ) : null}
+        {samplePeriod === null ? null : (
+          <div>
+            <Button
+              aria-pressed={
+                dates.startDate === samplePeriod.startDate &&
+                dates.endDate === samplePeriod.endDate
+              }
+              size="md"
+              type="button"
+              variant="secondary"
+              onClick={() =>
+                setDates({
+                  endDate: samplePeriod.endDate,
+                  startDate: samplePeriod.startDate,
+                })
+              }
+            >
+              Historical demo data
+            </Button>
+            <p className={styles.parameterExplanation}>
+              The sample-data period is inclusive in Europe/Oslo. Exports can also
+              include later demo activity when its timestamp falls inside the selected
+              period.
+            </p>
+          </div>
+        )}
         <div className={styles.commonFilters}>
           <AdminDateRangeControl
             ref={dateControlRef}
@@ -527,6 +624,7 @@ export default function AdminExportsPage() {
             }}
             aria-describedby="orders-export-description orders-next-context"
             className={styles.exportAction}
+            disabled={samplePeriodLoading || (portfolioMode && samplePeriod === null)}
             loading={notices.orders.kind === 'pending'}
             loadingLabel="Preparing orders CSV"
             size="md"
@@ -577,6 +675,7 @@ export default function AdminExportsPage() {
             }}
             aria-describedby="product-export-description product-sales-next-context"
             className={styles.exportAction}
+            disabled={samplePeriodLoading || (portfolioMode && samplePeriod === null)}
             loading={notices['product-sales'].kind === 'pending'}
             loadingLabel="Preparing product sales CSV"
             size="md"
@@ -627,6 +726,7 @@ export default function AdminExportsPage() {
             }}
             aria-describedby="payments-export-description payments-next-context"
             className={styles.exportAction}
+            disabled={samplePeriodLoading || (portfolioMode && samplePeriod === null)}
             loading={notices.payments.kind === 'pending'}
             loadingLabel="Preparing payments CSV"
             size="md"

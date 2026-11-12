@@ -87,8 +87,11 @@ function menuResponse(items: readonly unknown[], total = items.length) {
   return { items, limit: 100, offset: 0, total };
 }
 
-function analyticsResponse(currencies: readonly unknown[] = []) {
-  const range = buildAdminAwareDateRange(getDefaultAdminDateRange());
+function analyticsResponse(
+  currencies: readonly unknown[] = [],
+  selection = getDefaultAdminDateRange(),
+) {
+  const range = buildAdminAwareDateRange(selection);
   return {
     currencies,
     range: { end: range.end, start: range.start, timezone: 'Europe/Oslo' },
@@ -147,7 +150,69 @@ afterEach(() => {
   sessionStorage.clear();
   localStorage.clear();
   resetAuthMemoryForTests();
+  vi.unstubAllEnvs();
   vi.unstubAllGlobals();
+});
+
+it('waits for the historical sample period before portfolio analytics', async () => {
+  vi.stubEnv('VITE_PORTFOLIO_MODE', 'true');
+  const samplePeriod = { startDate: '2026-06-01', endDate: '2026-07-30' };
+  const stub = installFetchStub(
+    { json: ADMIN_PROFILE },
+    {
+      json: {
+        start_date: samplePeriod.startDate,
+        end_date: samplePeriod.endDate,
+        timezone: 'Europe/Oslo',
+      },
+    },
+    { json: ordersResponse() },
+    { json: menuResponse([menuItem(1)]) },
+    { json: analyticsResponse([], samplePeriod) },
+  );
+
+  renderHome();
+
+  expect(
+    await screen.findByText('Collected revenue · historical demo data'),
+  ).toBeVisible();
+  const paths = stub.calls.map((call) => new URL(call.url, 'http://x').pathname);
+  expect(paths).toEqual([
+    '/api/v1/auth/me',
+    '/api/v1/admin/analytics/sample-period',
+    '/api/v1/admin/orders',
+    '/api/v1/admin/menu/items',
+    '/api/v1/admin/analytics/overview',
+  ]);
+  const aware = buildAdminAwareDateRange(samplePeriod);
+  const analyticsCall = stub.calls.at(-1);
+  expect(analyticsCall).toBeDefined();
+  const query = new URL(analyticsCall!.url, 'http://x').searchParams;
+  expect(query.get('start')).toBe(aware.start);
+  expect(query.get('end')).toBe(aware.end);
+});
+
+it('does not fall back to a current-period analytics retry when portfolio metadata is unavailable', async () => {
+  vi.stubEnv('VITE_PORTFOLIO_MODE', 'true');
+  const stub = installFetchStub(
+    { json: ADMIN_PROFILE },
+    { status: 503 },
+    { json: ordersResponse() },
+    { json: menuResponse([menuItem(1)]) },
+  );
+
+  renderHome();
+
+  expect(await screen.findByText('Sales summary unavailable')).toBeVisible();
+  expect(screen.getByText('All orders')).toBeVisible();
+  expect(screen.getByText('All active items available')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Retry sales summary' })).toBeDisabled();
+  await waitFor(() => expect(stub.calls).toHaveLength(4));
+  expect(
+    stub.calls.filter((call) =>
+      call.url.startsWith('/api/v1/admin/analytics/overview?'),
+    ),
+  ).toHaveLength(0);
 });
 
 describe('administrator home dashboard', () => {

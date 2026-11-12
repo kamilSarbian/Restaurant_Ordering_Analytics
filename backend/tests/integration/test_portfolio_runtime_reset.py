@@ -17,6 +17,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app import portfolio_deployment as deployment_operator
+from app.auth.demo_customer import DEMO_CUSTOMER_ID, provision_demo_customer
 from app.auth.models import User
 from app.auth.roles import UserRole
 from app.categories.models import Category
@@ -332,6 +333,34 @@ def test_reset_deletes_only_validated_runtime_rows_and_empty_rerun_has_zero_dml(
     assert repeated.runtime_reset.already_empty is True
     assert _modifying(repeated_statements) == []
     assert _nonruntime_snapshot(factory) == before
+
+
+def test_reset_accepts_runtime_order_owned_by_exact_demo_customer(
+    test_database_engine: Engine,
+    reset_plan: PortfolioSeedPlan,
+) -> None:
+    """Delete runtime data owned by the reserved demo customer only."""
+    factory = _factory(test_database_engine)
+    provisioned = provision_demo_customer(factory)
+    assert provisioned.status == "provisioned"
+    runtime = _create_order(factory, origin=OrderDataOrigin.PORTFOLIO_RUNTIME)
+    with factory.begin() as session:
+        session.execute(
+            update(Order)
+            .where(Order.id == runtime.id)
+            .values(customer_user_id=DEMO_CUSTOMER_ID)
+        )
+
+    result = _run_reset(test_database_engine, reset_plan)
+
+    assert result.runtime_reset is not None
+    assert result.runtime_reset.orders_deleted == 1
+    with factory() as session:
+        assert session.get(Order, runtime.id) is None
+        customer = session.get(User, DEMO_CUSTOMER_ID)
+        assert customer is not None
+        assert customer.is_active is True
+    verify_portfolio_data(factory, reset_plan)
 
 
 @pytest.mark.parametrize(

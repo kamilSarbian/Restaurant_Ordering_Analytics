@@ -3,12 +3,14 @@ import { Link, useParams } from 'react-router-dom';
 import BrandMark from '../../components/branding/BrandMark';
 import Button from '../../components/ui/Button';
 import Notice from '../../components/ui/Notice';
+import { isPortfolioModeEnabled } from '../../config/portfolioMode';
 import { useAuth } from '../auth/AuthContext';
 import { isPublicOrderNumber, loadOrderAccess } from './orderAccessStorage';
 import styles from './CheckoutPage.module.css';
 
-/** Render neutral guidance after the customer returns from hosted checkout. */
+/** Render neutral guidance for a payment-return route in either provider mode. */
 export default function PaymentReturnPage() {
+  const portfolioModeEnabled = isPortfolioModeEnabled();
   const { publicOrderNumber } = useParams();
   const { logout, phase, retrySession } = useAuth();
   const validPublicOrderNumber = isPublicOrderNumber(publicOrderNumber)
@@ -33,9 +35,15 @@ export default function PaymentReturnPage() {
           <span>Nordic Hearth</span>
         </div>
         <p className={styles.eyebrow}>Payment verification</p>
-        <h1 id="payment-return-title">You returned from secure checkout</h1>
+        <h1 id="payment-return-title">
+          {portfolioModeEnabled
+            ? 'Demo payment result'
+            : 'You returned from secure checkout'}
+        </h1>
         <p className={styles.stateIntro}>
-          Returning from secure checkout does not itself confirm a payment result.
+          {portfolioModeEnabled
+            ? 'This portfolio route never confirms a real charge or delivery.'
+            : 'Returning from secure checkout does not itself confirm a payment result.'}
         </p>
         {validPublicOrderNumber !== null && (
           <div className={styles.stateOrderContext}>
@@ -96,7 +104,7 @@ export default function PaymentReturnPage() {
                 className={`${styles.stateAction} ${styles.stateSecondaryAction}`}
                 to={`/orders/${validPublicOrderNumber}/checkout`}
               >
-                Return to payment
+                {portfolioModeEnabled ? 'Return to demo payment' : 'Return to payment'}
               </Link>
             </>
           )}

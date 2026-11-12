@@ -7,6 +7,44 @@ integration, clear separation of responsibilities, and ease of demonstration.
 The system remains simple enough for one person to develop and explain during a
 job interview.
 
+### 1.1. Public Baseline and Local Candidate Boundary
+
+The deployed administrator demo passed the Stage 22-D public runner with 14 of
+14 checks in report `stage22d-public-20261110t002125z` (SHA-256
+`5c02f7d5806cc39f9f85cb3e49d011dc86b3efb66473dbf0bf409f4975e79214`).
+Its public frontend is <https://nordic.kamilsarbian.dev>; the external case
+study is <https://www.kamilsarbian.dev/projects/nordic-hearth>. This accepted
+baseline already includes the database-authoritative ceiling of 100
+`portfolio_runtime` Orders, three demo Payments per runtime Order, and an
+explicit operator-only reset guarded by the same advisory lock. Public reflow
+evidence used 640 CSS pixels rather than literal 200% browser zoom.
+
+The current worktree is a separate uncommitted architecture candidate, not the
+deployed system. It adds another reserved principal whose role is exactly
+`customer`, never `admin` or `super_admin`. In trusted portfolio runtime, that
+principal owns its `portfolio_runtime` Orders and Account history, while public
+status and demo Checkout continue to require the Order capability. Independent
+`CUSTOMER_DEMO_SESSION_ISSUANCE_ENABLED` and
+`VITE_ENABLE_CUSTOMER_DEMO_SESSION` gates default to `false`; operator
+provision/deactivate actions remain separate from request handling. The
+reserved customer has not been provisioned.
+
+The same local candidate derives an exact persisted historical sample period
+without changing stored timestamps or reseeding. The frontend interprets it in
+`Europe/Oslo`, presents inclusive UI dates, and converts the inclusive end to
+the existing half-open API boundary. Aggregations remain separated by currency.
+It also separates guest, customer, and administrator demo labels and makes demo
+payment, cold-start, official-brand, carousel, and SEO presentation truthful.
+Targeted current-byte isolated PostgreSQL evidence and one local canonical
+three-phase browser invocation now exist. One clean current-byte invocation of
+all 10 relevant integration files passed 308 tests with no filter or retry. The
+browser harness passed 32/32 normal-runtime tests, 1/1 administrator-demo test
+and 2/2 customer-disabled/anonymous-guest flow tests, and 1/1 enabled
+customer-demo lifecycle test, using one worker and zero retries with clean
+database and secret-safe log audits. This local evidence is neither CI nor
+public customer-demo acceptance;
+the public gate has not run.
+
 ## 2. Selected Stack
 
 ### Backend
@@ -46,10 +84,10 @@ sufficient; Zustand and Recharts were not required.
 The Stage 20 private-service/GHCR/managed-Render-database/cron target is
 historical and superseded by AF1+B1-3 for the portfolio demo. The current
 deployment uses the free-tier Render frontend/backend and Neon topology
-described above. The operator-confirmed rollback release is live with backend
-demo-session issuance and frontend visibility disabled. Repository
-configuration alone does not prove later provider state; exact operational
-evidence is recorded in the Stage 22 closeout.
+described above. The false/false rollback was a historical safety boundary; the
+later administrator activation passed the public Stage 22-D report recorded in
+Section 1.1. Repository configuration alone does not prove later provider
+state; exact operational evidence is recorded in the Stage 22 closeout.
 
 ## 3. Architecture Style: Modular Monolith
 
@@ -1704,11 +1742,12 @@ provider-neutral `Payment.status` and `Payment.succeeded_at` qualification,
 without `StripeEvent`. Portfolio-runtime traffic may therefore increase shared
 aggregates, while the immutable B2 500-Order dataset remains unchanged. The
 bounded public canary proved only JWT issuance and canonical `/auth/me`; it did
-not establish Order or Payment behavior. The operator-confirmed rollback
-release has both public flags false, no new demo JWT is issued, and the visible
-entry remains hidden.
+not establish Order or Payment behavior. At the historical
+operator-confirmed rollback boundary, both public flags were false, no new demo
+JWT was issued, and the visible entry was hidden. The later public activation
+and acceptance are recorded in Section 1.1.
 
-A later local Stage 22 capacity candidate serializes the global
+The later committed Stage 22 capacity boundary serializes the global
 `portfolio_runtime` Order count and insertion with the same PostgreSQL
 transaction advisory lock. At 100 existing runtime Orders, another creation
 returns the stable capacity 503 and commits no Order, item, or history DML.
@@ -1717,14 +1756,13 @@ idempotency-key replay is resolved before the new-attempt limit and remains
 available at capacity; a fourth new key returns the stable capacity 409 with no
 committed Payment DML. These limits do not apply to `portfolio_seed`, `live`,
 or normal `false + stripe_test`, and they do not alter the shared
-administrative Analytics or CSV origin scope. No automatic prune or reset is
+administrative Analytics or CSV origin scope. No automatic prune is
 implemented. Local static gates and one complete nine-file isolated PostgreSQL
 invocation passed, with 579 tests and no retry; the frontend passed 220 targeted
 tests and 1,211 tests in its full suite. Independent review, CI, and deployment
-remain separate gates, both public demo flags remain false, and full
-visible-flow public Browser E2E acceptance remains open.
+are recorded separately from public acceptance.
 
-The later manual reset candidate is an operator-only extension of this
+The later committed manual reset is an operator-only extension of this
 capacity boundary, not an automatic lifecycle. The existing hidden-input
 portfolio operator verifies the exact clean release, pooled `roa_runtime`
 target, `roa_portfolio`, role contract, public-only search path, revision 0009,
@@ -1732,12 +1770,18 @@ canonical plan, and immutable seed. Inside the same outer transaction, reset
 acquires `PORTFOLIO_RUNTIME_ORDER_CAPACITY_LOCK_KEY`, locks runtime Orders before
 their Payments, and validates ownerless aggregates, contiguous item/history
 state, at most three terminal canonical demo Payments, no related StripeEvent,
-and the exact known reset-relevant incoming foreign-key graph for revision 0009. Only then may it delete
-Payments, status history, items, and Orders child-first. Exact row counts, zero
+and the exact known reset-relevant incoming foreign-key graph for revision 0009. Only then may it delete Payments, status history, items, and Orders
+child-first. Exact row counts, zero
 remaining runtime rows, and a second canonical-seed verification are required
 before commit. A no-op rerun emits no DELETE. Seed and live rows are never reset,
 and no endpoint, startup hook, scheduler, repair, or automatic prune invokes
 this path.
+
+The current local customer-demo candidate changes only the accepted runtime
+owner inventory: a runtime Order may be unowned or owned by the exact reserved
+demo customer; any other owner remains a fail-closed STOP. That extension is
+uncommitted. It has targeted current-byte isolated PostgreSQL coverage,
+including the clean 308-test invocation, but no public acceptance.
 
 ### 5.31. Shared Demo Identity Customer-Order Isolation
 
@@ -1873,12 +1917,12 @@ was manually deployed by the operator. The first disabled-state observation
 was `ROLLBACK_FAIL`; its cause was not established. A later `ROLLBACK_PASS`
 restored the exact demo-session 404. A subsequent Blueprint Manual Sync
 displayed `Resources already up to date`, which does not independently prove
-which exact SHA the sync evaluated. A fresh public check on 2026-11-08 confirmed
+which exact SHA the sync evaluated. A public check on 2026-11-08 confirmed
 health and readiness 200 and the bodyless demo-session POST returning exact 404
-without a token or cookie. Backend issuance and frontend visibility remain
-false, so no new demo JWT is issued and the visible entry remains hidden. A JWT
-already issued during the canary could remain valid until the configured
-30-minute TTL expired.
+without a token or cookie. That false/false state is historical rollback
+evidence. The later administrator activation and 14/14 Stage 22-D acceptance
+supersede it for the public baseline, without changing the 30-minute validity
+boundary of a token already issued before any later deactivation.
 
 ## 6. Architecture Diagram
 

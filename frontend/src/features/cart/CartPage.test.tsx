@@ -876,12 +876,18 @@ describe('CartPage', () => {
       await advanceQuoteDebounce();
 
       fireEvent.click(
-        screen.getByRole('button', { name: 'Place order and continue to payment' }),
+        screen.getByRole('button', {
+          name: portfolioMode
+            ? 'Place demo order and continue to simulated payment'
+            : 'Place order and continue to payment',
+        }),
       );
       await flushAsyncWork();
 
       expect(screen.getByRole('alert')).toHaveTextContent('Session expired');
       if (portfolioMode) {
+        expect(screen.getByText(/No food will be delivered/i)).toBeVisible();
+        expect(screen.getByText(/no real money will be charged/i)).toBeVisible();
         expect(
           screen.queryByRole('link', { name: 'Sign in again' }),
         ).not.toBeInTheDocument();

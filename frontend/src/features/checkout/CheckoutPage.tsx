@@ -11,6 +11,7 @@ import type { OrderStatusResponse, PaymentStatus } from '../../api/types';
 import BrandMark from '../../components/branding/BrandMark';
 import Button from '../../components/ui/Button';
 import Notice from '../../components/ui/Notice';
+import { isPortfolioModeEnabled } from '../../config/portfolioMode';
 import { useAuth } from '../auth/AuthContext';
 import { useCart } from '../cart/CartContext';
 import { saveCartState } from '../cart/cartStorage';
@@ -206,6 +207,7 @@ function CheckoutPageForOrder({
     retrySession,
   } = useAuth();
   const { clearCart } = useCart();
+  const portfolioModeEnabled = isPortfolioModeEnabled();
   const validPublicOrderNumber = isPublicOrderNumber(publicOrderNumber)
     ? publicOrderNumber
     : null;
@@ -537,6 +539,14 @@ function CheckoutPageForOrder({
       clearCart();
       saveCartState({ items: [] });
       if (response.payment_status === 'pending') {
+        if (portfolioModeEnabled) {
+          setFeedback({
+            kind: 'retry',
+            message:
+              'The demo payment did not return a final simulated result. No redirect was attempted.',
+          });
+          return;
+        }
         try {
           redirectToCheckout(response.checkout_url);
         } catch {
@@ -630,19 +640,29 @@ function CheckoutPageForOrder({
         <h1 id="order-created-title">Order created</h1>
         <p className={styles.paymentRequired}>
           {terminalPaymentStatus === 'succeeded'
-            ? 'Payment confirmed.'
+            ? portfolioModeEnabled
+              ? 'Demo payment completed.'
+              : 'Payment confirmed.'
             : terminalPaymentStatus === 'failed'
-              ? 'Payment failed. Payment is still required.'
+              ? portfolioModeEnabled
+                ? 'The simulated payment failed.'
+                : 'Payment failed. Payment is still required.'
               : terminalPaymentStatus === 'expired'
-                ? 'The payment attempt expired. Payment is still required.'
-                : 'Payment is still required.'}
+                ? portfolioModeEnabled
+                  ? 'The simulated payment attempt expired.'
+                  : 'The payment attempt expired. Payment is still required.'
+                : portfolioModeEnabled
+                  ? 'No real payment has been made.'
+                  : 'Payment is still required.'}
         </p>
         <p className={styles.intro}>
           {terminalPaymentStatus === 'succeeded'
             ? 'Review the details saved with your order, then follow its current status.'
             : terminalPaymentStatus === 'failed' || terminalPaymentStatus === 'expired'
               ? 'Review the details saved with your order, then check whether another payment attempt is available.'
-              : 'Review the details saved with your order, then continue to secure hosted payment in this tab.'}
+              : portfolioModeEnabled
+                ? 'Review the synthetic order, then run a simulated payment. No real money is charged and no food is delivered.'
+                : 'Review the details saved with your order, then continue to secure hosted payment in this tab.'}
         </p>
         <p className={styles.orderNumberLabel}>Public order number</p>
         <p className={styles.orderNumber}>{validPublicOrderNumber}</p>
@@ -753,23 +773,33 @@ function CheckoutPageForOrder({
         </section>
 
         <section className={styles.paymentPanel} aria-labelledby="payment-heading">
-          <p className={styles.eyebrow}>Secure checkout</p>
+          <p className={styles.eyebrow}>
+            {portfolioModeEnabled ? 'Portfolio payment demo' : 'Secure checkout'}
+          </p>
           <h2 id="payment-heading">
             {terminalPaymentStatus === 'succeeded'
-              ? 'Payment confirmed'
+              ? portfolioModeEnabled
+                ? 'Demo payment completed'
+                : 'Payment confirmed'
               : terminalPaymentStatus === 'failed'
                 ? 'Payment failed'
                 : terminalPaymentStatus === 'expired'
                   ? 'Payment attempt expired'
-                  : 'Continue to payment'}
+                  : portfolioModeEnabled
+                    ? 'Run a simulated payment'
+                    : 'Continue to payment'}
           </h2>
           <p>
             {terminalPaymentStatus === 'succeeded'
-              ? 'The backend confirmed this payment. No payment redirect is needed.'
+              ? portfolioModeEnabled
+                ? 'The backend recorded a simulated result. No real money was charged and no delivery was created.'
+                : 'The backend confirmed this payment. No payment redirect is needed.'
               : terminalPaymentStatus === 'failed' ||
                   terminalPaymentStatus === 'expired'
                 ? 'The backend confirmed that this attempt is terminal. You may request another attempt; the server will confirm whether this order is still eligible.'
-                : 'We will open the hosted payment page in this tab. Your order is not paid until payment is confirmed.'}
+                : portfolioModeEnabled
+                  ? 'This portfolio flow records a simulated result only. It never opens a hosted payment page, charges real money, or creates a delivery.'
+                  : 'We will open the hosted payment page in this tab. Your order is not paid until payment is confirmed.'}
           </p>
 
           {feedback.kind !== 'terminal' && feedback.kind !== 'attempt-limit' && (
@@ -778,13 +808,19 @@ function CheckoutPageForOrder({
                 className={styles.primaryAction}
                 disabled={checkoutDisabled}
                 loading={feedback.kind === 'pending'}
-                loadingLabel="Continue to secure payment"
+                loadingLabel={
+                  portfolioModeEnabled
+                    ? 'Running simulated payment'
+                    : 'Continue to secure payment'
+                }
                 onClick={() => void startCheckout()}
                 ref={checkoutButtonRef}
                 size="lg"
                 type="button"
               >
-                Continue to secure payment
+                {portfolioModeEnabled
+                  ? 'Run simulated payment'
+                  : 'Continue to secure payment'}
               </Button>
             </div>
           )}
@@ -795,7 +831,9 @@ function CheckoutPageForOrder({
               role="status"
               title="Preparing payment"
             >
-              Creating secure checkout…
+              {portfolioModeEnabled
+                ? 'Running the simulated payment…'
+                : 'Creating secure checkout…'}
             </Notice>
           )}
           {feedback.kind === 'retry' && (
@@ -881,10 +919,18 @@ function CheckoutPageForOrder({
                 <Notice
                   className={styles.inlineNotice}
                   role="status"
-                  title="Payment confirmed"
+                  title={
+                    portfolioModeEnabled
+                      ? 'Demo payment completed'
+                      : 'Payment confirmed'
+                  }
                   variant="success"
                 >
-                  <p>Your payment was confirmed by the backend.</p>
+                  <p>
+                    {portfolioModeEnabled
+                      ? 'The backend recorded a simulated result. No real money was charged.'
+                      : 'Your payment was confirmed by the backend.'}
+                  </p>
                   <Link to={`/orders/${validPublicOrderNumber}/status`}>
                     View order status
                   </Link>
@@ -965,7 +1011,7 @@ function CheckoutPageForOrder({
   );
 }
 
-/** Start or safely replay the hosted checkout flow for one customer order. */
+/** Start or safely replay the configured checkout flow for one customer order. */
 export default function CheckoutPage(props: CheckoutPageProps) {
   const { publicOrderNumber } = useParams();
 

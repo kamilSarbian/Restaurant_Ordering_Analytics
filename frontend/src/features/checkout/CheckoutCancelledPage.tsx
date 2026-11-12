@@ -3,12 +3,14 @@ import { Link, useParams } from 'react-router-dom';
 import BrandMark from '../../components/branding/BrandMark';
 import Button from '../../components/ui/Button';
 import Notice from '../../components/ui/Notice';
+import { isPortfolioModeEnabled } from '../../config/portfolioMode';
 import { useAuth } from '../auth/AuthContext';
 import { isPublicOrderNumber, loadOrderAccess } from './orderAccessStorage';
 import styles from './CheckoutPage.module.css';
 
-/** Explain a hosted-checkout exit without changing order or payment state. */
+/** Explain a checkout exit without changing order or payment state. */
 export default function CheckoutCancelledPage() {
+  const portfolioModeEnabled = isPortfolioModeEnabled();
   const { publicOrderNumber } = useParams();
   const { logout, phase, retrySession } = useAuth();
   const validPublicOrderNumber = isPublicOrderNumber(publicOrderNumber)
@@ -33,8 +35,16 @@ export default function CheckoutCancelledPage() {
           <span>Nordic Hearth</span>
         </div>
         <p className={styles.eyebrow}>Checkout paused</p>
-        <h1 id="checkout-cancelled-title">You left secure checkout</h1>
-        <p className={styles.stateIntro}>Hosted checkout was cancelled or closed.</p>
+        <h1 id="checkout-cancelled-title">
+          {portfolioModeEnabled
+            ? 'Demo payment not completed'
+            : 'You left secure checkout'}
+        </h1>
+        <p className={styles.stateIntro}>
+          {portfolioModeEnabled
+            ? 'No real money was charged and no delivery was created.'
+            : 'Hosted checkout was cancelled or closed.'}
+        </p>
         {validPublicOrderNumber !== null && (
           <div className={styles.stateOrderContext}>
             <p className={styles.orderNumberLabel}>Public order number</p>
@@ -88,7 +98,7 @@ export default function CheckoutCancelledPage() {
                 data-action-priority="primary"
                 to={`/orders/${validPublicOrderNumber}/checkout`}
               >
-                Return to payment
+                {portfolioModeEnabled ? 'Return to demo payment' : 'Return to payment'}
               </Link>
               <Link
                 className={`${styles.stateAction} ${styles.stateSecondaryAction}`}

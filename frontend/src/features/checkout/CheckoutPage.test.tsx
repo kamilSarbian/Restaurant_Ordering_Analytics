@@ -392,8 +392,39 @@ describe('CheckoutPage', () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
     sessionStorage.clear();
     resetAuthMemoryForTests();
+  });
+
+  it('describes portfolio payments as simulated and never as hosted checkout', async () => {
+    vi.stubEnv('VITE_PORTFOLIO_MODE', 'true');
+    const redirectToCheckout = vi.fn();
+    installFetchStub({ json: terminalCheckoutResponse('succeeded'), status: 201 });
+    saveOrderAccess(PUBLIC_ORDER_NUMBER, ACCESS_TOKEN);
+    seedAttempt();
+    const user = userEvent.setup();
+
+    renderCheckout(PUBLIC_ORDER_NUMBER, null, redirectToCheckout);
+
+    expect(await screen.findByText('No real payment has been made.')).toBeVisible();
+    expect(
+      screen.getByText(/never opens a hosted payment page, charges real money/i),
+    ).toBeVisible();
+    expect(screen.queryByText(/secure hosted payment/i)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Run simulated payment' }));
+
+    expect(await screen.findByText('Demo payment completed.')).toBeVisible();
+    expect(
+      screen.getByText(
+        'The backend recorded a simulated result. No real money was charged.',
+      ),
+    ).toBeVisible();
+    expect(
+      screen.queryByText('Your payment was confirmed by the backend.'),
+    ).not.toBeInTheDocument();
+    expect(redirectToCheckout).not.toHaveBeenCalled();
   });
 
   it('renders the branded authoritative summary without starting checkout', async () => {
@@ -412,8 +443,11 @@ describe('CheckoutPage', () => {
     expect(screen.getAllByText('Nordic Hearth')).toHaveLength(1);
     const brandMark = screen
       .getByText('Nordic Hearth')
-      .parentElement?.querySelector('svg');
-    expect(brandMark).toHaveAttribute('aria-hidden', 'true');
+      .parentElement?.querySelector('[aria-hidden="true"]');
+    expect(brandMark?.querySelector('img')).toHaveAttribute(
+      'src',
+      '/images/brand/logo/nordic-hearth-logo.png',
+    );
     expect(
       screen.queryByRole('img', { name: 'Nordic Hearth' }),
     ).not.toBeInTheDocument();

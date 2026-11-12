@@ -11,6 +11,7 @@ import {
 const LOGIN_PATH = '/api/v1/auth/login';
 const REGISTER_PATH = '/api/v1/auth/register';
 const DEMO_SESSION_PATH = '/api/v1/auth/demo-session';
+const CUSTOMER_DEMO_SESSION_PATH = '/api/v1/auth/customer-demo-session';
 const ME_PATH = '/api/v1/auth/me';
 const TOKEN_RESPONSE_KEYS = ['access_token', 'expires_in', 'token_type'];
 const USER_RESPONSE_KEYS = ['email', 'id', 'is_active', 'role'];
@@ -114,7 +115,11 @@ function parseRetryAfter(value: string | null): number | undefined {
 }
 
 async function requestAuthToken(
-  path: typeof DEMO_SESSION_PATH | typeof LOGIN_PATH | typeof REGISTER_PATH,
+  path:
+    | typeof CUSTOMER_DEMO_SESSION_PATH
+    | typeof DEMO_SESSION_PATH
+    | typeof LOGIN_PATH
+    | typeof REGISTER_PATH,
   options: { body?: string; signal?: AbortSignal },
 ): Promise<AuthTokenResponse> {
   const timeoutMs = resolveApiRequestTimeoutMs();
@@ -222,6 +227,13 @@ export function registerUser(
 /** Request one canonical demo-administrator token without credentials or a body. */
 export function startDemoSession(signal?: AbortSignal): Promise<AuthTokenResponse> {
   return requestAuthToken(DEMO_SESSION_PATH, { signal });
+}
+
+/** Request one canonical demo-customer token without credentials or a body. */
+export function startCustomerDemoSession(
+  signal?: AbortSignal,
+): Promise<AuthTokenResponse> {
+  return requestAuthToken(CUSTOMER_DEMO_SESSION_PATH, { signal });
 }
 
 /** Fetch the current database-authoritative user through canonical Bearer auth. */

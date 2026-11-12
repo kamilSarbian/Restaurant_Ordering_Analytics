@@ -289,6 +289,7 @@ def _validate_backend_service(
         "APP_DEBUG": "false",
         "PORTFOLIO_DEMO_MODE": "true",
         "DEMO_SESSION_ISSUANCE_ENABLED": "true",
+        "CUSTOMER_DEMO_SESSION_ISSUANCE_ENABLED": "false",
         "PAYMENT_PROVIDER": "demo",
         "TRUSTED_PROXY_MODE": "direct",
         "AUTH_ACCESS_TOKEN_EXPIRE_MINUTES": "30",
@@ -349,6 +350,7 @@ def _validate_frontend_service(
         "VITE_API_TIMEOUT_MS",
         "VITE_PORTFOLIO_MODE",
         "VITE_ENABLE_DEMO_SESSION",
+        "VITE_ENABLE_CUSTOMER_DEMO_SESSION",
     }:
         raise FreeTierContractError
     _require_service_environment_reference(
@@ -367,6 +369,11 @@ def _validate_frontend_service(
     if entries["VITE_ENABLE_DEMO_SESSION"] != {
         "key": "VITE_ENABLE_DEMO_SESSION",
         "value": "true",
+    }:
+        raise FreeTierContractError
+    if entries["VITE_ENABLE_CUSTOMER_DEMO_SESSION"] != {
+        "key": "VITE_ENABLE_CUSTOMER_DEMO_SESSION",
+        "value": "false",
     }:
         raise FreeTierContractError
 

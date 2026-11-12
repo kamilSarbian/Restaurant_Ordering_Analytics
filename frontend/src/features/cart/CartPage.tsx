@@ -676,6 +676,13 @@ export default function CartPage() {
         </Link>
       </header>
 
+      {portfolioModeEnabled ? (
+        <AsyncNotice title="Portfolio demo order">
+          This creates synthetic demo data only. No food will be delivered and no real
+          money will be charged.
+        </AsyncNotice>
+      ) : null}
+
       <div className={styles.layout}>
         <section aria-labelledby="cart-items-heading">
           <div className={styles.sectionHeading}>
@@ -1010,7 +1017,9 @@ export default function CartPage() {
                   type="button"
                   onClick={retryNavigation}
                 >
-                  Continue to payment setup
+                  {portfolioModeEnabled
+                    ? 'Continue to demo payment'
+                    : 'Continue to payment setup'}
                 </button>
               </AsyncNotice>
             )}
@@ -1070,7 +1079,9 @@ export default function CartPage() {
               aria-describedby="place-order-help"
               disabled={!canPlaceOrder}
             >
-              Place order and continue to payment
+              {portfolioModeEnabled
+                ? 'Place demo order and continue to simulated payment'
+                : 'Place order and continue to payment'}
             </Button>
           </form>
         </aside>

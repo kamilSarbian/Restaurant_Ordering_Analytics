@@ -18,6 +18,11 @@ from sqlalchemy.pool import NullPool
 
 from app import portfolio_deployment as operator
 from app.auth.demo_admin import DEMO_ADMIN_EMAIL, DEMO_ADMIN_ID, DemoAdminResult
+from app.auth.demo_customer import (
+    DEMO_CUSTOMER_EMAIL,
+    DEMO_CUSTOMER_ID,
+    DemoCustomerResult,
+)
 from app.orders.runtime_reset import PortfolioRuntimeResetResult
 from app.seed.portfolio import PortfolioSeedResult
 from app.seed.safety import TARGET_CHANGING_POSTGRES_ENVIRONMENT_VARIABLES
@@ -63,11 +68,20 @@ def _operation_result(
 ) -> operator.PortfolioDeploymentResult:
     return operator.PortfolioDeploymentResult(
         action=action,
-        portfolio=None if action == "deactivate" else _portfolio_result(),
+        portfolio=(
+            None
+            if action in {"deactivate", "deactivate-customer"}
+            else _portfolio_result()
+        ),
         demo_admin=DemoAdminResult(
             id=DEMO_ADMIN_ID,
             email=DEMO_ADMIN_EMAIL,
             status=status,  # type: ignore[arg-type]
+        ),
+        demo_customer=DemoCustomerResult(
+            id=DEMO_CUSTOMER_ID,
+            email=DEMO_CUSTOMER_EMAIL,
+            status=("deactivated" if action == "deactivate-customer" else "active"),
         ),
         runtime_reset=(
             PortfolioRuntimeResetResult(2, 3, 4, 1)
@@ -274,6 +288,60 @@ def test_deactivate_cli_does_not_require_or_generate_dataset_plan(
     )
 
 
+@pytest.mark.parametrize(
+    ("action", "confirmation", "expects_plan"),
+    (
+        (
+            "provision-customer",
+            operator.PROVISION_CUSTOMER_CONFIRMATION,
+            True,
+        ),
+        (
+            "deactivate-customer",
+            operator.DEACTIVATE_CUSTOMER_CONFIRMATION,
+            False,
+        ),
+    ),
+)
+def test_customer_identity_cli_routes_exact_operator_action(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    action: operator.PortfolioAction,
+    confirmation: str,
+    expects_plan: bool,
+) -> None:
+    """Route customer provisioning and deactivation through their exact actions."""
+    _clear_postgres_environment(monkeypatch)
+    plan = object()
+    generate = Mock(return_value=plan)
+    run = Mock(return_value=_operation_result(action))
+    monkeypatch.setattr(operator, "_require_exact_checkout", Mock())
+    monkeypatch.setattr(operator, "_generate_expected_plan", generate)
+    monkeypatch.setattr(operator.getpass, "getpass", Mock(return_value=_url()))
+    monkeypatch.setattr(
+        operator,
+        "_parse_runtime_database_url",
+        Mock(return_value=_parsed_url()),
+    )
+    monkeypatch.setattr(operator, "_run_portfolio_operation", run)
+
+    assert operator.main(_arguments(action, confirmation=confirmation)) == 0
+
+    output = capsys.readouterr()
+    assert output.err == ""
+    expected_plan = plan if expects_plan else None
+    if expects_plan:
+        generate.assert_called_once_with(REFERENCE_END.isoformat(), PLAN_SHA256)
+    else:
+        generate.assert_not_called()
+    run.assert_called_once_with(
+        action,
+        database_url=_parsed_url(),
+        expected_endpoint_host=NEON_HOST,
+        plan=expected_plan,
+    )
+
+
 def test_reset_runtime_cli_requires_exact_confirmation_and_plan(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -344,8 +412,20 @@ def test_main_rejects_url_like_argument_without_echo_or_prompt(
         ("verify-state", operator.PROVISION_CONFIRMATION, False),
         ("provision", operator.PROVISION_CONFIRMATION, True),
         ("provision", None, False),
+        (
+            "provision-customer",
+            operator.PROVISION_CUSTOMER_CONFIRMATION,
+            True,
+        ),
+        ("provision-customer", operator.PROVISION_CONFIRMATION, False),
         ("deactivate", operator.DEACTIVATE_CONFIRMATION, True),
         ("deactivate", operator.PROVISION_CONFIRMATION, False),
+        (
+            "deactivate-customer",
+            operator.DEACTIVATE_CUSTOMER_CONFIRMATION,
+            True,
+        ),
+        ("deactivate-customer", operator.DEACTIVATE_CONFIRMATION, False),
         ("reset-runtime", operator.RESET_RUNTIME_CONFIRMATION, True),
         ("reset-runtime", None, False),
         ("reset-runtime", operator.PROVISION_CONFIRMATION, False),
@@ -660,6 +740,11 @@ def test_verify_state_sets_read_only_before_every_database_check(
         "inspect_demo_admin",
         lambda supplied_factory: _operation_result().demo_admin,
     )
+    monkeypatch.setattr(
+        operator,
+        "inspect_demo_customer",
+        lambda supplied_factory: _operation_result().demo_customer,
+    )
 
     result = operator._run_with_engine(
         _RunnerEngine(connection),  # type: ignore[arg-type]
@@ -695,6 +780,11 @@ def test_deactivate_checks_schema_but_not_drifted_dataset(
     monkeypatch.setattr(operator, "verify_portfolio_data", verify_data)
     monkeypatch.setattr(operator, "verify_portfolio_schema", verify_schema)
     monkeypatch.setattr(operator, "deactivate_demo_admin", deactivate)
+    monkeypatch.setattr(
+        operator,
+        "inspect_demo_customer",
+        lambda supplied_factory: _operation_result().demo_customer,
+    )
 
     result = operator._run_with_engine(
         _RunnerEngine(connection),  # type: ignore[arg-type]
@@ -704,6 +794,79 @@ def test_deactivate_checks_schema_but_not_drifted_dataset(
 
     assert result.portfolio is None
     assert result.demo_admin.status == "deactivated"
+    verify_data.assert_not_called()
+    verify_schema.assert_called_once_with(factory)
+    deactivate.assert_called_once_with(factory)
+
+
+def test_provision_customer_verifies_dataset_and_preserves_demo_admin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Provision only the customer identity after validating portfolio data."""
+    connection = _RunnerConnection()
+    factory = object()
+    plan = object()
+    expected = _operation_result("provision-customer")
+    verify_data = Mock(return_value=_portfolio_result())
+    provision = Mock(return_value=expected.demo_customer)
+    monkeypatch.setattr(operator, "_require_target_identity", lambda *args, **kw: None)
+    monkeypatch.setattr(operator, "_pin_public_search_path", lambda supplied: None)
+    monkeypatch.setattr(operator, "_require_role_contract", lambda supplied: None)
+    monkeypatch.setattr(operator, "sessionmaker", lambda **kwargs: factory)
+    monkeypatch.setattr(operator, "verify_portfolio_data", verify_data)
+    monkeypatch.setattr(
+        operator,
+        "inspect_demo_admin",
+        lambda supplied_factory: expected.demo_admin,
+    )
+    monkeypatch.setattr(operator, "provision_demo_customer", provision)
+
+    result = operator._run_with_engine(
+        _RunnerEngine(connection),  # type: ignore[arg-type]
+        action="provision-customer",
+        plan=plan,  # type: ignore[arg-type]
+    )
+
+    assert result.portfolio == _portfolio_result()
+    assert result.demo_admin == expected.demo_admin
+    assert result.demo_customer == expected.demo_customer
+    verify_data.assert_called_once_with(factory, plan)
+    provision.assert_called_once_with(factory)
+
+
+def test_deactivate_customer_checks_schema_without_dataset_verification(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Deactivate only the reserved customer despite unrelated dataset drift."""
+    connection = _RunnerConnection()
+    factory = object()
+    inactive = DemoCustomerResult(
+        id=DEMO_CUSTOMER_ID,
+        email=DEMO_CUSTOMER_EMAIL,
+        status="deactivated",
+    )
+    verify_data = Mock(side_effect=AssertionError("dataset must not be verified"))
+    verify_schema = Mock(
+        return_value="0009_add_portfolio_demo_origin_and_payment_provider"
+    )
+    deactivate = Mock(return_value=inactive)
+    monkeypatch.setattr(operator, "_require_target_identity", lambda *args, **kw: None)
+    monkeypatch.setattr(operator, "_pin_public_search_path", lambda supplied: None)
+    monkeypatch.setattr(operator, "_require_role_contract", lambda supplied: None)
+    monkeypatch.setattr(operator, "sessionmaker", lambda **kwargs: factory)
+    monkeypatch.setattr(operator, "verify_portfolio_data", verify_data)
+    monkeypatch.setattr(operator, "verify_portfolio_schema", verify_schema)
+    monkeypatch.setattr(operator, "deactivate_demo_customer", deactivate)
+
+    result = operator._run_with_engine(
+        _RunnerEngine(connection),  # type: ignore[arg-type]
+        action="deactivate-customer",
+        plan=None,
+    )
+
+    assert result.portfolio is None
+    assert result.demo_admin is None
+    assert result.demo_customer == inactive
     verify_data.assert_not_called()
     verify_schema.assert_called_once_with(factory)
     deactivate.assert_called_once_with(factory)
@@ -751,7 +914,7 @@ def _arguments(
         "--expected-release-sha",
         RELEASE_SHA,
     ]
-    if action != "deactivate":
+    if action not in {"deactivate", "deactivate-customer"}:
         arguments.extend(
             (
                 "--portfolio-reference-end",

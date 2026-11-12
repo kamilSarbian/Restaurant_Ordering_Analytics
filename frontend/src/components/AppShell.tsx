@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 
 import { isDemoSessionEntryEnabled } from '../config/demoSession';
+import { isCustomerDemoSessionEntryEnabled } from '../config/customerDemoSession';
 import { isPortfolioModeEnabled } from '../config/portfolioMode';
 import { useAuth } from '../features/auth/AuthContext';
 
@@ -21,7 +22,7 @@ function shouldRestoreAsyncFocus(): boolean {
 
 /** Render shared customer navigation and the active customer route. */
 export default function AppShell() {
-  const { isDemoSession, logout, phase, user } = useAuth();
+  const { demoSessionKind, logout, phase, user } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const mainRef = useRef<HTMLElement>(null);
@@ -32,6 +33,7 @@ export default function AppShell() {
   const sessionRetryPendingRef = useRef(false);
   const canOpenAdmin = user?.role === 'admin' || user?.role === 'super_admin';
   const demoSessionEntryEnabled = isDemoSessionEntryEnabled();
+  const customerDemoSessionEntryEnabled = isCustomerDemoSessionEntryEnabled();
   const portfolioModeEnabled = isPortfolioModeEnabled();
   const sessionFeedbackPath =
     location.pathname.length > 1
@@ -104,7 +106,9 @@ export default function AppShell() {
                 Home
               </NavLink>
               <NavLink className={styles.navigationLink} to="/menu">
-                Menu
+                {portfolioModeEnabled && phase === 'unauthenticated'
+                  ? 'Continue as guest'
+                  : 'Menu'}
               </NavLink>
               <NavLink className={styles.navigationLink} to="/cart">
                 Cart
@@ -126,6 +130,14 @@ export default function AppShell() {
                       Try admin demo
                     </NavLink>
                   ) : null}
+                  {portfolioModeEnabled && customerDemoSessionEntryEnabled ? (
+                    <NavLink
+                      className={styles.navigationLink}
+                      to="/login?demo=customer&next=%2Faccount"
+                    >
+                      Try customer demo
+                    </NavLink>
+                  ) : null}
                   {!portfolioModeEnabled ? (
                     <NavLink className={styles.navigationLink} to="/register">
                       Create account
@@ -135,12 +147,14 @@ export default function AppShell() {
               )}
               {phase === 'authenticated' && user !== null && (
                 <>
-                  {isDemoSession ? (
+                  {demoSessionKind !== null ? (
                     <span className={styles.sessionStatus}>
-                      Demo session · shared synthetic data
+                      {demoSessionKind === 'customer'
+                        ? 'Customer demo · shared synthetic history'
+                        : 'Admin demo · shared synthetic data'}
                     </span>
                   ) : null}
-                  {!isDemoSession ? (
+                  {demoSessionKind !== 'admin' ? (
                     <NavLink className={styles.navigationLink} to="/account">
                       My account
                     </NavLink>

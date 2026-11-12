@@ -10,6 +10,10 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.auth.demo_customer import (
+    has_reserved_demo_customer_identifier,
+    is_demo_customer_identity,
+)
 from app.auth.models import User
 from app.auth.roles import UserRole
 from app.auth.schemas import AdminPrincipal
@@ -78,7 +82,14 @@ def get_current_user(
     try:
         with session_factory() as session:
             user = session.scalar(select(User).where(User.id == claims.user_id))
-            if user is None or not user.is_active:
+            if (
+                user is None
+                or not user.is_active
+                or (
+                    has_reserved_demo_customer_identifier(user)
+                    and not is_demo_customer_identity(user)
+                )
+            ):
                 raise _invalid_authentication_error()
             session.expunge(user)
             return user

@@ -9,7 +9,9 @@ interface StoredAuthToken {
 }
 
 let authMemoryToken: string | null | undefined;
-let demoSessionMemory: boolean | undefined;
+export type DemoSessionKind = 'admin' | 'customer';
+
+let demoSessionMemory: DemoSessionKind | null | undefined;
 let legacyMemoryToken: string | null | undefined;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -49,20 +51,25 @@ function parseStoredToken(serialized: string): string | null {
   }
 }
 
-function parseDemoSessionMarker(serialized: string): boolean {
+function parseDemoSessionMarker(serialized: string): DemoSessionKind | null {
   try {
     const value: unknown = JSON.parse(serialized);
-    return (
-      isRecord(value) &&
-      hasExactKeys(value, ['sessionKind', 'version']) &&
-      value.sessionKind === 'demo' &&
-      value.version === AUTH_STORAGE_VERSION
-    );
+    if (
+      !isRecord(value) ||
+      !hasExactKeys(value, ['sessionKind', 'version']) ||
+      value.version !== AUTH_STORAGE_VERSION
+    ) {
+      return null;
+    }
+    if (value.sessionKind === 'demo' || value.sessionKind === 'admin') {
+      return 'admin';
+    }
+    return value.sessionKind === 'customer' ? 'customer' : null;
   } catch (error: unknown) {
     if (error instanceof SyntaxError) {
-      return false;
+      return null;
     }
-    return false;
+    return null;
   }
 }
 
@@ -139,8 +146,8 @@ export function clearAuthToken(storage?: Storage): boolean {
   return removeStorageKey(AUTH_STORAGE_KEY, storage);
 }
 
-/** Load the presentation-only demo-session marker from current-tab storage. */
-export function loadDemoSessionMarker(storage?: Storage): boolean {
+/** Load the typed presentation-only demo-session marker from current-tab storage. */
+export function loadDemoSessionKind(storage?: Storage): DemoSessionKind | null {
   if (demoSessionMemory !== undefined) {
     return demoSessionMemory;
   }
@@ -150,33 +157,42 @@ export function loadDemoSessionMarker(storage?: Storage): boolean {
     serialized = resolveSessionStorage(storage).getItem(DEMO_SESSION_STORAGE_KEY);
   } catch (error: unknown) {
     if (error instanceof Error) {
-      demoSessionMemory = false;
-      return false;
+      demoSessionMemory = null;
+      return null;
     }
-    demoSessionMemory = false;
-    return false;
+    demoSessionMemory = null;
+    return null;
   }
 
   if (serialized === null) {
-    demoSessionMemory = false;
-    return false;
+    demoSessionMemory = null;
+    return null;
   }
-  if (!parseDemoSessionMarker(serialized)) {
-    demoSessionMemory = false;
+  const kind = parseDemoSessionMarker(serialized);
+  if (kind === null) {
+    demoSessionMemory = null;
     removeStorageKey(DEMO_SESSION_STORAGE_KEY, storage);
-    return false;
+    return null;
   }
-  demoSessionMemory = true;
-  return true;
+  demoSessionMemory = kind;
+  return kind;
 }
 
-/** Persist a presentation-only demo-session marker in current-tab storage. */
-export function saveDemoSessionMarker(storage?: Storage): boolean {
-  demoSessionMemory = true;
+/** Return whether any presentation-only demo marker is present. */
+export function loadDemoSessionMarker(storage?: Storage): boolean {
+  return loadDemoSessionKind(storage) !== null;
+}
+
+/** Persist a typed presentation-only demo-session marker in current-tab storage. */
+export function saveDemoSessionMarker(
+  kind: DemoSessionKind = 'admin',
+  storage?: Storage,
+): boolean {
+  demoSessionMemory = kind;
   try {
     resolveSessionStorage(storage).setItem(
       DEMO_SESSION_STORAGE_KEY,
-      JSON.stringify({ sessionKind: 'demo', version: AUTH_STORAGE_VERSION }),
+      JSON.stringify({ sessionKind: kind, version: AUTH_STORAGE_VERSION }),
     );
     return true;
   } catch (error: unknown) {
@@ -189,7 +205,7 @@ export function saveDemoSessionMarker(storage?: Storage): boolean {
 
 /** Clear the presentation-only demo-session marker without touching other state. */
 export function clearDemoSessionMarker(storage?: Storage): boolean {
-  demoSessionMemory = false;
+  demoSessionMemory = null;
   return removeStorageKey(DEMO_SESSION_STORAGE_KEY, storage);
 }
 

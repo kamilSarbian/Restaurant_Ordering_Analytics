@@ -12,6 +12,11 @@ from sqlalchemy.engine import RowMapping
 from sqlalchemy.orm import Session
 
 from app.auth.demo_admin import DEMO_ADMIN_EMAIL, DEMO_ADMIN_ID, is_demo_admin_identity
+from app.auth.demo_customer import (
+    DEMO_CUSTOMER_ID,
+    has_reserved_demo_customer_identifier,
+    is_demo_customer_identity,
+)
 from app.auth.models import User
 from app.orders.models import Order, OrderItem
 from app.orders.origins import OrderDataOrigin
@@ -38,12 +43,14 @@ class CustomerOrderAccessDeniedError(Exception):
 
 @dataclass(frozen=True)
 class CustomerOrderAccessPolicy:
-    """Carry trusted customer Order ownership and provenance decisions."""
+    """Carry trusted creation, account, and public Order access decisions."""
 
     effective_owner_id: UUID | None
+    public_owner_id: UUID | None
     creation_origin: OrderDataOrigin
     public_origin_scope: OrderDataOrigin | None
     account_reads_allowed: bool
+    account_origin_scope: OrderDataOrigin | None
 
 
 def resolve_customer_order_access_policy(
@@ -60,24 +67,40 @@ def resolve_customer_order_access_policy(
         payment_provider: Trusted application-scoped payment provider.
 
     Returns:
-        The effective owner, creation origin, public origin scope, and account
-        permission for the exact approved runtime.
+        The creation/account owner, public-status owner authority, provenance
+        scopes, and account permission for the exact approved runtime.
 
     Raises:
         CustomerOrderAccessDeniedError: If runtime or identity is not approved.
     """
     has_reserved_demo_identity = current_user is not None and (
-        current_user.id == DEMO_ADMIN_ID or current_user.email == DEMO_ADMIN_EMAIL
+        current_user.id == DEMO_ADMIN_ID
+        or current_user.email == DEMO_ADMIN_EMAIL
+        or has_reserved_demo_customer_identifier(current_user)
     )
 
     if portfolio_demo_mode is True and payment_provider == PaymentProvider.DEMO.value:
-        if current_user is not None and not is_demo_admin_identity(current_user):
+        if current_user is not None and not (
+            is_demo_admin_identity(current_user)
+            or is_demo_customer_identity(current_user)
+        ):
             raise CustomerOrderAccessDeniedError
+        if current_user is not None and is_demo_customer_identity(current_user):
+            return CustomerOrderAccessPolicy(
+                effective_owner_id=DEMO_CUSTOMER_ID,
+                public_owner_id=None,
+                creation_origin=OrderDataOrigin.PORTFOLIO_RUNTIME,
+                public_origin_scope=OrderDataOrigin.PORTFOLIO_RUNTIME,
+                account_reads_allowed=True,
+                account_origin_scope=OrderDataOrigin.PORTFOLIO_RUNTIME,
+            )
         return CustomerOrderAccessPolicy(
             effective_owner_id=None,
+            public_owner_id=None,
             creation_origin=OrderDataOrigin.PORTFOLIO_RUNTIME,
             public_origin_scope=OrderDataOrigin.PORTFOLIO_RUNTIME,
             account_reads_allowed=False,
+            account_origin_scope=None,
         )
 
     if (
@@ -87,16 +110,20 @@ def resolve_customer_order_access_policy(
         if current_user is None:
             return CustomerOrderAccessPolicy(
                 effective_owner_id=None,
+                public_owner_id=None,
                 creation_origin=OrderDataOrigin.LIVE,
                 public_origin_scope=None,
                 account_reads_allowed=False,
+                account_origin_scope=None,
             )
         if current_user.is_active is True and not has_reserved_demo_identity:
             return CustomerOrderAccessPolicy(
                 effective_owner_id=current_user.id,
+                public_owner_id=current_user.id,
                 creation_origin=OrderDataOrigin.LIVE,
                 public_origin_scope=None,
                 account_reads_allowed=True,
+                account_origin_scope=None,
             )
 
     raise CustomerOrderAccessDeniedError

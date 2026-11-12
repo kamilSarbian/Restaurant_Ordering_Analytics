@@ -2,6 +2,51 @@
 
 ## Current status
 
+### Public baseline and current local candidate (2026-11-10)
+
+The existing administrator demo completed Stage 22-D public acceptance in
+report `stage22d-public-20261110t002125z`: all 14 checks passed and the report
+SHA-256 is
+`5c02f7d5806cc39f9f85cb3e49d011dc86b3efb66473dbf0bf409f4975e79214`.
+That evidence covers the public administrator journey, keyboard/focus checks,
+console and request checks, desktop and mobile-width views, and logout. Its
+reflow check used a 640 CSS-pixel viewport rather than literal 200% browser
+zoom. The public application is available at
+<https://nordic.kamilsarbian.dev>, and the published case study is
+<https://www.kamilsarbian.dev/projects/nordic-hearth>. The existing persistent
+growth boundary caps the shared demo at 100 `portfolio_runtime` Orders and
+three demo Payments per Order; the separately guarded operator action can reset
+only validated `portfolio_runtime` aggregates while preserving canonical seed
+and live data.
+
+Stage 22 remains **in progress** because the current worktree contains a
+separate local customer-demo and historical-presentation candidate. It adds a
+reserved shared `customer` session (never `admin` or `super_admin`), owned
+`portfolio_runtime` Account history, capability-only demo Checkout, independent
+default-false backend and frontend customer-demo flags, and guarded operator
+provision/deactivate actions. It also adds persisted historical sample-period
+metadata and a Europe/Oslo preset with an inclusive UI end date translated to
+the existing half-open API interval, currency-separated results, and no
+timestamp shifting or reseeding. The same candidate makes demo payment,
+guest/customer/admin, official-brand, carousel, SEO, and wake-up messaging
+explicit and truthful. These bytes are **uncommitted and not deployed**. The
+reserved customer account has not been provisioned, both customer-demo flags
+remain `false`, and public acceptance has not run. Targeted current-byte
+isolated PostgreSQL evidence was followed by one clean current-byte invocation
+of all 10 relevant integration files: 308 passed with no filter or retry. The
+local canonical browser harness then passed three isolated phases in one
+invocation: 32/32 for normal `false + stripe_test`, 1/1 for the existing
+administrator demo and 2/2 for the customer-disabled/anonymous-guest flow, and
+1/1 for the enabled customer-demo lifecycle. The run used one worker, zero
+retries, and passed its
+database and secret-safe log audits. This local evidence is neither CI nor
+public acceptance, and this candidate must not be inferred from the accepted
+public administrator demo.
+
+Stage 23 is **in progress**: the public case study exists, while final
+screenshots, architecture-presentation material, and any remaining CV-facing
+closeout still require their own review.
+
 Stages 1 through 16G are complete, verified, and committed. Stage 16 provides
 one integrated React application for guests, registered customers,
 administrators, and super-administrators. Its public landing, menu, cart,
@@ -55,7 +100,8 @@ that final SHA. That historical closeout did not establish any Render or Neon
 resource, production migration or seed, public demo-administrator provisioning,
 public demo-session issuance, online release, or public acceptance. The current
 provider and database state must be independently reverified before any further
-cloud write. A recruiter-facing public URL may be claimed only after Stage 22-D.
+cloud write. The later Stage 22-D acceptance and public URL are recorded in the
+current reconciliation above.
 The bounded B4-3B5 customer-order isolation change was committed and pushed on
 `main` at `dcbbe0c3b8b69ac0759c56ed9b48340c55993e0b`. Automatic GitHub Actions
 push run `39032664802`, attempt 1, completed `Backend`, `Migrations`, `Frontend`,
@@ -106,7 +152,8 @@ password form. Both flags control presentation only: the backend remains the
 authority, and the client waits for canonical `/api/v1/auth/me` validation
 before navigating to the administrator area. A visible `Portfolio demo · shared synthetic data`
 badge is backed by a presentation-only current-tab `sessionStorage` marker;
-the marker grants no authorization. The current uncommitted portfolio-mode
+the marker grants no authorization. That portfolio-mode implementation was
+later committed at `90a6c937604fe109fb49b0f451a5e3125410221b`; its local
 candidate passed 253 targeted frontend tests, one full frontend run with 1237
 tests, typecheck, ESLint with zero errors, Prettier, production build, and 104
 Free Tier contract tests. Earlier visible-UX local evidence comprises 143
@@ -160,15 +207,13 @@ which exact SHA the sync evaluated. A fresh public check on 2026-11-08 confirmed
 HTTP 200 for health and readiness and exact 404, without a token or cookie, for
 the bodyless demo-session POST.
 
-Current source and operator-confirmed provider state keep
-`DEMO_SESSION_ISSUANCE_ENABLED=false` and `VITE_ENABLE_DEMO_SESSION=false`. The
-Blueprint now explicitly identifies the frontend as portfolio presentation
-with `VITE_PORTFOLIO_MODE=true`; this does not enable demo-session issuance or
-its entry point. No new demo JWT is issued, and the public `Try admin demo`
-entry remains hidden. A
-JWT issued during the canary could remain usable until its configured 30-minute
-TTL expired. Full visible-flow public Browser E2E acceptance remains separately
-open.
+That false/false state was the historical post-canary rollback boundary. The
+later administrator-demo activation was publicly accepted by the 14/14 Stage
+22-D run recorded at the top of this section. The Blueprint identifies the
+frontend as portfolio presentation with `VITE_PORTFOLIO_MODE=true`; backend
+authorization, rather than the visible entry flag, remains authoritative. The
+separate customer-demo flags introduced by the current local candidate remain
+default-false and are not part of the deployed administrator demo.
 The earlier 37-test no-database and 62-test isolated PostgreSQL results predate
 the proxy-bucket remediation; fresh current-byte evidence is recorded in the
 implementation status. Two initial broader non-integration attempts each
@@ -203,7 +248,9 @@ The role contract permits the exact Neon-managed `cloud_admin` effective
 membership with `SET OPTION` remains exclusive to `roa_migrator`; any
 additional application role with that capability is a hard stop, and
 `roa_runtime` must not have it.
-Stage 23 — Portfolio Documentation & Case Study is **not started**.
+Stage 23 — Portfolio Documentation & Case Study is **in progress**; the case
+study is published, while the remaining presentation and CV-facing closeout is
+open.
 
 The FastAPI backend provides public menu and quote APIs, runtime-scoped
 anonymous or owned Order creation, policy-scoped status and provider-selected
@@ -223,8 +270,9 @@ credential-hygiene issue was remediated by rotation without documenting or
 tracking any credential value. Stage 17 provides repeatable local full-system
 containers, Stage 18 provides isolated browser E2E, Stage 19 provides the
 committed deterministic CI baseline, and Stages 20 and 21 add the readiness and
-product-polish work described above. This remains a local,
-pre-deployment repository state.
+product-polish work described above. The accepted administrator baseline is
+public; only the customer-demo and historical-presentation candidate described
+above remains local and pre-deployment.
 
 ## Unified identity, Order ownership, and account backend
 
@@ -371,10 +419,11 @@ without introducing infrastructure that is unnecessary for a single venue.
 - Provider-neutral Order and Payment persistence at migration 0009, with
   `Order.data_origin`, `Payment.provider`, provider-neutral Checkout fields,
   and authoritative `Payment.succeeded_at` for analytics and reports.
-- A repository-ready and operator-confirmed staged free-tier target: Render
+- A repository-ready and operator-confirmed free-tier target: Render
   Static Site Free, Render Docker Web Service Free, Neon PostgreSQL Free, and a
-  manual direct-URL migration workflow. The staged services run with public
-  demo issuance and visibility disabled; Stage 22-D public acceptance is open.
+  manual direct-URL migration workflow. The administrator demo passed the
+  recorded Stage 22-D public acceptance; the separate local customer-demo
+  candidate is not part of that deployed evidence.
 - A Nordic Hearth design system and polished customer, account, and
   administrator experiences with responsive WebP delivery, accessibility
   hardening, and route-level lazy loading.
@@ -391,13 +440,15 @@ without introducing infrastructure that is unnecessary for a single venue.
   `sessionStorage`, Vitest, React Testing Library, multi-stage container builds,
   an unprivileged static Nginx runtime, Playwright Test 1.62.1, Chromium browser
   E2E, and GitHub Actions CI.
-- Staged and live with public demo disabled: the Stage 22 free-tier Render
-  Static Site, Render Docker Web Service, and Neon PostgreSQL target. The manual
-  GitHub migration contract remains a separate operator boundary.
+- Live and public: the Stage 22 free-tier Render Static Site, Render Docker Web
+  Service, and Neon PostgreSQL target, with the accepted administrator demo at
+  <https://nordic.kamilsarbian.dev>. The manual GitHub migration contract
+  remains a separate operator boundary.
 - Historical and superseded for the portfolio demo: the Stage 20 paid
   Render/GHCR private-service, cron/migrator, and managed-database target.
-- In progress: Stage 22 Production Deployment & Public Acceptance. Not
-  started: Stage 23 Portfolio Documentation & Case Study.
+- In progress: Stage 22 Production Deployment & Public Acceptance, including
+  the uncommitted customer-demo candidate. Stage 23 Portfolio Documentation &
+  Case Study is also in progress; its public case study is published.
 
 ## Repository structure
 
@@ -657,20 +708,21 @@ B2-1 and B2-2 implement a pure deterministic
 500-Order/60-completed-day portfolio plan and its atomic, local-only, explicit
 persistence path. B2-3 proves the persisted plan against all four analytics
 services and all three CSV services in an isolated test database. B3-2B does
-not modify that canonical B2 dataset. A later local Stage 22 candidate bounds
-shared demo growth at 100 `portfolio_runtime` Orders globally and three demo
+not modify that canonical B2 dataset. The later committed Stage 22 boundary
+caps shared demo growth at 100 `portfolio_runtime` Orders globally and three demo
 Payments per runtime Order. Order capacity is serialized by a PostgreSQL
 transaction advisory lock around the count and insert; an existing Payment
 idempotency key remains replayable after the per-Order limit. New Orders over
 capacity receive a stable 503 and a fourth new Payment key receives a stable
 409, without committed denial-path DML. The boundary does not apply to
 `portfolio_seed`, `live`, or normal `false + stripe_test`. Its local tests,
-static gates, and isolated PostgreSQL acceptance are complete: one full
-nine-file database invocation passed 579 tests without retry, while the
+static gates, isolated PostgreSQL acceptance, review, commit, and CI are
+complete. One full nine-file database invocation passed 579 tests without
+retry, while the
 frontend passed 220 targeted tests and 1,211 tests in its full suite. Review,
-CI, and deployment remain separate gates. Both public demo flags remain false.
-A local, uncommitted, manual-only runtime reset candidate now uses the same
-capacity lock and exact deployment target/seed checks; automatic reset and
+CI, and deployment evidence remain separately recorded. The committed,
+manual-only runtime reset uses the same capacity lock and exact deployment
+target/seed checks; automatic reset and
 prune behavior remain out of scope alongside later B4, B5, and B6 gates. Its
 local gates include 38 operator tests, 17 focused reset integration tests, and
 one 461-test isolated PostgreSQL regression across Orders, demo Checkout, Admin

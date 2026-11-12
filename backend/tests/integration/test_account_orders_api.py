@@ -21,6 +21,11 @@ from app.auth.demo_admin import (
     DEMO_ADMIN_EMAIL,
     DEMO_ADMIN_ID,
 )
+from app.auth.demo_customer import (
+    DEMO_CUSTOMER_DISABLED_PASSWORD_HASH,
+    DEMO_CUSTOMER_EMAIL,
+    DEMO_CUSTOMER_ID,
+)
 from app.auth.models import User
 from app.auth.roles import UserRole
 from app.auth.service import (
@@ -615,6 +620,90 @@ def test_account_service_queries_are_owner_scoped_in_sql(
     assert own.public_order_number in str(detail_order_parameters)
     assert str(owner_id) in str(detail_order_parameters)
     assert "order_items.order_id" in detail_statements[1][0]
+
+
+def test_demo_customer_account_reads_require_owner_and_runtime_origin(
+    account_session_factory: sessionmaker[Session],
+    test_database_engine: Engine,
+    menu_item_id: UUID,
+    user_token_service: UserTokenService,
+) -> None:
+    """Expose only the demo customer's own portfolio-runtime history."""
+    _store_user(
+        account_session_factory,
+        user_id=DEMO_CUSTOMER_ID,
+        email=DEMO_CUSTOMER_EMAIL,
+        password_hash=DEMO_CUSTOMER_DISABLED_PASSWORD_HASH,
+    )
+    other_id = _store_user(account_session_factory)
+    own_runtime = _store_order(
+        account_session_factory,
+        menu_item_id,
+        customer_user_id=DEMO_CUSTOMER_ID,
+        data_origin=OrderDataOrigin.PORTFOLIO_RUNTIME,
+    )
+    own_live = _store_order(
+        account_session_factory,
+        menu_item_id,
+        customer_user_id=DEMO_CUSTOMER_ID,
+        data_origin=OrderDataOrigin.LIVE,
+    )
+    other_runtime = _store_order(
+        account_session_factory,
+        menu_item_id,
+        customer_user_id=other_id,
+        data_origin=OrderDataOrigin.PORTFOLIO_RUNTIME,
+    )
+    application = _application(
+        account_session_factory,
+        user_token_service=user_token_service,
+        portfolio_demo_mode=True,
+        payment_provider=PaymentProvider.DEMO,
+    )
+    headers = _authorization(user_token_service.create_access_token(DEMO_CUSTOMER_ID))
+    statements: list[tuple[str, object]] = []
+
+    def capture_statement(
+        _connection: object,
+        _cursor: object,
+        statement: str,
+        parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        statements.append((statement, parameters))
+
+    event.listen(test_database_engine, "before_cursor_execute", capture_statement)
+    try:
+        with TestClient(application) as test_client:
+            listed = test_client.get(LIST_PATH, headers=headers)
+            own_detail = test_client.get(_detail_path(own_runtime), headers=headers)
+            live_detail = test_client.get(_detail_path(own_live), headers=headers)
+            other_detail = test_client.get(_detail_path(other_runtime), headers=headers)
+    finally:
+        event.remove(test_database_engine, "before_cursor_execute", capture_statement)
+
+    assert listed.status_code == 200
+    assert listed.json()["total"] == 1
+    assert [item["public_order_number"] for item in listed.json()["items"]] == [
+        own_runtime.public_order_number
+    ]
+    assert own_detail.status_code == 200
+    assert live_detail.status_code == other_detail.status_code == 404
+    assert live_detail.json() == other_detail.json() == {"detail": "Order not found"}
+    order_selects = [
+        (statement, parameters)
+        for statement, parameters in statements
+        if "FROM orders" in statement
+    ]
+    assert order_selects
+    assert all("orders.customer_user_id" in statement for statement, _ in order_selects)
+    assert all("orders.data_origin" in statement for statement, _ in order_selects)
+    assert all(
+        str(DEMO_CUSTOMER_ID) in str(parameters)
+        and OrderDataOrigin.PORTFOLIO_RUNTIME.value in str(parameters)
+        for _, parameters in order_selects
+    )
 
 
 def test_account_detail_reuses_exact_safe_public_status_response(

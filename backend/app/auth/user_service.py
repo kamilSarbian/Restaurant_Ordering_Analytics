@@ -9,6 +9,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.auth.demo_admin import DEMO_ADMIN_EMAIL, DEMO_ADMIN_ID
+from app.auth.demo_customer import (
+    DEMO_CUSTOMER_EMAIL,
+    has_reserved_demo_customer_identifier,
+)
 from app.auth.models import User
 from app.auth.passwords import hash_password, verify_dummy_password, verify_password
 from app.auth.roles import UserRole
@@ -79,6 +83,8 @@ def create_customer(session: Session, *, email: str, password: str) -> User:
     """
     normalized_email = normalize_admin_email(email)
     password_hash = hash_password(password)
+    if normalized_email in {DEMO_ADMIN_EMAIL, DEMO_CUSTOMER_EMAIL}:
+        raise UserRegistrationConflictError("Account already exists")
     try:
         with session.begin():
             user = User(
@@ -113,6 +119,10 @@ def authenticate_user(session: Session, *, email: str, password: str) -> User:
     """
     user = find_user_by_email(session, email=email)
     if user is None:
+        verify_dummy_password(password)
+        raise UserAuthenticationError("Credentials are invalid")
+
+    if _has_reserved_demo_identifier(user):
         verify_dummy_password(password)
         raise UserAuthenticationError("Credentials are invalid")
 
@@ -208,11 +218,7 @@ def update_user_role(
         user = session.scalar(select(User).where(User.id == user_id).with_for_update())
         if user is None:
             raise UserNotFoundError
-        if (
-            user.id == DEMO_ADMIN_ID
-            or user.email == DEMO_ADMIN_EMAIL
-            or user.role is UserRole.SUPER_ADMIN
-        ):
+        if _has_reserved_demo_identifier(user) or user.role is UserRole.SUPER_ADMIN:
             raise UserRoleConflictError
         target_role = UserRole(request.role)
         if user.role is target_role:
@@ -268,15 +274,22 @@ def _is_normal_super_admin_actor_allowed(
     payment_provider: str | None,
 ) -> bool:
     """Return whether trusted normal runtime permits this super-administrator."""
-    has_reserved_demo_identity = (
-        current_user.id == DEMO_ADMIN_ID or current_user.email == DEMO_ADMIN_EMAIL
-    )
+    has_reserved_demo_identity = _has_reserved_demo_identifier(current_user)
     return (
         portfolio_demo_mode is False
         and payment_provider == PaymentProvider.STRIPE_TEST.value
         and current_user.is_active is True
         and current_user.role is UserRole.SUPER_ADMIN
         and not has_reserved_demo_identity
+    )
+
+
+def _has_reserved_demo_identifier(user: User) -> bool:
+    """Return whether either reserved portfolio-demo identity is present."""
+    return (
+        user.id == DEMO_ADMIN_ID
+        or user.email == DEMO_ADMIN_EMAIL
+        or has_reserved_demo_customer_identifier(user)
     )
 
 

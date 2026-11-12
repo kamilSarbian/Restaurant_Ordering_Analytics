@@ -47,6 +47,7 @@ OVERVIEW_PATH = "/api/v1/admin/analytics/overview"
 PRODUCTS_PATH = "/api/v1/admin/analytics/products"
 CATEGORIES_PATH = "/api/v1/admin/analytics/categories"
 ORDER_TYPES_PATH = "/api/v1/admin/analytics/order-types"
+SAMPLE_PERIOD_PATH = "/api/v1/admin/analytics/sample-period"
 SYNTHETIC_SECRET = "a" * 32
 FIXED_NOW = datetime(2026, 8, 11, 12, tzinfo=UTC)
 RANGE_START = datetime(2026, 3, 1, tzinfo=UTC)
@@ -290,6 +291,37 @@ def _new_order(
         total_amount=amount,
         created_at=RANGE_START - timedelta(days=30),
         updated_at=RANGE_START - timedelta(days=30),
+    )
+
+
+def _store_sample_period_orders(
+    session_factory: sessionmaker[Session],
+    *,
+    count: int,
+    local_day_count: int = 60,
+) -> tuple[str, str]:
+    """Store synthetic seed Orders across the canonical local-day window."""
+    oslo = ZoneInfo("Europe/Oslo")
+    first_local = datetime(2026, 1, 5, 12, tzinfo=oslo)
+    with session_factory.begin() as session:
+        orders: list[Order] = []
+        for index in range(count):
+            created_at = (
+                first_local + timedelta(days=index % local_day_count, minutes=index)
+            ).astimezone(UTC)
+            order = _new_order(
+                amount=100 + index,
+                currency="NOK",
+                status=OrderStatus.COMPLETED,
+            )
+            order.data_origin = OrderDataOrigin.PORTFOLIO_SEED.value
+            order.created_at = created_at
+            order.updated_at = created_at
+            orders.append(order)
+        session.add_all(orders)
+    return (
+        first_local.date().isoformat(),
+        (first_local.date() + timedelta(days=local_day_count - 1)).isoformat(),
     )
 
 
@@ -1331,6 +1363,130 @@ def test_demo_admin_analytics_exclude_live_orders_from_every_result(
         eur_order_types_response,
     ):
         assert response.json()["items"] == []
+
+
+def test_demo_admin_sample_period_uses_one_seed_only_aggregate_select(
+    analytics_session_factory: sessionmaker[Session],
+    token_service: UserTokenService,
+    test_database_engine: Engine,
+) -> None:
+    demo_admin_id = _store_admin(
+        analytics_session_factory,
+        user_id=DEMO_ADMIN_ID,
+        email=DEMO_ADMIN_EMAIL,
+        password_hash=DEMO_ADMIN_DISABLED_PASSWORD_HASH,
+        role=UserRole.ADMIN,
+    )
+    expected_start, expected_end = _store_sample_period_orders(
+        analytics_session_factory,
+        count=500,
+    )
+    with analytics_session_factory.begin() as session:
+        for origin, created_at in (
+            (OrderDataOrigin.PORTFOLIO_RUNTIME, RANGE_START - timedelta(days=500)),
+            (OrderDataOrigin.LIVE, RANGE_END + timedelta(days=500)),
+        ):
+            order = _new_order(
+                amount=999,
+                currency="NOK",
+                status=OrderStatus.COMPLETED,
+            )
+            order.data_origin = origin.value
+            order.created_at = created_at
+            order.updated_at = created_at
+            session.add(order)
+
+    application = _application(
+        analytics_session_factory,
+        token_service,
+        portfolio_demo_mode=True,
+        payment_provider=PaymentProvider.DEMO,
+    )
+    headers = {
+        "Authorization": f"Bearer {token_service.create_access_token(demo_admin_id)}"
+    }
+    statements: list[str] = []
+
+    def capture_statement(
+        _connection: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        statements.append(statement)
+
+    event.listen(test_database_engine, "before_cursor_execute", capture_statement)
+    try:
+        with TestClient(application) as client:
+            response = client.get(SAMPLE_PERIOD_PATH, headers=headers)
+    finally:
+        event.remove(test_database_engine, "before_cursor_execute", capture_statement)
+
+    assert (response.status_code, response.json()) == (
+        200,
+        {
+            "start_date": expected_start,
+            "end_date": expected_end,
+            "timezone": "Europe/Oslo",
+        },
+    )
+    normalized = [" ".join(statement.lower().split()) for statement in statements]
+    assert not any(_is_data_writing_statement(statement) for statement in statements)
+    auth_statements = [
+        statement for statement in normalized if " from users " in statement
+    ]
+    domain_statements = [
+        statement for statement in normalized if " from users " not in statement
+    ]
+    assert len(auth_statements) == 1
+    assert len(domain_statements) == 1
+    assert "from orders" in domain_statements[0]
+    assert "orders.data_origin =" in domain_statements[0]
+    assert "count(distinct" in domain_statements[0]
+    assert "timezone(" in domain_statements[0]
+
+
+@pytest.mark.parametrize(
+    ("order_count", "local_day_count"),
+    [(499, 60), (500, 59)],
+)
+def test_demo_admin_sample_period_returns_fixed_503_for_seed_drift(
+    analytics_session_factory: sessionmaker[Session],
+    token_service: UserTokenService,
+    order_count: int,
+    local_day_count: int,
+) -> None:
+    demo_admin_id = _store_admin(
+        analytics_session_factory,
+        user_id=DEMO_ADMIN_ID,
+        email=DEMO_ADMIN_EMAIL,
+        password_hash=DEMO_ADMIN_DISABLED_PASSWORD_HASH,
+        role=UserRole.ADMIN,
+    )
+    _store_sample_period_orders(
+        analytics_session_factory,
+        count=order_count,
+        local_day_count=local_day_count,
+    )
+    application = _application(
+        analytics_session_factory,
+        token_service,
+        portfolio_demo_mode=True,
+        payment_provider=PaymentProvider.DEMO,
+    )
+    headers = {
+        "Authorization": f"Bearer {token_service.create_access_token(demo_admin_id)}"
+    }
+
+    with TestClient(application) as client:
+        response = client.get(SAMPLE_PERIOD_PATH, headers=headers)
+
+    assert (response.status_code, response.json()) == (
+        503,
+        {"detail": "Historical demo data period is unavailable"},
+    )
 
 
 def test_demo_runtime_denial_precedes_analytics_domain_sql_and_dml(

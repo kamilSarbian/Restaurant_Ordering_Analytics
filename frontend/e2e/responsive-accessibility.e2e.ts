@@ -29,6 +29,7 @@ const CART_IMAGE_WEBP_480_PATH =
   '/images/menu/optimized/starters/Roasted-Root-Vegetable-Soup-480w.webp';
 const CART_IMAGE_WEBP_SRCSET =
   '/images/menu/optimized/starters/Roasted-Root-Vegetable-Soup-480w.webp 480w, /images/menu/optimized/starters/Roasted-Root-Vegetable-Soup-720w.webp 720w, /images/menu/optimized/starters/Roasted-Root-Vegetable-Soup-1080w.webp 1080w';
+const BRAND_MARK_PNG_PATH = '/images/brand/logo/nordic-hearth-logo.png';
 const CART_STORAGE_KEY = 'restaurant-ordering:cart:v1';
 const CRITICAL_RESOURCE_TYPES = new Set([
   'document',
@@ -149,8 +150,7 @@ const LANDING_LOGO_WEBP_320_PATH =
 const LANDING_LOGO_WEBP_SRCSET =
   '/images/brand/optimized/logo/nordic-hearth-logo-320w.webp 320w, /images/brand/optimized/logo/nordic-hearth-logo-640w.webp 640w';
 const LANDING_HERO_PNG_PATH = '/images/brand/hero/restaurant-hero.png';
-const LANDING_HERO_SIZES =
-  '(min-width: 76rem) calc(36rem - 1px), (min-width: 64rem) calc(50vw - 2rem - 1px), (min-width: 48rem) calc(100vw - 4rem - 2px), calc(100vw - 2rem - 2px)';
+const LANDING_HERO_SIZES = '(min-width: 64rem) 36rem, calc(100vw - 2rem)';
 const LANDING_HERO_WEBP_SRCSET =
   '/images/brand/optimized/hero/restaurant-hero-640w.webp 640w, /images/brand/optimized/hero/restaurant-hero-1024w.webp 1024w, /images/brand/optimized/hero/restaurant-hero-1600w.webp 1600w';
 const LANDING_STORY_PNG_PATH = '/images/brand/story/chef-plating-cod.png';
@@ -5612,11 +5612,32 @@ async function assertLandingViewport(
   const heroRegion = page.getByRole('region', {
     name: 'Fresh food, ordered your way',
   });
+  const carousel = page.getByRole('region', {
+    exact: true,
+    name: 'Nordic Hearth highlights',
+  });
   await expect(heroHeading).toBeVisible();
   await expect(
     page.getByRole('navigation', { name: 'Customer navigation' }),
   ).toBeVisible();
   await expect(page.getByRole('heading', { level: 2 })).toHaveCount(3);
+  await expect(carousel).toHaveAttribute('aria-roledescription', 'carousel');
+  await expect(
+    carousel.getByRole('group', { exact: true, name: '1 of 3' }),
+  ).toBeVisible();
+  await expect(
+    carousel.getByRole('button', { exact: true, name: 'Previous image' }),
+  ).toBeVisible();
+  await expect(
+    carousel.getByRole('button', { exact: true, name: 'Next image' }),
+  ).toBeVisible();
+  await expect(
+    carousel.getByRole('button', {
+      exact: true,
+      name: 'Automatic slideshow disabled',
+    }),
+  ).toBeDisabled();
+  await expect(carousel.getByRole('button', { name: /^Show image /u })).toHaveCount(3);
 
   const introduction = page.getByText(
     /Explore starters, main courses, burgers, desserts, and non-alcoholic drinks/u,
@@ -5839,7 +5860,14 @@ async function assertCartViewport(
   await assertSafeResponsiveCartThumbnail(firstLine);
   const fallbackThumbnail = fallbackLine.locator('[data-image-state]');
   await expect(fallbackThumbnail).toHaveAttribute('data-image-state', 'placeholder');
-  await expect(fallbackThumbnail.locator('img')).toHaveCount(0);
+  const fallbackBrandImage = fallbackThumbnail.locator('img');
+  await expect(fallbackBrandImage).toHaveCount(1);
+  await expect(fallbackBrandImage).toHaveAttribute(
+    'src',
+    '/images/brand/logo/nordic-hearth-logo.png',
+  );
+  await expect(fallbackBrandImage).toHaveAttribute('alt', '');
+  await expect(fallbackThumbnail.getByRole('img')).toHaveCount(0);
 
   const quantityControl = firstLine.locator(
     `[aria-label='Quantity for ${MENU_ITEM_NAME}']`,
@@ -6387,7 +6415,7 @@ async function assertOrderStatusPresentation(
   });
   const currentStep = currentStatus.getByRole('listitem');
   const brandName = main.getByText('Nordic Hearth', { exact: true });
-  const brandMark = brandName.locator('..').locator('svg');
+  const brandLockup = brandName.locator('..');
   const orderNumber = main.getByText(ORDER_STATUS_PUBLIC_ORDER_NUMBER, {
     exact: true,
   });
@@ -6407,11 +6435,7 @@ async function assertOrderStatusPresentation(
     main.getByRole('heading', { exact: true, level: 1, name: 'Order status' }),
   ).toBeVisible();
   await expect(brandName).toHaveCount(1);
-  await expect(brandMark).toHaveCount(1);
-  await expect(brandMark).toHaveAttribute('aria-hidden', 'true');
-  await expect(brandMark).toHaveAttribute('focusable', 'false');
-  await expect(brandMark).toHaveAttribute('height', '24');
-  await expect(brandMark).toHaveAttribute('width', '24');
+  await assertDecorativeBrandMark(brandLockup, 24);
   await expect(main.getByRole('img')).toHaveCount(0);
   await expect(statusPanel).toHaveAttribute('data-order-status', status);
   await expect(statusHeading).toBeVisible();
@@ -6658,7 +6682,6 @@ async function assertNeutralPaymentStatePage(
     name: expectation.heading,
   });
   const brandName = panel.getByText('Nordic Hearth', { exact: true });
-  const brandMark = panel.locator('svg');
   const orderNumber = panel.getByText(CHECKOUT_PUBLIC_ORDER_NUMBER, { exact: true });
   const primaryAction = panel.locator('[data-action-priority="primary"]');
   const secondaryAction = panel.getByRole('link', {
@@ -6670,11 +6693,7 @@ async function assertNeutralPaymentStatePage(
   await expect(panel).toBeVisible();
   await expect(heading).toBeVisible();
   await expect(brandName).toHaveCount(1);
-  await expect(brandMark).toHaveCount(1);
-  await expect(brandMark).toHaveAttribute('aria-hidden', 'true');
-  await expect(brandMark).toHaveAttribute('focusable', 'false');
-  await expect(brandMark).toHaveAttribute('height', '24');
-  await expect(brandMark).toHaveAttribute('width', '24');
+  await assertDecorativeBrandMark(panel, 24);
   await expect(panel.getByRole('img')).toHaveCount(0);
   await expect(orderNumber).toBeVisible();
   await expect(primaryAction).toHaveCount(1);
@@ -6820,7 +6839,6 @@ async function assertCheckoutViewport(
   });
   const brandText = page.getByRole('main').getByText('Nordic Hearth', { exact: true });
   const brandLockup = brandText.locator('..');
-  const brandMark = brandLockup.locator('svg');
 
   await expect(heading).toBeVisible();
   await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
@@ -6828,10 +6846,7 @@ async function assertCheckoutViewport(
   await expect(summaryHeading).toBeVisible();
   await expect(paymentHeading).toBeVisible();
   await expect(brandText).toHaveCount(1);
-  await expect(brandMark).toHaveCount(1);
-  await expect(brandMark).toHaveAttribute('aria-hidden', 'true');
-  await expect(brandMark).toHaveAttribute('focusable', 'false');
-  await expect(brandMark).not.toHaveAttribute('role', 'img');
+  await assertDecorativeBrandMark(brandLockup, 32);
   await expect(summary).toHaveAttribute('aria-busy', 'false');
   await expect(orderItems.getByRole('listitem')).toHaveCount(2);
   const firstItem = orderItems
@@ -12607,6 +12622,24 @@ async function closeContext(context: BrowserContext): Promise<void> {
   }
 }
 
+async function assertDecorativeBrandMark(
+  container: Locator,
+  size: 24 | 32,
+): Promise<void> {
+  const picture = container.locator(`picture:has(img[src="${BRAND_MARK_PNG_PATH}"])`);
+  const mark = picture.locator('..');
+  const image = picture.locator('img');
+
+  await expect(picture).toHaveCount(1);
+  await expect(mark).toHaveAttribute('aria-hidden', 'true');
+  await expect(mark).not.toHaveAttribute('role', 'img');
+  await expect(mark).toHaveCSS('height', `${size}px`);
+  await expect(mark).toHaveCSS('width', `${size}px`);
+  await expect(image).toHaveAttribute('alt', '');
+  await expect(image).toHaveAttribute('src', BRAND_MARK_PNG_PATH);
+  await expect(container.getByRole('img')).toHaveCount(0);
+}
+
 async function assertG3DecorativeShellBrand(
   page: Page,
   accessibleName: string,
@@ -12615,16 +12648,9 @@ async function assertG3DecorativeShellBrand(
   const brandLink = page
     .getByRole('banner')
     .getByRole('link', { exact: true, name: accessibleName });
-  const brandMark = brandLink.locator('svg');
   await expect(brandLink).toHaveCount(1);
   await expect(brandLink.getByText('Nordic Hearth', { exact: true })).toHaveCount(1);
-  await expect(brandMark).toHaveCount(1);
-  await expect(brandMark).toHaveAttribute('aria-hidden', 'true');
-  await expect(brandMark).toHaveAttribute('focusable', 'false');
-  await expect(brandMark).toHaveAttribute('height', String(size));
-  await expect(brandMark).toHaveAttribute('stroke', 'currentColor');
-  await expect(brandMark).toHaveAttribute('width', String(size));
-  await expect(brandLink.getByRole('img')).toHaveCount(0);
+  await assertDecorativeBrandMark(brandLink, size);
 }
 
 test.describe.configure({ mode: 'serial' });

@@ -78,6 +78,16 @@ test('requires non-empty environment values and creates unique safe names', () =
   expect(() => requireEnvironmentValue('E2E_RUN_ID', {})).toThrow(
     'E2E_ENVIRONMENT_VALUE_MISSING',
   );
+  expect(
+    requireEnvironmentValue('E2E_FOREIGN_ORDER_NUMBER', {
+      E2E_FOREIGN_ORDER_NUMBER: 'ROA-23456789ABCD',
+    }),
+  ).toBe('ROA-23456789ABCD');
+  expect(() =>
+    requireEnvironmentValue('E2E_UNREVIEWED_INPUT', {
+      E2E_UNREVIEWED_INPUT: 'not-allowlisted',
+    }),
+  ).toThrow('E2E_ENVIRONMENT_NAME_INVALID');
 
   const first = createUniqueRunName();
   const second = createUniqueRunName();

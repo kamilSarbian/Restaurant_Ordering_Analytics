@@ -35,6 +35,7 @@ from app.auth.bootstrap import (
     create_admin,
 )
 from app.auth.demo_admin import DemoAdminError, provision_demo_admin
+from app.auth.demo_customer import DemoCustomerError, provision_demo_customer
 from app.auth.models import User
 from app.auth.passwords import verify_password
 from app.auth.roles import UserRole
@@ -211,6 +212,7 @@ class E2ERuntimeContract:
     public_origin: str
     portfolio_demo_mode: bool
     demo_session_issuance_enabled: bool
+    customer_demo_session_issuance_enabled: bool
     payment_provider: str
     database_url: URL = field(repr=False)
     auth_jwt_secret: SecretStr = field(repr=False)
@@ -234,6 +236,7 @@ class E2ESetupResult:
     menu_items_processed: int
     administrator_ready: bool
     demo_administrator_ready: bool
+    demo_customer_ready: bool
 
 
 class _E2EFakeCheckoutNotFoundError(E2EHarnessError):
@@ -578,21 +581,38 @@ def load_e2e_runtime_contract(
         source,
         "DEMO_SESSION_ISSUANCE_ENABLED",
     )
+    customer_demo_session_issuance_enabled_text = _required_environment_value(
+        source,
+        "CUSTOMER_DEMO_SESSION_ISSUANCE_ENABLED",
+    )
     payment_provider = _required_environment_value(source, "PAYMENT_PROVIDER")
     if (
         portfolio_demo_mode_text == "false"
         and demo_session_issuance_enabled_text == "false"
+        and customer_demo_session_issuance_enabled_text == "false"
         and payment_provider == "stripe_test"
     ):
         portfolio_demo_mode = False
         demo_session_issuance_enabled = False
+        customer_demo_session_issuance_enabled = False
     elif (
         portfolio_demo_mode_text == "true"
         and demo_session_issuance_enabled_text == "true"
+        and customer_demo_session_issuance_enabled_text == "false"
         and payment_provider == "demo"
     ):
         portfolio_demo_mode = True
         demo_session_issuance_enabled = True
+        customer_demo_session_issuance_enabled = False
+    elif (
+        portfolio_demo_mode_text == "true"
+        and demo_session_issuance_enabled_text == "true"
+        and customer_demo_session_issuance_enabled_text == "true"
+        and payment_provider == "demo"
+    ):
+        portfolio_demo_mode = True
+        demo_session_issuance_enabled = True
+        customer_demo_session_issuance_enabled = True
     else:
         raise E2EHarnessSafetyError("E2E_RUNTIME_POLICY_INVALID")
 
@@ -618,6 +638,7 @@ def load_e2e_runtime_contract(
         public_origin=public_origin,
         portfolio_demo_mode=portfolio_demo_mode,
         demo_session_issuance_enabled=demo_session_issuance_enabled,
+        customer_demo_session_issuance_enabled=customer_demo_session_issuance_enabled,
         payment_provider=payment_provider,
         database_url=database_url,
         auth_jwt_secret=auth_jwt_secret,
@@ -677,6 +698,9 @@ def create_e2e_app(
         app_debug=False,
         portfolio_demo_mode=contract.portfolio_demo_mode,
         demo_session_issuance_enabled=contract.demo_session_issuance_enabled,
+        customer_demo_session_issuance_enabled=(
+            contract.customer_demo_session_issuance_enabled
+        ),
         payment_provider=contract.payment_provider,
         database_url=contract.database_url.render_as_string(hide_password=False),
         stripe_secret_key=None,
@@ -856,13 +880,13 @@ def _complete_fake_checkout(
 
 
 def setup_e2e_data() -> E2ESetupResult:
-    """Seed menu data and ensure both exact E2E administrator identities.
+    """Seed menu data and ensure every exact reserved E2E identity.
 
     Returns:
         A safe setup summary without identities or connection details.
 
     Raises:
-        E2EHarnessSetupError: If seeding or either administrator cannot converge.
+        E2EHarnessSetupError: If seeding or a reserved identity cannot converge.
     """
     resolved_contract = load_e2e_setup_contract()
     engine: Engine | None = None
@@ -874,9 +898,11 @@ def setup_e2e_data() -> E2ESetupResult:
         seed_result = seed_menu_data(session_factory)
         _ensure_synthetic_admin(session_factory, resolved_contract)
         provision_demo_admin(session_factory)
+        provision_demo_customer(session_factory)
     except (
         AdminBootstrapInputError,
         DemoAdminError,
+        DemoCustomerError,
         OSError,
         SeedConflictError,
         SQLAlchemyError,
@@ -894,6 +920,7 @@ def setup_e2e_data() -> E2ESetupResult:
         menu_items_processed=seed_result.menu_items_processed,
         administrator_ready=True,
         demo_administrator_ready=True,
+        demo_customer_ready=True,
     )
 
 
@@ -932,7 +959,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "E2E setup complete: "
         f"{result.categories_processed} categories and "
         f"{result.menu_items_processed} menu items ready; "
-        "reserved demo administrator ready."
+        "reserved demo administrator and customer ready."
     )
     return 0
 

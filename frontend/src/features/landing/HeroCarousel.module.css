@@ -1,0 +1,127 @@
+.carousel {
+    display: grid;
+    min-width: 0;
+    overflow: hidden;
+    border-top: var(--border-width-hairline) solid var(--color-border-subtle);
+    background: var(--color-surface-muted);
+}
+
+.slides,
+.slide,
+.slide picture,
+.image {
+    width: 100%;
+    height: 100%;
+}
+
+.slides {
+    height: auto;
+    min-width: 0;
+    min-height: 0;
+    aspect-ratio: 1672 / 941;
+}
+
+.slide {
+    position: relative;
+    min-width: 0;
+    aspect-ratio: 1672 / 941;
+    margin: 0;
+}
+
+.slide[hidden] {
+    display: none;
+}
+
+.slide picture {
+    display: block;
+}
+
+.image {
+    display: block;
+    object-fit: cover;
+    animation: carousel-image-enter var(--duration-standard) var(--easing-standard) both;
+}
+
+.caption {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    display: grid;
+    gap: var(--space-1);
+    padding: var(--space-10) var(--space-5) var(--space-5);
+    color: var(--color-text-inverse);
+    background: linear-gradient(transparent, rgb(13 43 30 / 92%));
+}
+
+.caption span {
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+}
+
+.caption strong {
+    font-family: var(--font-family-display);
+    font-size: 1.35rem;
+    line-height: 1.15;
+}
+
+.controls,
+.dots {
+    display: flex;
+    min-width: 0;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.controls {
+    justify-content: center;
+    padding: var(--space-3);
+    border-top: var(--border-width-hairline) solid var(--color-border-subtle);
+    background: var(--color-surface);
+}
+
+.control,
+.dot {
+    min-height: 2.75rem;
+    border: var(--border-width-hairline) solid var(--color-control-border);
+    border-radius: var(--radius-control);
+    background: var(--color-surface);
+    color: var(--color-primary);
+    cursor: pointer;
+    font: inherit;
+    font-weight: var(--font-weight-bold);
+}
+
+.control {
+    padding: var(--space-2) var(--space-3);
+}
+
+.dot {
+    min-width: 2.75rem;
+    padding: var(--space-2);
+}
+
+.dot[aria-pressed='true'] {
+    border-color: var(--color-primary);
+    background: var(--color-primary);
+    color: var(--color-text-inverse);
+}
+
+@keyframes carousel-image-enter {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .image {
+        animation: none;
+    }
+}

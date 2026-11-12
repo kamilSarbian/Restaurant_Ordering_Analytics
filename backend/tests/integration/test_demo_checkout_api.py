@@ -20,6 +20,11 @@ from app.auth.demo_admin import (
     DEMO_ADMIN_EMAIL,
     DEMO_ADMIN_ID,
 )
+from app.auth.demo_customer import (
+    DEMO_CUSTOMER_DISABLED_PASSWORD_HASH,
+    DEMO_CUSTOMER_EMAIL,
+    DEMO_CUSTOMER_ID,
+)
 from app.auth.models import User
 from app.auth.roles import UserRole
 from app.auth.service import UserTokenService
@@ -125,6 +130,20 @@ def _store_demo_admin(session_factory: sessionmaker[Session]) -> UUID:
             )
         )
     return DEMO_ADMIN_ID
+
+
+def _store_demo_customer(session_factory: sessionmaker[Session]) -> UUID:
+    with session_factory.begin() as session:
+        session.add(
+            User(
+                id=DEMO_CUSTOMER_ID,
+                email=DEMO_CUSTOMER_EMAIL,
+                password_hash=DEMO_CUSTOMER_DISABLED_PASSWORD_HASH,
+                role=UserRole.CUSTOMER,
+                is_active=True,
+            )
+        )
+    return DEMO_CUSTOMER_ID
 
 
 def _store_order(
@@ -460,6 +479,7 @@ def _assert_demo_identity_denial_sql(
     statements: list[str],
     parameter_sets: list[object],
     public_number: str,
+    expected_user_id: UUID = DEMO_ADMIN_ID,
 ) -> None:
     """Require one auth read and one scoped Order read before demo denial."""
     records = _captured_records_without_exact_probe(statements, parameter_sets)
@@ -522,7 +542,7 @@ def _assert_demo_identity_denial_sql(
         raise AssertionError("Demo checkout auth read was not canonical")
     if not isinstance(user_parameters, Mapping):
         raise AssertionError("Demo checkout auth read did not bind named parameters")
-    if DEMO_ADMIN_ID not in user_parameters.values():
+    if expected_user_id not in user_parameters.values():
         raise AssertionError("Demo checkout auth read bound the wrong User")
 
     order_statement, order_parameters = order_reads[0]
@@ -947,6 +967,70 @@ def test_demo_checkout_is_capability_only_for_shared_identity_and_guest(
         raise AssertionError("Demo runtime Orders unexpectedly gained an owner")
     if stripe.requests:
         raise AssertionError("Demo checkout unexpectedly called Stripe")
+
+
+def test_demo_customer_checkout_requires_capability_despite_shared_ownership(
+    test_database_engine: Engine,
+    api_session_factory: sessionmaker[Session],
+    user_token_service: UserTokenService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Keep the shared customer JWT from authorizing checkout by itself."""
+    demo_customer_id = _store_demo_customer(api_session_factory)
+    order_id, public_number, capability = _store_order(
+        api_session_factory,
+        customer_user_id=demo_customer_id,
+    )
+    stripe = BombStripeClient()
+    _install_payment_ids(monkeypatch, GOLDEN_FAILED_ID)
+    application = _application(
+        api_session_factory,
+        stripe_client=stripe,
+        user_token_service=user_token_service,
+    )
+    authorization = _bearer(user_token_service.create_access_token(demo_customer_id))
+    state_before_denial = _checkout_state_snapshot(test_database_engine)
+
+    with TestClient(application) as client:
+        jwt_only, statements, parameter_sets = _post_with_statement_capture(
+            test_database_engine,
+            client,
+            public_number,
+            None,
+            uuid4(),
+            authorization=authorization,
+        )
+        if jwt_only.status_code != 404 or jwt_only.json() != {
+            "detail": "Order not found"
+        }:
+            raise AssertionError("Shared customer JWT gained checkout authority")
+        _assert_demo_identity_denial_sql(
+            statements=statements,
+            parameter_sets=parameter_sets,
+            public_number=public_number,
+            expected_user_id=demo_customer_id,
+        )
+        if _checkout_state_snapshot(test_database_engine) != state_before_denial:
+            raise AssertionError("Customer checkout denial changed persisted state")
+
+        success = _post(
+            client,
+            public_number,
+            capability,
+            uuid4(),
+            authorization=authorization,
+        )
+
+    if success.status_code != 201:
+        raise AssertionError("Customer capability checkout failed")
+    if success.json().get("public_order_number") != public_number:
+        raise AssertionError("Customer checkout returned the wrong Order")
+    with api_session_factory() as session:
+        payment = session.scalars(select(Payment)).one()
+    if payment.id != GOLDEN_FAILED_ID or payment.order_id != order_id:
+        raise AssertionError("Customer checkout persisted Payment for wrong Order")
+    if stripe.requests:
+        raise AssertionError("Customer demo checkout unexpectedly called Stripe")
 
 
 def test_privacy_and_invalid_present_bearer_precede_demo_checkout(

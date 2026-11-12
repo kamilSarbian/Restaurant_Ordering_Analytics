@@ -11,6 +11,7 @@ import { AuthProvider } from '../features/auth/AuthContext';
 import LoginPage from '../features/auth/LoginPage';
 import {
   AUTH_STORAGE_KEY,
+  AUTH_STORAGE_VERSION,
   DEMO_SESSION_STORAGE_KEY,
   resetAuthMemoryForTests,
   saveDemoSessionMarker,
@@ -208,8 +209,12 @@ describe('administrator authentication routes and guard', () => {
       });
       expect(brand).toHaveAttribute('href', '/admin');
       expect(brand).not.toHaveAttribute('aria-current');
-      expect(brand.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
-      expect(brand.querySelector('svg')).toHaveAttribute('width', '24');
+      const brandMark = brand.querySelector('[aria-hidden="true"]');
+      expect(brandMark).toHaveStyle({ height: '24px', width: '24px' });
+      expect(brandMark?.querySelector('img')).toHaveAttribute(
+        'src',
+        '/images/brand/logo/nordic-hearth-logo.png',
+      );
       expect(brand.querySelector('[role="img"]')).toBeNull();
       const logoutButton = screen.getByRole('button', { name: 'Log out' });
       expect(logoutButton).toHaveAttribute('data-size', 'md');
@@ -277,7 +282,10 @@ describe('administrator authentication routes and guard', () => {
       '/admin/orders',
     );
     expect(stub.calls.map(({ url }) => url)).toEqual(['/api/v1/auth/me']);
-    expect(sessionStorage.getItem(DEMO_SESSION_STORAGE_KEY)).toContain('demo');
+    expect(JSON.parse(sessionStorage.getItem(DEMO_SESSION_STORAGE_KEY) ?? '')).toEqual({
+      sessionKind: 'admin',
+      version: AUTH_STORAGE_VERSION,
+    });
 
     await user.click(screen.getByRole('button', { name: 'Log out' }));
 

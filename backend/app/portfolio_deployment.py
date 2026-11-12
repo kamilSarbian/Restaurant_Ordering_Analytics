@@ -28,6 +28,14 @@ from app.auth.demo_admin import (
     inspect_demo_admin,
     provision_demo_admin,
 )
+from app.auth.demo_customer import (
+    DemoCustomerConflictError,
+    DemoCustomerDatabaseError,
+    DemoCustomerResult,
+    deactivate_demo_customer,
+    inspect_demo_customer,
+    provision_demo_customer,
+)
 from app.core.config import (
     GIT_SHA_PATTERN,
     PRODUCTION_RUNTIME_DATABASE_ROLE,
@@ -67,6 +75,8 @@ PORTFOLIO_RUNTIME_ROLE = PRODUCTION_RUNTIME_DATABASE_ROLE
 PROVISION_CONFIRMATION = "PROVISION_NORDIC_HEARTH_DEMO_ADMIN"
 DEACTIVATE_CONFIRMATION = "DEACTIVATE_NORDIC_HEARTH_DEMO_ADMIN"
 RESET_RUNTIME_CONFIRMATION = "RESET_NORDIC_HEARTH_PORTFOLIO_RUNTIME"
+PROVISION_CUSTOMER_CONFIRMATION = "PROVISION_NORDIC_HEARTH_DEMO_CUSTOMER"
+DEACTIVATE_CUSTOMER_CONFIRMATION = "DEACTIVATE_NORDIC_HEARTH_DEMO_CUSTOMER"
 PLAN_SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
 HOST_LABEL_PATTERN = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -75,6 +85,8 @@ PortfolioAction = Literal[
     "verify-state",
     "provision",
     "deactivate",
+    "provision-customer",
+    "deactivate-customer",
     "reset-runtime",
 ]
 
@@ -133,7 +145,8 @@ class PortfolioDeploymentResult:
 
     action: PortfolioAction
     portfolio: PortfolioSeedResult | None
-    demo_admin: DemoAdminResult
+    demo_admin: DemoAdminResult | None
+    demo_customer: DemoCustomerResult | None
     runtime_reset: PortfolioRuntimeResetResult | None = None
 
 
@@ -205,7 +218,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         _require_exact_checkout(expected_release_sha)
         reject_target_changing_postgres_environment()
         plan: PortfolioSeedPlan | None = None
-        if action == "deactivate":
+        if action in {"deactivate", "deactivate-customer"}:
             if (
                 arguments.portfolio_reference_end is not None
                 or arguments.expected_plan_sha256 is not None
@@ -263,7 +276,14 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "action",
-        choices=("verify-state", "provision", "deactivate", "reset-runtime"),
+        choices=(
+            "verify-state",
+            "provision",
+            "deactivate",
+            "provision-customer",
+            "deactivate-customer",
+            "reset-runtime",
+        ),
     )
     parser.add_argument("--expected-endpoint-host", required=True)
     parser.add_argument("--portfolio-reference-end")
@@ -278,6 +298,8 @@ def _require_confirmation(action: PortfolioAction, confirmation: str | None) -> 
         "verify-state": None,
         "provision": PROVISION_CONFIRMATION,
         "deactivate": DEACTIVATE_CONFIRMATION,
+        "provision-customer": PROVISION_CUSTOMER_CONFIRMATION,
+        "deactivate-customer": DEACTIVATE_CUSTOMER_CONFIRMATION,
         "reset-runtime": RESET_RUNTIME_CONFIRMATION,
     }[action]
     if confirmation != expected:
@@ -289,6 +311,8 @@ def _require_action(action: object) -> PortfolioAction:
         "verify-state",
         "provision",
         "deactivate",
+        "provision-customer",
+        "deactivate-customer",
         "reset-runtime",
     ):
         raise PortfolioDeploymentConfigurationError()
@@ -439,7 +463,7 @@ def _run_with_engine(
     verify_roles: bool = True,
 ) -> PortfolioDeploymentResult:
     _require_action(action)
-    if (action == "deactivate") != (plan is None):
+    if (action in {"deactivate", "deactivate-customer"}) != (plan is None):
         raise PortfolioDeploymentConfigurationError()
     result: PortfolioDeploymentResult | None = None
     failure: PortfolioDeploymentError | None = None
@@ -468,15 +492,27 @@ def _run_with_engine(
                     verify_portfolio_schema(factory)
                     portfolio_result = None
                     demo_result = deactivate_demo_admin(factory)
+                    customer_result = None
+                elif action == "deactivate-customer":
+                    verify_portfolio_schema(factory)
+                    portfolio_result = None
+                    demo_result = None
+                    customer_result = deactivate_demo_customer(factory)
                 else:
                     assert plan is not None  # enforced by the action/plan guard
                     portfolio_result = verify_portfolio_data(factory, plan)
                 runtime_reset: PortfolioRuntimeResetResult | None = None
                 if action == "verify-state":
                     demo_result = inspect_demo_admin(factory)
+                    customer_result = inspect_demo_customer(factory)
                 elif action == "provision":
                     demo_result = provision_demo_admin(factory)
+                    customer_result = inspect_demo_customer(factory)
+                elif action == "provision-customer":
+                    demo_result = inspect_demo_admin(factory)
+                    customer_result = provision_demo_customer(factory)
                 elif action == "reset-runtime":
+                    customer_result = inspect_demo_customer(factory)
                     with factory() as reset_session:
                         runtime_reset = reset_portfolio_runtime_data(reset_session)
                     assert plan is not None
@@ -486,6 +522,7 @@ def _run_with_engine(
                     action=action,
                     portfolio=portfolio_result,
                     demo_admin=demo_result,
+                    demo_customer=customer_result,
                     runtime_reset=runtime_reset,
                 )
     except PortfolioDeploymentError as exc:
@@ -497,12 +534,14 @@ def _run_with_engine(
     except (
         PortfolioSeedConflictError,
         DemoAdminConflictError,
+        DemoCustomerConflictError,
         PortfolioRuntimeResetConflictError,
     ):
         failure = PortfolioDeploymentStateError()
     except (
         PortfolioSeedDatabaseError,
         DemoAdminDatabaseError,
+        DemoCustomerDatabaseError,
         PortfolioRuntimeResetDatabaseError,
         SQLAlchemyError,
     ):
@@ -641,6 +680,14 @@ def _require_role_contract(connection: Connection) -> None:
 
 
 def _success_message(result: PortfolioDeploymentResult) -> str:
+    admin_status = (
+        result.demo_admin.status if result.demo_admin is not None else "not inspected"
+    )
+    customer_status = (
+        result.demo_customer.status
+        if result.demo_customer is not None
+        else "not inspected"
+    )
     if result.runtime_reset is not None:
         reset = result.runtime_reset
         if reset.already_empty:
@@ -655,12 +702,12 @@ def _success_message(result: PortfolioDeploymentResult) -> str:
         return (
             f"Portfolio deployment {result.action} completed: {deleted}; "
             f"canonical seed verified; demo administrator "
-            f"{result.demo_admin.status}."
+            f"{admin_status}; demo customer {customer_status}."
         )
     if result.portfolio is None:
         return (
             f"Portfolio deployment {result.action} completed: exact schema verified; "
-            f"demo administrator {result.demo_admin.status}."
+            f"demo administrator {admin_status}; demo customer {customer_status}."
         )
     counts = (
         f"{result.portfolio.categories_processed} categories, "
@@ -673,7 +720,7 @@ def _success_message(result: PortfolioDeploymentResult) -> str:
     )
     return (
         f"Portfolio deployment {result.action} completed: {counts}; "
-        f"demo administrator {result.demo_admin.status}."
+        f"demo administrator {admin_status}; demo customer {customer_status}."
     )
 
 
@@ -683,12 +730,14 @@ if __name__ == "__main__":
 
 __all__ = [
     "DEACTIVATE_CONFIRMATION",
+    "DEACTIVATE_CUSTOMER_CONFIRMATION",
     "NEON_MANAGED_ADMIN_ROLE",
     "PORTFOLIO_DATABASE_NAME",
     "PORTFOLIO_MIGRATOR_ROLE",
     "PORTFOLIO_OWNER_ROLE",
     "PORTFOLIO_RUNTIME_ROLE",
     "PROVISION_CONFIRMATION",
+    "PROVISION_CUSTOMER_CONFIRMATION",
     "RESET_RUNTIME_CONFIRMATION",
     "PortfolioDeploymentConfigurationError",
     "PortfolioDeploymentError",

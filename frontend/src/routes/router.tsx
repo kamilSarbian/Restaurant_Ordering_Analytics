@@ -112,7 +112,7 @@ function RouteErrorPage() {
 // The account guard stays beside the route tree so both account pages share one boundary.
 // eslint-disable-next-line react-refresh/only-export-components
 function AccountRouteGuard() {
-  const { isDemoSession, logout, phase, retrySession } = useAuth();
+  const { demoSessionKind, logout, phase, retrySession } = useAuth();
   const location = useLocation();
   const retryButtonRef = useRef<HTMLButtonElement>(null);
   const restoreRetryFocusRef = useRef(false);
@@ -169,7 +169,7 @@ function AccountRouteGuard() {
       <Navigate to={`/login?next=${encodeURIComponent(location.pathname)}`} replace />
     );
   }
-  if (isDemoSession) {
+  if (demoSessionKind === 'admin') {
     return (
       <section className="not-found" aria-labelledby="demo-account-heading">
         <p className="eyebrow">Portfolio demo</p>
