@@ -32,6 +32,20 @@
     gap: var(--space-3);
 }
 
+.categoryHeader {
+    display: flex;
+    min-width: 0;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+}
+
+.categoryHeader h3 {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
 .workspace {
     display: grid;
     min-width: 0;
@@ -79,6 +93,78 @@
     font: inherit;
 }
 
+.fileLabel {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-2);
+    font-weight: var(--font-weight-semibold);
+}
+
+.fileLabel input {
+    max-width: 100%;
+    color: var(--color-text-secondary);
+    font: inherit;
+}
+
+.imageHelp,
+.imageError {
+    min-width: 0;
+    font-size: var(--font-size-caption);
+    overflow-wrap: anywhere;
+}
+
+.imageHelp {
+    color: var(--color-text-secondary);
+}
+
+.imageError {
+    color: var(--color-danger);
+    font-weight: var(--font-weight-semibold);
+}
+
+.imageArea,
+.image,
+.imagePlaceholder {
+    width: 100%;
+    aspect-ratio: 4 / 3;
+}
+
+.imageArea {
+    min-width: 0;
+    overflow: hidden;
+    border-radius: var(--radius-control);
+    background: var(--color-sage-support);
+}
+
+.imageArea[data-variant='editor'] {
+    max-width: 15rem;
+}
+
+.picture {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+.image {
+    display: block;
+    height: 100%;
+    object-fit: cover;
+}
+
+.imagePlaceholder {
+    display: grid;
+    place-items: center;
+    padding: var(--space-3);
+    background:
+        linear-gradient(135deg, rgb(31 81 58 / 14%), transparent),
+        var(--color-surface-muted);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-semibold);
+    text-align: center;
+}
+
 .itemEditor textarea {
     min-height: 5rem;
     resize: vertical;
@@ -118,6 +204,10 @@
     border: var(--border-width-hairline) solid var(--color-border-subtle);
     border-radius: var(--radius-control);
     background: var(--color-surface);
+}
+
+.preview .imageArea {
+    margin-bottom: var(--space-2);
 }
 
 .preview li > span:first-child {

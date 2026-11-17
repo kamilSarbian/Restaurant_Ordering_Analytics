@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {
   createMemoryRouter,
@@ -380,6 +380,40 @@ describe('administrator authentication routes and guard', () => {
     expect(stub.calls.map(({ url }) => url)).toEqual([
       '/api/v1/auth/me',
       '/api/v1/menu',
+    ]);
+  });
+
+  it('revokes browser-only sandbox images on logout without a catalog mutation', async () => {
+    storeToken();
+    saveDemoSessionMarker();
+    const stub = installFetchStub(
+      { json: ME_RESPONSE },
+      { json: PUBLIC_MENU_RESPONSE },
+    );
+    const nativeUrl = URL;
+    const createObjectURL = vi.fn(() => 'blob:logout-preview');
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal(
+      'URL',
+      Object.assign(class extends nativeUrl {}, { createObjectURL, revokeObjectURL }),
+    );
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const { router } = renderAdminRoute('/admin/menu');
+
+    const editor = await screen.findByRole('group', { name: 'Nordic bowl' });
+    await user.upload(
+      within(editor).getByLabelText('Local preview image for Nordic bowl'),
+      new File(['browser image'], 'browser.png', { type: 'image/png' }),
+    );
+    expect(createObjectURL).toHaveBeenCalledOnce();
+
+    await user.click(screen.getByRole('button', { name: 'Log out' }));
+
+    expect(router.state.location.pathname).toBe('/');
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:logout-preview');
+    expect(stub.calls.map(({ method, url }) => ({ method, url }))).toEqual([
+      { method: 'GET', url: '/api/v1/auth/me' },
+      { method: 'GET', url: '/api/v1/menu' },
     ]);
   });
 

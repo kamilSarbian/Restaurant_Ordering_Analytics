@@ -108,6 +108,7 @@ describe('administrator CSV export page', () => {
         },
       },
       { body: 'header-one,header-two\r\n', headers: CSV_HEADERS },
+      { body: 'header-one,header-two\r\n', headers: CSV_HEADERS },
     );
     const user = userEvent.setup();
 
@@ -119,6 +120,8 @@ describe('administrator CSV export page', () => {
       screen.getByRole('button', { name: 'Historical demo data' }),
     ).toHaveAttribute('aria-pressed', 'true');
     expect(selectedRange()).toEqual(period);
+    expect(screen.getByLabelText('Currency')).toHaveValue('NOK');
+    expect(screen.getByRole('option', { name: 'All currencies' })).toBeVisible();
 
     await user.click(download);
     await waitFor(() => expect(stub.calls).toHaveLength(3));
@@ -130,6 +133,12 @@ describe('administrator CSV export page', () => {
     const aware = buildAdminAwareDateRange(period);
     expect(requestQuery(stub.calls[2]!.url).get('start')).toBe(aware.start);
     expect(requestQuery(stub.calls[2]!.url).get('end')).toBe(aware.end);
+    expect(requestQuery(stub.calls[2]!.url).get('currency')).toBe('NOK');
+
+    await user.selectOptions(screen.getByLabelText('Currency'), '');
+    await user.click(download);
+    await waitFor(() => expect(stub.calls).toHaveLength(4));
+    expect(requestQuery(stub.calls[3]!.url).has('currency')).toBe(false);
   });
 
   it('keeps portfolio exports disabled when sample-period metadata is unavailable', async () => {

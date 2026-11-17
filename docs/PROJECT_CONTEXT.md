@@ -27,7 +27,7 @@ The goal is to build a secure web application that:
 - provides basic KPIs, reports, and CSV exports;
 - can run locally through Docker Compose and be deployed as a demo.
 
-### Current public baseline and local-candidate boundary (2026-11-10)
+### Current public baseline and local-candidate boundary (2026-11-14)
 
 The existing public administrator demo passed Stage 22-D in report
 `stage22d-public-20261110t002125z`: 14 of 14 checks passed and the report
@@ -41,26 +41,43 @@ growth is bounded at 100 `portfolio_runtime` Orders and three demo Payments per
 Order, and a separate guarded operator action resets only validated runtime
 aggregates while preserving canonical seed and live rows.
 
-The current worktree is a distinct **uncommitted, undeployed** candidate. It
-adds a reserved shared customer identity with exact `customer` role, never
-`admin` or `super_admin`; customer-owned `portfolio_runtime` Account history;
-capability-only demo Checkout; independent default-false customer-session
-backend and frontend flags; and guarded operator provision/deactivate actions.
-The customer account has not been provisioned. It also exposes persisted
-historical sample-period metadata to the exact demo administrator and uses a
-Europe/Oslo inclusive-date preset without shifting timestamps or reseeding;
-results remain separated by currency. Public copy and presentation distinguish
-guest, customer, and administrator demo roles, describe demo payment truthfully,
-and add the official brand, carousel, SEO, and cold-start guidance. Targeted
-current-byte isolated PostgreSQL evidence was followed by one clean invocation
-of all 10 relevant integration files: 308 passed with no filter or retry. One
-local canonical browser invocation separately passed 32/32 normal-runtime
-tests, 1/1 administrator-demo test and 2/2 customer-disabled/anonymous-guest
-flow tests, and 1/1 enabled customer-demo lifecycle test, with one worker, zero
-retries, and clean database and secret-safe log audits. This is not CI or public
-customer-demo
-acceptance. Nothing in the accepted public administrator report proves this
-candidate is deployed.
+The reserved-customer foundation is committed at
+`5842268a4bdb991c3289e85565403c89d203db9e`, and its presentation follow-up is
+committed at `852163b77d7e5caca8cc7053d5369c1a20d23973`. The exact customer role,
+owned runtime history, capability-only Checkout, default-false session gates,
+historical sample-period metadata, and truthful demo presentation remain
+separate from the accepted public administrator evidence. The reserved customer
+has not been provisioned, and public customer-demo activation and acceptance
+have not run.
+
+The current worktree is a new **uncommitted, undeployed** follow-up candidate.
+It replaces the landing sequence with six responsive scenes, five-second
+automatic progression, non-interactive progress indicators, and a visible
+pause/resume control. Pointer hover and keyboard focus pause playback, an
+explicit manual pause persists after either leaves, and reduced motion starts
+paused until the user deliberately resumes. The administrator menu sandbox
+remains memory-only and GET-only while adding per-category sample dishes and
+bounded local JPEG/PNG/WebP previews. Portfolio Analytics and Exports default
+to NOK with an explicit all-currencies choice, while normal runtime remains
+unchanged.
+A separate approximate NOK-to-EUR/PLN calculator reads dated ECB reference
+rates without altering historical currency separation, filters, CSV output,
+Orders, or Payments. Canonical Browser E2E run `f3aea9fbe12e6ac3`
+validated the pre-documentation-correction manifest SHA-256
+`36a20c57321451fdc8c1c762ea6bc08e386ce7b23804b58a892c1686c1726d07`
+with native exit code 0, one worker, zero retries, and 38/38 tests passed. Its
+isolated customer-enabled phase, final database audit, and every phase-specific
+secret-safe log audit passed. That result remains evidence for those earlier
+tested bytes. After the carousel and ECB corrections, canonical run
+`6f1719445d8d58e8` validated the later worktree manifest SHA-256
+`c9a3ccc2ff9f83380f9ba8c5ad50912ff1031c7714128c1b6f635a4186539a76`
+with native exit code 0, one worker, zero retries, and 38/38 tests passed: 34/34
+normal-runtime checks, 3/3 administrator-demo/customer-disabled/anonymous-guest
+checks, and 1/1 isolated customer-enabled lifecycle. `setup-portfolio`, the
+final database audit, and every phase-specific secret-safe log audit passed.
+Final independent review, commit, push, CI,
+deployment, and public acceptance remain open; the public administrator report
+proves none of these local bytes.
 
 Stage 22 therefore remains in progress. Stage 23 is also in progress: the case
 study is public, while final screenshot, architecture-presentation, and
@@ -1208,9 +1225,9 @@ reserved Neon demo administrator and initial false/false Render deployment were
 subsequently verified. A later bounded backend canary reached `CANARY_PASS` and
 was rolled back to exact 404; that canary was not public full-flow Browser E2E.
 The later 14/14 public acceptance report and public URLs are recorded in the
-current baseline above. The remaining Stage 22 work is the uncommitted customer
-demo, historical-preset, and presentation candidate plus its independent
-review and acceptance.
+current baseline above. The remaining Stage 22 work is the committed
+customer-demo and historical-preset foundation, the uncommitted 22-F
+presentation follow-up, and their independent review and acceptance gates.
 Stage 23 — Portfolio Documentation & Case Study is in progress. The public case
 study exists; remaining presentation and CV-facing material remains open.
 

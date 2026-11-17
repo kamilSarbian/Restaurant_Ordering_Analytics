@@ -39,6 +39,7 @@ import {
   formatAnalyticsCount,
   formatAnalyticsMoney,
 } from './adminAnalyticsApi';
+import PortfolioCurrencyConverter from './PortfolioCurrencyConverter';
 import styles from './AdminAnalyticsPage.module.css';
 
 const CURRENCY_PATTERN = /^[A-Z]{3}$/;
@@ -432,7 +433,7 @@ export default function AdminAnalyticsPage() {
   const portfolioMode = isPortfolioModeEnabled();
   const [filters, setFilters] = useState<DraftFilters>(() => ({
     ...getDefaultAdminDateRange(),
-    currency: '',
+    currency: portfolioMode ? 'NOK' : '',
     limit: '50',
   }));
   const [filterErrors, setFilterErrors] = useState<FilterErrors>({});
@@ -442,7 +443,7 @@ export default function AdminAnalyticsPage() {
   );
   const initialFiltersRef = useRef(filters);
   const dateControlRef = useRef<AdminDateRangeControlHandle>(null);
-  const currencyRef = useRef<HTMLInputElement>(null);
+  const currencyRef = useRef<HTMLInputElement | HTMLSelectElement>(null);
   const limitRef = useRef<HTMLInputElement>(null);
   const appliedContextRef = useRef<HTMLElement>(null);
   const applyFailureRef = useRef<HTMLDivElement>(null);
@@ -880,21 +881,43 @@ export default function AdminAnalyticsPage() {
         />
         <div className={styles.filterFields}>
           <label>
-            Currency (optional)
-            <input
-              ref={currencyRef}
-              aria-describedby={
-                filterErrors.currency ? 'analytics-currency-error' : undefined
-              }
-              aria-invalid={filterErrors.currency !== undefined}
-              autoCapitalize={'characters'}
-              maxLength={3}
-              value={filters.currency}
-              onChange={(event) => {
-                const currency = event.currentTarget.value.toUpperCase();
-                setFilters((current) => ({ ...current, currency }));
-              }}
-            />
+            {portfolioMode ? 'Currency' : 'Currency (optional)'}
+            {portfolioMode ? (
+              <select
+                ref={(node) => {
+                  currencyRef.current = node;
+                }}
+                aria-label="Currency"
+                value={filters.currency}
+                onChange={(event) => {
+                  const currency = event.currentTarget.value;
+                  setFilters((current) => ({
+                    ...current,
+                    currency,
+                  }));
+                }}
+              >
+                <option value="NOK">NOK</option>
+                <option value="">All currencies</option>
+              </select>
+            ) : (
+              <input
+                ref={(node) => {
+                  currencyRef.current = node;
+                }}
+                aria-describedby={
+                  filterErrors.currency ? 'analytics-currency-error' : undefined
+                }
+                aria-invalid={filterErrors.currency !== undefined}
+                autoCapitalize={'characters'}
+                maxLength={3}
+                value={filters.currency}
+                onChange={(event) => {
+                  const currency = event.currentTarget.value.toUpperCase();
+                  setFilters((current) => ({ ...current, currency }));
+                }}
+              />
+            )}
             {filterErrors.currency !== undefined ? (
               <span className={styles.fieldError} id={'analytics-currency-error'}>
                 {filterErrors.currency}
@@ -970,6 +993,8 @@ export default function AdminAnalyticsPage() {
           </p>
         ) : null}
       </section>
+
+      {portfolioMode ? <PortfolioCurrencyConverter /> : null}
 
       <section
         aria-busy={analytics.overview.loading}

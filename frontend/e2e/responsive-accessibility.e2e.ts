@@ -147,12 +147,33 @@ const LANDING_LOGO_PNG_PATH = '/images/brand/logo/nordic-hearth-logo.png';
 const LANDING_LOGO_SIZES = '(min-width: 48rem) 18rem, min(72vw, 18rem)';
 const LANDING_LOGO_WEBP_320_PATH =
   '/images/brand/optimized/logo/nordic-hearth-logo-320w.webp';
+const LANDING_LOGO_WEBP_640_PATH =
+  '/images/brand/optimized/logo/nordic-hearth-logo-640w.webp';
 const LANDING_LOGO_WEBP_SRCSET =
   '/images/brand/optimized/logo/nordic-hearth-logo-320w.webp 320w, /images/brand/optimized/logo/nordic-hearth-logo-640w.webp 640w';
-const LANDING_HERO_PNG_PATH = '/images/brand/hero/restaurant-hero.png';
-const LANDING_HERO_SIZES = '(min-width: 64rem) 36rem, calc(100vw - 2rem)';
+const BRAND_MARK_IMAGE_PATHS = new Set([
+  BRAND_MARK_PNG_PATH,
+  LANDING_LOGO_WEBP_320_PATH,
+  LANDING_LOGO_WEBP_640_PATH,
+]);
+const LANDING_HERO_PNG_PATH = '/images/brand/carousel/chef-plating-at-pass.png';
+const LANDING_HERO_SIZES = '(min-width: 64rem) 34rem, calc(100vw - 2rem)';
 const LANDING_HERO_WEBP_SRCSET =
-  '/images/brand/optimized/hero/restaurant-hero-640w.webp 640w, /images/brand/optimized/hero/restaurant-hero-1024w.webp 1024w, /images/brand/optimized/hero/restaurant-hero-1600w.webp 1600w';
+  '/images/brand/optimized/carousel/chef-plating-at-pass-640w.webp 640w, /images/brand/optimized/carousel/chef-plating-at-pass-1024w.webp 1024w, /images/brand/optimized/carousel/chef-plating-at-pass-1774w.webp 1774w';
+const LANDING_HERO_WEBP_CANDIDATES = [
+  {
+    pathname: '/images/brand/optimized/carousel/chef-plating-at-pass-640w.webp',
+    width: 640,
+  },
+  {
+    pathname: '/images/brand/optimized/carousel/chef-plating-at-pass-1024w.webp',
+    width: 1024,
+  },
+  {
+    pathname: '/images/brand/optimized/carousel/chef-plating-at-pass-1774w.webp',
+    width: 1774,
+  },
+] as const;
 const LANDING_STORY_PNG_PATH = '/images/brand/story/chef-plating-cod.png';
 const LANDING_STORY_SIZES =
   '(min-width: 64rem) 28rem, (min-width: 48rem) 40vw, calc(100vw - 2rem)';
@@ -553,6 +574,24 @@ interface BrowserFinalizationFailure {
 
 type SyntheticOrderStatus = 'preparing' | 'ready' | 'cancelled';
 
+type SyntheticOrderStatusLifecyclePhase =
+  | 'before-navigation'
+  | 'initial-navigation'
+  | 'initial-render'
+  | 'ready-reload'
+  | 'ready-render'
+  | 'cancelled-reload'
+  | 'cancelled-render'
+  | 'before-context-close';
+
+interface SyntheticOrderStatusRequestFailure {
+  readonly errorText: string;
+  readonly method: string;
+  readonly pathname: string;
+  readonly phase: SyntheticOrderStatusLifecyclePhase;
+  readonly resourceType: string;
+}
+
 interface SyntheticOrderStatusRequest {
   readonly authorization: string | null;
   readonly capability: string | null;
@@ -561,8 +600,14 @@ interface SyntheticOrderStatusRequest {
 }
 
 interface SyntheticOrderStatusController {
+  brandImageRequestCount: number;
+  brandImageResponseGate: Promise<void> | null;
+  readonly brandImageResponseStatuses: number[];
   controlled503Count: number;
+  documentRequestCount: number;
   failNext: boolean;
+  readonly failedRequests: SyntheticOrderStatusRequestFailure[];
+  lifecyclePhase: SyntheticOrderStatusLifecyclePhase;
   readonly networkIssues: string[];
   readonly requests: SyntheticOrderStatusRequest[];
   status: SyntheticOrderStatus;
@@ -2225,7 +2270,6 @@ async function installSyntheticAuthRouting(
       await route.abort();
       return;
     }
-
     const method = request.method();
     if (
       parsed.pathname === AUTH_LOGIN_API_PATH &&
@@ -5590,7 +5634,7 @@ async function assertLandingViewport(
   viewport: (typeof LANDING_VIEWPORTS)[number],
 ): Promise<void> {
   const expectedHeroImagePath =
-    '/images/brand/optimized/hero/restaurant-hero-' +
+    '/images/brand/optimized/carousel/chef-plating-at-pass-' +
     String(viewport.candidateWidth) +
     'w.webp';
   const brandImageRequestPaths: string[] = [];
@@ -5631,7 +5675,7 @@ async function assertLandingViewport(
   await expect(page.getByRole('heading', { level: 2 })).toHaveCount(3);
   await expect(carousel).toHaveAttribute('aria-roledescription', 'carousel');
   await expect(
-    carousel.getByRole('group', { exact: true, name: '1 of 3' }),
+    carousel.getByRole('group', { exact: true, name: '1 of 6' }),
   ).toBeVisible();
   await expect(
     carousel.getByRole('button', { exact: true, name: 'Previous image' }),
@@ -5643,25 +5687,16 @@ async function assertLandingViewport(
   await expect(
     carousel.getByText('Reduced motion enabled', { exact: true }),
   ).toHaveCount(0);
-  const playbackControl = carousel.getByRole('button', {
-    exact: true,
-    name: /^(?:Pause|Start) automatic slideshow$/u,
+  const slideshowControl = carousel.getByRole('button', {
+    name: 'Resume slideshow',
   });
-  await expect(playbackControl).toBeVisible();
-  await blurActiveElement(page);
-  await tabTo(page, playbackControl);
-  await assertVisibleKeyboardFocus(playbackControl);
-  await page.keyboard.press('Enter');
-  await expect(playbackControl).toHaveAccessibleName('Pause automatic slideshow');
-  const captionBox = await carousel
-    .getByText('Seasonal dining', { exact: true })
-    .boundingBox();
-  safeInvariant(captionBox !== null, 'LANDING_CAROUSEL_CAPTION_BOX_MISSING');
-  await page.mouse.click(
-    captionBox.x + captionBox.width / 2,
-    captionBox.y + captionBox.height / 2,
-  );
-  await expect(playbackControl).toHaveAccessibleName('Start automatic slideshow');
+  await expect(slideshowControl).toBeVisible();
+  await slideshowControl.focus();
+  await assertVisibleKeyboardFocus(slideshowControl);
+  await expect(carousel.locator('[data-carousel-indicator=true]')).toHaveCount(6);
+  await expect(
+    carousel.locator('[data-carousel-indicator=true][data-running=true]'),
+  ).toHaveCount(0);
 
   const introduction = page.getByText(
     /Explore starters, main courses, burgers, desserts, and non-alcoholic drinks/u,
@@ -5722,15 +5757,15 @@ async function assertLandingViewport(
     page,
     heroResponse,
     {
-      alt: 'A candlelit dining table set with Nordic-inspired dishes',
+      alt: 'A chef plating seared cod with herbs in a warm restaurant kitchen',
       candidatePath: expectedHeroImagePath,
       fallbackPath: LANDING_HERO_PNG_PATH,
-      height: '941',
+      height: '887',
       highPriority: true,
       loading: 'eager',
       sizes: LANDING_HERO_SIZES,
       srcSet: LANDING_HERO_WEBP_SRCSET,
-      width: '1672',
+      width: '1774',
     },
     'LANDING_HERO_IMAGE',
   );
@@ -5786,7 +5821,7 @@ async function assertLandingViewport(
   ).toHaveCount(1);
   await expect(main.getByText('Nordic Hearth', { exact: true })).toHaveCount(0);
   const forbiddenBrandReferences = main.locator(
-    'img[src*=mockups], source[srcset*=mockups], img[src*=project-hero], source[srcset*=project-hero], img[src*=customer-mobile-ordering], source[srcset*=customer-mobile-ordering]',
+    'img[src*=mockups], source[srcset*=mockups], img[src*=project-hero], source[srcset*=project-hero]',
   );
   await expect(forbiddenBrandReferences).toHaveCount(0);
   expect(
@@ -5845,6 +5880,33 @@ async function assertLandingViewport(
     'LANDING_FINAL_IMAGE_CLIPPED',
   );
   await assertResponsiveSurface(page);
+
+  if (viewport.label === 'compact-mobile') {
+    await carousel.scrollIntoViewIfNeeded();
+    await expect(
+      carousel.getByRole('group', { exact: true, name: '1 of 6' }),
+    ).toBeVisible();
+    await page.waitForTimeout(5_100);
+    await expect(
+      carousel.getByRole('group', { exact: true, name: '1 of 6' }),
+    ).toBeVisible();
+
+    const resumeControl = carousel.getByRole('button', {
+      name: 'Resume slideshow',
+    });
+    await resumeControl.focus();
+    await assertVisibleKeyboardFocus(resumeControl);
+    await resumeControl.press('Enter');
+    await expect(
+      carousel.getByRole('button', { name: 'Pause slideshow' }),
+    ).toBeFocused();
+    await expect(
+      carousel.locator('[data-carousel-indicator=true][data-running=true]'),
+    ).toHaveCount(1);
+    await expect(
+      carousel.getByRole('group', { exact: true, name: '2 of 6' }),
+    ).toBeVisible({ timeout: 5_500 });
+  }
 
   await menuLink.scrollIntoViewIfNeeded();
   await blurActiveElement(page);
@@ -6256,9 +6318,29 @@ async function installSyntheticOrderStatusRouting(
   page.on('requestfailed', (request) => {
     const parsed = parseUrl(request.url());
     if (parsed !== null && parsed.origin === baseOrigin) {
+      controller.failedRequests.push({
+        errorText: request.failure()?.errorText ?? 'REQUEST_FAILURE_UNKNOWN',
+        method: request.method(),
+        pathname: parsed.pathname,
+        phase: controller.lifecyclePhase,
+        resourceType: request.resourceType(),
+      });
       controller.networkIssues.push(
         `order-status-local-request-failed:${request.method()}:${parsed.pathname}`,
       );
+    }
+  });
+  page.on('response', (response) => {
+    const request = response.request();
+    const parsed = parseUrl(response.url());
+    if (
+      parsed !== null &&
+      parsed.origin === baseOrigin &&
+      request.method() === 'GET' &&
+      request.resourceType() === 'image' &&
+      BRAND_MARK_IMAGE_PATHS.has(parsed.pathname)
+    ) {
+      controller.brandImageResponseStatuses.push(response.status());
     }
   });
 
@@ -6276,6 +6358,21 @@ async function installSyntheticOrderStatusRouting(
       );
       await route.abort();
       return;
+    }
+    if (request.resourceType() === 'document') {
+      controller.documentRequestCount += 1;
+    }
+    if (
+      request.method() === 'GET' &&
+      request.resourceType() === 'image' &&
+      BRAND_MARK_IMAGE_PATHS.has(parsed.pathname)
+    ) {
+      controller.brandImageRequestCount += 1;
+      const responseGate = controller.brandImageResponseGate;
+      controller.brandImageResponseGate = null;
+      if (responseGate !== null) {
+        await responseGate;
+      }
     }
     if (parsed.pathname === ORDER_STATUS_API_PATH) {
       const headers = request.headers();
@@ -6334,6 +6431,36 @@ async function assertOrderStatusSensitiveMaterialAbsent(page: Page): Promise<voi
     !documentMarkup.includes(ORDER_STATUS_CAPABILITY) &&
       !page.url().includes(ORDER_STATUS_CAPABILITY),
     'ORDER_STATUS_CAPABILITY_RENDERED',
+  );
+}
+
+async function assertOrderStatusBrandMarkLoaded(page: Page): Promise<void> {
+  const brandName = page.getByRole('main').getByText('Nordic Hearth', { exact: true });
+  const image = brandName.locator('..').locator('picture img');
+  await expect(image).toHaveCount(1);
+  const runtime = await image.evaluate(async (element) => {
+    const brandImage = element as unknown as RuntimeElement & {
+      readonly complete: boolean;
+      decode: () => Promise<void>;
+    };
+    await brandImage.decode();
+    return {
+      complete: brandImage.complete,
+      currentSrc: brandImage.currentSrc ?? '',
+      naturalHeight: brandImage.naturalHeight ?? 0,
+      naturalWidth: brandImage.naturalWidth ?? 0,
+    };
+  });
+  const currentSource = parseUrl(runtime.currentSrc);
+  safeInvariant(
+    runtime.complete && runtime.naturalHeight > 0 && runtime.naturalWidth > 0,
+    'ORDER_STATUS_BRAND_MARK_NOT_LOADED',
+  );
+  safeInvariant(
+    currentSource !== null &&
+      currentSource.origin === baseOrigin &&
+      BRAND_MARK_IMAGE_PATHS.has(currentSource.pathname),
+    'ORDER_STATUS_BRAND_MARK_SOURCE_MISMATCH',
   );
 }
 
@@ -6583,6 +6710,7 @@ async function assertOrderStatusViewport(
   await page.emulateMedia({ forcedColors: 'none', reducedMotion: 'no-preference' });
   controller.status = 'preparing';
   controller.failNext = true;
+  controller.lifecyclePhase = 'initial-navigation';
   const initialResponse = waitForApiResponse(page, 'GET', ORDER_STATUS_API_PATH);
   await page.goto(
     `${ORDER_STATUS_ROUTE}?payment_status=succeeded&redirect_status=failed&charged=true`,
@@ -6623,6 +6751,7 @@ async function assertOrderStatusViewport(
   const retryResponse = waitForApiResponse(page, 'GET', ORDER_STATUS_API_PATH);
   await page.keyboard.press('Enter');
   await assertResponseStatus(retryResponse, 200, 'ORDER_STATUS_RETRY_STATUS_MISMATCH');
+  controller.lifecyclePhase = 'initial-render';
 
   const preparingTreatment = await assertOrderStatusPresentation(
     page,
@@ -6631,6 +6760,7 @@ async function assertOrderStatusViewport(
     'Preparing',
     'info',
   );
+  await assertOrderStatusBrandMarkLoaded(page);
   const preparingPanel = page.getByRole('region', {
     exact: true,
     name: 'Preparing',
@@ -6642,7 +6772,9 @@ async function assertOrderStatusViewport(
   await assertVisibleKeyboardFocus(primaryAction);
 
   controller.status = 'ready';
+  controller.lifecyclePhase = 'ready-reload';
   await page.reload();
+  controller.lifecyclePhase = 'ready-render';
   const readyTreatment = await assertOrderStatusPresentation(
     page,
     viewport,
@@ -6650,6 +6782,7 @@ async function assertOrderStatusViewport(
     'Ready',
     'info',
   );
+  await assertOrderStatusBrandMarkLoaded(page);
   safeInvariant(
     preparingTreatment.backgroundColor !== readyTreatment.backgroundColor ||
       preparingTreatment.borderLeftColor !== readyTreatment.borderLeftColor,
@@ -6657,7 +6790,9 @@ async function assertOrderStatusViewport(
   );
 
   controller.status = 'cancelled';
+  controller.lifecyclePhase = 'cancelled-reload';
   await page.reload();
+  controller.lifecyclePhase = 'cancelled-render';
   const cancelledTreatment = await assertOrderStatusPresentation(
     page,
     viewport,
@@ -6665,6 +6800,7 @@ async function assertOrderStatusViewport(
     'Cancelled',
     'danger',
   );
+  await assertOrderStatusBrandMarkLoaded(page);
   safeInvariant(
     cancelledTreatment.backgroundColor !== readyTreatment.backgroundColor ||
       cancelledTreatment.borderLeftColor !== readyTreatment.borderLeftColor,
@@ -11237,49 +11373,105 @@ async function installG1CustomerMatrixRouting(
   });
 }
 
+function waitForG1LandingPriorityImageResponse(page: Page): Promise<Response> {
+  return page.waitForResponse((response) => {
+    const parsed = parseUrl(response.url());
+    return (
+      parsed !== null &&
+      parsed.origin === baseOrigin &&
+      LANDING_HERO_WEBP_CANDIDATES.some(
+        (candidate) => candidate.pathname === parsed.pathname,
+      ) &&
+      response.request().resourceType() === 'image'
+    );
+  });
+}
+
 async function assertG1LandingPriorityImage(
   page: Page,
-  viewportWidth: number,
+  responsePromise: Promise<Response>,
 ): Promise<void> {
   const heroImage = page.getByRole('img', {
     exact: true,
-    name: 'A candlelit dining table set with Nordic-inspired dishes',
+    name: 'A chef plating seared cod with herbs in a warm restaurant kitchen',
   });
   await expect(heroImage).toBeVisible();
+  const source = heroImage.locator('..').locator('source');
+  await expect(source).toHaveCount(1);
+  const [sourceSizes, sourceSrcSet, sourceType] = await Promise.all([
+    source.getAttribute('sizes'),
+    source.getAttribute('srcset'),
+    source.getAttribute('type'),
+  ]);
+  safeInvariant(
+    sourceSizes === LANDING_HERO_SIZES &&
+      sourceSrcSet === LANDING_HERO_WEBP_SRCSET &&
+      sourceType === 'image/webp',
+    'G1_LANDING_RESPONSIVE_IMAGE_SOURCE_CONTRACT_MISMATCH',
+  );
   const imageRuntime = await heroImage.evaluate(async (element) => {
     const image = element as unknown as RuntimeElement & {
+      readonly complete: boolean;
       decode: () => Promise<void>;
     };
     const runtime = globalThis as typeof globalThis & { devicePixelRatio: number };
     await image.decode();
+    const bounds = image.getBoundingClientRect();
     return {
+      complete: image.complete,
       currentSrc: image.currentSrc ?? '',
+      decoding: image.getAttribute('decoding'),
       devicePixelRatio: runtime.devicePixelRatio,
       fetchPriority: image.getAttribute('fetchpriority'),
       height: image.getAttribute('height'),
       loading: image.getAttribute('loading'),
       naturalHeight: image.naturalHeight ?? 0,
       naturalWidth: image.naturalWidth ?? 0,
+      renderedHeight: bounds.height,
+      renderedWidth: bounds.width,
+      sizes: image.getAttribute('sizes'),
+      src: image.getAttribute('src'),
       width: image.getAttribute('width'),
     };
   });
-  const selectedImage = new URL(imageRuntime.currentSrc);
-  const expectedCandidateWidth =
-    viewportWidth === 430 || viewportWidth === 768 ? 1024 : 640;
+  const selectedImage = parseUrl(imageRuntime.currentSrc);
+  const selectedCandidate = LANDING_HERO_WEBP_CANDIDATES.find(
+    (candidate) => candidate.pathname === selectedImage?.pathname,
+  );
   safeInvariant(
-    selectedImage.origin === baseOrigin &&
-      selectedImage.pathname ===
-        `/images/brand/optimized/hero/restaurant-hero-${expectedCandidateWidth}w.webp`,
+    selectedImage !== null &&
+      selectedImage.origin === baseOrigin &&
+      selectedCandidate !== undefined,
     'G1_LANDING_RESPONSIVE_IMAGE_CANDIDATE_MISMATCH',
   );
   safeInvariant(
-    imageRuntime.fetchPriority === 'high' &&
+    imageRuntime.complete &&
+      imageRuntime.decoding === 'async' &&
+      imageRuntime.fetchPriority === 'high' &&
       imageRuntime.loading === 'eager' &&
-      imageRuntime.width === '1672' &&
-      imageRuntime.height === '941' &&
+      imageRuntime.sizes === LANDING_HERO_SIZES &&
+      imageRuntime.src === LANDING_HERO_PNG_PATH &&
+      imageRuntime.width === '1774' &&
+      imageRuntime.height === '887' &&
       imageRuntime.naturalHeight > 0 &&
-      imageRuntime.naturalWidth > 0,
+      imageRuntime.naturalWidth > 0 &&
+      imageRuntime.renderedHeight > 0 &&
+      imageRuntime.renderedWidth > 0,
     'G1_LANDING_LCP_PRIORITY_CONTRACT_MISMATCH',
+  );
+  const requiredCandidateWidth = Math.ceil(
+    imageRuntime.renderedWidth * imageRuntime.devicePixelRatio,
+  );
+  safeInvariant(
+    selectedCandidate.width >= requiredCandidateWidth &&
+      Math.abs(imageRuntime.naturalWidth / imageRuntime.naturalHeight - 1774 / 887) <=
+        2 / imageRuntime.naturalHeight,
+    'G1_LANDING_RESPONSIVE_IMAGE_RESOLUTION_MISMATCH',
+  );
+  await assertLandingImageResponse(
+    responsePromise,
+    selectedCandidate.pathname,
+    'G1_LANDING_PRIORITY_IMAGE',
   );
   await expect(page.locator('main img[fetchpriority=high]')).toHaveCount(1);
 }
@@ -11289,6 +11481,10 @@ async function assertG1CustomerMatrixRoute(
   expectation: G1CustomerRouteExpectation,
   viewport: (typeof G1_CUSTOMER_VIEWPORTS)[number],
 ): Promise<void> {
+  const landingImageResponse =
+    expectation.state === 'landing'
+      ? waitForG1LandingPriorityImageResponse(page)
+      : null;
   await page.goto(expectation.pathname);
   const main = page.getByRole('main');
   const heading = main.getByRole('heading', {
@@ -11320,7 +11516,11 @@ async function assertG1CustomerMatrixRoute(
   }
 
   if (expectation.state === 'landing') {
-    await assertG1LandingPriorityImage(page, viewport.width);
+    safeInvariant(
+      landingImageResponse !== null,
+      'G1_LANDING_PRIORITY_IMAGE_RESPONSE_MISSING',
+    );
+    await assertG1LandingPriorityImage(page, landingImageResponse);
   }
   if (expectation.state === 'menu-long') {
     await assertTextNotClipped(
@@ -12964,8 +13164,14 @@ test('keeps order status authoritative, recoverable, and accessible across custo
     );
     const page = await context.newPage();
     const controller: SyntheticOrderStatusController = {
+      brandImageRequestCount: 0,
+      brandImageResponseGate: null,
+      brandImageResponseStatuses: [],
       controlled503Count: 0,
+      documentRequestCount: 0,
       failNext: false,
+      failedRequests: [],
+      lifecyclePhase: 'before-navigation',
       networkIssues: [],
       requests: [],
       status: 'preparing',
@@ -12986,10 +13192,21 @@ test('keeps order status authoritative, recoverable, and accessible across custo
         controller.controlled503Count,
         'ORDER_STATUS_CONTROLLED_503_COUNT_MISMATCH',
       ).toBe(2);
+      expect(controller.failedRequests, 'ORDER_STATUS_FAILED_REQUEST_METADATA').toEqual(
+        [],
+      );
       expect(
         controller.networkIssues,
         'ORDER_STATUS_SYNTHETIC_NETWORK_FAILURE',
       ).toEqual([]);
+      expect(controller.brandImageRequestCount).toBeGreaterThan(0);
+      expect(
+        controller.brandImageResponseStatuses,
+        'ORDER_STATUS_BRAND_MARK_RESPONSE_STATUS_MISMATCH',
+      ).not.toHaveLength(0);
+      for (const status of controller.brandImageResponseStatuses) {
+        expect(status, 'ORDER_STATUS_BRAND_MARK_RESPONSE_STATUS_MISMATCH').toBe(200);
+      }
       expect(controller.requests.length).toBeGreaterThanOrEqual(4);
       for (const request of controller.requests) {
         expect(request).toEqual({
@@ -13002,6 +13219,7 @@ test('keeps order status authoritative, recoverable, and accessible across custo
     } catch (error: unknown) {
       scenarioError = error;
     } finally {
+      controller.lifecyclePhase = 'before-context-close';
       try {
         guard.assertClean();
       } catch (error: unknown) {
@@ -13009,6 +13227,14 @@ test('keeps order status authoritative, recoverable, and accessible across custo
       }
       try {
         await closeContext(context);
+      } catch (error: unknown) {
+        finalizationError ??= error;
+      }
+      try {
+        expect(
+          controller.failedRequests,
+          'ORDER_STATUS_POST_CLOSE_FAILED_REQUEST_METADATA',
+        ).toEqual([]);
       } catch (error: unknown) {
         finalizationError ??= error;
       }
@@ -13020,6 +13246,136 @@ test('keeps order status authoritative, recoverable, and accessible across custo
     if (finalizationError !== undefined) {
       throw finalizationError;
     }
+  }
+});
+
+test('waits for the order-status brand mark before starting a reload', async ({
+  browser,
+}) => {
+  test.setTimeout(60_000);
+  const viewport = ORDER_STATUS_VIEWPORTS[0];
+  const context = await browser.newContext({
+    baseURL: baseOrigin,
+    reducedMotion: 'no-preference',
+    viewport: { height: viewport.height, width: viewport.width },
+  });
+  await context.addInitScript(
+    ({ storageKey, storageValue }) => {
+      const runtime = globalThis as typeof globalThis & {
+        location: { protocol: string };
+        sessionStorage: { setItem: (key: string, value: string) => void };
+      };
+      if (
+        runtime.location.protocol === 'http:' ||
+        runtime.location.protocol === 'https:'
+      ) {
+        runtime.sessionStorage.setItem(storageKey, storageValue);
+      }
+    },
+    {
+      storageKey: ORDER_STATUS_ACCESS_STORAGE_KEY,
+      storageValue: JSON.stringify({
+        publicOrderNumber: ORDER_STATUS_PUBLIC_ORDER_NUMBER,
+        token: ORDER_STATUS_CAPABILITY,
+        version: 1,
+      }),
+    },
+  );
+  const page = await context.newPage();
+  let releaseBrandImage = (): void => undefined;
+  const brandImageResponseGate = new Promise<void>((resolve) => {
+    releaseBrandImage = resolve;
+  });
+  const controller: SyntheticOrderStatusController = {
+    brandImageRequestCount: 0,
+    brandImageResponseGate,
+    brandImageResponseStatuses: [],
+    controlled503Count: 0,
+    documentRequestCount: 0,
+    failNext: false,
+    failedRequests: [],
+    lifecyclePhase: 'before-navigation',
+    networkIssues: [],
+    requests: [],
+    status: 'preparing',
+  };
+  const guard = new BrowserSafetyGuard(
+    page,
+    [ORDER_STATUS_CAPABILITY],
+    [],
+    [{ method: 'GET', pathname: ORDER_STATUS_API_PATH, status: 503 }],
+  );
+  await installSyntheticOrderStatusRouting(page, controller);
+
+  const scenario = assertOrderStatusViewport(page, viewport, controller);
+  let scenarioError: unknown;
+  let finalizationError: unknown;
+  try {
+    await expect
+      .poll(
+        () => ({
+          brandImageRequestCount: controller.brandImageRequestCount,
+          lifecyclePhase: controller.lifecyclePhase,
+        }),
+        { timeout: 15_000 },
+      )
+      .toEqual({ brandImageRequestCount: 1, lifecyclePhase: 'initial-render' });
+    await page.waitForTimeout(250);
+    expect(
+      controller.documentRequestCount,
+      'ORDER_STATUS_RELOAD_STARTED_BEFORE_BRAND_MARK_LOADED',
+    ).toBe(1);
+    releaseBrandImage();
+    await scenario;
+    expect(controller.documentRequestCount).toBe(3);
+    expect(controller.failedRequests, 'ORDER_STATUS_FAILED_REQUEST_METADATA').toEqual(
+      [],
+    );
+    expect(controller.networkIssues, 'ORDER_STATUS_SYNTHETIC_NETWORK_FAILURE').toEqual(
+      [],
+    );
+    expect(
+      controller.brandImageResponseStatuses,
+      'ORDER_STATUS_BRAND_MARK_RESPONSE_STATUS_MISMATCH',
+    ).not.toHaveLength(0);
+    for (const status of controller.brandImageResponseStatuses) {
+      expect(status, 'ORDER_STATUS_BRAND_MARK_RESPONSE_STATUS_MISMATCH').toBe(200);
+    }
+  } catch (error: unknown) {
+    scenarioError = error;
+  } finally {
+    releaseBrandImage();
+    controller.lifecyclePhase = 'before-context-close';
+    try {
+      await scenario;
+    } catch (error: unknown) {
+      scenarioError ??= error;
+    }
+    try {
+      guard.assertClean();
+    } catch (error: unknown) {
+      finalizationError = error;
+    }
+    try {
+      await closeContext(context);
+    } catch (error: unknown) {
+      finalizationError ??= error;
+    }
+    try {
+      expect(
+        controller.failedRequests,
+        'ORDER_STATUS_POST_CLOSE_FAILED_REQUEST_METADATA',
+      ).toEqual([]);
+    } catch (error: unknown) {
+      finalizationError ??= error;
+    }
+  }
+
+  if (scenarioError !== undefined) {
+    throw scenarioError;
+  }
+  if (finalizationError !== undefined) {
+    throw finalizationError;
   }
 });
 
@@ -14012,6 +14368,39 @@ test('keeps admin detail, not-found, and shell accessible across the G2 matrix',
   await assertG2AdminDetailAndNotFoundMatrix(browser);
 });
 
+test('loads an adequate first-slide image across the G1 density matrix', async ({
+  browser,
+}) => {
+  test.setTimeout(120_000);
+
+  for (const viewport of G1_CUSTOMER_VIEWPORTS) {
+    const context = await browser.newContext({
+      baseURL: baseOrigin,
+      deviceScaleFactor: viewport.deviceScaleFactor,
+      reducedMotion: 'reduce',
+      viewport: { height: viewport.height, width: viewport.width },
+    });
+    const page = await context.newPage();
+
+    await page.route('**/*', async (route) => {
+      const parsed = parseUrl(route.request().url());
+      if (parsed === null || parsed.origin !== baseOrigin) {
+        await route.abort();
+        return;
+      }
+      await route.continue();
+    });
+
+    try {
+      const imageResponse = waitForG1LandingPriorityImageResponse(page);
+      await page.goto('/');
+      await assertG1LandingPriorityImage(page, imageResponse);
+    } finally {
+      await closeContext(context);
+    }
+  }
+});
+
 test('keeps the landing brand story responsive, focused, and locally imaged', async ({
   browser,
 }) => {
@@ -14334,8 +14723,14 @@ test('keeps G3 order-status automatic polling authoritative and focus-stable', a
   const page = await context.newPage();
   await page.clock.install({ time: '2026-08-26T12:00:00Z' });
   const controller: SyntheticOrderStatusController = {
+    brandImageRequestCount: 0,
+    brandImageResponseGate: null,
+    brandImageResponseStatuses: [],
     controlled503Count: 0,
+    documentRequestCount: 0,
     failNext: false,
+    failedRequests: [],
+    lifecyclePhase: 'before-navigation',
     networkIssues: [],
     requests: [],
     status: 'preparing',
@@ -14343,7 +14738,10 @@ test('keeps G3 order-status automatic polling authoritative and focus-stable', a
   const guard = new BrowserSafetyGuard(page, [ORDER_STATUS_CAPABILITY]);
   await installSyntheticOrderStatusRouting(page, controller);
 
+  let scenarioError: unknown;
+  let finalizationError: unknown;
   try {
+    controller.lifecyclePhase = 'initial-navigation';
     const initialResponse = waitForApiResponse(page, 'GET', ORDER_STATUS_API_PATH);
     await page.goto(ORDER_STATUS_ROUTE);
     await assertResponseStatus(
@@ -14351,6 +14749,7 @@ test('keeps G3 order-status automatic polling authoritative and focus-stable', a
       200,
       'G3_ORDER_STATUS_INITIAL_STATUS_MISMATCH',
     );
+    controller.lifecyclePhase = 'initial-render';
     await assertOrderStatusPresentation(
       page,
       viewport,
@@ -14358,11 +14757,13 @@ test('keeps G3 order-status automatic polling authoritative and focus-stable', a
       'Preparing',
       'info',
     );
+    await assertOrderStatusBrandMarkLoaded(page);
     const primaryAction = page.locator('[data-action-priority=primary]');
     await primaryAction.focus();
     await assertVisibleKeyboardFocus(primaryAction);
 
     controller.status = 'ready';
+    controller.lifecyclePhase = 'ready-render';
     const pollingResponse = waitForApiResponse(page, 'GET', ORDER_STATUS_API_PATH);
     await page.clock.fastForward(8_000);
     await assertResponseStatus(
@@ -14380,15 +14781,49 @@ test('keeps G3 order-status automatic polling authoritative and focus-stable', a
     ).toHaveCount(0);
     expect(controller.requests).toHaveLength(2);
     expect(
+      controller.failedRequests,
+      'G3_ORDER_STATUS_FAILED_REQUEST_METADATA',
+    ).toEqual([]);
+    expect(
+      controller.brandImageResponseStatuses,
+      'G3_ORDER_STATUS_BRAND_MARK_RESPONSE_STATUS_MISMATCH',
+    ).not.toHaveLength(0);
+    for (const status of controller.brandImageResponseStatuses) {
+      expect(status, 'G3_ORDER_STATUS_BRAND_MARK_RESPONSE_STATUS_MISMATCH').toBe(200);
+    }
+    expect(
       controller.networkIssues,
       'G3_ORDER_STATUS_SYNTHETIC_NETWORK_FAILURE',
     ).toEqual([]);
+  } catch (error: unknown) {
+    scenarioError = error;
   } finally {
+    controller.lifecyclePhase = 'before-context-close';
     try {
       guard.assertClean();
-    } finally {
-      await closeContext(context);
+    } catch (error: unknown) {
+      finalizationError = error;
     }
+    try {
+      await closeContext(context);
+    } catch (error: unknown) {
+      finalizationError ??= error;
+    }
+    try {
+      expect(
+        controller.failedRequests,
+        'G3_ORDER_STATUS_POST_CLOSE_FAILED_REQUEST_METADATA',
+      ).toEqual([]);
+    } catch (error: unknown) {
+      finalizationError ??= error;
+    }
+  }
+
+  if (scenarioError !== undefined) {
+    throw scenarioError;
+  }
+  if (finalizationError !== undefined) {
+    throw finalizationError;
   }
 });
 

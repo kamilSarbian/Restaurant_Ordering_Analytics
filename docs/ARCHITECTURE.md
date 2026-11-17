@@ -19,31 +19,48 @@ baseline already includes the database-authoritative ceiling of 100
 explicit operator-only reset guarded by the same advisory lock. Public reflow
 evidence used 640 CSS pixels rather than literal 200% browser zoom.
 
-The current worktree is a separate uncommitted architecture candidate, not the
-deployed system. It adds another reserved principal whose role is exactly
-`customer`, never `admin` or `super_admin`. In trusted portfolio runtime, that
-principal owns its `portfolio_runtime` Orders and Account history, while public
-status and demo Checkout continue to require the Order capability. Independent
-`CUSTOMER_DEMO_SESSION_ISSUANCE_ENABLED` and
-`VITE_ENABLE_CUSTOMER_DEMO_SESSION` gates default to `false`; operator
-provision/deactivate actions remain separate from request handling. The
-reserved customer has not been provisioned.
+The reserved-customer architecture is committed at
+`5842268a4bdb991c3289e85565403c89d203db9e`, and its presentation follow-up is
+committed at `852163b77d7e5caca8cc7053d5369c1a20d23973`. Its exact `customer`
+principal, owned runtime history, capability-only Checkout, default-false
+session gates, and persisted historical period remain outside the accepted
+public administrator evidence. The reserved customer is not provisioned and
+its public gate has not run.
 
-The same local candidate derives an exact persisted historical sample period
-without changing stored timestamps or reseeding. The frontend interprets it in
-`Europe/Oslo`, presents inclusive UI dates, and converts the inclusive end to
-the existing half-open API boundary. Aggregations remain separated by currency.
-It also separates guest, customer, and administrator demo labels and makes demo
-payment, cold-start, official-brand, carousel, and SEO presentation truthful.
-Targeted current-byte isolated PostgreSQL evidence and one local canonical
-three-phase browser invocation now exist. One clean current-byte invocation of
-all 10 relevant integration files passed 308 tests with no filter or retry. The
-browser harness passed 32/32 normal-runtime tests, 1/1 administrator-demo test
-and 2/2 customer-disabled/anonymous-guest flow tests, and 1/1 enabled
-customer-demo lifecycle test, using one worker and zero retries with clean
-database and secret-safe log audits. This local evidence is neither CI nor
-public customer-demo acceptance;
-the public gate has not run.
+The current worktree is a separate uncommitted architecture candidate. The
+landing carousel uses responsive `srcset` assets, five-second automatic
+progression, non-interactive progress indicators, page/intersection visibility
+gating, and a visible pause/resume control. Pointer hover and keyboard focus
+pause playback, an explicit manual pause persists after either leaves, and
+reduced motion starts paused until the user deliberately resumes. The administrator menu
+sandbox layers memory-only per-category samples and bounded local image previews
+over the public menu GET; it has no mutation transport or persistence. In exact
+portfolio runtime, Analytics and Exports use NOK as their default query currency
+and expose an explicit all-currencies selection. Normal runtime retains the
+existing free-form optional currency contract.
+
+An independent read-only exchange-rate adapter fetches the ECB daily XML
+reference-rate document through a bounded backend request, validates its dated
+EUR-base NOK and PLN rates, and returns only a small authenticated response to
+the exact demo administrator. The frontend calculator is approximate display
+only: it cannot change analytics/export filters, persisted integer amounts,
+CSV content, Orders, Payments, or normal-runtime behavior. Timeout, stale data,
+invalid XML, redirect, and upstream failure produce a safe unavailable state.
+Canonical Browser E2E run `f3aea9fbe12e6ac3` validated the
+pre-documentation-correction manifest SHA-256
+`36a20c57321451fdc8c1c762ea6bc08e386ce7b23804b58a892c1686c1726d07`
+with native exit code 0, one worker, zero retries, and 38/38 tests passed. The
+isolated customer-enabled phase, final database audit, and all phase-specific
+secret-safe log audits passed. That result remains evidence for those earlier
+tested bytes. After the carousel and ECB corrections, canonical run
+`6f1719445d8d58e8` validated the later worktree manifest SHA-256
+`c9a3ccc2ff9f83380f9ba8c5ad50912ff1031c7714128c1b6f635a4186539a76`
+with native exit code 0, one worker, zero retries, and 38/38 tests passed: 34/34
+normal-runtime checks, 3/3 administrator-demo/customer-disabled/anonymous-guest
+checks, and 1/1 isolated customer-enabled lifecycle. `setup-portfolio`, the
+final database audit, and all phase-specific secret-safe log audits passed.
+Final independent review, commit, CI,
+deployment, and public acceptance remain separate open gates.
 
 ## 2. Selected Stack
 

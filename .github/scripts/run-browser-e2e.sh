@@ -7,6 +7,7 @@ umask 077
 
 readonly SCRIPT_DIRECTORY="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly REPOSITORY_ROOT="$(cd -- "$SCRIPT_DIRECTORY/../.." && pwd -P)"
+readonly LOG_AUDIT_HELPER="$SCRIPT_DIRECTORY/browser-e2e-log-audit.sh"
 
 RUNNER_TEMP_ROOT=""
 WORK_DIRECTORY=""
@@ -23,12 +24,16 @@ BACKEND_IMAGE=""
 FRONTEND_IMAGE=""
 STACK_TOUCHED=0
 LOGS_AUDITED=0
+LOG_AUDIT_PHASE="NORMAL_RUNTIME"
 COMPOSE=()
 
 fail() {
   printf '%s\n' "$1" >&2
   exit 1
 }
+
+[[ -f "$LOG_AUDIT_HELPER" && ! -L "$LOG_AUDIT_HELPER" ]] || fail "E2E_LOG_AUDIT_HELPER_INVALID"
+source "$LOG_AUDIT_HELPER"
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || fail "E2E_REQUIRED_COMMAND_MISSING"
@@ -131,15 +136,14 @@ retained_volume_is_exact() {
 }
 
 audit_logs() {
-  local value
-
   : >"$LOG_FILE" || return 1
   chmod 600 "$LOG_FILE" || return 1
   if ! "${COMPOSE[@]}" logs --no-color >"$LOG_FILE" 2>"$COMMAND_LOG_FILE"; then
     return 1
   fi
-
-  for value in \
+  if ! browser_e2e_audit_log_file \
+    "$LOG_AUDIT_PHASE" \
+    "$LOG_FILE" \
     "$POSTGRES_PASSWORD" \
     "$E2E_AUTH_JWT_SECRET" \
     "$E2E_STRIPE_WEBHOOK_SECRET" \
@@ -150,17 +154,7 @@ audit_logs() {
     "$E2E_ADMIN_EMAIL" \
     "$E2E_PROMOTEE_EMAIL" \
     "$E2E_CUSTOMER_A_EMAIL" \
-    "$E2E_CUSTOMER_B_EMAIL"; do
-    if grep -Fq -- "$value" "$LOG_FILE"; then
-      printf '%s\n' 'E2E_LOG_VALUE_LEAK_DETECTED' >&2
-      return 1
-    fi
-  done
-
-  if grep -Eiq -- \
-    'postgresql(\+psycopg)?://|(^|[^[:alnum:]_])Bearer[[:space:]]|eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|whsec_|sk_(live|test)_|stripe-signature|x-order-access-token|order[_ -]?access[_ -]?(token|capability)|https?://([^/]+\.)?(stripe\.com|stripe\.network|stripeassets\.com|stripecdn\.com|stripepayments\.com)([:/]|$)|Traceback|"[^"]* HTTP/[0-9.]+"[[:space:]]+5[0-9]{2}([[:space:]]|$)' \
-    "$LOG_FILE"; then
-    printf '%s\n' 'E2E_LOG_SECURITY_PATTERN_DETECTED' >&2
+    "$E2E_CUSTOMER_B_EMAIL"; then
     return 1
   fi
 
@@ -682,6 +676,12 @@ fi
 [[ "$E2E_FOREIGN_ORDER_NUMBER" =~ ^ROA-[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{12}$ ]] || fail "E2E_FOREIGN_ORDER_LOOKUP_FAILED"
 export E2E_FOREIGN_ORDER_NUMBER
 
+if ! "${COMPOSE[@]}" exec -T backend python e2e_harness.py setup-portfolio >"$COMMAND_LOG_FILE" 2>&1; then
+  fail "E2E_PORTFOLIO_SETUP_FAILED"
+fi
+
+printf '%s\n' 'E2E canonical portfolio dataset prepared for demo analytics.'
+
 backend_recreate_count=0
 frontend_recreate_count=0
 
@@ -774,6 +774,7 @@ export CUSTOMER_DEMO_SESSION_ISSUANCE_ENABLED="false"
 export PAYMENT_PROVIDER="demo"
 export VITE_ENABLE_CUSTOMER_DEMO_SESSION="false"
 export VITE_PORTFOLIO_MODE="true"
+LOG_AUDIT_PHASE="ADMIN_DEMO_CUSTOMER_DISABLED"
 recreate_demo_services "false" "1"
 
 printf '%s\n' 'E2E admin-demo runtime with customer issuance disabled validated.'
@@ -792,6 +793,7 @@ LOGS_AUDITED=0
 
 export CUSTOMER_DEMO_SESSION_ISSUANCE_ENABLED="true"
 export VITE_ENABLE_CUSTOMER_DEMO_SESSION="true"
+LOG_AUDIT_PHASE="CUSTOMER_DEMO_ENABLED_FINAL"
 recreate_demo_services "true" "2"
 
 printf '%s\n' 'E2E customer-demo runtime recreation and health boundaries validated.'
@@ -849,23 +851,27 @@ SELECT CASE WHEN
     AND (SELECT count(*) FROM users WHERE id = '7f0c8d3f-4f58-4b2e-8d4a-2a5df7b40002' AND email = 'demo-customer@example.com' AND role = 'customer' AND is_active IS TRUE AND password_hash = '!portfolio-demo-customer-login-disabled-v1') = 1
     AND (SELECT count(*) FROM categories) = 5
     AND (SELECT count(*) FROM menu_items) = 15
-    AND (SELECT count(*) FROM orders) = 5
-    AND (SELECT count(*) FROM orders WHERE customer_user_id IS NULL) = 2
+    AND (SELECT count(*) FROM restaurant_tables) = 12
+    AND (SELECT count(*) FROM orders) = 505
+    AND (SELECT count(*) FROM orders WHERE customer_user_id IS NULL) = 502
     AND (SELECT count(*) FROM orders WHERE customer_user_id IS NOT NULL) = 3
+    AND (SELECT count(*) FROM orders WHERE data_origin = 'portfolio_seed') = 500
     AND (SELECT count(*) FROM orders WHERE customer_user_id = '7f0c8d3f-4f58-4b2e-8d4a-2a5df7b40002' AND data_origin = 'portfolio_runtime') = 1
     AND (SELECT count(*) FROM orders WHERE customer_user_id IS NOT NULL AND customer_user_id <> '7f0c8d3f-4f58-4b2e-8d4a-2a5df7b40002' AND data_origin = 'portfolio_runtime') = 0
     AND (SELECT count(*) FROM orders WHERE customer_user_id IS NULL AND data_origin = 'portfolio_runtime') = 1
     AND (SELECT count(*) FROM orders WHERE data_origin = 'portfolio_runtime') = 2
     AND (SELECT count(*) FROM orders WHERE data_origin = 'live') = 3
     AND (SELECT count(*) FROM orders AS o JOIN users AS u ON u.id = o.customer_user_id WHERE u.email LIKE 'stage18.customer.a.%@example.com' AND o.data_origin = 'live') = 1
-    AND (SELECT count(*) FROM orders WHERE status = 'created') = 4
-    AND (SELECT count(*) FROM orders WHERE status = 'completed') = 1
-    AND (SELECT count(*) FROM order_items) = 5
-    AND (SELECT count(*) FROM order_status_history) = 9
-    AND (SELECT count(*) FROM payments) = 3
-    AND (SELECT count(*) FROM payments WHERE provider = 'demo') = 2
-    AND (SELECT count(*) FROM payments WHERE provider = 'demo' AND status IN ('succeeded', 'failed', 'expired')) = 2
-    AND (SELECT count(*) FROM payments WHERE status = 'succeeded') BETWEEN 1 AND 3
+    AND (SELECT count(*) FROM orders WHERE data_origin <> 'portfolio_seed' AND status = 'created') = 4
+    AND (SELECT count(*) FROM orders WHERE data_origin <> 'portfolio_seed' AND status = 'completed') = 1
+    AND (SELECT count(*) FROM order_items) = 1216
+    AND (SELECT count(*) FROM order_status_history) = 2335
+    AND (SELECT count(*) FROM payments) = 487
+    AND (SELECT count(*) FROM payments AS p JOIN orders AS o ON o.id = p.order_id WHERE o.data_origin = 'portfolio_seed') = 484
+    AND (SELECT count(*) FROM payments AS p JOIN orders AS o ON o.id = p.order_id WHERE o.data_origin = 'portfolio_seed' AND p.status = 'succeeded') = 449
+    AND (SELECT count(*) FROM payments AS p JOIN orders AS o ON o.id = p.order_id WHERE o.data_origin = 'portfolio_runtime' AND p.provider = 'demo') = 2
+    AND (SELECT count(*) FROM payments AS p JOIN orders AS o ON o.id = p.order_id WHERE o.data_origin = 'portfolio_runtime' AND p.provider = 'demo' AND p.status IN ('succeeded', 'failed', 'expired')) = 2
+    AND (SELECT count(*) FROM payments AS p JOIN orders AS o ON o.id = p.order_id WHERE o.data_origin <> 'portfolio_seed' AND p.status = 'succeeded') BETWEEN 1 AND 3
     AND (SELECT count(*) FROM stripe_events) = 1
   THEN 'PASS'
   ELSE 'FAIL'

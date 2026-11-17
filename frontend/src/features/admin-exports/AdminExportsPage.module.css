@@ -128,6 +128,7 @@
 }
 
 .currencyField input,
+.currencyField select,
 .orderFilters select {
     width: 100%;
     min-height: 2.75rem;
@@ -144,6 +145,7 @@
 }
 
 .currencyField input:focus-visible,
+.currencyField select:focus-visible,
 .orderFilters select:focus-visible {
     outline: var(--border-width-strong) solid var(--color-focus-ring);
     outline-offset: var(--space-1);

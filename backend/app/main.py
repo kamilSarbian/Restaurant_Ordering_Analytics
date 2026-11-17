@@ -23,6 +23,8 @@ from app.core.rate_limit import (
     FixedWindowRateLimiter,
 )
 from app.database.session import create_database_engine, create_session_factory
+from app.exchange_rates.provider import ExchangeRateProvider, ExchangeRateReader
+from app.exchange_rates.router import router as exchange_rates_router
 from app.menu.admin_router import router as admin_menu_router
 from app.menu.router import router as menu_router
 from app.menu.schemas import PublicMenuResponse
@@ -128,6 +130,7 @@ def create_app(
     stripe_checkout_client: StripeCheckoutClient | None = None,
     stripe_webhook_verifier: StripeWebhookVerifier | None = None,
     checkout_now_provider: Callable[[], datetime] | None = None,
+    exchange_rate_provider: ExchangeRateReader | None = None,
 ) -> FastAPI:
     """Create and configure the FastAPI application.
 
@@ -143,6 +146,7 @@ def create_app(
         stripe_checkout_client: Optional app-scoped Stripe adapter override.
         stripe_webhook_verifier: Optional app-scoped webhook verifier override.
         checkout_now_provider: Optional deterministic checkout clock override.
+        exchange_rate_provider: Optional ECB reference-rate provider override.
 
     Returns:
         Configured FastAPI application.
@@ -304,6 +308,11 @@ def create_app(
     application.state.stripe_success_url = resolved_settings.stripe_success_url
     application.state.stripe_cancel_url = resolved_settings.stripe_cancel_url
     application.state.checkout_now_provider = checkout_now_provider or utc_now
+    application.state.exchange_rate_provider = (
+        exchange_rate_provider
+        if exchange_rate_provider is not None
+        else ExchangeRateProvider()
+    )
     application.include_router(users_router)
     application.include_router(health_router)
     application.include_router(menu_router)
@@ -313,6 +322,7 @@ def create_app(
     application.include_router(admin_menu_router)
     application.include_router(admin_users_router)
     application.include_router(analytics_router)
+    application.include_router(exchange_rates_router)
     application.include_router(reports_router)
     application.include_router(payments_router)
     application.include_router(webhook_router)

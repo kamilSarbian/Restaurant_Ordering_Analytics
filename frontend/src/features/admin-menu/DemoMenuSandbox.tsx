@@ -13,10 +13,18 @@ import { fetchMenu } from '../../api/customerApi';
 import type { MenuItem, MenuResponse } from '../../api/types';
 import AsyncNotice from '../../components/AsyncNotice';
 import Button from '../../components/ui/Button';
+import { resolveMenuImage } from '../menu/menuImageCatalog';
 import styles from './DemoMenuSandbox.module.css';
+
+const LOCAL_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+const LOCAL_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const SANDBOX_IMAGE_SIZES =
+  '(min-width: 64rem) 14rem, (min-width: 48rem) 35vw, calc(100vw - 4rem)';
 
 interface SandboxMenuItem extends MenuItem {
   hidden_in_preview: boolean;
+  localImageError: string | null;
+  localImageUrl: string | null;
   priceDraft: string;
 }
 
@@ -33,9 +41,10 @@ type SandboxState =
   | { kind: 'loading' };
 
 interface SandboxContextValue {
-  addSampleDish: () => void;
+  addSampleDish: (categoryId: string) => void;
   ensureLoaded: () => void;
   reset: () => void;
+  selectLocalImage: (categoryId: string, itemId: string, file: File | null) => void;
   state: SandboxState;
   updateItem: (
     categoryId: string,
@@ -60,6 +69,8 @@ function toSandboxCategories(menu: MenuResponse): SandboxCategory[] {
     items: category.items.map((item) => ({
       ...item,
       hidden_in_preview: false,
+      localImageError: null,
+      localImageUrl: null,
       priceDraft: (item.price_amount / 100).toFixed(2),
     })),
   }));
@@ -69,8 +80,16 @@ function toSandboxCategories(menu: MenuResponse): SandboxCategory[] {
 export function DemoMenuSandboxProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<SandboxState>({ kind: 'idle' });
   const activeControllerRef = useRef<AbortController | null>(null);
+  const localImageUrlsRef = useRef<Map<string, string>>(new Map());
   const sampleSequenceRef = useRef(0);
   const stateKindRef = useRef<SandboxState['kind']>('idle');
+
+  const revokeAllLocalImages = useCallback((): void => {
+    for (const objectUrl of localImageUrlsRef.current.values()) {
+      URL.revokeObjectURL(objectUrl);
+    }
+    localImageUrlsRef.current.clear();
+  }, []);
 
   const ensureLoaded = useCallback((): void => {
     if (stateKindRef.current === 'loading' || stateKindRef.current === 'loaded') {
@@ -108,8 +127,9 @@ export function DemoMenuSandboxProvider({ children }: { children: ReactNode }) {
   useEffect(
     () => () => {
       activeControllerRef.current?.abort();
+      revokeAllLocalImages();
     },
-    [],
+    [revokeAllLocalImages],
   );
 
   const updateItem = useCallback(
@@ -135,12 +155,12 @@ export function DemoMenuSandboxProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  const addSampleDish = useCallback((): void => {
+  const addSampleDish = useCallback((categoryId: string): void => {
     setState((current) => {
       if (current.kind !== 'loaded' || current.categories.length === 0) return current;
-      sampleSequenceRef.current += 1;
-      const target = current.categories[0];
+      const target = current.categories.find((category) => category.id === categoryId);
       if (target === undefined) return current;
+      sampleSequenceRef.current += 1;
       const sample: SandboxMenuItem = {
         allergens: [],
         currency: target.items[0]?.currency ?? 'NOK',
@@ -150,6 +170,8 @@ export function DemoMenuSandboxProvider({ children }: { children: ReactNode }) {
         id: `sandbox-sample-${sampleSequenceRef.current}`,
         image_url: null,
         is_available: true,
+        localImageError: null,
+        localImageUrl: null,
         name: `Sample dish ${sampleSequenceRef.current}`,
         price_amount: 15900,
         priceDraft: '159.00',
@@ -165,24 +187,130 @@ export function DemoMenuSandboxProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const selectLocalImage = useCallback(
+    (categoryId: string, itemId: string, file: File | null): void => {
+      if (file === null) return;
+
+      if (!LOCAL_IMAGE_TYPES.has(file.type)) {
+        updateItem(categoryId, itemId, {
+          localImageError: 'Choose a JPEG, PNG, or WebP image.',
+        });
+        return;
+      }
+      if (file.size > LOCAL_IMAGE_MAX_BYTES) {
+        updateItem(categoryId, itemId, {
+          localImageError: 'Choose an image no larger than 5 MiB.',
+        });
+        return;
+      }
+
+      let objectUrl: string;
+      try {
+        objectUrl = URL.createObjectURL(file);
+      } catch {
+        updateItem(categoryId, itemId, {
+          localImageError: 'This image could not be prepared for the browser preview.',
+        });
+        return;
+      }
+
+      const imageKey = `${categoryId}:${itemId}`;
+      const previousObjectUrl = localImageUrlsRef.current.get(imageKey);
+      if (previousObjectUrl !== undefined) {
+        URL.revokeObjectURL(previousObjectUrl);
+      }
+      localImageUrlsRef.current.set(imageKey, objectUrl);
+      updateItem(categoryId, itemId, {
+        localImageError: null,
+        localImageUrl: objectUrl,
+      });
+    },
+    [updateItem],
+  );
+
   const reset = useCallback((): void => {
+    revokeAllLocalImages();
     sampleSequenceRef.current = 0;
     setState((current) =>
       current.kind === 'loaded'
         ? { ...current, categories: cloneCategories(current.original) }
         : current,
     );
-  }, []);
+  }, [revokeAllLocalImages]);
 
   const value = useMemo(
-    () => ({ addSampleDish, ensureLoaded, reset, state, updateItem }),
-    [addSampleDish, ensureLoaded, reset, state, updateItem],
+    () => ({ addSampleDish, ensureLoaded, reset, selectLocalImage, state, updateItem }),
+    [addSampleDish, ensureLoaded, reset, selectLocalImage, state, updateItem],
   );
 
   return (
     <DemoMenuSandboxContext.Provider value={value}>
       {children}
     </DemoMenuSandboxContext.Provider>
+  );
+}
+
+function SandboxMenuImage({
+  item,
+  variant,
+}: {
+  item: SandboxMenuItem;
+  variant: string;
+}) {
+  const resolvedImage =
+    item.localImageUrl === null
+      ? resolveMenuImage(item.id, item.image_url)
+      : { kind: 'single' as const, src: item.localImageUrl };
+  const imageUrl =
+    resolvedImage?.kind === 'responsive'
+      ? resolvedImage.asset.pngSrc
+      : (resolvedImage?.src ?? null);
+  const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null);
+  const showImage = imageUrl !== null && failedImageUrl !== imageUrl;
+
+  return (
+    <div className={styles.imageArea} data-variant={variant}>
+      {showImage ? (
+        resolvedImage?.kind === 'responsive' ? (
+          <picture className={styles.picture}>
+            <source
+              type="image/webp"
+              srcSet={resolvedImage.asset.webpSrcSet}
+              sizes={SANDBOX_IMAGE_SIZES}
+            />
+            <img
+              alt={`${item.name} preview`}
+              className={styles.image}
+              decoding="async"
+              height={resolvedImage.asset.height}
+              loading="lazy"
+              src={resolvedImage.asset.pngSrc}
+              width={resolvedImage.asset.width}
+              onError={() => setFailedImageUrl(imageUrl)}
+            />
+          </picture>
+        ) : (
+          <img
+            alt={`${item.name} preview`}
+            className={styles.image}
+            decoding="async"
+            height={360}
+            loading="lazy"
+            src={imageUrl}
+            width={480}
+            onError={() => setFailedImageUrl(imageUrl)}
+          />
+        )
+      ) : (
+        <div
+          className={styles.imagePlaceholder}
+          role="img"
+          aria-label={`${item.name} image unavailable`}
+        >
+          Image unavailable
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -205,7 +333,7 @@ function formatSandboxMoney(amount: number, currency: string): string {
 
 /** Render a browser-memory-only editor over the public menu snapshot. */
 export default function DemoMenuSandbox() {
-  const { addSampleDish, ensureLoaded, reset, state, updateItem } =
+  const { addSampleDish, ensureLoaded, reset, selectLocalImage, state, updateItem } =
     useDemoMenuSandbox();
 
   useEffect(() => ensureLoaded(), [ensureLoaded]);
@@ -251,9 +379,6 @@ export default function DemoMenuSandbox() {
           only and are discarded on refresh or logout. No catalog mutation is sent.
         </AsyncNotice>
         <div className={styles.actions}>
-          <Button onClick={addSampleDish} type="button">
-            Add sample dish
-          </Button>
           <Button onClick={reset} type="button" variant="secondary">
             Reset to original menu
           </Button>
@@ -265,11 +390,48 @@ export default function DemoMenuSandbox() {
           <h2 id="sandbox-editor-heading">Preview changes</h2>
           {state.categories.map((category) => (
             <section className={styles.category} key={category.id}>
-              <h3>{category.name}</h3>
+              <div className={styles.categoryHeader}>
+                <h3>{category.name}</h3>
+                <Button
+                  onClick={() => addSampleDish(category.id)}
+                  type="button"
+                  variant="secondary"
+                >
+                  Add dish to {category.name}
+                </Button>
+              </div>
               <div className={styles.itemGrid}>
                 {category.items.map((item) => (
                   <fieldset className={styles.itemEditor} key={item.id}>
                     <legend>{item.name}</legend>
+                    <SandboxMenuImage item={item} variant="editor" />
+                    <label className={styles.fileLabel}>
+                      Local preview image for {item.name}
+                      <input
+                        accept="image/jpeg,image/png,image/webp"
+                        aria-describedby={`sandbox-image-help-${item.id}`}
+                        type="file"
+                        onChange={(event) => {
+                          selectLocalImage(
+                            category.id,
+                            item.id,
+                            event.currentTarget.files?.[0] ?? null,
+                          );
+                          event.currentTarget.value = '';
+                        }}
+                      />
+                    </label>
+                    <p
+                      className={styles.imageHelp}
+                      id={`sandbox-image-help-${item.id}`}
+                    >
+                      JPEG, PNG, or WebP up to 5 MiB. Kept in browser memory only.
+                    </p>
+                    {item.localImageError === null ? null : (
+                      <p className={styles.imageError} role="alert">
+                        {item.localImageError}
+                      </p>
+                    )}
                     <label>
                       Name
                       <input
@@ -350,6 +512,7 @@ export default function DemoMenuSandbox() {
             <ul>
               {visibleItems.map(({ categoryName, item }) => (
                 <li key={`${categoryName}-${item.id}`}>
+                  <SandboxMenuImage item={item} variant="preview" />
                   <span>{categoryName}</span>
                   <strong>{item.name}</strong>
                   {item.description ? <p>{item.description}</p> : null}

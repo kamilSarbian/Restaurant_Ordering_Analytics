@@ -2137,8 +2137,8 @@ OrderItem -> Order`. Exact rowcounts, zero remaining runtime children, and a
 
 ## D-093 — Separate Reserved Customer Demo Session and Ownership
 
-- **Status:** proposed by the current local candidate on 2026-11-10;
-  uncommitted and not deployed or accepted on the public service. Targeted
+- **Status:** committed at `5842268a4bdb991c3289e85565403c89d203db9e` on
+  2026-11-10; public customer activation and acceptance remain open. Targeted
   current-byte isolated PostgreSQL evidence includes one clean invocation of all
   10 relevant integration files with 308 passing tests. Both customer-demo flags
   default to `false`, and the reserved customer account has not been provisioned.
@@ -2168,9 +2168,9 @@ OrderItem -> Order`. Exact rowcounts, zero remaining runtime children, and a
 
 ## D-094 — Persisted Historical Period and Truthful Portfolio Presentation
 
-- **Status:** proposed by the current local candidate on 2026-11-10;
-  uncommitted, not deployed, and not covered by the existing 14/14 Stage 22-D
-  public report.
+- **Status:** committed through the presentation follow-up
+  `852163b77d7e5caca8cc7053d5369c1a20d23973`; not deployed and not covered by
+  the existing 14/14 Stage 22-D public report.
 - **Historical period:** the exact demo administrator reads a strict sample
   period derived from persisted canonical seed data. The backend does not
   rewrite timestamps, shift the dataset to the current date, or reseed it for
@@ -2194,6 +2194,41 @@ OrderItem -> Order`. Exact rowcounts, zero remaining runtime children, and a
   acceptance.
   The accepted public administrator report and published case study remain
   evidence for the earlier deployed baseline only.
+
+## D-095 — Bounded Portfolio Presentation Tools Remain Non-Transactional
+
+- **Status:** proposed by the current local candidate on 2026-11-14;
+  uncommitted and not deployed.
+- **Carousel:** six responsive presentation scenes advance every five seconds
+  when visible and not otherwise paused. A visible **Pause slideshow / Resume
+  slideshow** button is operable by keyboard and touch. Pointer hover and
+  keyboard focus pause rotation passively; an explicit control action overrides
+  the current passive pause, and a manual pause persists after pointer or focus
+  leaves. With `prefers-reduced-motion: reduce`, the first scene remains static
+  until the visitor explicitly resumes playback. The earlier no-control
+  proposal was superseded during review and is not the current candidate
+  behavior.
+- **Menu sandbox:** the administrator may add memory-only sample dishes within
+  selected categories and attach bounded local JPEG/PNG/WebP previews. The browser owns
+  and revokes local object URLs. The sandbox reads only the public menu GET,
+  exposes no mutation transport, and clears on reset, logout, refresh, or
+  provider teardown.
+- **Currency presentation:** exact portfolio Analytics and Exports default to
+  NOK while retaining an explicit all-currencies query. Normal runtime keeps
+  its existing optional currency input. A separate approximate calculator may
+  display NOK values in EUR and PLN using the dated ECB daily EUR reference
+  rates through a bounded backend adapter.
+- **Non-authority boundary:** exchange-rate output is informational only. It
+  cannot affect filters, aggregates, CSV data, persisted integer amounts,
+  Orders, Payments, or provider behavior. Redirects, oversized/invalid XML,
+  stale data, timeouts, and upstream failures fail safely without fallback
+  rates.
+- **Evidence boundary:** local canonical Browser E2E run `6f1719445d8d58e8`
+  tested worktree manifest
+  `c9a3ccc2ff9f83380f9ba8c5ad50912ff1031c7714128c1b6f635a4186539a76`
+  with native exit `0`, `workers=1`, `retries=0`, and `38/38 PASS`; its database
+  and log audits also passed. Final independent review, commit, CI, deployment,
+  and public acceptance remain separate open gates.
 
 ## History of Decisions That Required Resolution
 

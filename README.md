@@ -2,7 +2,7 @@
 
 ## Current status
 
-### Public baseline and current local candidate (2026-11-10)
+### Public baseline and current local candidate (2026-11-17)
 
 The existing administrator demo completed Stage 22-D public acceptance in
 report `stage22d-public-20261110t002125z`: all 14 checks passed and the report
@@ -19,8 +19,8 @@ three demo Payments per Order; the separately guarded operator action can reset
 only validated `portfolio_runtime` aggregates while preserving canonical seed
 and live data.
 
-Stage 22 remains **in progress**. The separate customer-demo and
-historical-presentation foundation is committed at
+Stage 22 remains **in progress**. The separate customer-demo foundation is
+committed at
 `5842268a4bdb991c3289e85565403c89d203db9e`. It adds a reserved shared
 `customer` session (never `admin` or `super_admin`), owned `portfolio_runtime`
 Account history, capability-only demo Checkout, independent default-false
@@ -35,21 +35,50 @@ administrator-demo check, 2/2 customer-disabled/anonymous-guest checks, and 1/1
 enabled customer-demo lifecycle, with one worker, zero retries, and passing
 database and secret-safe log audits.
 
-The current worktree is a separate **uncommitted and undeployed** presentation
-candidate. It simplifies the landing carousel, derives a readable compact
-emblem from the existing Nordic Hearth identity, gives the lower call-to-action
-an existing menu photograph, prepares an accessible customer-demo chooser that
-remains hidden while its flag is false, clarifies simulated payment choices,
-and adds a memory-only administrator menu sandbox with no menu mutation API.
-Local current-byte verification is complete: the clean frontend suite passed
-1,295 tests, typecheck, ESLint with zero errors, Prettier, both npm audits, and
-the production build. The final full canonical browser invocation passed 32/32
-normal-runtime checks, 1/1 administrator-demo check, 2/2
-customer-disabled/anonymous-guest checks, and 1/1 enabled customer-demo
-lifecycle with one worker, zero retries, and passing database and secret-safe
-log audits. This is local evidence, not CI or public acceptance. Independent
-review, commit, push, CI, customer provisioning, deployment, and public
-acceptance remain open.
+The presentation baseline that followed is committed at
+`852163b77d7e5caca8cc7053d5369c1a20d23973`; it is not evidence that the
+reserved customer is provisioned or publicly enabled.
+
+The current worktree is a separate **uncommitted and undeployed** follow-up
+candidate. It uses six responsive carousel scenes with a five-second automatic
+interval, non-interactive progress indicators, and a visible `Pause slideshow`
+/ `Resume slideshow` control. It pauses on pointer hover and keyboard focus,
+preserves an explicit manual pause after either leaves, and starts paused under
+reduced motion until the user explicitly resumes it. The administrator menu
+sandbox adds memory-only sample dishes within their selected categories and
+optional local JPEG/PNG/WebP previews; it still calls only the public menu GET
+and never sends a menu mutation. Portfolio Analytics and Exports default to
+`NOK` while keeping an explicit `All currencies` option. A separate approximate
+calculator can load dated ECB EUR reference rates for NOK-to-EUR/PLN display;
+it cannot change filters, persisted amounts, reports, CSV files, Orders, or
+Payments. Normal runtime keeps its existing currency controls. The final
+independent review found blocking P2 findings in carousel pause behavior and
+concurrent ECB outage handling, together with P3 feed-structure and
+status-wording findings. The current worktree addresses those findings, and
+targeted post-fix frontend and backend checks pass; renewed final independent
+review remains open. One earlier no-retry canonical Browser E2E invocation
+stopped in its normal-runtime phase after 9 passes when a stale first-slide alt
+selector failed; 22 tests did not run, and the later demo phases and final
+database/log audits were not reached. That result remains the historical record
+of the earlier invocation.
+After the selector and follow-up diagnostics were corrected, canonical run
+`f3aea9fbe12e6ac3` completed on the pre-documentation-correction candidate
+manifest SHA-256
+`36a20c57321451fdc8c1c762ea6bc08e386ce7b23804b58a892c1686c1726d07`
+with native exit code 0, one worker, zero retries, and 38/38 tests passed: 34/34
+in normal runtime, 3/3 across administrator demo plus customer-disabled and
+anonymous-guest flows, and 1/1 in the isolated customer-enabled flow.
+`setup-portfolio`, the final database audit, and every phase-specific
+secret-safe log audit passed. That result remains evidence for those earlier
+tested bytes. After the carousel and ECB corrections, canonical run
+`6f1719445d8d58e8` validated the later worktree manifest SHA-256
+`c9a3ccc2ff9f83380f9ba8c5ad50912ff1031c7714128c1b6f635a4186539a76`
+with native exit code 0, one worker, zero retries, and 38/38 tests passed: 34/34
+in normal runtime, 3/3 across administrator demo plus customer-disabled and
+anonymous-guest flows, and 1/1 in the isolated customer-enabled flow.
+`setup-portfolio`, the final database audit, and every phase-specific
+secret-safe log audit passed. Final independent review, commit, push, CI,
+customer provisioning, deployment, and public acceptance remain open.
 
 Stage 23 is **in progress**: the public case study exists, while final
 screenshots, architecture-presentation material, and any remaining CV-facing
@@ -432,7 +461,7 @@ without introducing infrastructure that is unnecessary for a single venue.
 - A repository-ready and operator-confirmed free-tier target: Render
   Static Site Free, Render Docker Web Service Free, Neon PostgreSQL Free, and a
   manual direct-URL migration workflow. The administrator demo passed the
-  recorded Stage 22-D public acceptance; the committed but undeployed
+  recorded Stage 22-D public acceptance; the committed but publicly inactive
   customer-demo foundation and the local presentation-polish candidate are not
   part of that deployed evidence.
 - A Nordic Hearth design system and polished customer, account, and
@@ -458,7 +487,7 @@ without introducing infrastructure that is unnecessary for a single venue.
 - Historical and superseded for the portfolio demo: the Stage 20 paid
   Render/GHCR private-service, cron/migrator, and managed-database target.
 - In progress: Stage 22 Production Deployment & Public Acceptance, including
-  the committed but undeployed customer-demo foundation and the uncommitted
+  the committed but publicly inactive customer-demo foundation and the uncommitted
   presentation-polish candidate. Stage 23 Portfolio Documentation & Case Study
   is also in progress; its public case study is published.
 

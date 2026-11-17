@@ -10,7 +10,6 @@
 
 .slides,
 .slide,
-.mediaControl,
 .slide picture,
 .image {
     width: 100%;
@@ -21,13 +20,13 @@
     height: auto;
     min-width: 0;
     min-height: 0;
-    aspect-ratio: 1672 / 941;
+    aspect-ratio: 1774 / 887;
 }
 
 .slide {
     position: relative;
     min-width: 0;
-    aspect-ratio: 1672 / 941;
+    aspect-ratio: 1774 / 887;
     margin: 0;
 }
 
@@ -39,45 +38,47 @@
     display: block;
 }
 
-.mediaControl {
-    position: absolute;
-    z-index: 2;
-    inset: 0;
-    display: block;
-    padding: 0;
-    border: 0;
-    background: transparent;
-    color: inherit;
-    cursor: pointer;
-    touch-action: manipulation;
-}
-
-.mediaControl:focus {
-    outline: none;
-}
-
-.mediaControl:focus-visible {
-    outline: var(--border-width-focus) solid var(--color-focus-ring);
-    outline-offset: calc(-1 * var(--border-width-focus));
-    box-shadow: inset 0 0 0 var(--border-width-strong) var(--color-surface);
-}
-
 .image {
     display: block;
     object-fit: cover;
     animation: carousel-image-enter var(--duration-standard) var(--easing-standard) both;
 }
 
+.mediaControl {
+    position: absolute;
+    z-index: 4;
+    top: var(--space-3);
+    right: var(--space-3);
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+    padding: var(--space-2) var(--space-3);
+    border: var(--border-width-hairline) solid rgb(255 255 255 / 82%);
+    border-radius: var(--radius-control);
+    color: var(--color-text-inverse);
+    background: rgb(13 43 30 / 88%);
+    box-shadow: var(--shadow-elevation-1);
+    cursor: pointer;
+    touch-action: manipulation;
+}
+
+.mediaControl:hover {
+    background: rgb(13 43 30 / 100%);
+}
+
+.mediaControl:focus-visible {
+    outline: var(--border-width-focus) solid var(--color-focus-ring);
+    outline-offset: var(--border-width-strong);
+}
+
 .caption {
     position: absolute;
-    z-index: 3;
-    pointer-events: none;
+    z-index: 2;
     right: 0;
     bottom: 0;
     left: 0;
     display: grid;
     gap: var(--space-1);
-    padding: var(--space-10) var(--space-5) var(--space-5);
+    padding: var(--space-10) var(--space-5) var(--space-8);
     color: var(--color-text-inverse);
     background: linear-gradient(transparent, rgb(13 43 30 / 92%));
 }
@@ -95,6 +96,49 @@
     line-height: 1.15;
 }
 
+.indicators {
+    position: absolute;
+    z-index: 3;
+    bottom: var(--space-3);
+    left: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    transform: translateX(-50%);
+}
+
+.indicator {
+    display: grid;
+    width: 0.625rem;
+    height: 0.625rem;
+    overflow: hidden;
+    place-items: center;
+    border: var(--border-width-hairline) solid rgb(255 255 255 / 82%);
+    border-radius: 50%;
+    background: rgb(13 43 30 / 58%);
+    box-shadow: 0 0 0 var(--border-width-hairline) rgb(13 43 30 / 32%);
+}
+
+.indicatorFill {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--color-text-inverse);
+    transform: scale(0);
+    transform-origin: center;
+}
+
+.indicator[data-active='true'] .indicatorFill {
+    transform: scale(1);
+}
+
+.indicator[data-running='true'] .indicatorFill {
+    animation: carousel-indicator-progress var(--carousel-indicator-duration) linear
+        both;
+}
+
 @keyframes carousel-image-enter {
     from {
         opacity: 0;
@@ -105,8 +149,19 @@
     }
 }
 
+@keyframes carousel-indicator-progress {
+    from {
+        transform: scale(0);
+    }
+
+    to {
+        transform: scale(1);
+    }
+}
+
 @media (prefers-reduced-motion: reduce) {
-    .image {
+    .image,
+    .indicatorFill {
         animation: none;
     }
 }

@@ -149,7 +149,12 @@ describe('administrator analytics filters and transport', () => {
       { json: { items: [], limit_per_currency: 50, range: historicalRange } },
       { json: { items: [], limit_per_currency: 50, range: historicalRange } },
       { json: { items: [], range: historicalRange } },
+      { json: { currencies: [], range: historicalRange } },
+      { json: { items: [], limit_per_currency: 50, range: historicalRange } },
+      { json: { items: [], limit_per_currency: 50, range: historicalRange } },
+      { json: { items: [], range: historicalRange } },
     );
+    const user = userEvent.setup();
 
     renderAnalytics(false);
     await waitFor(() => expect(stub.calls).toHaveLength(6));
@@ -167,6 +172,8 @@ describe('administrator analytics filters and transport', () => {
     expect((screen.getByLabelText('End date') as HTMLInputElement).value).toBe(
       period.endDate,
     );
+    expect(screen.getByLabelText('Currency')).toHaveValue('NOK');
+    expect(screen.getByRole('option', { name: 'All currencies' })).toBeVisible();
     expect(stub.calls).toHaveLength(6);
     expect(stub.calls.map((call) => new URL(call.url, 'http://x').pathname)).toEqual([
       '/api/v1/auth/me',
@@ -179,6 +186,14 @@ describe('administrator analytics filters and transport', () => {
     for (const call of stub.calls.slice(2)) {
       expect(queryFor(call.url).get('start')).toBe(aware.start);
       expect(queryFor(call.url).get('end')).toBe(aware.end);
+      expect(queryFor(call.url).get('currency')).toBe('NOK');
+    }
+
+    await user.selectOptions(screen.getByLabelText('Currency'), '');
+    await user.click(screen.getByRole('button', { name: 'Apply filters' }));
+    await waitFor(() => expect(stub.calls).toHaveLength(10));
+    for (const call of stub.calls.slice(6)) {
+      expect(queryFor(call.url).has('currency')).toBe(false);
     }
   });
 

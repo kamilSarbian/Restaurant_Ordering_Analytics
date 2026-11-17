@@ -30,6 +30,7 @@ from app.payments.stripe_webhook import (
     StripeWebhookVerificationError,
     VerifiedStripeCheckoutEvent,
 )
+from app.seed.portfolio import PortfolioSeedError, PortfolioSeedResult
 from app.seed.runner import SeedConflictError, SeedResult
 
 RUN_ID = "a1b2c3d4e5f60718"
@@ -1040,6 +1041,126 @@ def test_setup_e2e_data_reuses_seed_and_admin_boundaries_and_disposes_engine(
     engine.dispose.assert_called_once_with()
 
 
+def test_setup_e2e_portfolio_data_uses_fixed_plan_and_disposes_engine(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime_contract = _runtime_contract()
+    engine = SimpleNamespace(dispose=Mock())
+    session_factory = object()
+    plan = object()
+    expected = PortfolioSeedResult(
+        inserted=True,
+        categories_processed=5,
+        menu_items_processed=15,
+        tables_processed=12,
+        orders_processed=500,
+        order_items_processed=1_211,
+        status_history_processed=2_326,
+        payments_processed=484,
+    )
+    load_contract = Mock(return_value=runtime_contract)
+    generate_plan = Mock(return_value=plan)
+    persist_plan = Mock(return_value=expected)
+    monkeypatch.setattr(harness, "load_e2e_runtime_contract", load_contract)
+    monkeypatch.setattr(harness, "create_database_engine", Mock(return_value=engine))
+    monkeypatch.setattr(
+        harness,
+        "create_session_factory",
+        Mock(return_value=session_factory),
+    )
+    monkeypatch.setattr(harness, "generate_portfolio_dataset", generate_plan)
+    monkeypatch.setattr(harness, "seed_portfolio_data", persist_plan)
+
+    result = harness.setup_e2e_portfolio_data()
+
+    assert result == expected
+    load_contract.assert_called_once_with()
+    generate_plan.assert_called_once_with(harness.E2E_PORTFOLIO_REFERENCE_END)
+    persist_plan.assert_called_once_with(session_factory, plan)
+    engine.dispose.assert_called_once_with()
+
+
+def test_setup_e2e_portfolio_data_sanitizes_failures_and_disposes_engine(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = SimpleNamespace(dispose=Mock())
+    unsafe_detail = f"portfolio conflict at {_database_url()} using {ADMIN_PASSWORD}"
+    monkeypatch.setattr(
+        harness,
+        "load_e2e_runtime_contract",
+        Mock(return_value=_runtime_contract()),
+    )
+    monkeypatch.setattr(harness, "create_database_engine", Mock(return_value=engine))
+    monkeypatch.setattr(harness, "create_session_factory", Mock(return_value=object()))
+    monkeypatch.setattr(
+        harness, "generate_portfolio_dataset", Mock(return_value=object())
+    )
+    monkeypatch.setattr(
+        harness,
+        "seed_portfolio_data",
+        Mock(side_effect=PortfolioSeedError(unsafe_detail)),
+    )
+
+    with pytest.raises(
+        harness.E2EHarnessSetupError,
+        match="^E2E_PORTFOLIO_SETUP_FAILED$",
+    ) as error:
+        harness.setup_e2e_portfolio_data()
+
+    assert POSTGRES_PASSWORD not in str(error.value)
+    assert ADMIN_PASSWORD not in str(error.value)
+    assert "://" not in str(error.value)
+    assert error.value.__cause__ is None
+    assert error.value.__context__ is None
+    engine.dispose.assert_called_once_with()
+
+
+def test_setup_e2e_portfolio_data_sanitizes_cleanup_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    unsafe_detail = f"cleanup failed at {_database_url()} using {ADMIN_PASSWORD}"
+    engine = SimpleNamespace(dispose=Mock(side_effect=OSError(unsafe_detail)))
+    monkeypatch.setattr(
+        harness,
+        "load_e2e_runtime_contract",
+        Mock(return_value=_runtime_contract()),
+    )
+    monkeypatch.setattr(harness, "create_database_engine", Mock(return_value=engine))
+    monkeypatch.setattr(harness, "create_session_factory", Mock(return_value=object()))
+    monkeypatch.setattr(
+        harness, "generate_portfolio_dataset", Mock(return_value=object())
+    )
+    monkeypatch.setattr(
+        harness,
+        "seed_portfolio_data",
+        Mock(
+            return_value=PortfolioSeedResult(
+                inserted=True,
+                categories_processed=5,
+                menu_items_processed=15,
+                tables_processed=12,
+                orders_processed=500,
+                order_items_processed=1_211,
+                status_history_processed=2_326,
+                payments_processed=484,
+            )
+        ),
+    )
+
+    with pytest.raises(
+        harness.E2EHarnessSetupError,
+        match="^E2E_PORTFOLIO_SETUP_CLEANUP_FAILED$",
+    ) as error:
+        harness.setup_e2e_portfolio_data()
+
+    assert POSTGRES_PASSWORD not in str(error.value)
+    assert ADMIN_PASSWORD not in str(error.value)
+    assert "://" not in str(error.value)
+    assert error.value.__cause__ is None
+    assert error.value.__context__ is None
+    engine.dispose.assert_called_once_with()
+
+
 def test_setup_e2e_data_sanitizes_failures_and_disposes_engine(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1334,6 +1455,39 @@ def test_setup_cli_reports_only_safe_counts(
     assert captured.out == (
         "E2E setup complete: 5 categories and 15 menu items ready; "
         "reserved demo administrator and customer ready.\n"
+    )
+    assert captured.err == ""
+    assert POSTGRES_PASSWORD not in captured.out
+    assert ADMIN_PASSWORD not in captured.out
+
+
+def test_setup_portfolio_cli_reports_only_safe_counts(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        harness,
+        "setup_e2e_portfolio_data",
+        Mock(
+            return_value=PortfolioSeedResult(
+                inserted=False,
+                categories_processed=5,
+                menu_items_processed=15,
+                tables_processed=12,
+                orders_processed=500,
+                order_items_processed=1_211,
+                status_history_processed=2_326,
+                payments_processed=484,
+            )
+        ),
+    )
+
+    assert harness.main(["setup-portfolio"]) == 0
+
+    captured = capsys.readouterr()
+    assert captured.out == (
+        "E2E portfolio setup complete: 500 orders, 1211 order items, "
+        "2326 history rows, and 484 payments verified.\n"
     )
     assert captured.err == ""
     assert POSTGRES_PASSWORD not in captured.out

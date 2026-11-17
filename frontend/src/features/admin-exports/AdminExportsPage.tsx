@@ -186,7 +186,7 @@ export default function AdminExportsPage() {
   const [samplePeriodLoading, setSamplePeriodLoading] = useState(portfolioMode);
   const [samplePeriodError, setSamplePeriodError] = useState(false);
   const [dateErrors, setDateErrors] = useState<AdminDateRangeErrors>({});
-  const [currency, setCurrency] = useState('');
+  const [currency, setCurrency] = useState(portfolioMode ? 'NOK' : '');
   const [currencyError, setCurrencyError] = useState<string>();
   const [orderStatus, setOrderStatus] = useState<'' | ExportOrderStatus>('');
   const [orderType, setOrderType] = useState<'' | ExportOrderType>('');
@@ -196,7 +196,7 @@ export default function AdminExportsPage() {
     'product-sales': INITIAL_NOTICE,
   });
   const dateControlRef = useRef<AdminDateRangeControlHandle>(null);
-  const currencyRef = useRef<HTMLInputElement>(null);
+  const currencyRef = useRef<HTMLInputElement | HTMLSelectElement>(null);
   const exportActionRefs = useRef<Record<AdminExportKind, HTMLButtonElement | null>>({
     orders: null,
     payments: null,
@@ -511,26 +511,47 @@ export default function AdminExportsPage() {
             }}
           />
           <label className={styles.currencyField}>
-            Currency (optional)
-            <input
-              ref={currencyRef}
-              aria-describedby={
-                currencyError === undefined
-                  ? 'export-currency-hint'
-                  : 'export-currency-hint export-currency-error'
-              }
-              aria-invalid={currencyError !== undefined}
-              autoCapitalize="characters"
-              maxLength={3}
-              value={currency}
-              onChange={(event) => {
-                setCurrency(event.currentTarget.value.toUpperCase());
-                setCurrencyError(undefined);
-              }}
-            />
+            {portfolioMode ? 'Currency' : 'Currency (optional)'}
+            {portfolioMode ? (
+              <select
+                ref={(node) => {
+                  currencyRef.current = node;
+                }}
+                aria-label="Currency"
+                aria-describedby="export-currency-hint"
+                value={currency}
+                onChange={(event) => {
+                  setCurrency(event.currentTarget.value);
+                  setCurrencyError(undefined);
+                }}
+              >
+                <option value="NOK">NOK</option>
+                <option value="">All currencies</option>
+              </select>
+            ) : (
+              <input
+                ref={(node) => {
+                  currencyRef.current = node;
+                }}
+                aria-describedby={
+                  currencyError === undefined
+                    ? 'export-currency-hint'
+                    : 'export-currency-hint export-currency-error'
+                }
+                aria-invalid={currencyError !== undefined}
+                autoCapitalize="characters"
+                maxLength={3}
+                value={currency}
+                onChange={(event) => {
+                  setCurrency(event.currentTarget.value.toUpperCase());
+                  setCurrencyError(undefined);
+                }}
+              />
+            )}
             <span className={styles.hint} id="export-currency-hint">
-              Leave blank for every currency. Amounts remain separated; no FX conversion
-              is performed.
+              {portfolioMode
+                ? 'Choose NOK or every currency. Amounts remain separated; no FX conversion is performed.'
+                : 'Leave blank for every currency. Amounts remain separated; no FX conversion is performed.'}
             </span>
             {currencyError !== undefined ? (
               <span className={styles.fieldError} id="export-currency-error">

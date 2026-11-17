@@ -19,6 +19,7 @@ from threading import Lock
 from typing import Annotated
 from urllib import request as urllib_request
 from urllib.error import HTTPError, URLError
+from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, Response
@@ -42,6 +43,7 @@ from app.auth.roles import UserRole
 from app.auth.schemas import normalize_admin_email
 from app.core.config import Settings
 from app.database.session import create_database_engine, create_session_factory
+from app.demo import OSLO_TIMEZONE, PortfolioDatasetError, generate_portfolio_dataset
 from app.main import create_app
 from app.payments.stripe_checkout import (
     CheckoutSessionResult,
@@ -50,6 +52,11 @@ from app.payments.stripe_checkout import (
     StripeCheckoutRequest,
 )
 from app.payments.stripe_webhook import StripeWebhookVerifier
+from app.seed.portfolio import (
+    PortfolioSeedError,
+    PortfolioSeedResult,
+    seed_portfolio_data,
+)
 from app.seed.runner import SeedConflictError, seed_menu_data
 
 E2E_DATABASE_DRIVER = "postgresql+psycopg"
@@ -70,6 +77,12 @@ FAKE_CHECKOUT_PATH = "/api/v1/e2e/fake-checkout"
 FAKE_CHECKOUT_SCRIPT_PATH = "/api/v1/e2e/fake-checkout.js"
 FAKE_CHECKOUT_COMPLETE_PATH = "/api/v1/e2e/fake-checkout/complete"
 FAKE_CHECKOUT_HANDLE_BYTES = 32
+E2E_PORTFOLIO_REFERENCE_END = datetime(
+    2026,
+    9,
+    23,
+    tzinfo=ZoneInfo(OSLO_TIMEZONE),
+)
 
 _RUN_ID_PATTERN = re.compile(r"^[a-f0-9]{16}$", re.ASCII)
 _CANONICAL_PORT_PATTERN = re.compile(r"^[1-9][0-9]{3,4}$", re.ASCII)
@@ -924,6 +937,46 @@ def setup_e2e_data() -> E2ESetupResult:
     )
 
 
+def setup_e2e_portfolio_data() -> PortfolioSeedResult:
+    """Persist or verify the exact isolated portfolio dataset for demo phases.
+
+    Returns:
+        A safe summary of the canonical portfolio seed operation.
+
+    Raises:
+        E2EHarnessSetupError: If generation, persistence, or cleanup fails.
+    """
+    resolved_contract = load_e2e_runtime_contract()
+    engine: Engine | None = None
+    result: PortfolioSeedResult | None = None
+    sanitized_error: E2EHarnessSetupError | None = None
+    try:
+        engine = create_database_engine(
+            resolved_contract.database_url.render_as_string(hide_password=False)
+        )
+        session_factory = create_session_factory(engine)
+        plan = generate_portfolio_dataset(E2E_PORTFOLIO_REFERENCE_END)
+        result = seed_portfolio_data(session_factory, plan)
+    except (OSError, PortfolioDatasetError, PortfolioSeedError, SQLAlchemyError):
+        sanitized_error = E2EHarnessSetupError("E2E_PORTFOLIO_SETUP_FAILED")
+    finally:
+        if engine is not None:
+            try:
+                engine.dispose()
+            except (OSError, SQLAlchemyError):
+                sanitized_error = E2EHarnessSetupError(
+                    "E2E_PORTFOLIO_SETUP_CLEANUP_FAILED"
+                )
+
+    # Raise outside raw exception handlers so private database context is not
+    # reachable through exception chaining.
+    if sanitized_error is not None:
+        raise sanitized_error
+    if result is None:
+        raise E2EHarnessSetupError("E2E_PORTFOLIO_SETUP_FAILED")
+    return result
+
+
 def sign_synthetic_webhook_payload(
     payload: bytes,
     *,
@@ -944,13 +997,24 @@ def sign_synthetic_webhook_payload(
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the explicit guarded E2E setup command."""
     parser = argparse.ArgumentParser(description="Manage isolated browser E2E data.")
-    parser.add_argument("command", choices=("setup",))
+    parser.add_argument("command", choices=("setup", "setup-portfolio"))
     arguments = parser.parse_args(argv)
 
-    if arguments.command != "setup":
-        raise E2EHarnessSafetyError("E2E_COMMAND_INVALID")
     try:
-        result = setup_e2e_data()
+        if arguments.command == "setup":
+            result = setup_e2e_data()
+        elif arguments.command == "setup-portfolio":
+            portfolio_result = setup_e2e_portfolio_data()
+            print(
+                "E2E portfolio setup complete: "
+                f"{portfolio_result.orders_processed} orders, "
+                f"{portfolio_result.order_items_processed} order items, "
+                f"{portfolio_result.status_history_processed} history rows, and "
+                f"{portfolio_result.payments_processed} payments verified."
+            )
+            return 0
+        else:
+            raise E2EHarnessSafetyError("E2E_COMMAND_INVALID")
     except (E2EHarnessError, OSError, SQLAlchemyError, ValidationError):
         print("E2E setup failed.", file=sys.stderr)
         return 1
@@ -1144,6 +1208,7 @@ __all__ = [
     "load_e2e_setup_contract",
     "main",
     "setup_e2e_data",
+    "setup_e2e_portfolio_data",
     "sign_synthetic_webhook_payload",
     "validate_e2e_database_url",
 ]

@@ -203,30 +203,33 @@ describe('LandingPage', () => {
     );
 
     const heroImage = screen.getByRole('img', {
-      name: 'A candlelit dining table set with Nordic-inspired dishes',
+      name: 'A chef plating seared cod with herbs in a warm restaurant kitchen',
     });
-    expect(heroImage).toHaveAttribute('src', '/images/brand/hero/restaurant-hero.png');
-    expect(heroImage).toHaveAttribute('width', '1672');
-    expect(heroImage).toHaveAttribute('height', '941');
+    expect(heroImage).toHaveAttribute(
+      'src',
+      '/images/brand/carousel/chef-plating-at-pass.png',
+    );
+    expect(heroImage).toHaveAttribute('width', '1774');
+    expect(heroImage).toHaveAttribute('height', '887');
     expect(heroImage).toHaveAttribute('decoding', 'async');
     expect(heroImage).toHaveAttribute('loading', 'eager');
     expect(heroImage).toHaveAttribute('fetchpriority', 'high');
     expect(heroImage).toHaveAttribute(
       'sizes',
-      '(min-width: 64rem) 36rem, calc(100vw - 2rem)',
+      '(min-width: 64rem) 34rem, calc(100vw - 2rem)',
     );
     const heroSource = heroImage.closest('picture')?.querySelector('source');
     expect(heroSource).toHaveAttribute('type', 'image/webp');
     expect(heroSource).toHaveAttribute(
       'sizes',
-      '(min-width: 64rem) 36rem, calc(100vw - 2rem)',
+      '(min-width: 64rem) 34rem, calc(100vw - 2rem)',
     );
     expect(heroSource).toHaveAttribute(
       'srcset',
       [
-        '/images/brand/optimized/hero/restaurant-hero-640w.webp 640w',
-        '/images/brand/optimized/hero/restaurant-hero-1024w.webp 1024w',
-        '/images/brand/optimized/hero/restaurant-hero-1600w.webp 1600w',
+        '/images/brand/optimized/carousel/chef-plating-at-pass-640w.webp 640w',
+        '/images/brand/optimized/carousel/chef-plating-at-pass-1024w.webp 1024w',
+        '/images/brand/optimized/carousel/chef-plating-at-pass-1774w.webp 1774w',
       ].join(', '),
     );
 
@@ -283,8 +286,12 @@ describe('LandingPage', () => {
     ).toEqual(
       expect.arrayContaining([
         '/images/brand/logo/nordic-hearth-logo.png',
-        '/images/brand/hero/restaurant-hero.png',
+        '/images/brand/carousel/chef-plating-at-pass.png',
+        '/images/brand/carousel/candlelit-dining-room.png',
+        '/images/brand/carousel/nordic-oak-table-feast.png',
         '/images/brand/story/chef-plating-cod.png',
+        '/images/brand/story/customer-mobile-ordering.png',
+        '/images/brand/story/norwegian-hytte.png',
         '/images/brand/story/order-ready-pickup.png',
         '/images/menu/main_courses/Pan-Seared-Cod.png',
       ]),
@@ -296,16 +303,14 @@ describe('LandingPage', () => {
     expect(pickupImage?.closest('picture')?.querySelector('source')).toHaveAttribute(
       'srcset',
       [
-        '/images/brand/optimized/story/order-ready-pickup-640w.webp 640w',
-        '/images/brand/optimized/story/order-ready-pickup-1024w.webp 1024w',
+        '/images/brand/optimized/carousel/order-ready-pickup-640w.webp 640w',
+        '/images/brand/optimized/carousel/order-ready-pickup-1024w.webp 1024w',
+        '/images/brand/optimized/carousel/order-ready-pickup-1536w.webp 1536w',
       ].join(', '),
     );
     expect(container.querySelectorAll('img[fetchpriority=high]')).toHaveLength(1);
     expect(container.innerHTML).not.toMatch(
       /images\/brand\/(?:mockups|project-hero)\//u,
-    );
-    expect(container.innerHTML).not.toContain(
-      '/images/brand/story/customer-mobile-ordering.png',
     );
     expect(
       screen.getByRole('link', { name: 'Read the project case study' }),
