@@ -2210,9 +2210,11 @@ OrderItem -> Order`. Exact rowcounts, zero remaining runtime children, and a
   behavior.
 - **Menu sandbox:** the administrator may add memory-only sample dishes within
   selected categories and attach bounded local JPEG/PNG/WebP previews. The browser owns
-  and revokes local object URLs. The sandbox reads only the public menu GET,
-  exposes no mutation transport, and clears on reset, logout, refresh, or
-  provider teardown.
+  CSP-compatible `data:` previews produced by bounded `FileReader` operations.
+  Per-item reader identity and cancellation prevent a late read from replacing a
+  newer selection or restoring an image after reset, logout, refresh, or provider
+  teardown. The sandbox reads only the public menu GET and exposes no mutation
+  transport.
 - **Currency presentation:** exact portfolio Analytics and Exports default to
   NOK while retaining an explicit all-currencies query. Normal runtime keeps
   its existing optional currency input. A separate approximate calculator may

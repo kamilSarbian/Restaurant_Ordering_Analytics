@@ -72,9 +72,21 @@
   34/34 normal runtime, 3/3
   administrator-demo/customer-disabled/anonymous-guest, and 1/1 isolated
   customer-enabled. `setup-portfolio`, the exact final database audit, and every
-  phase-specific secret-safe log audit passed. Final independent review,
-  commit, push, CI, deployment, and public acceptance remain open; these bytes
-  remain uncommitted and undeployed.
+  phase-specific secret-safe log audit passed. The candidate was subsequently
+  committed and pushed at `08c817e588dc471b30f46b9324abbce11da1c799`, but
+  GitHub Actions run `44089230455` exposed a Browser E2E failure in the menu
+  sandbox image preview: the containerized Nginx runtime CSP permits `data:`
+  but not the sandbox's former `blob:` URL. An isolated reproduction captured
+  the safe violation identity `img-src` + `blob` and the preview's
+  `Image unavailable` fallback. The current post-CI worktree changes bounded local
+  previews to in-memory `data:` URLs, cancels and identity-checks pending reads
+  across replacement, reset, logout, and provider teardown, and keeps both CSP
+  and the GET-only sandbox boundary unchanged. Post-fix validation passed 48/48
+  focused component/route tests, 1310/1310 candidate Vitest tests,
+  `typecheck:e2e`, and a one-worker, zero-retry browser check through the same
+  Nginx CSP; the exact PNG preview decoded with positive dimensions and no CSP
+  violation. Renewed review, a corrective commit, CI, deployment, and public
+  acceptance remain open.
 - **Evidence and release boundary:** the committed customer-demo foundation is
   not deployed. Both customer-demo flags remain `false`. Targeted current-byte
   isolated PostgreSQL evidence was followed by one clean current-byte invocation

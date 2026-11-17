@@ -80,15 +80,29 @@ function toSandboxCategories(menu: MenuResponse): SandboxCategory[] {
 export function DemoMenuSandboxProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<SandboxState>({ kind: 'idle' });
   const activeControllerRef = useRef<AbortController | null>(null);
-  const localImageUrlsRef = useRef<Map<string, string>>(new Map());
+  const activeImageReadersRef = useRef<Map<string, FileReader>>(new Map());
   const sampleSequenceRef = useRef(0);
   const stateKindRef = useRef<SandboxState['kind']>('idle');
 
-  const revokeAllLocalImages = useCallback((): void => {
-    for (const objectUrl of localImageUrlsRef.current.values()) {
-      URL.revokeObjectURL(objectUrl);
+  const cancelLocalImageRead = useCallback((imageKey: string): void => {
+    const reader = activeImageReadersRef.current.get(imageKey);
+    if (reader === undefined) return;
+
+    // Remove ownership first so a late event cannot update a newer preview.
+    activeImageReadersRef.current.delete(imageKey);
+    if (reader.readyState === FileReader.LOADING) {
+      reader.abort();
     }
-    localImageUrlsRef.current.clear();
+  }, []);
+
+  const cancelAllLocalImageReads = useCallback((): void => {
+    const readers = [...activeImageReadersRef.current.values()];
+    activeImageReadersRef.current.clear();
+    for (const reader of readers) {
+      if (reader.readyState === FileReader.LOADING) {
+        reader.abort();
+      }
+    }
   }, []);
 
   const ensureLoaded = useCallback((): void => {
@@ -127,9 +141,9 @@ export function DemoMenuSandboxProvider({ children }: { children: ReactNode }) {
   useEffect(
     () => () => {
       activeControllerRef.current?.abort();
-      revokeAllLocalImages();
+      cancelAllLocalImageReads();
     },
-    [revokeAllLocalImages],
+    [cancelAllLocalImageReads],
   );
 
   const updateItem = useCallback(
@@ -191,6 +205,9 @@ export function DemoMenuSandboxProvider({ children }: { children: ReactNode }) {
     (categoryId: string, itemId: string, file: File | null): void => {
       if (file === null) return;
 
+      const imageKey = `${categoryId}:${itemId}`;
+      cancelLocalImageRead(imageKey);
+
       if (!LOCAL_IMAGE_TYPES.has(file.type)) {
         updateItem(categoryId, itemId, {
           localImageError: 'Choose a JPEG, PNG, or WebP image.',
@@ -204,9 +221,9 @@ export function DemoMenuSandboxProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      let objectUrl: string;
+      let reader: FileReader;
       try {
-        objectUrl = URL.createObjectURL(file);
+        reader = new FileReader();
       } catch {
         updateItem(categoryId, itemId, {
           localImageError: 'This image could not be prepared for the browser preview.',
@@ -214,29 +231,67 @@ export function DemoMenuSandboxProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      const imageKey = `${categoryId}:${itemId}`;
-      const previousObjectUrl = localImageUrlsRef.current.get(imageKey);
-      if (previousObjectUrl !== undefined) {
-        URL.revokeObjectURL(previousObjectUrl);
-      }
-      localImageUrlsRef.current.set(imageKey, objectUrl);
+      activeImageReadersRef.current.set(imageKey, reader);
       updateItem(categoryId, itemId, {
         localImageError: null,
-        localImageUrl: objectUrl,
       });
+
+      reader.addEventListener('load', () => {
+        if (activeImageReadersRef.current.get(imageKey) !== reader) return;
+        activeImageReadersRef.current.delete(imageKey);
+        const result = reader.result;
+        if (
+          typeof result !== 'string' ||
+          !result.startsWith(`data:${file.type};base64,`)
+        ) {
+          updateItem(categoryId, itemId, {
+            localImageError:
+              'This image could not be prepared for the browser preview.',
+          });
+          return;
+        }
+        updateItem(categoryId, itemId, {
+          localImageError: null,
+          localImageUrl: result,
+        });
+      });
+      reader.addEventListener('error', () => {
+        if (activeImageReadersRef.current.get(imageKey) !== reader) return;
+        activeImageReadersRef.current.delete(imageKey);
+        updateItem(categoryId, itemId, {
+          localImageError: 'This image could not be prepared for the browser preview.',
+        });
+      });
+      reader.addEventListener('abort', () => {
+        if (activeImageReadersRef.current.get(imageKey) === reader) {
+          activeImageReadersRef.current.delete(imageKey);
+        }
+      });
+
+      try {
+        reader.readAsDataURL(file);
+      } catch {
+        if (activeImageReadersRef.current.get(imageKey) === reader) {
+          activeImageReadersRef.current.delete(imageKey);
+          updateItem(categoryId, itemId, {
+            localImageError:
+              'This image could not be prepared for the browser preview.',
+          });
+        }
+      }
     },
-    [updateItem],
+    [cancelLocalImageRead, updateItem],
   );
 
   const reset = useCallback((): void => {
-    revokeAllLocalImages();
+    cancelAllLocalImageReads();
     sampleSequenceRef.current = 0;
     setState((current) =>
       current.kind === 'loaded'
         ? { ...current, categories: cloneCategories(current.original) }
         : current,
     );
-  }, [revokeAllLocalImages]);
+  }, [cancelAllLocalImageReads]);
 
   const value = useMemo(
     () => ({ addSampleDish, ensureLoaded, reset, selectLocalImage, state, updateItem }),

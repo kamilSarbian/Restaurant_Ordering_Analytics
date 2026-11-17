@@ -246,6 +246,39 @@ test('starts and ends the real reserved administrator demo session', async ({
       name: 'Sample dish 1',
     });
     await expect(sampleEditor).toBeVisible();
+    const sandboxPreview = page.getByRole('region', {
+      name: 'Current browser preview',
+    });
+    const samplePreviewCard = sandboxPreview
+      .getByText('Sample dish 1', { exact: true })
+      .locator('xpath=ancestor::li[1]');
+    await samplePreviewCard.scrollIntoViewIfNeeded();
+    await page.evaluate(() => {
+      const runtime = globalThis as typeof globalThis & {
+        __menuSandboxCspViolations?: Array<{
+          directive: string;
+          scheme: string;
+        }>;
+        document: {
+          addEventListener: (
+            type: 'securitypolicyviolation',
+            listener: (event: {
+              blockedURI: string;
+              effectiveDirective: string;
+            }) => void,
+          ) => void;
+        };
+      };
+      runtime.__menuSandboxCspViolations = [];
+      runtime.document.addEventListener('securitypolicyviolation', (event) => {
+        const blocked = event.blockedURI.toLowerCase();
+        const colon = blocked.indexOf(':');
+        runtime.__menuSandboxCspViolations?.push({
+          directive: event.effectiveDirective,
+          scheme: colon > 0 ? blocked.slice(0, colon) : blocked || 'unknown',
+        });
+      });
+    });
     await sampleEditor
       .getByLabel('Local preview image for Sample dish 1', { exact: true })
       .setInputFiles({
@@ -256,11 +289,38 @@ test('starts and ends the real reserved administrator demo session', async ({
         mimeType: 'image/png',
         name: 'browser-preview.png',
       });
-    await expect(
-      page
-        .getByRole('region', { name: 'Current browser preview' })
-        .getByRole('img', { exact: true, name: 'Sample dish 1 preview' }),
-    ).toBeVisible();
+    const samplePreviewImage = sandboxPreview.getByRole('img', {
+      exact: true,
+      name: 'Sample dish 1 preview',
+    });
+    await expect(samplePreviewImage).toBeVisible();
+    expect(
+      await samplePreviewImage.evaluate(async (element) => {
+        const image = element as unknown as {
+          currentSrc: string;
+          decode: () => Promise<void>;
+          naturalHeight: number;
+          naturalWidth: number;
+        };
+        await image.decode();
+        return {
+          dataPng: image.currentSrc.startsWith('data:image/png;base64,'),
+          naturalHeight: image.naturalHeight,
+          naturalWidth: image.naturalWidth,
+        };
+      }),
+    ).toEqual({ dataPng: true, naturalHeight: 1, naturalWidth: 1 });
+    expect(
+      await page.evaluate(() => {
+        const runtime = globalThis as typeof globalThis & {
+          __menuSandboxCspViolations?: Array<{
+            directive: string;
+            scheme: string;
+          }>;
+        };
+        return runtime.__menuSandboxCspViolations ?? [];
+      }),
+    ).not.toContainEqual({ directive: 'img-src', scheme: 'blob' });
     await page.getByRole('link', { name: 'Admin home' }).click();
     await page.getByRole('link', { name: 'Menu sandbox', exact: true }).click();
     await expect(page.getByLabel('Name').first()).toHaveValue('Browser preview dish');
