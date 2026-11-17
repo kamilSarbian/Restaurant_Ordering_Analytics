@@ -31,66 +31,62 @@
   results, and no timestamp shifting or reseeding. It also adds truthful demo
   payment and guest/customer/admin labels, official logo/carousel presentation,
   SEO metadata, and cold-start guidance.
-- **Committed presentation follow-up:** the prior presentation candidate is now
-  committed at `852163b77d7e5caca8cc7053d5369c1a20d23973`. That commit does not
-  provision or enable the reserved customer, establish deployment, or extend
-  the existing public administrator acceptance to customer demo.
-- **Current local presentation candidate:** the new worktree adds six responsive
+- **Deployed presentation follow-up:** the baseline at
+  `852163b77d7e5caca8cc7053d5369c1a20d23973` is now extended through deployed
+  commit `9be447fc1612d65e5b69f763403c6dee32257382`. It provides six responsive
   carousel scenes with five-second automatic progression, clickable
   keyboard/touch dot controls with active-state semantics, and background/
   off-viewport visibility gating. A selected scene receives a fresh interval
   after its image is displayed. Reduced motion retains manual selection without
   automatic progression or animation. Requested images load and decode above
   the current scene before an approximately 300 ms crossfade; failed or
-  superseded requests preserve the displayed image. The administrator
-  menu sandbox adds memory-only per-category sample dishes and bounded local
+  superseded requests preserve the displayed image. The administrator menu
+  sandbox adds memory-only per-category sample dishes and bounded local
   JPEG/PNG/WebP previews while remaining GET-only and non-persistent. Portfolio
   Analytics and Exports default to NOK with an explicit all-currencies option;
   normal runtime stays unchanged. A separate approximate calculator reads dated
   ECB reference rates for NOK-to-EUR/PLN display without modifying filters, CSV
-  output, persisted amounts, Orders, or Payments. The final independent review
-  found blocking P2 findings in carousel pause behavior and concurrent ECB
-  outage handling, together with P3 feed-structure and status-wording findings.
-  The current worktree addresses those findings, and targeted post-fix frontend
-  and backend checks pass; renewed final independent review remains open. One
-  earlier no-retry canonical Browser E2E invocation stopped in its
+  output, persisted amounts, Orders, or Payments. Final review found P2 findings
+  in carousel pause behavior and concurrent ECB outage handling, together with
+  P3 feed-structure and status-wording findings. The corrected candidate passed
+  renewed independent review without P0-P3 findings.
+  One earlier no-retry canonical Browser E2E invocation stopped in its
   normal-runtime phase after 9 passes when a stale first-slide alt selector
   failed; 22 tests did not run, and the later demo phases plus final database/log
   audits were not reached. That remains the historical result of the earlier
-  invocation. After the selector and follow-up diagnostics were corrected,
-  canonical run `f3aea9fbe12e6ac3` completed on the
+  invocation. Canonical run `f3aea9fbe12e6ac3` later completed on the
   pre-documentation-correction manifest SHA-256
   `36a20c57321451fdc8c1c762ea6bc08e386ce7b23804b58a892c1686c1726d07`
-  with native exit code 0, one worker, zero retries, and 38/38 tests passed:
-  34/34 normal runtime, 3/3
-  administrator-demo/customer-disabled/anonymous-guest, and 1/1 isolated
-  customer-enabled. `setup-portfolio`, the exact final database audit, and
-  every phase-specific secret-safe log audit passed. That result remains
-  evidence for those earlier tested bytes. After the carousel and ECB
-  corrections, canonical run `6f1719445d8d58e8` validated the later worktree
-  manifest SHA-256
+  with native exit code 0, one worker, zero retries, and 38/38 tests passed.
+  After the carousel and ECB corrections, canonical run `6f1719445d8d58e8`
+  validated worktree manifest SHA-256
   `c9a3ccc2ff9f83380f9ba8c5ad50912ff1031c7714128c1b6f635a4186539a76`
   with native exit code 0, one worker, zero retries, and 38/38 tests passed:
   34/34 normal runtime, 3/3
   administrator-demo/customer-disabled/anonymous-guest, and 1/1 isolated
   customer-enabled. `setup-portfolio`, the exact final database audit, and every
-  phase-specific secret-safe log audit passed. The candidate was subsequently
-  committed and pushed at `08c817e588dc471b30f46b9324abbce11da1c799`, but
-  GitHub Actions run `44089230455` exposed a Browser E2E failure in the menu
-  sandbox image preview: the containerized Nginx runtime CSP permits `data:`
-  but not the sandbox's former `blob:` URL. An isolated reproduction captured
-  the safe violation identity `img-src` + `blob` and the preview's
-  `Image unavailable` fallback. The current post-CI worktree changes bounded local
-  previews to in-memory `data:` URLs, cancels and identity-checks pending reads
-  across replacement, reset, logout, and provider teardown, and keeps both CSP
-  and the GET-only sandbox boundary unchanged. Post-fix validation passed 48/48
-  focused component/route tests, 1310/1310 candidate Vitest tests,
-  `typecheck:e2e`, and a one-worker, zero-retry browser check through the same
-  Nginx CSP; the exact PNG preview decoded with positive dimensions and no CSP
-  violation. Renewed review, a corrective commit, CI, deployment, and public
-  acceptance remain open.
-- **Evidence and release boundary:** the committed customer-demo foundation is
-  not deployed. Both customer-demo flags remain `false`. Targeted current-byte
+  phase-specific secret-safe log audit passed. These local results remain bound
+  to their exact earlier manifests.
+  The candidate was committed and pushed at
+  `08c817e588dc471b30f46b9324abbce11da1c799`, but GitHub Actions run
+  `44089230455` exposed a Browser E2E failure in the menu sandbox image preview:
+  the containerized Nginx runtime CSP permits `data:` but not the sandbox's
+  former `blob:` URL. The bounded `data:` preview hotfix, with pending-read
+  cancellation and identity checks, was committed at
+  `b9e3fb4eca1290a369097f8cb2b1459e31b18636`; push run `44113190217` passed
+  `Backend`, `Migrations`, `Frontend`, and `Browser E2E`. The final carousel
+  refinement was committed at `9be447fc1612d65e5b69f763403c6dee32257382`;
+  push run `44132315284` passed the same four jobs. Its isolated Browser E2E
+  completed 35/35 normal-runtime, 3/3
+  administrator-demo/customer-disabled/anonymous-guest, and 1/1 isolated
+  customer-enabled checks, plus the database and secret-safe log audits. The
+  delayed-image carousel scenario passed. The operator confirmed both Render
+  services Live on short SHA `9be447f` and manually accepted the deployed
+  application on a laptop and phone. This is operator-observed public evidence,
+  not automated public Browser E2E or a WCAG 2.2.2 conformance claim.
+- **Evidence and release boundary:** the customer-demo code is deployed, but
+  both customer-demo flags remain `false` and the reserved account is not
+  provisioned. Targeted current-byte
   isolated PostgreSQL evidence was followed by one clean current-byte invocation
   of all 10 relevant integration files: 308 passed with no filter or retry. The
   local canonical browser harness then passed three isolated phases with one
@@ -101,14 +97,14 @@
   owned runtime Order/history/detail, capability checkout and status, foreign
   Order isolation, administrator-route denial without an administrator API
   read, and logout; the final database and secret-safe log audits also passed.
-  This is local Compose evidence, not CI or public acceptance. The foundation's
-  independent review, commit, push, and CI are complete. Customer provisioning,
-  controlled deployment, and public acceptance remain open; the separate local
-  earlier presentation follow-up is committed, while the new local 22-F
-  candidate still requires commit, push, and CI. Do not attribute the existing
-  public administrator report to either boundary.
-- **Stage status:** Stage 22 remains **in progress** for those deployment and
-  presentation gates. Stage 23 is **in progress**: the public case study exists, while final
+  This is local Compose evidence, not public customer-demo acceptance. The
+  foundation's independent review, commit, push, CI, and disabled-code
+  deployment are complete. Customer provisioning, session activation, and
+  public customer-demo acceptance remain open. Do not attribute the existing
+  public administrator report or the separate 22-F operator acceptance to that
+  customer boundary.
+- **Stage status:** Stage 22 remains **in progress** only for those customer
+  activation gates. Stage 23 is **in progress**: the public case study exists, while final
   screenshots, architecture-presentation material, and any remaining
   CV-facing closeout remain open.
 
@@ -448,9 +444,10 @@
   `ROLLBACK_FAIL` remains unexplained; later `ROLLBACK_PASS` is the closing
   rollback evidence. The canary was not public full-flow Browser E2E. A later
   public activation completed Stage 22-D with the 14/14 report and public URLs
-  recorded in the current reconciliation above. Stage 22 remains in progress
-  for the committed but publicly inactive customer-demo foundation and the separate
-  local presentation-polish candidate; Stage 23 is in progress.
+  recorded in the current reconciliation above. The presentation follow-up is
+  committed, deployed, and separately operator-accepted on laptop and phone.
+  Stage 22 remains in progress for reserved customer provisioning, activation,
+  and public customer-demo acceptance; Stage 23 is in progress.
   Repository history alone does not prove later Render/Neon state.
   The guarded deployment seed path is committed at
   `70df05f36bf4075bdb6ad212306bb0bdcb113dc4`, but its reference end, target,
@@ -1096,11 +1093,12 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   production deployment or public URL.
 - **Stage 22 — Production Deployment & Public Acceptance:** **IN PROGRESS**.
   The existing administrator deployment completed visible Stage 22-D public
-  acceptance with the 14/14 report recorded above. The committed but publicly inactive
-  customer-demo and historical-preset foundation, plus the uncommitted local
-  22-F presentation follow-up, keep Stage 22 open. Clean current-byte PostgreSQL
-  evidence and dedicated local three-phase customer-demo Browser E2E evidence
-  do not constitute public customer-demo acceptance.
+  acceptance with the 14/14 report recorded above. The 22-F presentation
+  follow-up is committed, CI-green, deployed, and operator-accepted on laptop
+  and phone. The deployed but disabled and unprovisioned customer-demo path keeps
+  Stage 22 open. Clean current-byte PostgreSQL evidence and dedicated local
+  three-phase customer-demo Browser E2E evidence do not constitute public
+  customer-demo acceptance.
 - **AF1+B1-1 — runtime/config/security:** complete and committed on
   2026-09-18 at `bbb27b97c23ef4360bd4e00e8b1c86daa5ddd838`.
   Fail-closed portfolio/payment configuration, strict public origins/CORS,
@@ -1905,9 +1903,10 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   demo Menu/account error paths with static safe states and added exact CSP
   enforcement; its deployment, public activation, and Stage 22-D Render
   acceptance were still open. Later slices closed those administrator-demo
-  gates. Stage 22 now remains in progress for the committed but publicly inactive
-  customer-demo foundation and the separate local presentation-polish candidate;
-  Stage 23 is in progress.
+  gates. The later presentation follow-up is committed, CI-green, deployed, and
+  separately operator-accepted on laptop and phone. Stage 22 now remains in
+  progress for reserved customer provisioning, activation, and public
+  customer-demo acceptance; Stage 23 is in progress.
 
   A later frontend-only plumbing slice adds one bodyless
   `POST /api/v1/auth/demo-session` transport and exposes `startDemoSession()`
@@ -2116,11 +2115,12 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   `dadc63198295cf3a1f89c44b8a161e8330306bb9` remains historical evidence. The
   later administrator-demo activation passed the 14/14 public Stage 22-D report
   recorded in the current reconciliation above, and the public custom domain is
-  live. Stage 22 remains in progress for the committed but publicly inactive
-  customer-demo and historical-preset foundation plus the local uncommitted
-  22-F presentation follow-up. The customer flags remain false, and clean
-  current-byte PostgreSQL evidence plus dedicated local three-phase customer-demo
-  Browser E2E evidence do not replace public customer-demo acceptance.
+  live. The 22-F presentation follow-up is committed, CI-green, deployed, and
+  operator-accepted on laptop and phone. Stage 22 remains in progress for the
+  disabled and unprovisioned customer-demo path. The customer flags remain
+  false, and clean current-byte PostgreSQL evidence plus dedicated local
+  three-phase customer-demo Browser E2E evidence do not replace public
+  customer-demo acceptance.
 - **Stage 23 — Portfolio Documentation & Case Study:** in progress. The public
   case study is published; final screenshots, architecture presentation, and
   remaining CV-facing material remain open.
@@ -2187,8 +2187,9 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   adds deployment-ready configuration, security contracts, portable images,
   migration isolation, and an immutable release blueprint, but does not itself
   provision a public deployment. Stage 22 later provisioned and accepted the
-  public administrator baseline; the committed but publicly inactive customer-demo
-  foundation and local presentation-polish candidate remain Stage 22 work.
+  public administrator baseline. The presentation follow-up is deployed and has
+  separate operator laptop/phone acceptance; the disabled, unprovisioned
+  customer-demo path remains Stage 22 work.
 - Stage 17 acceptance used programmatic SPA and API HTTP smoke, not browser E2E.
   Stage 18 now supplies the required browser proof through Playwright Test
   1.62.1 and real Chromium only. The in-app browser was unavailable and is not
@@ -2199,10 +2200,11 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   `/admin/users` UI are implemented. Refresh tokens, password recovery, MFA,
   and refunds have not started. Continuous integration is implemented and live
   acceptance-verified, and Stage 20 deployment readiness is complete. The
-  public administrator release is accepted; Stage 22 remains open for the
-  committed but publicly inactive customer-demo foundation and the local
-  presentation-polish candidate, while Stage 23 remains in progress for its
-  remaining portfolio material.
+  public administrator release and presentation follow-up are deployed and
+  accepted within their recorded evidence boundaries. Stage 22 remains open for
+  reserved customer provisioning, activation, and public customer-demo
+  acceptance, while Stage 23 remains in progress for its remaining portfolio
+  material.
 
 ## Historical Stage 19 verification
 

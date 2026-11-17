@@ -2168,9 +2168,10 @@ OrderItem -> Order`. Exact rowcounts, zero remaining runtime children, and a
 
 ## D-094 — Persisted Historical Period and Truthful Portfolio Presentation
 
-- **Status:** committed through the presentation follow-up
-  `852163b77d7e5caca8cc7053d5369c1a20d23973`; not deployed and not covered by
-  the existing 14/14 Stage 22-D public report.
+- **Status:** committed and deployed through
+  `9be447fc1612d65e5b69f763403c6dee32257382`. The older 14/14 Stage 22-D report
+  covers the prior administrator baseline; the newer presentation bytes have
+  separate CI and operator acceptance evidence.
 - **Historical period:** the exact demo administrator reads a strict sample
   period derived from persisted canonical seed data. The backend does not
   rewrite timestamps, shift the dataset to the current date, or reseed it for
@@ -2192,13 +2193,17 @@ OrderItem -> Order`. Exact rowcounts, zero remaining runtime children, and a
   lifecycle test, using one worker and zero retries with clean database and
   secret-safe log audits. This is local evidence, not CI or public customer-demo
   acceptance.
-  The accepted public administrator report and published case study remain
-  evidence for the earlier deployed baseline only.
+  The accepted public administrator report remains evidence for the earlier
+  deployed baseline. GitHub Actions push run `44132315284` passed all four
+  required jobs for `9be447fc1612d65e5b69f763403c6dee32257382`, and the operator
+  confirmed both Render services Live on short SHA `9be447f` and manually
+  accepted the deployed application on a laptop and phone. That manual result is
+  not an automated public Browser E2E run or a WCAG 2.2.2 conformance claim.
 
 ## D-095 — Bounded Portfolio Presentation Tools Remain Non-Transactional
 
-- **Status:** proposed by the current local candidate on 2026-11-14;
-  uncommitted and not deployed.
+- **Status:** accepted, committed, and deployed through
+  `9be447fc1612d65e5b69f763403c6dee32257382` on 2026-11-17.
 - **Carousel:** six responsive presentation scenes advance every five seconds
   while the document and carousel are visible. Clickable dot controls expose
   keyboard, touch, and active-state semantics; selecting a scene starts a fresh
@@ -2229,8 +2234,15 @@ OrderItem -> Order`. Exact rowcounts, zero remaining runtime children, and a
   tested worktree manifest
   `c9a3ccc2ff9f83380f9ba8c5ad50912ff1031c7714128c1b6f635a4186539a76`
   with native exit `0`, `workers=1`, `retries=0`, and `38/38 PASS`; its database
-  and log audits also passed. Final independent review, commit, CI, deployment,
-  and public acceptance remain separate open gates.
+  and log audits also passed. Renewed independent review closed without P0-P3
+  findings. The CSP-compatible menu-preview hotfix at
+  `b9e3fb4eca1290a369097f8cb2b1459e31b18636` passed all four jobs in push run
+  `44113190217`. The final carousel refinement at
+  `9be447fc1612d65e5b69f763403c6dee32257382` passed all four jobs in push run
+  `44132315284`, including 39/39 browser checks and the database/log audits. Both
+  Render services are operator-confirmed Live on short SHA `9be447f`, and manual
+  laptop/phone acceptance passed. Customer provisioning, customer-session
+  activation, and public customer-demo acceptance remain separate open gates.
 
 ## History of Decisions That Required Resolution
 

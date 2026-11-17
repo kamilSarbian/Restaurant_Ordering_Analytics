@@ -2,7 +2,7 @@
 
 ## Current status
 
-### Public baseline and current local candidate (2026-11-17)
+### Public baseline and deployed presentation follow-up (2026-11-17)
 
 The existing administrator demo completed Stage 22-D public acceptance in
 report `stage22d-public-20261110t002125z`: all 14 checks passed and the report
@@ -35,12 +35,10 @@ administrator-demo check, 2/2 customer-disabled/anonymous-guest checks, and 1/1
 enabled customer-demo lifecycle, with one worker, zero retries, and passing
 database and secret-safe log audits.
 
-The presentation baseline that followed is committed at
-`852163b77d7e5caca8cc7053d5369c1a20d23973`; it is not evidence that the
-reserved customer is provisioned or publicly enabled.
-
-The current worktree is a separate **uncommitted and undeployed** follow-up
-candidate. It uses six responsive carousel scenes with five-second automatic
+The presentation baseline was committed at
+`852163b77d7e5caca8cc7053d5369c1a20d23973`, and the follow-up is now committed
+and deployed through `9be447fc1612d65e5b69f763403c6dee32257382`. It uses six
+responsive carousel scenes with five-second automatic
 progression and clickable dot controls with keyboard, touch, and active-state
 semantics. Selecting a scene starts a fresh five-second interval once its image
 is displayed; background tabs and off-viewport carousels remain paused. Reduced
@@ -55,11 +53,10 @@ and never sends a menu mutation. Portfolio Analytics and Exports default to
 calculator can load dated ECB EUR reference rates for NOK-to-EUR/PLN display;
 it cannot change filters, persisted amounts, reports, CSV files, Orders, or
 Payments. Normal runtime keeps its existing currency controls. The final
-independent review found blocking P2 findings in carousel pause behavior and
-concurrent ECB outage handling, together with P3 feed-structure and
-status-wording findings. The current worktree addresses those findings, and
-targeted post-fix frontend and backend checks pass; renewed final independent
-review remains open. One earlier no-retry canonical Browser E2E invocation
+independent review found P2 findings in carousel pause behavior and concurrent
+ECB outage handling, together with P3 feed-structure and status-wording
+findings. The corrected candidate passed renewed independent review without
+P0-P3 findings. One earlier no-retry canonical Browser E2E invocation
 stopped in its normal-runtime phase after 9 passes when a stale first-slide alt
 selector failed; 22 tests did not run, and the later demo phases and final
 database/log audits were not reached. That result remains the historical record
@@ -80,8 +77,23 @@ with native exit code 0, one worker, zero retries, and 38/38 tests passed: 34/34
 in normal runtime, 3/3 across administrator demo plus customer-disabled and
 anonymous-guest flows, and 1/1 in the isolated customer-enabled flow.
 `setup-portfolio`, the final database audit, and every phase-specific
-secret-safe log audit passed. Final independent review, commit, push, CI,
-customer provisioning, deployment, and public acceptance remain open.
+secret-safe log audit passed. The candidate was committed at
+`08c817e588dc471b30f46b9324abbce11da1c799`. GitHub Actions run `44089230455`
+then exposed the sandbox preview's CSP-incompatible `blob:` URL; the bounded
+`data:` preview fix was committed at
+`b9e3fb4eca1290a369097f8cb2b1459e31b18636`, and push run `44113190217`
+completed `Backend`, `Migrations`, `Frontend`, and `Browser E2E` successfully.
+The carousel refinement was committed at
+`9be447fc1612d65e5b69f763403c6dee32257382`; push run `44132315284` completed
+the same four jobs successfully, including 35/35 normal-runtime, 3/3
+administrator-demo/customer-disabled/anonymous-guest, and 1/1 isolated
+customer-enabled browser checks, plus database and secret-safe log audits. Its
+delayed-image carousel scenario also passed. The operator confirmed both Render
+services Live on short SHA `9be447f` and manually verified the deployed
+application on a laptop and phone. This is operator-observed public acceptance,
+not an automated public Browser E2E run or a WCAG 2.2.2 conformance claim. The
+reserved customer remains unprovisioned, both customer-demo flags remain
+`false`, and public customer-demo activation and acceptance remain open.
 
 Stage 23 is **in progress**: the public case study exists, while final
 screenshots, architecture-presentation material, and any remaining CV-facing
@@ -311,10 +323,11 @@ credential-hygiene issue was remediated by rotation without documenting or
 tracking any credential value. Stage 17 provides repeatable local full-system
 containers, Stage 18 provides isolated browser E2E, Stage 19 provides the
 committed deterministic CI baseline, and Stages 20 and 21 add the readiness and
-product-polish work described above. The accepted administrator baseline is
-public. The committed customer-demo and historical-preset foundation remains
-undeployed and unprovisioned, while the presentation-polish candidate described
-above remains local and uncommitted.
+product-polish work described above. The accepted administrator baseline and
+the presentation follow-up through `9be447fc1612d65e5b69f763403c6dee32257382`
+are public. The customer-demo code is deployed but remains disabled; its
+reserved account is unprovisioned and its public activation and acceptance
+remain open.
 
 ## Unified identity, Order ownership, and account backend
 
@@ -464,9 +477,10 @@ without introducing infrastructure that is unnecessary for a single venue.
 - A repository-ready and operator-confirmed free-tier target: Render
   Static Site Free, Render Docker Web Service Free, Neon PostgreSQL Free, and a
   manual direct-URL migration workflow. The administrator demo passed the
-  recorded Stage 22-D public acceptance; the committed but publicly inactive
-  customer-demo foundation and the local presentation-polish candidate are not
-  part of that deployed evidence.
+  recorded Stage 22-D public acceptance. The presentation follow-up is deployed
+  through `9be447fc1612d65e5b69f763403c6dee32257382` and has separate operator
+  laptop/phone acceptance. The deployed customer-demo code remains disabled and
+  unprovisioned.
 - A Nordic Hearth design system and polished customer, account, and
   administrator experiences with responsive WebP delivery, accessibility
   hardening, and route-level lazy loading.
@@ -489,10 +503,11 @@ without introducing infrastructure that is unnecessary for a single venue.
   remains a separate operator boundary.
 - Historical and superseded for the portfolio demo: the Stage 20 paid
   Render/GHCR private-service, cron/migrator, and managed-database target.
-- In progress: Stage 22 Production Deployment & Public Acceptance, including
-  the committed but publicly inactive customer-demo foundation and the uncommitted
-  presentation-polish candidate. Stage 23 Portfolio Documentation & Case Study
-  is also in progress; its public case study is published.
+- In progress: Stage 22 Production Deployment & Public Acceptance for the
+  disabled, unprovisioned customer-demo path and its future public acceptance.
+  The presentation-polish follow-up is deployed. Stage 23 Portfolio
+  Documentation & Case Study is also in progress; its public case study is
+  published.
 
 ## Repository structure
 

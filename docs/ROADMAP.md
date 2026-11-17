@@ -669,9 +669,10 @@
   its SHA-256 is
   `5c02f7d5806cc39f9f85cb3e49d011dc86b3efb66473dbf0bf409f4975e79214`.
   Reflow was checked at 640 CSS pixels rather than literal 200% browser zoom.
-  Stage 22 remains open for the committed customer-demo and
-  historical-preset foundation, the uncommitted 22-F presentation follow-up,
-  and their remaining review and acceptance gates.
+  The 22-F presentation follow-up is committed, CI-green, deployed, and
+  operator-accepted on a laptop and phone. Stage 22 remains open for reserved
+  customer provisioning, customer-session activation, and public customer-demo
+  acceptance.
 - **Goal:** prepare, provision, release, and accept a safe zero-base-cost
   portfolio demo using Render Static Site Free, Render Docker Web Service Free,
   and Neon PostgreSQL Free. The Stage 20 paid/GHCR target is historical, not
@@ -859,9 +860,10 @@ data` badge without granting authorization. The dedicated isolated
   release uses this boundary with both flags false; visible-UI activation still
   requires separate authorization.
 - **B5 — recruiter journey/UX:** complete for the accepted administrator demo;
-  the committed presentation follow-up adds explicit guest/customer/admin and
+  the deployed presentation follow-up adds explicit guest/customer/admin and
   demo-payment labels, official-brand carousel/SEO work, and wake-up guidance.
-  The later local 22-F follow-up remains a separate review boundary.
+  Its CI and operator laptop/phone acceptance remain separate evidence from the
+  earlier automated public Stage 22-D report.
 - **B6 — integrated acceptance:** complete for the accepted administrator
   journey through the 14/14 Stage 22-D report. It is not acceptance of the
   committed but publicly inactive customer-demo foundation.
@@ -938,7 +940,7 @@ activation or acceptance.
 
 ### 22-F — Local Portfolio Presentation Follow-up
 
-**Status: local, uncommitted, and not deployed.** The current candidate adds a
+**Status: implemented, committed, CI-green, and deployed.** The follow-up adds a
 six-scene responsive carousel with five-second automatic progression and
 clickable keyboard/touch dot controls with active-state semantics. A selected
 scene receives a fresh five-second interval after it is displayed; background
@@ -955,10 +957,9 @@ all-currencies selection; normal runtime keeps its existing currency controls.
 A separate approximate NOK-to-EUR/PLN calculator may read a dated ECB reference
 rate through a bounded backend adapter. It does not modify report filters, CSV
 output, persisted amounts, Orders, or Payments. The final independent review
-found blocking P2 findings in carousel pause behavior and concurrent ECB outage
-handling, together with P3 feed-structure and status-wording findings. The
-current worktree addresses those findings, and targeted post-fix frontend and
-backend checks pass; renewed final independent review remains open. One earlier
+found P2 findings in carousel pause behavior and concurrent ECB outage handling,
+together with P3 feed-structure and status-wording findings. The corrected
+candidate passed renewed independent review without P0-P3 findings. One earlier
 no-retry canonical Browser E2E invocation stopped in the normal-runtime phase
 after 9 passes on a stale first-slide alt selector; 22 tests did not run, and
 later phases plus final database/log audits were not reached. That historical
@@ -978,8 +979,16 @@ with native exit code 0, one worker, zero retries, and 38/38 tests passed: 34/34
 normal-runtime checks, 3/3 administrator-demo/customer-disabled/anonymous-guest
 checks, and 1/1 isolated customer-enabled lifecycle. `setup-portfolio`, the
 final database audit, and all phase-specific secret-safe log audits passed.
-Final independent review, commit, CI, deployment, and public acceptance remain
-open.
+The candidate was committed at `08c817e588dc471b30f46b9324abbce11da1c799`.
+After CI identified the menu-preview CSP mismatch, the corrective hotfix was
+committed at `b9e3fb4eca1290a369097f8cb2b1459e31b18636`; push run `44113190217`
+passed all four required jobs. The final carousel refinement was committed at
+`9be447fc1612d65e5b69f763403c6dee32257382`; push run `44132315284` passed
+`Backend`, `Migrations`, `Frontend`, and `Browser E2E`, including 39/39 browser
+checks and the database/log audits. Both Render services are operator-confirmed
+Live on short SHA `9be447f`. Manual laptop/phone acceptance passed; it is
+operator evidence rather than automated public Browser E2E or a WCAG 2.2.2
+conformance claim.
 
 ## 23. Portfolio Documentation & Case Study
 
@@ -1003,12 +1012,10 @@ Neither stage claims a live deployment or public URL.
 
 That paragraph records the historical 2026-09-15 reconciliation boundary, not
 the current state. The existing administrator demo and public URL have passed
-Stage 22-D, and the case study is published. Full local canonical Browser E2E
-for the exact corrected 22-F worktree has passed; the next recommended Stage 22
-work is final independent review, followed only on separate authorization by
-commit and CI. The 22-E
-customer-account provisioning, customer-session flag activation, deployment,
-and public acceptance remain later independent gates.
+Stage 22-D, the 22-F presentation follow-up is committed, CI-green, deployed,
+and operator-accepted on laptop and phone, and the case study is published. The
+next recommended Stage 22 work is the separately authorized 22-E reserved
+customer provisioning, customer-session activation, and public acceptance.
 The historical 22-E pre-commit boundary contained 101 paths relative to
 `054e3db5eb9b2848657072f8d78a9692b025b821`: the reviewed 90-path product
 candidate plus 10 paths required for the isolated three-phase browser harness

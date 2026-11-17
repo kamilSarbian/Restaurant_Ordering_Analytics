@@ -27,7 +27,7 @@ The goal is to build a secure web application that:
 - provides basic KPIs, reports, and CSV exports;
 - can run locally through Docker Compose and be deployed as a demo.
 
-### Current public baseline and local-candidate boundary (2026-11-14)
+### Current public baseline and deployed presentation boundary (2026-11-17)
 
 The existing public administrator demo passed Stage 22-D in report
 `stage22d-public-20261110t002125z`: 14 of 14 checks passed and the report
@@ -42,16 +42,15 @@ Order, and a separate guarded operator action resets only validated runtime
 aggregates while preserving canonical seed and live rows.
 
 The reserved-customer foundation is committed at
-`5842268a4bdb991c3289e85565403c89d203db9e`, and its presentation follow-up is
-committed at `852163b77d7e5caca8cc7053d5369c1a20d23973`. The exact customer role,
-owned runtime history, capability-only Checkout, default-false session gates,
-historical sample-period metadata, and truthful demo presentation remain
-separate from the accepted public administrator evidence. The reserved customer
-has not been provisioned, and public customer-demo activation and acceptance
-have not run.
+`5842268a4bdb991c3289e85565403c89d203db9e`. Its code is present in the current
+deployment, but the exact customer role, owned runtime history, capability-only
+Checkout, and default-false session gates remain separate from the accepted
+public administrator evidence. The reserved customer has not been provisioned,
+and public customer-demo activation and acceptance have not run.
 
-The current worktree is a new **uncommitted, undeployed** follow-up candidate.
-It replaces the landing sequence with six responsive scenes, five-second
+The presentation work is committed and deployed through
+`9be447fc1612d65e5b69f763403c6dee32257382`. It replaces the landing sequence
+with six responsive scenes, five-second
 automatic progression, and clickable dot controls with keyboard, touch, and
 active-state semantics. Selecting a scene starts a fresh interval once its image
 is displayed, while background tabs and off-viewport carousels remain paused.
@@ -78,9 +77,15 @@ with native exit code 0, one worker, zero retries, and 38/38 tests passed: 34/34
 normal-runtime checks, 3/3 administrator-demo/customer-disabled/anonymous-guest
 checks, and 1/1 isolated customer-enabled lifecycle. `setup-portfolio`, the
 final database audit, and every phase-specific secret-safe log audit passed.
-Final independent review, commit, push, CI,
-deployment, and public acceptance remain open; the public administrator report
-proves none of these local bytes.
+Renewed independent review closed without P0-P3 findings. The menu-preview CSP
+hotfix was committed at `b9e3fb4eca1290a369097f8cb2b1459e31b18636`; push run
+`44113190217` passed all four required jobs. The final carousel refinement was
+committed at `9be447fc1612d65e5b69f763403c6dee32257382`; push run `44132315284`
+passed `Backend`, `Migrations`, `Frontend`, and `Browser E2E`, with 39/39 browser
+checks plus database and secret-safe log audits. The operator confirmed both
+Render services Live on short SHA `9be447f` and manually accepted the deployed
+application on a laptop and phone. That is operator-observed public evidence,
+not an automated public Browser E2E run or a WCAG 2.2.2 conformance claim.
 
 Stage 22 therefore remains in progress. Stage 23 is also in progress: the case
 study is public, while final screenshot, architecture-presentation, and
@@ -988,12 +993,13 @@ frontend passed 220 targeted tests and
 1,211 tests in its full suite. Review, commit, and CI are recorded separately
 from any production reset authorization.
 
-The current local customer-demo candidate narrows one part of that inventory
+The committed customer-demo foundation narrows one part of that inventory
 contract: reset may accept either an unowned runtime Order or an Order owned by
 the exact reserved demo customer, while every other owner remains a fail-closed
-STOP. That extension is uncommitted and has targeted current-byte isolated
-PostgreSQL coverage, including the clean 308-test invocation of all 10 relevant
-integration files. It has not been deployed or run against Neon.
+STOP. That extension has targeted isolated PostgreSQL coverage, including the
+clean 308-test invocation of all 10 relevant integration files. Its code is
+deployed with the customer-demo flags disabled, and it has not been activated or
+used to provision the reserved customer in Neon.
 
 ## 5. MVP Scope
 
@@ -1016,7 +1022,8 @@ The MVP includes:
 - tests for critical logic;
 - local execution through Docker Compose;
 - CI, the deployed administrator demo architecture, and its public acceptance;
-  the separate local customer-demo candidate remains Stage 22 work.
+  reserved customer provisioning, customer-session activation, and public
+  customer-demo acceptance remain Stage 22 work.
 
 ## 6. Features Outside the MVP
 
@@ -1228,9 +1235,10 @@ reserved Neon demo administrator and initial false/false Render deployment were
 subsequently verified. A later bounded backend canary reached `CANARY_PASS` and
 was rolled back to exact 404; that canary was not public full-flow Browser E2E.
 The later 14/14 public acceptance report and public URLs are recorded in the
-current baseline above. The remaining Stage 22 work is the committed
-customer-demo and historical-preset foundation, the uncommitted 22-F
-presentation follow-up, and their independent review and acceptance gates.
+current baseline above. The 22-F presentation follow-up is committed, CI-green,
+deployed, and manually accepted on a laptop and phone. The remaining Stage 22
+work is customer-account provisioning, customer-session activation, and public
+customer-demo acceptance.
 Stage 23 — Portfolio Documentation & Case Study is in progress. The public case
 study exists; remaining presentation and CV-facing material remains open.
 

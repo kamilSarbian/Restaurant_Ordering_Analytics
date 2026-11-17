@@ -20,15 +20,15 @@ explicit operator-only reset guarded by the same advisory lock. Public reflow
 evidence used 640 CSS pixels rather than literal 200% browser zoom.
 
 The reserved-customer architecture is committed at
-`5842268a4bdb991c3289e85565403c89d203db9e`, and its presentation follow-up is
-committed at `852163b77d7e5caca8cc7053d5369c1a20d23973`. Its exact `customer`
-principal, owned runtime history, capability-only Checkout, default-false
-session gates, and persisted historical period remain outside the accepted
-public administrator evidence. The reserved customer is not provisioned and
-its public gate has not run.
+`5842268a4bdb991c3289e85565403c89d203db9e`. Its code is deployed with the
+customer-demo flags disabled. Its exact `customer` principal, owned runtime
+history, capability-only Checkout, default-false session gates, and persisted
+historical period remain outside the accepted public administrator evidence.
+The reserved customer is not provisioned and its public gate has not run.
 
-The current worktree is a separate uncommitted architecture candidate. The
-landing carousel uses responsive `srcset` assets, five-second automatic
+The presentation architecture is committed and deployed through
+`9be447fc1612d65e5b69f763403c6dee32257382`. The landing carousel uses
+responsive `srcset` assets, five-second automatic
 progression, clickable keyboard/touch dot controls with active-state semantics,
 and page/intersection visibility gating. A manual selection starts a fresh
 interval after the selected image is displayed. Reduced motion keeps manual dot
@@ -61,8 +61,16 @@ with native exit code 0, one worker, zero retries, and 38/38 tests passed: 34/34
 normal-runtime checks, 3/3 administrator-demo/customer-disabled/anonymous-guest
 checks, and 1/1 isolated customer-enabled lifecycle. `setup-portfolio`, the
 final database audit, and all phase-specific secret-safe log audits passed.
-Final independent review, commit, CI,
-deployment, and public acceptance remain separate open gates.
+Renewed independent review closed without P0-P3 findings. The CSP-compatible
+menu-preview hotfix is committed at
+`b9e3fb4eca1290a369097f8cb2b1459e31b18636`, and the final carousel refinement
+is committed at `9be447fc1612d65e5b69f763403c6dee32257382`. Push runs `44113190217`
+and `44132315284` each passed `Backend`, `Migrations`, `Frontend`, and
+`Browser E2E`; the latter completed 39/39 browser checks and the database and
+secret-safe log audits. Both Render services are operator-confirmed Live on
+short SHA `9be447f`, and the deployed application passed manual laptop/phone
+acceptance. That manual evidence is separate from automated public Browser E2E
+and is not a WCAG 2.2.2 conformance claim.
 
 ## 2. Selected Stack
 
@@ -1796,11 +1804,12 @@ before commit. A no-op rerun emits no DELETE. Seed and live rows are never reset
 and no endpoint, startup hook, scheduler, repair, or automatic prune invokes
 this path.
 
-The current local customer-demo candidate changes only the accepted runtime
-owner inventory: a runtime Order may be unowned or owned by the exact reserved
-demo customer; any other owner remains a fail-closed STOP. That extension is
-uncommitted. It has targeted current-byte isolated PostgreSQL coverage,
-including the clean 308-test invocation, but no public acceptance.
+The committed customer-demo foundation changes only the accepted runtime owner
+inventory: a runtime Order may be unowned or owned by the exact reserved demo
+customer; any other owner remains a fail-closed STOP. It has targeted isolated
+PostgreSQL coverage, including the clean 308-test invocation. Its code is
+deployed with the customer-demo flags disabled; the reserved customer remains
+unprovisioned and has no public acceptance.
 
 ### 5.31. Shared Demo Identity Customer-Order Isolation
 
