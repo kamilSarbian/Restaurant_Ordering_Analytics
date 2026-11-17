@@ -17,6 +17,7 @@
 }
 
 .slides {
+    position: relative;
     height: auto;
     min-width: 0;
     min-height: 0;
@@ -24,10 +25,15 @@
 }
 
 .slide {
-    position: relative;
+    position: absolute;
+    inset: 0;
+    z-index: 0;
     min-width: 0;
     aspect-ratio: 1774 / 887;
     margin: 0;
+    visibility: hidden;
+    opacity: 0;
+    pointer-events: none;
 }
 
 .slide[hidden] {
@@ -38,36 +44,26 @@
     display: block;
 }
 
+.currentSlide {
+    z-index: 1;
+    visibility: visible;
+    opacity: 1;
+}
+
+.pendingSlide {
+    z-index: 2;
+    visibility: visible;
+    opacity: 0;
+}
+
+.revealedSlide {
+    opacity: 1;
+    transition: opacity 300ms var(--easing-standard);
+}
+
 .image {
     display: block;
     object-fit: cover;
-    animation: carousel-image-enter var(--duration-standard) var(--easing-standard) both;
-}
-
-.mediaControl {
-    position: absolute;
-    z-index: 4;
-    top: var(--space-3);
-    right: var(--space-3);
-    min-width: 2.75rem;
-    min-height: 2.75rem;
-    padding: var(--space-2) var(--space-3);
-    border: var(--border-width-hairline) solid rgb(255 255 255 / 82%);
-    border-radius: var(--radius-control);
-    color: var(--color-text-inverse);
-    background: rgb(13 43 30 / 88%);
-    box-shadow: var(--shadow-elevation-1);
-    cursor: pointer;
-    touch-action: manipulation;
-}
-
-.mediaControl:hover {
-    background: rgb(13 43 30 / 100%);
-}
-
-.mediaControl:focus-visible {
-    outline: var(--border-width-focus) solid var(--color-focus-ring);
-    outline-offset: var(--border-width-strong);
 }
 
 .caption {
@@ -104,8 +100,27 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: var(--space-2);
+    gap: 0;
     transform: translateX(-50%);
+}
+
+.indicatorButton {
+    display: grid;
+    width: 2.75rem;
+    height: 2.75rem;
+    padding: 0;
+    place-items: center;
+    border: 0;
+    color: inherit;
+    background: transparent;
+    cursor: pointer;
+    touch-action: manipulation;
+}
+
+.indicatorButton:focus-visible {
+    border-radius: 50%;
+    outline: var(--border-width-focus) solid var(--color-focus-ring);
+    outline-offset: calc(-1 * var(--border-width-focus));
 }
 
 .indicator {
@@ -130,23 +145,13 @@
     transform-origin: center;
 }
 
-.indicator[data-active='true'] .indicatorFill {
+.indicatorButton[data-active='true'] .indicatorFill {
     transform: scale(1);
 }
 
-.indicator[data-running='true'] .indicatorFill {
+.indicatorButton[data-running='true'] .indicatorFill {
     animation: carousel-indicator-progress var(--carousel-indicator-duration) linear
         both;
-}
-
-@keyframes carousel-image-enter {
-    from {
-        opacity: 0;
-    }
-
-    to {
-        opacity: 1;
-    }
 }
 
 @keyframes carousel-indicator-progress {
@@ -160,9 +165,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .image,
+    .revealedSlide,
     .indicatorFill {
         animation: none;
+        transition: none;
     }
 }
 

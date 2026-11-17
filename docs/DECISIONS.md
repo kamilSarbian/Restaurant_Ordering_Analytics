@@ -2200,14 +2200,14 @@ OrderItem -> Order`. Exact rowcounts, zero remaining runtime children, and a
 - **Status:** proposed by the current local candidate on 2026-11-14;
   uncommitted and not deployed.
 - **Carousel:** six responsive presentation scenes advance every five seconds
-  when visible and not otherwise paused. A visible **Pause slideshow / Resume
-  slideshow** button is operable by keyboard and touch. Pointer hover and
-  keyboard focus pause rotation passively; an explicit control action overrides
-  the current passive pause, and a manual pause persists after pointer or focus
-  leaves. With `prefers-reduced-motion: reduce`, the first scene remains static
-  until the visitor explicitly resumes playback. The earlier no-control
-  proposal was superseded during review and is not the current candidate
-  behavior.
+  while the document and carousel are visible. Clickable dot controls expose
+  keyboard, touch, and active-state semantics; selecting a scene starts a fresh
+  five-second interval after the selected image is displayed. With
+  `prefers-reduced-motion: reduce`, dot selection remains available while
+  automatic progression and animation stay disabled. A requested responsive
+  image loads and decodes above the current scene before an approximately 300 ms
+  crossfade; failed or superseded requests retain the last displayed scene.
+  This current interaction supersedes the earlier pause-button candidate.
 - **Menu sandbox:** the administrator may add memory-only sample dishes within
   selected categories and attach bounded local JPEG/PNG/WebP previews. The browser owns
   CSP-compatible `data:` previews produced by bounded `FileReader` operations.

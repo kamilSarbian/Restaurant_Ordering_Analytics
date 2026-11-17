@@ -52,10 +52,13 @@ have not run.
 
 The current worktree is a new **uncommitted, undeployed** follow-up candidate.
 It replaces the landing sequence with six responsive scenes, five-second
-automatic progression, non-interactive progress indicators, and a visible
-pause/resume control. Pointer hover and keyboard focus pause playback, an
-explicit manual pause persists after either leaves, and reduced motion starts
-paused until the user deliberately resumes. The administrator menu sandbox
+automatic progression, and clickable dot controls with keyboard, touch, and
+active-state semantics. Selecting a scene starts a fresh interval once its image
+is displayed, while background tabs and off-viewport carousels remain paused.
+Reduced motion retains manual dot selection without automatic progression or
+animation. Requested images load and decode above the displayed scene before an
+approximately 300 ms crossfade; failures and superseded requests preserve the
+last displayed scene. The administrator menu sandbox
 remains memory-only and GET-only while adding per-category sample dishes and
 bounded local JPEG/PNG/WebP previews. Portfolio Analytics and Exports default
 to NOK with an explicit all-currencies choice, while normal runtime remains

@@ -1,13 +1,57 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 
 import HeroCarousel from './HeroCarousel';
 
 function installMatchMedia(matches: boolean): void {
   Object.defineProperty(window, 'matchMedia', {
     configurable: true,
-    value: vi.fn().mockReturnValue({ matches }),
+    value: vi.fn().mockReturnValue({
+      addEventListener: vi.fn(),
+      matches,
+      removeEventListener: vi.fn(),
+    }),
   });
+}
+
+function preparePendingImage(
+  image: HTMLImageElement,
+  decode: () => Promise<void> = () => Promise.resolve(),
+): void {
+  Object.defineProperties(image, {
+    complete: { configurable: true, value: false },
+    decode: { configurable: true, value: vi.fn(decode) },
+    naturalHeight: { configurable: true, value: 0 },
+    naturalWidth: { configurable: true, value: 0 },
+  });
+}
+
+async function loadPreparedImage(image: HTMLImageElement): Promise<void> {
+  Object.defineProperties(image, {
+    complete: { configurable: true, value: true },
+    naturalHeight: { configurable: true, value: 640 },
+    naturalWidth: { configurable: true, value: 1024 },
+  });
+  await act(async () => {
+    fireEvent.load(image);
+    await Promise.resolve();
+  });
+}
+
+async function finishCrossfade(image: HTMLImageElement): Promise<void> {
+  await loadPreparedImage(image);
+  const slide = image.closest('figure');
+  if (slide === null) {
+    throw new Error('Expected the image to belong to a carousel slide.');
+  }
+  fireEvent.transitionEnd(slide, { propertyName: 'opacity' });
+}
+
+function getImageByAlt(name: string): HTMLImageElement {
+  const image = screen.getByAltText(name);
+  if (!(image instanceof HTMLImageElement)) {
+    throw new Error(`Expected "${name}" to resolve to an image.`);
+  }
+  return image;
 }
 
 function installIntersectionObserver() {
@@ -55,9 +99,10 @@ describe('HeroCarousel', () => {
     vi.unstubAllGlobals();
   });
 
-  it('prioritizes only the first image and exposes one visible playback control', () => {
+  it('prioritizes only the first image and exposes six labelled dot buttons', () => {
     const { container } = render(<HeroCarousel />);
     const images = container.querySelectorAll('img');
+    const indicators = screen.getAllByRole('button', { name: /^Show image /u });
 
     expect(images).toHaveLength(6);
     expect(images[0]).toHaveAttribute('loading', 'eager');
@@ -66,16 +111,15 @@ describe('HeroCarousel', () => {
       expect(image).toHaveAttribute('loading', 'lazy');
     }
     expect(container.querySelectorAll('img[fetchpriority=high]')).toHaveLength(1);
-    expect(
-      screen.queryByRole('button', { name: 'Previous image' }),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole('button', { name: 'Next image' }),
-    ).not.toBeInTheDocument();
+    expect(indicators).toHaveLength(6);
+    expect(indicators[0]).toHaveAttribute('aria-current', 'true');
+    for (const indicator of indicators.slice(1)) {
+      expect(indicator).not.toHaveAttribute('aria-current');
+    }
     expect(screen.queryByText('Reduced motion enabled')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Pause slideshow' })).toBeVisible();
-    expect(container.querySelectorAll('button, a')).toHaveLength(1);
-    expect(container.querySelectorAll('[data-carousel-indicator]')).toHaveLength(6);
+    expect(
+      screen.queryByRole('button', { name: /(?:Pause|Resume) slideshow/u }),
+    ).not.toBeInTheDocument();
   });
 
   it('keeps the first slide responsive image candidates and sizing contract stable', () => {
@@ -167,87 +211,161 @@ describe('HeroCarousel', () => {
     }
   });
 
-  it('rotates every five seconds and advances the active progress dot', () => {
-    vi.useFakeTimers();
-    const { container } = render(<HeroCarousel />);
-    const indicators = container.querySelectorAll('[data-carousel-indicator]');
-    const indicatorGroup = container.querySelector<HTMLElement>('[aria-hidden="true"]');
-
-    expect(
-      indicatorGroup?.style.getPropertyValue('--carousel-indicator-duration'),
-    ).toBe('5000ms');
-    expect(indicators[0]).toHaveAttribute('data-active', 'true');
-    expect(indicators[0]).toHaveAttribute('data-running', 'true');
-    act(() => vi.advanceTimersByTime(5_000));
-    expect(screen.getByRole('group', { name: '2 of 6' })).toBeVisible();
-    expect(indicators[0]).toHaveAttribute('data-active', 'false');
-    expect(indicators[1]).toHaveAttribute('data-active', 'true');
-    expect(indicators[1]).toHaveAttribute('data-running', 'true');
-  });
-
-  it('keeps a manual pause after pointer exit and resumes while still hovered', () => {
+  it('keeps the current layer visible until a clicked image decodes and fades in', async () => {
     vi.useFakeTimers();
     render(<HeroCarousel />);
-    const carousel = screen.getByRole('region', {
-      name: 'Nordic Hearth highlights',
+    const fourthImage = getImageByAlt(
+      'A guest browsing a digital menu on a phone beside a plated meal',
+    );
+    const fourthIndicator = screen.getByRole('button', {
+      name: 'Show image 4 of 6: The menu in your hand',
     });
+    preparePendingImage(fourthImage);
 
-    fireEvent.mouseEnter(carousel);
-    act(() => vi.advanceTimersByTime(5_000));
+    fourthIndicator.focus();
+    fireEvent.click(fourthIndicator);
+
+    expect(fourthIndicator).toHaveFocus();
     expect(screen.getByRole('group', { name: '1 of 6' })).toBeVisible();
+    expect(fourthImage.closest('figure')).toHaveAttribute(
+      'data-carousel-slide-state',
+      'pending',
+    );
+    await finishCrossfade(fourthImage);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Pause slideshow' }));
-    fireEvent.mouseLeave(carousel);
-    act(() => vi.advanceTimersByTime(5_000));
-    expect(screen.getByRole('group', { name: '1 of 6' })).toBeVisible();
-
-    fireEvent.mouseEnter(carousel);
-    fireEvent.click(screen.getByRole('button', { name: 'Resume slideshow' }));
-    act(() => vi.advanceTimersByTime(5_000));
-    expect(screen.getByRole('group', { name: '2 of 6' })).toBeVisible();
+    expect(screen.getByRole('group', { name: '4 of 6' })).toBeVisible();
+    expect(fourthIndicator).toHaveAttribute('aria-current', 'true');
+    expect(fourthIndicator).toHaveFocus();
   });
 
-  it('supports keyboard pause and resume while focus remains inside', async () => {
-    const user = userEvent.setup();
+  it('starts a full five-second cycle after selection while focus stays on the dot', async () => {
+    vi.useFakeTimers();
     render(<HeroCarousel />);
+    const fourthImage = getImageByAlt(
+      'A guest browsing a digital menu on a phone beside a plated meal',
+    );
+    const fifthImage = getImageByAlt(
+      'A takeaway order in paper packaging ready at the restaurant counter',
+    );
+    const fourthIndicator = screen.getByRole('button', {
+      name: 'Show image 4 of 6: The menu in your hand',
+    });
+    preparePendingImage(fourthImage);
+    preparePendingImage(fifthImage);
 
-    await user.tab();
-    expect(screen.getByRole('button', { name: 'Pause slideshow' })).toHaveFocus();
-    await user.keyboard('{Enter}');
-    expect(screen.getByRole('button', { name: 'Resume slideshow' })).toHaveFocus();
+    fourthIndicator.focus();
+    fireEvent.click(fourthIndicator);
+    await finishCrossfade(fourthImage);
 
-    await user.keyboard('{Enter}');
-    expect(screen.getByRole('button', { name: 'Pause slideshow' })).toHaveFocus();
+    act(() => vi.advanceTimersByTime(4_999));
+    expect(screen.getByRole('group', { name: '4 of 6' })).toBeVisible();
+    expect(fifthImage.closest('figure')).toHaveAttribute('hidden');
+
+    act(() => vi.advanceTimersByTime(1));
+    expect(screen.getByRole('group', { name: '4 of 6' })).toBeVisible();
+    expect(fifthImage.closest('figure')).toHaveAttribute(
+      'data-carousel-slide-state',
+      'pending',
+    );
+    await finishCrossfade(fifthImage);
+
+    expect(screen.getByRole('group', { name: '5 of 6' })).toBeVisible();
+    expect(fourthIndicator).toHaveFocus();
   });
 
-  it('starts paused for reduced motion and rotates only after explicit resume', () => {
+  it('supports keyboard dot selection and keeps reduced motion manual-only', async () => {
     installMatchMedia(true);
     vi.useFakeTimers();
-    const intervalSpy = vi.spyOn(window, 'setInterval');
-    const { container } = render(<HeroCarousel />);
+    render(<HeroCarousel />);
+    const sixthImage = getImageByAlt(
+      'A red Norwegian cabin surrounded by autumn woodland',
+    );
+    const firstIndicator = screen.getByRole('button', {
+      name: 'Show image 1 of 6: Care in every detail',
+    });
+    const sixthIndicator = screen.getByRole('button', {
+      name: 'Show image 6 of 6: Inspired by Nordic seasons',
+    });
+    preparePendingImage(sixthImage);
 
+    firstIndicator.focus();
+    fireEvent.keyDown(firstIndicator, { key: 'End' });
+    expect(sixthIndicator).toHaveFocus();
+    await loadPreparedImage(sixthImage);
+
+    expect(screen.getByRole('group', { name: '6 of 6' })).toBeVisible();
     act(() => vi.advanceTimersByTime(20_000));
-    expect(screen.getByRole('group', { name: '1 of 6' })).toBeVisible();
-    expect(intervalSpy).not.toHaveBeenCalled();
-    expect(
-      container.querySelector('[data-carousel-indicator][data-active=true]'),
-    ).toHaveAttribute('data-running', 'false');
-
-    fireEvent.click(screen.getByRole('button', { name: 'Resume slideshow' }));
-    act(() => vi.advanceTimersByTime(5_000));
-    expect(screen.getByRole('group', { name: '2 of 6' })).toBeVisible();
+    expect(screen.getByRole('group', { name: '6 of 6' })).toBeVisible();
+    expect(sixthIndicator).toHaveAttribute('data-running', 'false');
   });
 
-  it('pauses while the document is hidden and resumes when visible', () => {
+  it('lets the last rapid selection win after an earlier decode resolves', async () => {
+    let resolveFourthDecode: (() => void) | undefined;
+    const fourthDecode = new Promise<void>((resolve) => {
+      resolveFourthDecode = resolve;
+    });
+    render(<HeroCarousel />);
+    const fourthImage = getImageByAlt(
+      'A guest browsing a digital menu on a phone beside a plated meal',
+    );
+    const fifthImage = getImageByAlt(
+      'A takeaway order in paper packaging ready at the restaurant counter',
+    );
+    preparePendingImage(fourthImage, () => fourthDecode);
+    preparePendingImage(fifthImage);
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Show image 4 of 6: The menu in your hand',
+      }),
+    );
+    await loadPreparedImage(fourthImage);
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Show image 5 of 6: From kitchen to pickup',
+      }),
+    );
+    await finishCrossfade(fifthImage);
+    await act(async () => {
+      resolveFourthDecode?.();
+      await fourthDecode;
+    });
+
+    expect(screen.getByRole('group', { name: '5 of 6' })).toBeVisible();
+  });
+
+  it('keeps the displayed slide when the requested image fails', () => {
+    render(<HeroCarousel />);
+    const secondImage = getImageByAlt(
+      'A candlelit Nordic dining room with a fireplace and set tables',
+    );
+    preparePendingImage(secondImage);
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Show image 2 of 6: A warm Nordic welcome',
+      }),
+    );
+    fireEvent.error(secondImage);
+
+    expect(screen.getByRole('group', { name: '1 of 6' })).toBeVisible();
+    expect(secondImage.closest('figure')).toHaveAttribute('hidden');
+  });
+
+  it('pauses while the document is hidden and starts a fresh cycle when visible', async () => {
     vi.useFakeTimers();
     render(<HeroCarousel />);
+    const secondImage = getImageByAlt(
+      'A candlelit Nordic dining room with a fireplace and set tables',
+    );
+    preparePendingImage(secondImage);
 
     Object.defineProperty(document, 'visibilityState', {
       configurable: true,
       value: 'hidden',
     });
     fireEvent(document, new Event('visibilitychange'));
-    act(() => vi.advanceTimersByTime(5_000));
+    act(() => vi.advanceTimersByTime(10_000));
     expect(screen.getByRole('group', { name: '1 of 6' })).toBeVisible();
 
     Object.defineProperty(document, 'visibilityState', {
@@ -255,22 +373,30 @@ describe('HeroCarousel', () => {
       value: 'visible',
     });
     fireEvent(document, new Event('visibilitychange'));
-    act(() => vi.advanceTimersByTime(5_000));
+    act(() => vi.advanceTimersByTime(4_999));
+    expect(secondImage.closest('figure')).toHaveAttribute('hidden');
+    act(() => vi.advanceTimersByTime(1));
+    await finishCrossfade(secondImage);
     expect(screen.getByRole('group', { name: '2 of 6' })).toBeVisible();
   });
 
-  it('pauses outside the viewport and disconnects its observer on unmount', () => {
+  it('pauses outside the viewport and disconnects its observer on unmount', async () => {
     vi.useFakeTimers();
     const observer = installIntersectionObserver();
     const { unmount } = render(<HeroCarousel />);
+    const secondImage = getImageByAlt(
+      'A candlelit Nordic dining room with a fireplace and set tables',
+    );
+    preparePendingImage(secondImage);
 
     expect(observer.observe).toHaveBeenCalledOnce();
     act(() => observer.emit(false));
-    act(() => vi.advanceTimersByTime(5_000));
+    act(() => vi.advanceTimersByTime(10_000));
     expect(screen.getByRole('group', { name: '1 of 6' })).toBeVisible();
 
     act(() => observer.emit(true));
     act(() => vi.advanceTimersByTime(5_000));
+    await finishCrossfade(secondImage);
     expect(screen.getByRole('group', { name: '2 of 6' })).toBeVisible();
 
     unmount();

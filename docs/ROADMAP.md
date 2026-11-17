@@ -939,11 +939,13 @@ activation or acceptance.
 ### 22-F — Local Portfolio Presentation Follow-up
 
 **Status: local, uncommitted, and not deployed.** The current candidate adds a
-six-scene responsive carousel with five-second automatic progression,
-non-interactive progress indicators, and a visible `Pause slideshow` /
-`Resume slideshow` control. It pauses on pointer hover and keyboard focus,
-preserves an explicit manual pause after either leaves, and starts paused under
-reduced motion until the user explicitly resumes it. It expands the
+six-scene responsive carousel with five-second automatic progression and
+clickable keyboard/touch dot controls with active-state semantics. A selected
+scene receives a fresh five-second interval after it is displayed; background
+tabs and off-viewport carousels remain paused. Reduced motion retains manual dot
+selection without automatic progression or animation. Requested images load and
+decode above the current scene before an approximately 300 ms crossfade, while
+failed or superseded requests retain the last displayed image. It expands the
 administrator menu sandbox with memory-only per-category sample dishes and
 bounded local JPEG/PNG/WebP previews while retaining a GET-only, non-persistent
 transport boundary.

@@ -29,10 +29,12 @@ its public gate has not run.
 
 The current worktree is a separate uncommitted architecture candidate. The
 landing carousel uses responsive `srcset` assets, five-second automatic
-progression, non-interactive progress indicators, page/intersection visibility
-gating, and a visible pause/resume control. Pointer hover and keyboard focus
-pause playback, an explicit manual pause persists after either leaves, and
-reduced motion starts paused until the user deliberately resumes. The administrator menu
+progression, clickable keyboard/touch dot controls with active-state semantics,
+and page/intersection visibility gating. A manual selection starts a fresh
+interval after the selected image is displayed. Reduced motion keeps manual dot
+selection without automatic progression or animation. A requested image loads
+and decodes in a layer above the current scene before an approximately 300 ms
+crossfade; failed or superseded requests retain the current scene. The administrator menu
 sandbox layers memory-only per-category samples and bounded local image previews
 over the public menu GET; it has no mutation transport or persistence. In exact
 portfolio runtime, Analytics and Exports use NOK as their default query currency

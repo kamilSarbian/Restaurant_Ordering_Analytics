@@ -36,11 +36,13 @@
   provision or enable the reserved customer, establish deployment, or extend
   the existing public administrator acceptance to customer demo.
 - **Current local presentation candidate:** the new worktree adds six responsive
-  carousel scenes with five-second automatic progression, non-interactive
-  progress indicators, visibility gating, and a visible `Pause slideshow` /
-  `Resume slideshow` control. It pauses on pointer hover and keyboard focus,
-  preserves an explicit manual pause after either leaves, and starts paused
-  under reduced motion until the user explicitly resumes it. The administrator
+  carousel scenes with five-second automatic progression, clickable
+  keyboard/touch dot controls with active-state semantics, and background/
+  off-viewport visibility gating. A selected scene receives a fresh interval
+  after its image is displayed. Reduced motion retains manual selection without
+  automatic progression or animation. Requested images load and decode above
+  the current scene before an approximately 300 ms crossfade; failed or
+  superseded requests preserve the displayed image. The administrator
   menu sandbox adds memory-only per-category sample dishes and bounded local
   JPEG/PNG/WebP previews while remaining GET-only and non-persistent. Portfolio
   Analytics and Exports default to NOK with an explicit all-currencies option;

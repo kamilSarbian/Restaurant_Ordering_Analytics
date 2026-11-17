@@ -174,6 +174,14 @@ const LANDING_HERO_WEBP_CANDIDATES = [
     width: 1774,
   },
 ] as const;
+const LANDING_CAROUSEL_SLIDE_FOUR_PATHS = new Set([
+  '/images/brand/story/customer-mobile-ordering.png',
+  '/images/brand/optimized/carousel/customer-mobile-ordering-640w.webp',
+  '/images/brand/optimized/carousel/customer-mobile-ordering-1024w.webp',
+  '/images/brand/optimized/carousel/customer-mobile-ordering-1536w.webp',
+]);
+const LANDING_CAROUSEL_SLIDE_FOUR_ALT =
+  'A guest browsing a digital menu on a phone beside a plated meal';
 const LANDING_STORY_PNG_PATH = '/images/brand/story/chef-plating-cod.png';
 const LANDING_STORY_SIZES =
   '(min-width: 64rem) 28rem, (min-width: 48rem) 40vw, calc(100vw - 2rem)';
@@ -5683,16 +5691,12 @@ async function assertLandingViewport(
   await expect(
     carousel.getByRole('button', { exact: true, name: 'Next image' }),
   ).toHaveCount(0);
-  await expect(carousel.getByRole('button', { name: /^Show image /u })).toHaveCount(0);
+  const slideButtons = carousel.getByRole('button', { name: /^Show image /u });
+  await expect(slideButtons).toHaveCount(6);
+  await expect(slideButtons.nth(0)).toHaveAttribute('aria-current', 'true');
   await expect(
     carousel.getByText('Reduced motion enabled', { exact: true }),
   ).toHaveCount(0);
-  const slideshowControl = carousel.getByRole('button', {
-    name: 'Resume slideshow',
-  });
-  await expect(slideshowControl).toBeVisible();
-  await slideshowControl.focus();
-  await assertVisibleKeyboardFocus(slideshowControl);
   await expect(carousel.locator('[data-carousel-indicator=true]')).toHaveCount(6);
   await expect(
     carousel.locator('[data-carousel-indicator=true][data-running=true]'),
@@ -5881,31 +5885,38 @@ async function assertLandingViewport(
   );
   await assertResponsiveSurface(page);
 
-  if (viewport.label === 'compact-mobile') {
-    await carousel.scrollIntoViewIfNeeded();
-    await expect(
-      carousel.getByRole('group', { exact: true, name: '1 of 6' }),
-    ).toBeVisible();
-    await page.waitForTimeout(5_100);
-    await expect(
-      carousel.getByRole('group', { exact: true, name: '1 of 6' }),
-    ).toBeVisible();
+  await carousel.scrollIntoViewIfNeeded();
+  const thirdSlideButton = carousel.getByRole('button', {
+    name: /^Show image 3 of 6:/u,
+  });
+  const fourthSlideButton = carousel.getByRole('button', {
+    name: /^Show image 4 of 6:/u,
+  });
+  await thirdSlideButton.click();
+  await expect(
+    carousel.getByRole('group', { exact: true, name: '3 of 6' }),
+  ).toBeVisible();
+  await page.keyboard.press('Tab');
+  await assertVisibleKeyboardFocus(fourthSlideButton);
+  await fourthSlideButton.press('Enter');
+  await expect(
+    carousel.getByRole('group', { exact: true, name: '4 of 6' }),
+  ).toBeVisible();
+  await expect(fourthSlideButton).toHaveAttribute('aria-current', 'true');
+  await page.waitForTimeout(5_100);
+  await expect(
+    carousel.getByRole('group', { exact: true, name: '4 of 6' }),
+  ).toBeVisible();
 
-    const resumeControl = carousel.getByRole('button', {
-      name: 'Resume slideshow',
-    });
-    await resumeControl.focus();
-    await assertVisibleKeyboardFocus(resumeControl);
-    await resumeControl.press('Enter');
-    await expect(
-      carousel.getByRole('button', { name: 'Pause slideshow' }),
-    ).toBeFocused();
-    await expect(
-      carousel.locator('[data-carousel-indicator=true][data-running=true]'),
-    ).toHaveCount(1);
-    await expect(
-      carousel.getByRole('group', { exact: true, name: '2 of 6' }),
-    ).toBeVisible({ timeout: 5_500 });
+  if (viewport.label === 'compact-mobile') {
+    for (const button of await slideButtons.all()) {
+      const buttonBox = await button.boundingBox();
+      safeInvariant(buttonBox !== null, 'LANDING_CAROUSEL_DOT_BOX_MISSING');
+      safeInvariant(
+        buttonBox.height >= 44 && buttonBox.width >= 44,
+        'LANDING_CAROUSEL_DOT_TOUCH_TARGET_TOO_SMALL',
+      );
+    }
   }
 
   await menuLink.scrollIntoViewIfNeeded();
@@ -14467,6 +14478,157 @@ test('keeps the landing brand story responsive, focused, and locally imaged', as
     if (finalizationError !== undefined) {
       throw finalizationError;
     }
+  }
+});
+
+test('keeps the current carousel image visible until a selected image is decoded', async ({
+  browser,
+}) => {
+  test.setTimeout(60_000);
+  const context = await browser.newContext({
+    baseURL: baseOrigin,
+    reducedMotion: 'no-preference',
+    viewport: { height: 812, width: 375 },
+  });
+  const page = await context.newPage();
+  const guard = new BrowserSafetyGuard(page, []);
+  let releaseTargetImage: (() => void) | undefined;
+  const targetImageGate = new Promise<void>((resolve) => {
+    releaseTargetImage = resolve;
+  });
+  let selectedTargetPath: string | null = null;
+  let selectedTargetStatus: number | null = null;
+
+  await page.route('**/*', async (route) => {
+    const request = route.request();
+    const parsed = parseUrl(request.url());
+    if (parsed === null || parsed.origin !== baseOrigin) {
+      await route.abort();
+      return;
+    }
+    if (
+      request.resourceType() === 'image' &&
+      LANDING_CAROUSEL_SLIDE_FOUR_PATHS.has(parsed.pathname)
+    ) {
+      selectedTargetPath ??= parsed.pathname;
+      await targetImageGate;
+      const response = await route.fetch();
+      selectedTargetStatus = response.status();
+      await route.fulfill({ response });
+      return;
+    }
+    if (parsed.pathname.startsWith('/api/')) {
+      await route.fulfill({
+        body: JSON.stringify({ detail: 'Unexpected synthetic API request' }),
+        contentType: 'application/json',
+        status: 500,
+      });
+      return;
+    }
+    await route.continue();
+  });
+
+  let scenarioError: unknown;
+  let finalizationError: unknown;
+  try {
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    const carousel = page.getByRole('region', {
+      exact: true,
+      name: 'Nordic Hearth highlights',
+    });
+    const firstSlide = carousel.getByRole('group', {
+      exact: true,
+      name: '1 of 6',
+    });
+    const fourthSlide = carousel.getByRole('group', {
+      exact: true,
+      name: '4 of 6',
+    });
+    const fourthSlideButton = carousel.getByRole('button', {
+      name: /^Show image 4 of 6:/u,
+    });
+
+    await expect(firstSlide).toBeVisible();
+    await fourthSlideButton.click();
+    await expect(fourthSlideButton).toBeFocused();
+    await expect
+      .poll(() => selectedTargetPath, {
+        message: 'LANDING_CAROUSEL_DELAYED_IMAGE_REQUEST_MISSING',
+        timeout: 5_000,
+      })
+      .not.toBeNull();
+    await expect(firstSlide).toBeVisible();
+    await expect(fourthSlide).toHaveCount(0);
+
+    releaseTargetImage?.();
+    await expect(fourthSlide).toBeVisible({ timeout: 5_000 });
+    const fourthSlideDisplayedAt = await page.evaluate(() => performance.now());
+    await expect(fourthSlideButton).toBeFocused();
+    await expect(fourthSlideButton).toHaveAttribute('aria-current', 'true');
+    safeInvariant(
+      selectedTargetPath !== null &&
+        LANDING_CAROUSEL_SLIDE_FOUR_PATHS.has(selectedTargetPath),
+      'LANDING_CAROUSEL_SELECTED_IMAGE_PATH_MISMATCH',
+    );
+    safeInvariant(
+      selectedTargetStatus === 200,
+      'LANDING_CAROUSEL_SELECTED_IMAGE_STATUS_MISMATCH',
+    );
+    const selectedImage = fourthSlide.getByRole('img', {
+      exact: true,
+      name: LANDING_CAROUSEL_SLIDE_FOUR_ALT,
+    });
+    const selectedImageRuntime = await selectedImage.evaluate(async (image) => {
+      const runtimeImage = image as unknown as RuntimeElement & {
+        decode: () => Promise<void>;
+      };
+      await runtimeImage.decode();
+      return {
+        currentPath: new URL(runtimeImage.currentSrc ?? '').pathname,
+        naturalHeight: runtimeImage.naturalHeight ?? 0,
+        naturalWidth: runtimeImage.naturalWidth ?? 0,
+      };
+    });
+    safeInvariant(
+      LANDING_CAROUSEL_SLIDE_FOUR_PATHS.has(selectedImageRuntime.currentPath),
+      'LANDING_CAROUSEL_CURRENT_IMAGE_PATH_MISMATCH',
+    );
+    safeInvariant(
+      selectedImageRuntime.naturalHeight > 0 && selectedImageRuntime.naturalWidth > 0,
+      'LANDING_CAROUSEL_SELECTED_IMAGE_DIMENSIONS_MISMATCH',
+    );
+
+    const elapsedSinceDisplay = await page.evaluate(
+      (displayedAt) => performance.now() - displayedAt,
+      fourthSlideDisplayedAt,
+    );
+    await page.waitForTimeout(Math.max(0, 4_800 - elapsedSinceDisplay));
+    await expect(fourthSlide).toBeVisible();
+    await expect(fourthSlideButton).toBeFocused();
+    await expect(
+      carousel.getByRole('group', { exact: true, name: '5 of 6' }),
+    ).toBeVisible({ timeout: 1_500 });
+  } catch (error: unknown) {
+    scenarioError = error;
+  } finally {
+    releaseTargetImage?.();
+    try {
+      guard.assertClean();
+    } catch (error: unknown) {
+      finalizationError = error;
+    }
+    try {
+      await closeContext(context);
+    } catch (error: unknown) {
+      finalizationError ??= error;
+    }
+  }
+
+  if (scenarioError !== undefined) {
+    throw scenarioError;
+  }
+  if (finalizationError !== undefined) {
+    throw finalizationError;
   }
 });
 

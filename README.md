@@ -40,11 +40,14 @@ The presentation baseline that followed is committed at
 reserved customer is provisioned or publicly enabled.
 
 The current worktree is a separate **uncommitted and undeployed** follow-up
-candidate. It uses six responsive carousel scenes with a five-second automatic
-interval, non-interactive progress indicators, and a visible `Pause slideshow`
-/ `Resume slideshow` control. It pauses on pointer hover and keyboard focus,
-preserves an explicit manual pause after either leaves, and starts paused under
-reduced motion until the user explicitly resumes it. The administrator menu
+candidate. It uses six responsive carousel scenes with five-second automatic
+progression and clickable dot controls with keyboard, touch, and active-state
+semantics. Selecting a scene starts a fresh five-second interval once its image
+is displayed; background tabs and off-viewport carousels remain paused. Reduced
+motion keeps manual dot selection while disabling automatic progression and
+animation. Each requested image loads and decodes above the current image before
+an approximately 300 ms crossfade; failed or superseded requests leave the last
+displayed image intact. The administrator menu
 sandbox adds memory-only sample dishes within their selected categories and
 optional local JPEG/PNG/WebP previews; it still calls only the public menu GET
 and never sends a menu mutation. Portfolio Analytics and Exports default to
