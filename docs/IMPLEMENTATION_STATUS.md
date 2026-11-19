@@ -1,6 +1,6 @@
 # Implementation Status
 
-## Current Reconciliation — 2026-11-17
+## Current Reconciliation — 2026-11-19
 
 - **Accepted public administrator baseline:** Stage 22-D public report
   `stage22d-public-20261110t002125z` completed 14/14 checks with SHA-256
@@ -31,24 +31,27 @@
   results, and no timestamp shifting or reseeding. It also adds truthful demo
   payment and guest/customer/admin labels, official logo/carousel presentation,
   SEO metadata, and cold-start guidance.
-- **Deployed presentation follow-up:** the baseline at
-  `852163b77d7e5caca8cc7053d5369c1a20d23973` is now extended through deployed
-  commit `9be447fc1612d65e5b69f763403c6dee32257382`. It provides six responsive
+- **Committed presentation follow-up and operator deployment evidence:** the
+  baseline at `852163b77d7e5caca8cc7053d5369c1a20d23973` is extended by commit
+  `9be447fc1612d65e5b69f763403c6dee32257382`. It provides six responsive
   carousel scenes with five-second automatic progression, clickable
   keyboard/touch dot controls with active-state semantics, and background/
   off-viewport visibility gating. A selected scene receives a fresh interval
   after its image is displayed. Reduced motion retains manual selection without
-  automatic progression or animation. Requested images load and decode above
-  the current scene before an approximately 300 ms crossfade; failed or
-  superseded requests preserve the displayed image. The administrator menu
-  sandbox adds memory-only per-category sample dishes and bounded local
-  JPEG/PNG/WebP previews while remaining GET-only and non-persistent. Portfolio
+  automatic progression or animation, and no Pause/Resume control remains.
+  Requested images load and decode above the current scene before an
+  approximately 300 ms crossfade; failed or superseded requests preserve the
+  displayed image. The administrator menu sandbox adds memory-only per-category
+  sample dishes and bounded local JPEG/PNG/WebP `data:` URL previews while
+  remaining GET-only and non-persistent. Portfolio
   Analytics and Exports default to NOK with an explicit all-currencies option;
   normal runtime stays unchanged. A separate approximate calculator reads dated
   ECB reference rates for NOK-to-EUR/PLN display without modifying filters, CSV
-  output, persisted amounts, Orders, or Payments. Final review found P2 findings
-  in carousel pause behavior and concurrent ECB outage handling, together with
-  P3 feed-structure and status-wording findings. The corrected candidate passed
+  output, persisted amounts, Orders, or Payments. Public portfolio-demo payments
+  are simulated; normal `stripe_test` remains a separate provider path. An
+  earlier final-review pass on the pre-refinement candidate found P2 findings in
+  carousel pause behavior and concurrent ECB outage handling, together with P3
+  feed-structure and status-wording findings. The corrected candidate passed
   renewed independent review without P0-P3 findings.
   One earlier no-retry canonical Browser E2E invocation stopped in its
   normal-runtime phase after 9 passes when a stale first-slide alt selector
@@ -76,14 +79,17 @@
   `b9e3fb4eca1290a369097f8cb2b1459e31b18636`; push run `44113190217` passed
   `Backend`, `Migrations`, `Frontend`, and `Browser E2E`. The final carousel
   refinement was committed at `9be447fc1612d65e5b69f763403c6dee32257382`;
-  push run `44132315284` passed the same four jobs. Its isolated Browser E2E
-  completed 35/35 normal-runtime, 3/3
-  administrator-demo/customer-disabled/anonymous-guest, and 1/1 isolated
-  customer-enabled checks, plus the database and secret-safe log audits. The
-  delayed-image carousel scenario passed. The operator confirmed both Render
-  services Live on short SHA `9be447f` and manually accepted the deployed
-  application on a laptop and phone. This is operator-observed public evidence,
-  not automated public Browser E2E or a WCAG 2.2.2 conformance claim.
+  GitHub Actions run `44132315284`, attempt 1, passed `Backend` with 3,302 tests
+  and 9 skipped, `Migrations`, `Frontend` with 1,311 tests across 46 files, and
+  `Browser E2E` with 39 tests: 35 normal-runtime, 3
+  administrator-demo/customer-disabled/anonymous-guest, and 1 isolated
+  customer-enabled. Database and secret-safe log audits passed, as did the
+  delayed-image scenario that keeps the current scene visible until the next
+  image decodes. Separately, the operator confirmed both Render services Live
+  on short SHA `9be447f` and manually accepted the deployed application on a
+  laptop and phone. The short-SHA observation does not independently establish
+  the full deployed SHA. This is operator-observed public evidence, not automated
+  public Browser E2E or a WCAG 2.2.2 conformance claim.
 - **Evidence and release boundary:** the customer-demo code is deployed, but
   both customer-demo flags remain `false` and the reserved account is not
   provisioned. Targeted current-byte
@@ -2046,8 +2052,8 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   It also does not prove current least-privilege DML grants for `roa_runtime`.
   Read-only target verification is required before any invocation or rerun.
 
-- **Stage 22 staged activation and reserved-account lifecycle — committed and
-  deployed with public flags false:** D-090 adds strict
+- **Stage 22 staged activation and reserved-account lifecycle — historical
+  false/false boundary:** at that staged-release boundary, D-090 added strict
   `DEMO_SESSION_ISSUANCE_ENABLED`, defaulting to false and required in addition
   to exact `true + demo`. `render.yaml` pins this backend gate and frontend
   `VITE_ENABLE_DEMO_SESSION` to false. A hidden-input operator command binds the
@@ -2105,8 +2111,9 @@ PRESERVED: 16 PNG`. The known large JavaScript chunk warning remains deferred
   commit. Owner drift, unsafe Payments, related StripeEvent rows, inconsistent
   aggregates, or an unexpected Order/Payment foreign key are atomic STOPs. An
   empty rerun emits no DELETE. This path is not an endpoint, scheduler, startup
-  hook, repair, or automatic prune; it has not been run against Neon and both
-  public demo flags remain false. The current bytes passed 38 operator tests,
+  hook, repair, or automatic prune. At that reset-implementation boundary it had
+  not been run against Neon and both public demo flags were false. The current
+  bytes passed 38 operator tests,
   17 focused reset integration tests, and one 461-test isolated PostgreSQL
   regression covering reset, Orders, demo Checkout, Admin Orders, the canonical
   seed, Analytics, and CSV. Any production reset still requires separate

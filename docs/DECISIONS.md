@@ -2168,8 +2168,8 @@ OrderItem -> Order`. Exact rowcounts, zero remaining runtime children, and a
 
 ## D-094 — Persisted Historical Period and Truthful Portfolio Presentation
 
-- **Status:** committed and deployed through
-  `9be447fc1612d65e5b69f763403c6dee32257382`. The older 14/14 Stage 22-D report
+- **Status:** committed at `9be447fc1612d65e5b69f763403c6dee32257382`. The older
+  14/14 Stage 22-D report
   covers the prior administrator baseline; the newer presentation bytes have
   separate CI and operator acceptance evidence.
 - **Historical period:** the exact demo administrator reads a strict sample
@@ -2202,8 +2202,9 @@ OrderItem -> Order`. Exact rowcounts, zero remaining runtime children, and a
 
 ## D-095 — Bounded Portfolio Presentation Tools Remain Non-Transactional
 
-- **Status:** accepted, committed, and deployed through
-  `9be447fc1612d65e5b69f763403c6dee32257382` on 2026-11-17.
+- **Status:** accepted and committed at
+  `9be447fc1612d65e5b69f763403c6dee32257382` on 2026-11-17. Operator deployment
+  evidence is recorded separately below.
 - **Carousel:** six responsive presentation scenes advance every five seconds
   while the document and carousel are visible. Clickable dot controls expose
   keyboard, touch, and active-state semantics; selecting a scene starts a fresh
@@ -2212,7 +2213,8 @@ OrderItem -> Order`. Exact rowcounts, zero remaining runtime children, and a
   automatic progression and animation stay disabled. A requested responsive
   image loads and decodes above the current scene before an approximately 300 ms
   crossfade; failed or superseded requests retain the last displayed scene.
-  This current interaction supersedes the earlier pause-button candidate.
+  No Pause/Resume control remains; this current interaction supersedes the
+  earlier pause-button candidate.
 - **Menu sandbox:** the administrator may add memory-only sample dishes within
   selected categories and attach bounded local JPEG/PNG/WebP previews. The browser owns
   CSP-compatible `data:` previews produced by bounded `FileReader` operations.
@@ -2230,6 +2232,9 @@ OrderItem -> Order`. Exact rowcounts, zero remaining runtime children, and a
   Orders, Payments, or provider behavior. Redirects, oversized/invalid XML,
   stale data, timeouts, and upstream failures fail safely without fallback
   rates.
+- **Payment boundary:** public portfolio-demo checkout is simulated. Normal
+  `stripe_test` remains a separate provider path and is not represented as the
+  public demo payment flow.
 - **Evidence boundary:** local canonical Browser E2E run `6f1719445d8d58e8`
   tested worktree manifest
   `c9a3ccc2ff9f83380f9ba8c5ad50912ff1031c7714128c1b6f635a4186539a76`
@@ -2237,12 +2242,18 @@ OrderItem -> Order`. Exact rowcounts, zero remaining runtime children, and a
   and log audits also passed. Renewed independent review closed without P0-P3
   findings. The CSP-compatible menu-preview hotfix at
   `b9e3fb4eca1290a369097f8cb2b1459e31b18636` passed all four jobs in push run
-  `44113190217`. The final carousel refinement at
-  `9be447fc1612d65e5b69f763403c6dee32257382` passed all four jobs in push run
-  `44132315284`, including 39/39 browser checks and the database/log audits. Both
-  Render services are operator-confirmed Live on short SHA `9be447f`, and manual
-  laptop/phone acceptance passed. Customer provisioning, customer-session
-  activation, and public customer-demo acceptance remain separate open gates.
+  `44113190217`. For the final carousel refinement at
+  `9be447fc1612d65e5b69f763403c6dee32257382`, GitHub Actions run `44132315284`,
+  attempt 1, passed `Backend` with 3,302 tests and 9 skipped, `Migrations`,
+  `Frontend` with 1,311 tests across 46 files, and `Browser E2E` with 39 tests:
+  35 normal-runtime, 3 administrator-demo/customer-disabled/anonymous-guest,
+  and 1 isolated customer-enabled. Database and secret-safe log audits passed,
+  as did the delayed-image scenario that keeps the current scene visible until
+  the next image decodes. Separately, both Render services are
+  operator-confirmed Live on short SHA `9be447f`, and manual laptop/phone
+  acceptance passed. The short-SHA observation does not independently establish
+  the full deployed SHA. Customer provisioning, customer-session activation,
+  and public customer-demo acceptance remain separate open gates.
 
 ## History of Decisions That Required Resolution
 

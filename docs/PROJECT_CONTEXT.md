@@ -27,7 +27,7 @@ The goal is to build a secure web application that:
 - provides basic KPIs, reports, and CSV exports;
 - can run locally through Docker Compose and be deployed as a demo.
 
-### Current public baseline and deployed presentation boundary (2026-11-17)
+### Current public baseline and presentation evidence boundary (2026-11-19)
 
 The existing public administrator demo passed Stage 22-D in report
 `stage22d-public-20261110t002125z`: 14 of 14 checks passed and the report
@@ -42,29 +42,31 @@ Order, and a separate guarded operator action resets only validated runtime
 aggregates while preserving canonical seed and live rows.
 
 The reserved-customer foundation is committed at
-`5842268a4bdb991c3289e85565403c89d203db9e`. Its code is present in the current
-deployment, but the exact customer role, owned runtime history, capability-only
-Checkout, and default-false session gates remain separate from the accepted
-public administrator evidence. The reserved customer has not been provisioned,
-and public customer-demo activation and acceptance have not run.
+`5842268a4bdb991c3289e85565403c89d203db9e`. Its exact customer role, owned
+runtime history, capability-only Checkout, and default-false session gates
+remain separate from the accepted public administrator evidence. The reserved
+customer has not been provisioned, and public customer-demo activation and
+acceptance have not run.
 
-The presentation work is committed and deployed through
+The presentation work is committed at
 `9be447fc1612d65e5b69f763403c6dee32257382`. It replaces the landing sequence
 with six responsive scenes, five-second
 automatic progression, and clickable dot controls with keyboard, touch, and
 active-state semantics. Selecting a scene starts a fresh interval once its image
 is displayed, while background tabs and off-viewport carousels remain paused.
 Reduced motion retains manual dot selection without automatic progression or
-animation. Requested images load and decode above the displayed scene before an
-approximately 300 ms crossfade; failures and superseded requests preserve the
-last displayed scene. The administrator menu sandbox
-remains memory-only and GET-only while adding per-category sample dishes and
-bounded local JPEG/PNG/WebP previews. Portfolio Analytics and Exports default
-to NOK with an explicit all-currencies choice, while normal runtime remains
-unchanged.
+animation; the current version has no Pause/Resume control. Requested images
+load and decode above the displayed scene before an approximately 300 ms
+crossfade; failures and superseded requests preserve the last displayed scene.
+The administrator menu sandbox remains memory-only and GET-only while adding
+per-category sample dishes and bounded local JPEG/PNG/WebP `data:` URL previews.
+Portfolio Analytics and Exports default to NOK with an explicit all-currencies
+choice, while normal runtime remains unchanged.
 A separate approximate NOK-to-EUR/PLN calculator reads dated ECB reference
 rates without altering historical currency separation, filters, CSV output,
-Orders, or Payments. Canonical Browser E2E run `f3aea9fbe12e6ac3`
+Orders, or Payments. Public portfolio-demo payments are simulated; normal
+`stripe_test` is a separate provider path. Canonical Browser E2E run
+`f3aea9fbe12e6ac3`
 validated the pre-documentation-correction manifest SHA-256
 `36a20c57321451fdc8c1c762ea6bc08e386ce7b23804b58a892c1686c1726d07`
 with native exit code 0, one worker, zero retries, and 38/38 tests passed. Its
@@ -80,20 +82,28 @@ final database audit, and every phase-specific secret-safe log audit passed.
 Renewed independent review closed without P0-P3 findings. The menu-preview CSP
 hotfix was committed at `b9e3fb4eca1290a369097f8cb2b1459e31b18636`; push run
 `44113190217` passed all four required jobs. The final carousel refinement was
-committed at `9be447fc1612d65e5b69f763403c6dee32257382`; push run `44132315284`
-passed `Backend`, `Migrations`, `Frontend`, and `Browser E2E`, with 39/39 browser
-checks plus database and secret-safe log audits. The operator confirmed both
+committed at `9be447fc1612d65e5b69f763403c6dee32257382`; GitHub Actions run
+`44132315284`, attempt 1, passed `Backend` with 3,302 tests and 9 skipped,
+`Migrations`, `Frontend` with 1,311 tests across 46 files, and `Browser E2E` with
+39 tests: 35 normal-runtime, 3 administrator-demo/customer-disabled/
+anonymous-guest, and 1 isolated customer-enabled. Database and secret-safe log
+audits passed, as did the delayed-image scenario that keeps the current scene
+visible until the next image decodes. Separately, the operator confirmed both
 Render services Live on short SHA `9be447f` and manually accepted the deployed
-application on a laptop and phone. That is operator-observed public evidence,
-not an automated public Browser E2E run or a WCAG 2.2.2 conformance claim.
+application on a laptop and phone. That short-SHA observation does not establish
+the full deployed SHA and is operator-observed public evidence, not an automated
+public Browser E2E run or a WCAG 2.2.2 conformance claim.
 
 Stage 22 therefore remains in progress. Stage 23 is also in progress: the case
 study is public, while final screenshot, architecture-presentation, and
 CV-facing closeout remain open.
 
-Stages 1 through 19 are complete, verified, and committed. Stage 17's backend
-and frontend images, four-service Compose runtime, readiness/startup gates, and
-isolated container acceptance passed. Stage 18's isolated browser E2E and final
+Stages 1 through 19 are complete, verified, and committed. Stage 17's four-service
+Compose runtime gates startup in order: PostgreSQL must be healthy before the
+one-shot migration, the backend waits for healthy PostgreSQL and successful
+migration completion and is then checked through `/ready`, and the frontend
+waits for backend health and exposes its own `/healthz` check. Its isolated
+container acceptance passed. Stage 18's isolated browser E2E and final
 acceptance are committed at
 `a1999f9ce22d92876c38a71e24ad9ff8c43075d2`. Stage 19's deterministic GitHub
 Actions CI, four required gates, GREEN -> RED -> GREEN acceptance, and protected

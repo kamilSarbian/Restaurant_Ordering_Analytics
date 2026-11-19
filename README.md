@@ -2,7 +2,7 @@
 
 ## Current status
 
-### Public baseline and deployed presentation follow-up (2026-11-17)
+### Public baseline and presentation follow-up (2026-11-19)
 
 The existing administrator demo completed Stage 22-D public acceptance in
 report `stage22d-public-20261110t002125z`: all 14 checks passed and the report
@@ -36,27 +36,31 @@ enabled customer-demo lifecycle, with one worker, zero retries, and passing
 database and secret-safe log audits.
 
 The presentation baseline was committed at
-`852163b77d7e5caca8cc7053d5369c1a20d23973`, and the follow-up is now committed
-and deployed through `9be447fc1612d65e5b69f763403c6dee32257382`. It uses six
+`852163b77d7e5caca8cc7053d5369c1a20d23973`, and the follow-up is committed at
+`9be447fc1612d65e5b69f763403c6dee32257382`. It uses six
 responsive carousel scenes with five-second automatic
 progression and clickable dot controls with keyboard, touch, and active-state
 semantics. Selecting a scene starts a fresh five-second interval once its image
 is displayed; background tabs and off-viewport carousels remain paused. Reduced
 motion keeps manual dot selection while disabling automatic progression and
-animation. Each requested image loads and decodes above the current image before
-an approximately 300 ms crossfade; failed or superseded requests leave the last
-displayed image intact. The administrator menu
+animation, and the current version has no Pause/Resume control. Each requested
+image loads and decodes above the current image before an approximately 300 ms
+crossfade; failed or superseded requests leave the last displayed image intact.
+The administrator menu
 sandbox adds memory-only sample dishes within their selected categories and
-optional local JPEG/PNG/WebP previews; it still calls only the public menu GET
-and never sends a menu mutation. Portfolio Analytics and Exports default to
-`NOK` while keeping an explicit `All currencies` option. A separate approximate
-calculator can load dated ECB EUR reference rates for NOK-to-EUR/PLN display;
-it cannot change filters, persisted amounts, reports, CSV files, Orders, or
-Payments. Normal runtime keeps its existing currency controls. The final
-independent review found P2 findings in carousel pause behavior and concurrent
-ECB outage handling, together with P3 feed-structure and status-wording
-findings. The corrected candidate passed renewed independent review without
-P0-P3 findings. One earlier no-retry canonical Browser E2E invocation
+optional bounded JPEG/PNG/WebP previews as browser-memory `data:` URLs; it still
+calls only the public menu GET and never sends a menu mutation. Portfolio
+Analytics and Exports default to `NOK` while keeping an explicit
+`All currencies` option. A separate approximate calculator can load dated ECB
+EUR reference rates for NOK-to-EUR/PLN display; it cannot change filters,
+persisted amounts, reports, CSV files, Orders, or Payments. Public portfolio-demo
+payments remain simulated, while normal `stripe_test` is a separate provider
+path. Normal runtime keeps its existing currency controls. An earlier
+independent review of the pre-refinement candidate found P2 findings in carousel
+pause behavior and concurrent ECB outage handling, together with P3
+feed-structure and status-wording findings. The corrected candidate passed
+renewed independent review without P0-P3 findings. One earlier no-retry
+canonical Browser E2E invocation
 stopped in its normal-runtime phase after 9 passes when a stale first-slide alt
 selector failed; 22 tests did not run, and the later demo phases and final
 database/log audits were not reached. That result remains the historical record
@@ -84,16 +88,20 @@ then exposed the sandbox preview's CSP-incompatible `blob:` URL; the bounded
 `b9e3fb4eca1290a369097f8cb2b1459e31b18636`, and push run `44113190217`
 completed `Backend`, `Migrations`, `Frontend`, and `Browser E2E` successfully.
 The carousel refinement was committed at
-`9be447fc1612d65e5b69f763403c6dee32257382`; push run `44132315284` completed
-the same four jobs successfully, including 35/35 normal-runtime, 3/3
-administrator-demo/customer-disabled/anonymous-guest, and 1/1 isolated
-customer-enabled browser checks, plus database and secret-safe log audits. Its
-delayed-image carousel scenario also passed. The operator confirmed both Render
-services Live on short SHA `9be447f` and manually verified the deployed
-application on a laptop and phone. This is operator-observed public acceptance,
-not an automated public Browser E2E run or a WCAG 2.2.2 conformance claim. The
-reserved customer remains unprovisioned, both customer-demo flags remain
-`false`, and public customer-demo activation and acceptance remain open.
+`9be447fc1612d65e5b69f763403c6dee32257382`; GitHub Actions
+[run `44132315284`, attempt 1](https://github.com/kamilSarbian/Restaurant_Ordering_Analytics/actions/runs/44132315284)
+completed `Backend` with 3,302 passed and 9 skipped, `Migrations` successfully,
+`Frontend` with 1,311 passed across 46 files, and `Browser E2E` with 39 passed:
+35 normal-runtime, 3 administrator-demo/customer-disabled/anonymous-guest, and
+1 isolated customer-enabled check. Database and secret-safe log audits passed,
+as did the delayed-image scenario that retains the current scene until the next
+image decodes. Separately, the operator confirmed both Render services Live on
+short SHA `9be447f` and manually verified the deployed application on a laptop
+and phone. The Render observation does not independently establish the full
+deployed SHA. This is operator-observed public acceptance, not an automated
+public Browser E2E run or a WCAG 2.2.2 conformance claim. The reserved customer
+remains unprovisioned, both customer-demo flags remain `false`, and public
+customer-demo activation and acceptance remain open.
 
 Stage 23 is **in progress**: the public case study exists, while final
 screenshots, architecture-presentation material, and any remaining CV-facing
@@ -323,9 +331,10 @@ credential-hygiene issue was remediated by rotation without documenting or
 tracking any credential value. Stage 17 provides repeatable local full-system
 containers, Stage 18 provides isolated browser E2E, Stage 19 provides the
 committed deterministic CI baseline, and Stages 20 and 21 add the readiness and
-product-polish work described above. The accepted administrator baseline and
-the presentation follow-up through `9be447fc1612d65e5b69f763403c6dee32257382`
-are public. The customer-demo code is deployed but remains disabled; its
+product-polish work described above. The presentation follow-up is committed at
+`9be447fc1612d65e5b69f763403c6dee32257382`; operator evidence shows the accepted
+administrator baseline and presentation follow-up public on short SHA
+`9be447f`. The customer-demo code present in that release remains disabled; its
 reserved account is unprovisioned and its public activation and acceptance
 remain open.
 
@@ -460,9 +469,11 @@ without introducing infrastructure that is unnecessary for a single venue.
   analytics and exports, and super-administrator User governance.
 - A locked, multi-stage backend image and a static Nginx frontend image with no
   development server in either runtime.
-- A four-service local Compose topology with explicit one-shot migrations,
-  database-aware readiness, same-origin API proxying, persistent PostgreSQL
-  data, and hardened non-root application containers.
+- A four-service local Compose topology in which PostgreSQL health gates the
+  one-shot migration, the backend waits for both healthy PostgreSQL and a
+  successful migration and then exposes `/ready`, and the frontend waits for a
+  healthy backend. It also provides same-origin API proxying, persistent
+  PostgreSQL data, and hardened non-root application containers.
 - Playwright Test browser E2E using Chromium, a per-run isolated Compose
   database and volume, and a test-only fake Checkout/webhook harness.
 - GitHub Actions CI with independent backend, migration, and frontend gates and
@@ -477,9 +488,10 @@ without introducing infrastructure that is unnecessary for a single venue.
 - A repository-ready and operator-confirmed free-tier target: Render
   Static Site Free, Render Docker Web Service Free, Neon PostgreSQL Free, and a
   manual direct-URL migration workflow. The administrator demo passed the
-  recorded Stage 22-D public acceptance. The presentation follow-up is deployed
-  through `9be447fc1612d65e5b69f763403c6dee32257382` and has separate operator
-  laptop/phone acceptance. The deployed customer-demo code remains disabled and
+  recorded Stage 22-D public acceptance. The presentation follow-up is committed
+  at `9be447fc1612d65e5b69f763403c6dee32257382`; separate operator evidence shows
+  both Render services Live on short SHA `9be447f` and records laptop/phone
+  acceptance. The deployed customer-demo code remains disabled and
   unprovisioned.
 - A Nordic Hearth design system and polished customer, account, and
   administrator experiences with responsive WebP delivery, accessibility

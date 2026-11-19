@@ -652,7 +652,8 @@
 
 ## 21. UI/UX Redesign & Product Polish
 
-- **Status:** complete locally; not publicly deployed.
+- **Status:** complete. At the Stage 21 closeout this work was local and not yet
+  publicly deployed; later Stage 22 deployment evidence is recorded below.
 - **Goal:** deliver the Nordic Hearth customer and administrator experience with
   responsive, accessible, secure, and performant interactions.
 - **Outcome:** Nordic Hearth brand integration, customer and administrator
@@ -928,9 +929,10 @@ derives the historical sample period from persisted seed metadata, applies a
 Europe/Oslo inclusive UI preset over the existing half-open
 API interval, keeps currencies separate, and does not shift timestamps or
 reseed data. It also makes demo payment and guest/customer/admin labels
-truthful and adds official logo, carousel, SEO, and cold-start copy. Required
-next gates are final independent review, commit, CI, provisioning, controlled
-deployment, and public acceptance. One clean current-byte invocation of all 10
+truthful and adds official logo, carousel, SEO, and cold-start copy. At that
+historical boundary, the required next gates were final independent review,
+commit, CI, provisioning, controlled deployment, and public acceptance. One
+clean current-byte invocation of all 10
 relevant integration files passed 308 tests with no filter or retry. One local
 canonical browser invocation passed 32/32 normal-runtime tests, 1/1
 administrator-demo test and 2/2 customer-disabled/anonymous-guest flow tests,
@@ -945,21 +947,24 @@ six-scene responsive carousel with five-second automatic progression and
 clickable keyboard/touch dot controls with active-state semantics. A selected
 scene receives a fresh five-second interval after it is displayed; background
 tabs and off-viewport carousels remain paused. Reduced motion retains manual dot
-selection without automatic progression or animation. Requested images load and
-decode above the current scene before an approximately 300 ms crossfade, while
-failed or superseded requests retain the last displayed image. It expands the
-administrator menu sandbox with memory-only per-category sample dishes and
-bounded local JPEG/PNG/WebP previews while retaining a GET-only, non-persistent
+selection without automatic progression or animation, and the current version
+has no Pause/Resume control. Requested images load and decode above the current
+scene before an approximately 300 ms crossfade, while failed or superseded
+requests retain the last displayed image. It expands the administrator menu
+sandbox with memory-only per-category sample dishes and bounded local
+JPEG/PNG/WebP `data:` URL previews while retaining a GET-only, non-persistent
 transport boundary.
 
 Portfolio Analytics and Exports default to NOK and offer an explicit
 all-currencies selection; normal runtime keeps its existing currency controls.
 A separate approximate NOK-to-EUR/PLN calculator may read a dated ECB reference
 rate through a bounded backend adapter. It does not modify report filters, CSV
-output, persisted amounts, Orders, or Payments. The final independent review
-found P2 findings in carousel pause behavior and concurrent ECB outage handling,
-together with P3 feed-structure and status-wording findings. The corrected
-candidate passed renewed independent review without P0-P3 findings. One earlier
+output, persisted amounts, Orders, or Payments. Public portfolio-demo payments
+are simulated; normal `stripe_test` remains a separate provider path. An earlier
+final-review pass on the pre-refinement candidate found P2 findings in carousel
+pause behavior and concurrent ECB outage handling, together with P3
+feed-structure and status-wording findings. The corrected candidate passed
+renewed independent review without P0-P3 findings. One earlier
 no-retry canonical Browser E2E invocation stopped in the normal-runtime phase
 after 9 passes on a stale first-slide alt selector; 22 tests did not run, and
 later phases plus final database/log audits were not reached. That historical
@@ -983,12 +988,17 @@ The candidate was committed at `08c817e588dc471b30f46b9324abbce11da1c799`.
 After CI identified the menu-preview CSP mismatch, the corrective hotfix was
 committed at `b9e3fb4eca1290a369097f8cb2b1459e31b18636`; push run `44113190217`
 passed all four required jobs. The final carousel refinement was committed at
-`9be447fc1612d65e5b69f763403c6dee32257382`; push run `44132315284` passed
-`Backend`, `Migrations`, `Frontend`, and `Browser E2E`, including 39/39 browser
-checks and the database/log audits. Both Render services are operator-confirmed
-Live on short SHA `9be447f`. Manual laptop/phone acceptance passed; it is
-operator evidence rather than automated public Browser E2E or a WCAG 2.2.2
-conformance claim.
+`9be447fc1612d65e5b69f763403c6dee32257382`; GitHub Actions run `44132315284`,
+attempt 1, passed `Backend` with 3,302 tests and 9 skipped, `Migrations`,
+`Frontend` with 1,311 tests across 46 files, and `Browser E2E` with 39 tests: 35
+normal-runtime, 3 administrator-demo/customer-disabled/anonymous-guest, and 1
+isolated customer-enabled. Database and secret-safe log audits passed, as did
+the delayed-image scenario that keeps the current scene visible until the next
+image decodes. Separately, both Render services are operator-confirmed Live on
+short SHA `9be447f`. The short-SHA observation does not independently establish
+the full deployed SHA. Manual laptop/phone acceptance passed; it is operator
+evidence rather than automated public Browser E2E or a WCAG 2.2.2 conformance
+claim.
 
 ## 23. Portfolio Documentation & Case Study
 

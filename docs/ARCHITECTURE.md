@@ -7,7 +7,7 @@ integration, clear separation of responsibilities, and ease of demonstration.
 The system remains simple enough for one person to develop and explain during a
 job interview.
 
-### 1.1. Public Baseline and Local Candidate Boundary
+### 1.1. Public Baseline and Evidence Boundary
 
 The deployed administrator demo passed the Stage 22-D public runner with 14 of
 14 checks in report `stage22d-public-20261110t002125z` (SHA-256
@@ -20,23 +20,24 @@ explicit operator-only reset guarded by the same advisory lock. Public reflow
 evidence used 640 CSS pixels rather than literal 200% browser zoom.
 
 The reserved-customer architecture is committed at
-`5842268a4bdb991c3289e85565403c89d203db9e`. Its code is deployed with the
-customer-demo flags disabled. Its exact `customer` principal, owned runtime
-history, capability-only Checkout, default-false session gates, and persisted
-historical period remain outside the accepted public administrator evidence.
-The reserved customer is not provisioned and its public gate has not run.
+`5842268a4bdb991c3289e85565403c89d203db9e`. Its exact `customer` principal,
+owned runtime history, capability-only Checkout, default-false session gates,
+and persisted historical period remain outside the accepted public administrator
+evidence. The reserved customer is not provisioned and its public gate has not
+run.
 
-The presentation architecture is committed and deployed through
+The presentation architecture is committed at
 `9be447fc1612d65e5b69f763403c6dee32257382`. The landing carousel uses
 responsive `srcset` assets, five-second automatic
 progression, clickable keyboard/touch dot controls with active-state semantics,
 and page/intersection visibility gating. A manual selection starts a fresh
 interval after the selected image is displayed. Reduced motion keeps manual dot
-selection without automatic progression or animation. A requested image loads
-and decodes in a layer above the current scene before an approximately 300 ms
-crossfade; failed or superseded requests retain the current scene. The administrator menu
-sandbox layers memory-only per-category samples and bounded local image previews
-over the public menu GET; it has no mutation transport or persistence. In exact
+selection without automatic progression or animation, and no Pause/Resume
+control remains. A requested image loads and decodes in a layer above the current
+scene before an approximately 300 ms crossfade; failed or superseded requests
+retain the current scene. The administrator menu sandbox layers memory-only
+per-category samples and bounded local JPEG/PNG/WebP `data:` URL previews over
+the public menu GET; it has no mutation transport or persistence. In exact
 portfolio runtime, Analytics and Exports use NOK as their default query currency
 and expose an explicit all-currencies selection. Normal runtime retains the
 existing free-form optional currency contract.
@@ -48,6 +49,8 @@ the exact demo administrator. The frontend calculator is approximate display
 only: it cannot change analytics/export filters, persisted integer amounts,
 CSV content, Orders, Payments, or normal-runtime behavior. Timeout, stale data,
 invalid XML, redirect, and upstream failure produce a safe unavailable state.
+Public portfolio-demo payments are simulated; normal `stripe_test` remains a
+separate provider path.
 Canonical Browser E2E run `f3aea9fbe12e6ac3` validated the
 pre-documentation-correction manifest SHA-256
 `36a20c57321451fdc8c1c762ea6bc08e386ce7b23804b58a892c1686c1726d07`
@@ -64,12 +67,17 @@ final database audit, and all phase-specific secret-safe log audits passed.
 Renewed independent review closed without P0-P3 findings. The CSP-compatible
 menu-preview hotfix is committed at
 `b9e3fb4eca1290a369097f8cb2b1459e31b18636`, and the final carousel refinement
-is committed at `9be447fc1612d65e5b69f763403c6dee32257382`. Push runs `44113190217`
-and `44132315284` each passed `Backend`, `Migrations`, `Frontend`, and
-`Browser E2E`; the latter completed 39/39 browser checks and the database and
-secret-safe log audits. Both Render services are operator-confirmed Live on
-short SHA `9be447f`, and the deployed application passed manual laptop/phone
-acceptance. That manual evidence is separate from automated public Browser E2E
+is committed at `9be447fc1612d65e5b69f763403c6dee32257382`. Push run `44113190217`
+passed all four required jobs. GitHub Actions run `44132315284`, attempt 1,
+passed `Backend` with 3,302 tests and 9 skipped, `Migrations`, `Frontend` with
+1,311 tests across 46 files, and `Browser E2E` with 39 tests: 35 normal-runtime,
+3 administrator-demo/customer-disabled/anonymous-guest, and 1 isolated
+customer-enabled. Database and secret-safe log audits passed, as did the
+delayed-image scenario that keeps the current scene visible until the next image
+decodes. Separately, both Render services are operator-confirmed Live on short
+SHA `9be447f`, and the deployed application passed manual laptop/phone
+acceptance. The short-SHA observation does not independently establish the full
+deployed SHA. That manual evidence is separate from automated public Browser E2E
 and is not a WCAG 2.2.2 conformance claim.
 
 ## 2. Selected Stack
